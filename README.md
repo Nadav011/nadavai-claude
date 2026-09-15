@@ -31,7 +31,7 @@ machine-specific hooks already in `~/.claude/settings.json` (they survive the me
 ```bash
 # prerequisites: Claude Code, git, Node 20+, gh (logged in)
 mv ~/.claude ~/.claude.old-$(date +%Y%m%d)   # only on a machine with an old setup; never claude-sync
-git clone https://github.com/Nadav011/nadavai ~/nadavai
+git clone https://github.com/Nadav011/nadavai-claude ~/nadavai
 ~/nadavai/setup.sh
 ```
 

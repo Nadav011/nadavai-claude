@@ -5,7 +5,7 @@
     "name": "Nadav Cohen",
     "url": "https://github.com/Nadav011"
   },
-  "repository": "https://github.com/Nadav011/nadavai",
+  "repository": "https://github.com/Nadav011/nadavai-claude",
   "license": "MIT",
   "keywords": ["bundle", "orchestration", "hebrew", "rtl", "capacitor", "qa"],
   "dependencies": [
