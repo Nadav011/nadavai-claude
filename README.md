@@ -4,6 +4,8 @@ Nadav Cohen's Claude Code environment as one installable bundle. One `claude plu
 brings every plugin, skill and hook; `setup.sh` adds the parts a plugin cannot deliver (rules,
 settings defaults, git hooks). Push here, and every machine picks the change up.
 
+The GitHub repo is `Nadav011/nadavai-claude` (`Nadav011/nadavai` is the portfolio site); the marketplace and the plugin are both named `nadavai`, so the plugin id is `nadavai@nadavai`.
+
 No secrets live in this repo. OAuth logins, API keys and tokens stay per machine.
 
 ## What is inside
