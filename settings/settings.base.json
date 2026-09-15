@@ -1,0 +1,54 @@
+{
+  "model": "claude-fable-5-1[1m]",
+  "modelSettings": {
+    "claude-fable-5-1": {
+      "effortLevel": "high"
+    }
+  },
+  "language": "hebrew",
+  "permissions": {
+    "defaultMode": "auto"
+  },
+  "env": {
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
+  },
+  "disableClaudeAiConnectors": true,
+  "skipDangerousModePermissionPrompt": true,
+  "agentPushNotifEnabled": true,
+  "statusLine": {
+    "type": "command",
+    "command": "node ${CLAUDE_CONFIG_DIR:-$HOME/.claude}/hud/omc-hud.mjs"
+  },
+  "enabledPlugins": {
+    "nadavai@nadavai": true,
+    "oh-my-claudecode@omc": true,
+    "i-have-adhd@i-have-adhd": true,
+    "context7@claude-plugins-official": true,
+    "typescript-lsp@claude-plugins-official": true,
+    "pyright-lsp@claude-plugins-official": true,
+    "playwright@claude-plugins-official": true,
+    "supabase@claude-plugins-official": true,
+    "chrome-devtools-mcp@claude-plugins-official": true,
+    "cloudflare@claude-plugins-official": true,
+    "sentry@claude-plugins-official": true,
+    "skill-creator@claude-plugins-official": true,
+    "claude-seo@agricidaniel-claude-seo": false
+  },
+  "extraKnownMarketplaces": {
+    "nadavai": {
+      "source": { "source": "github", "repo": "Nadav011/nadavai" },
+      "autoUpdate": true
+    },
+    "omc": {
+      "source": { "source": "git", "url": "https://github.com/Yeachan-Heo/oh-my-claudecode.git" },
+      "autoUpdate": true
+    },
+    "i-have-adhd": {
+      "source": { "source": "github", "repo": "ayghri/i-have-adhd" },
+      "autoUpdate": true
+    },
+    "agricidaniel-claude-seo": {
+      "source": { "source": "github", "repo": "AgriciDaniel/claude-seo" }
+    }
+  }
+}

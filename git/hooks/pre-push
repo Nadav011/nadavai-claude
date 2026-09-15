@@ -1,0 +1,133 @@
+#!/usr/bin/env bash
+# GLOBAL PRE-PUSH HOOK v4.0.0 — APEX Industry Standard
+#
+# LAYER 1 (ALL branches, ~15s): Trivy CRITICAL CVE scan
+# LAYER 2 (main/master only, ~30s): TypeScript typecheck + Flutter analyze
+#
+# Philosophy:
+#   - CRITICAL CVEs block ALL pushes (any branch) — security is non-negotiable
+#   - TypeScript errors block main/master only — feature branches trust CI
+#   - Everything else (Stryker, Lighthouse, LangGraph) → CI + systemd timers
+#   - Bypass: git push --no-verify  (emergency only)
+
+set -uo pipefail
+
+# Ensure ~/.local/bin is on PATH (needed on both pop-os and MSI for trivy)
+export PATH="$HOME/.local/bin:$PATH"
+
+REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo ".")
+cd "$REPO_ROOT"
+
+# ── Read what branch is being pushed ─────────────────────────────
+PUSH_TARGET_BRANCH=""
+while read -r local_ref local_sha remote_ref remote_sha; do
+  PUSH_TARGET_BRANCH=$(echo "$remote_ref" | sed 's|refs/heads/||')
+done
+
+ERRORS=0
+
+# ═══════════════════════════════════════════════════════════════
+# LAYER 1: Trivy CRITICAL scan — runs on EVERY push, every branch
+# Fast (~15s). CRITICAL CVEs are ship-stoppers.
+# ═══════════════════════════════════════════════════════════════
+if command -v trivy >/dev/null 2>&1; then
+  echo ""
+  echo "⚡ pre-push [security] — trivy CRITICAL scan"
+  echo "────────────────────────────────────────────────"
+  CRIT_COUNT=$(trivy fs . --severity CRITICAL --quiet --no-progress 2>/dev/null \
+    | grep -c "^[│├└].*CRITICAL" 2>/dev/null) || true
+  CRIT_COUNT="${CRIT_COUNT:-0}"
+  if [ "$CRIT_COUNT" -gt 0 ] 2>/dev/null; then
+    echo "❌ CRITICAL CVEs found in this repo!"
+    echo "   View:  trivy fs . --severity HIGH,CRITICAL"
+    echo "   Fix:   bash ~/.claude/autoresearch/trivy-auto-pr.sh \$(pwd)"
+    echo ""
+    ERRORS=$((ERRORS + 1))
+  else
+    echo "✅ Trivy: 0 CRITICAL CVEs"
+    echo "────────────────────────────────────────────────"
+  fi
+fi
+
+# Block here if CRITICAL CVEs (applies to all branches)
+if [ $ERRORS -gt 0 ]; then
+  echo "🚫 Push blocked — fix CRITICAL CVEs above"
+  echo "   Bypass (emergency): git push --no-verify"
+  exit 1
+fi
+
+# ═══════════════════════════════════════════════════════════════
+# LAYER 2: main/master checks — typecheck + flutter analyze
+# ═══════════════════════════════════════════════════════════════
+if [[ "$PUSH_TARGET_BRANCH" != "main" && "$PUSH_TARGET_BRANCH" != "master" ]]; then
+  # Feature branch — Trivy passed, trust CI for the rest
+  exit 0
+fi
+
+echo ""
+echo "⚡ pre-push [main] — typecheck gate"
+echo "────────────────────────────────────────────────"
+
+detect_pm() {
+  [ -f "pnpm-lock.yaml" ] && echo "pnpm" && return
+  [ -f "bun.lockb" ] || [ -f "bun.lock" ] && echo "bun" && return
+  echo "npm"
+}
+
+has_script() {
+  python3 -c "import json,sys; sys.exit(0 if '$1' in json.load(open('package.json')).get('scripts',{}) else 1)" 2>/dev/null
+}
+
+# Node.js: typecheck
+if [ -f "package.json" ]; then
+  PM=$(detect_pm)
+  if has_script "typecheck"; then
+    echo "  TypeScript typecheck..."
+    if ! $PM run typecheck 2>&1; then
+      echo "❌ typecheck failed — fix before pushing to main"
+      ERRORS=$((ERRORS + 1))
+    else
+      echo "✅ typecheck passed"
+    fi
+  fi
+fi
+
+# Flutter: analyze (main only)
+if [ -f "pubspec.yaml" ] && command -v flutter >/dev/null 2>&1; then
+  FLUTTER="${HOME}/.local/bin/flutter"
+  [ -f "${HOME}/.flutter-sdk/bin/flutter" ] && FLUTTER="${HOME}/.flutter-sdk/bin/flutter"
+  echo "  Flutter analyze..."
+  if ! "$FLUTTER" analyze --no-fatal-infos 2>&1 | tail -3; then
+    echo "❌ flutter analyze failed"
+    ERRORS=$((ERRORS + 1))
+  else
+    echo "✅ flutter analyze passed"
+  fi
+fi
+
+echo "────────────────────────────────────────────────"
+if [ $ERRORS -gt 0 ]; then
+  echo "🚫 Push to main blocked — fix errors above"
+  echo "   Bypass: git push --no-verify"
+  exit 1
+fi
+# ═══════════════════════════════════════════════════════════════
+# LAYER 3: auto-deploy to Cloudflare Pages (main/master only, opt-in)
+# A repo opts in by committing a `.cf-deploy` file whose first non-comment
+# line is its Cloudflare Pages project name. Runs in the BACKGROUND so it
+# never blocks or fails the push; uses the stored wrangler login.
+# ═══════════════════════════════════════════════════════════════
+if { [ "$PUSH_TARGET_BRANCH" = "main" ] || [ "$PUSH_TARGET_BRANCH" = "master" ]; } && [ -f "$REPO_ROOT/.cf-deploy" ]; then
+  CF_PROJECT=$(grep -vE '^\s*#' "$REPO_ROOT/.cf-deploy" | head -1 | tr -d '[:space:]')
+  if [ -n "$CF_PROJECT" ]; then
+    CF_LOG="/tmp/cf-autodeploy-$CF_PROJECT.log"
+    CF_LIB="$HOME/.git-hooks/lib/cf-autodeploy.sh"
+    echo "🌐 auto-deploy → Cloudflare Pages ($CF_PROJECT) — building+deploying in background"
+    echo "   (log: $CF_LOG)"
+    nohup bash -c "source '$CF_LIB' && cf_autodeploy_pipeline '$REPO_ROOT' '$CF_PROJECT' '$CF_LOG'" >"$CF_LOG" 2>&1 &
+    disown 2>/dev/null || true
+  fi
+fi
+
+echo "🚀 Pushing to main..."
+exit 0

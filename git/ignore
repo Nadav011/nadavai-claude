@@ -1,0 +1,12 @@
+# global git ignore (XDG default — git reads this automatically in every repo)
+# מטרה: להוריד את "רעש הכלים" שזיהם git status והסתיר עבודה אמיתית + סיכן את שומר-הגיבוי האוטומטי.
+
+# --- config מקומי ---
+**/.claude/settings.local.json
+
+# --- קבצי מצב של כלי-סוכן (זבל שחוזר בכל פרויקט, לא קוד) ---
+.omc/
+.serena/
+.mcp.json
+**/.claude/tdd-guard/
+skills-lock.json

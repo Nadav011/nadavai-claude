@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# GLOBAL COMMIT-MSG HOOK v2.0.0
+# Validates commit message format (Conventional Commits).
+# Set via: git config --global core.hooksPath ~/.git-hooks
+
+set -uo pipefail
+
+MSG_FILE="$1"
+MSG=$(head -1 "$MSG_FILE")
+BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+ERRORS=0
+
+# ── CHECK 1: Conventional Commits format ─────────────────────────
+CONV_PATTERN='^(feat|fix|docs|style|refactor|test|chore|perf|ci|build|revert|wip|sync)(\(.+\))?: .{1,}'
+if ! echo "$MSG" | grep -qE "$CONV_PATTERN"; then
+  echo "❌ [1] Commit message must follow Conventional Commits:"
+  echo "   Format: <type>(<scope>): <description>"
+  echo "   Types:  feat fix docs style refactor test chore perf ci build revert sync"
+  echo "   Got:    $MSG"
+  ERRORS=$((ERRORS + 1))
+fi
+
+# ── CHECK 2: Min length (10 chars) ───────────────────────────────
+MSG_LEN=${#MSG}
+if [ "$MSG_LEN" -lt 10 ]; then
+  echo "❌ [2] Commit message too short ($MSG_LEN chars, min 10)"
+  ERRORS=$((ERRORS + 1))
+fi
+
+# ── CHECK 3: Max header length (100 chars) ───────────────────────
+if [ "$MSG_LEN" -gt 100 ]; then
+  echo "❌ [3] Commit header too long ($MSG_LEN chars, max 100)"
+  echo "   Put details in the body, keep header concise"
+  ERRORS=$((ERRORS + 1))
+fi
+
+# ── CHECK 4: No WIP/temp commits to main ─────────────────────────
+if [[ "$BRANCH" == "main" || "$BRANCH" == "master" ]]; then
+  if echo "$MSG" | grep -iqE '^(wip|temp|tmp|fixme|hack|xxx)'; then
+    echo "❌ [4] WIP/temp commits blocked on $BRANCH"
+    ERRORS=$((ERRORS + 1))
+  fi
+fi
+
+# ── Result ───────────────────────────────────────────────────────
+if [ $ERRORS -gt 0 ]; then
+  echo ""
+  echo "Fix the commit message and retry."
+  echo "Example: feat(auth): add OAuth2 login support"
+  exit 1
+fi
+
+exit 0

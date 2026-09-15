@@ -1,0 +1,24 @@
+{
+  "name": "nadavai",
+  "description": "Nadav Cohen's complete Claude Code environment: OMC orchestration, official tool plugins, ADHD output shaping, personal skills and repo-sync hooks, in one install.",
+  "author": {
+    "name": "Nadav Cohen",
+    "url": "https://github.com/Nadav011"
+  },
+  "repository": "https://github.com/Nadav011/nadavai",
+  "license": "MIT",
+  "keywords": ["bundle", "orchestration", "hebrew", "rtl", "capacitor", "qa"],
+  "dependencies": [
+    { "name": "oh-my-claudecode", "marketplace": "omc" },
+    { "name": "i-have-adhd", "marketplace": "i-have-adhd" },
+    { "name": "context7", "marketplace": "claude-plugins-official" },
+    { "name": "typescript-lsp", "marketplace": "claude-plugins-official" },
+    { "name": "pyright-lsp", "marketplace": "claude-plugins-official" },
+    { "name": "playwright", "marketplace": "claude-plugins-official" },
+    { "name": "supabase", "marketplace": "claude-plugins-official" },
+    { "name": "chrome-devtools-mcp", "marketplace": "claude-plugins-official" },
+    { "name": "cloudflare", "marketplace": "claude-plugins-official" },
+    { "name": "sentry", "marketplace": "claude-plugins-official" },
+    { "name": "skill-creator", "marketplace": "claude-plugins-official" }
+  ]
+}
