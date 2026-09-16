@@ -7,9 +7,18 @@
 // Detects Next app router (app/**/page.tsx), Next pages router (pages/**) and,
 // in a Vite app, React Router (<Route path="..."> and { path: "..." } inside a
 // createBrowserRouter / useRoutes file). Dynamic segments take a sample value
-// from e2e/dod/route-params.json, e.g. { "id": "1", "slug": "demo" }; a segment
-// with no sample is reported as skipped, so it is a visible decision and never
-// a silent gap in the score.
+// from e2e/dod/route-params.json, e.g. { "id": "1", "slug": "demo" }.
+//
+// One app usually reuses the same param name for unrelated entities — an app
+// where /admin/bookings/[id] wants a booking and /receipt/[id] wants a receipt
+// cannot be described by a single "id". So a key that looks like a route
+// pattern carries its own values and wins over the bare name:
+//
+//   { "id": "1", "/receipt/[id]": { "id": "70000000-..." } }
+//
+// A segment with no sample is a hard error in --check, not a note: an
+// unmeasured page is never a passing page, and a skipped route is invisible
+// in the score precisely because it never appears in it.
 import fs from "node:fs";
 import path from "node:path";
 
@@ -34,10 +43,18 @@ const walk = (dir, acc = []) => {
   return acc;
 };
 
+/** Per-route values win over the bare param name; see the note at the top. */
+const sampleFor = (route, key) => {
+  const scoped = params[route];
+  if (scoped && typeof scoped === "object" && scoped[key] !== undefined) return scoped[key];
+  const bare = params[key];
+  return typeof bare === "object" ? undefined : bare;
+};
+
 const fill = (route, source) => {
   const out = route.replace(/\[{1,2}\.{0,3}(\w+)\]{1,2}|:(\w+)\??/g, (_m, a, b) => {
     const key = a || b;
-    const v = params[key];
+    const v = sampleFor(route, key);
     if (v === undefined) {
       skipped.push(`${route}  (no sample for "${key}"; add it to route-params.json)  <- ${source}`);
       return MISSING;
@@ -69,7 +86,12 @@ for (const base of ["app", "src/app"]) {
     const rel = path.relative(path.join(ROOT, base), path.dirname(f));
     const segs = rel
       .split(path.sep)
-      .filter((s) => s && !/^\(.*\)$/.test(s) && !s.startsWith("@") && !s.startsWith("_"));
+      .filter((s) => s && !/^\(.*\)$/.test(s) && !s.startsWith("@") && !s.startsWith("_"))
+      // Intercepting routes — (.)[id], (..)foo, (...)bar — are not URLs of their
+      // own: they render at the path they intercept, which the normal page
+      // already contributes. Strip the marker and let the Set dedupe.
+      .map((s) => s.replace(/^(\(\.{1,3}\))+/, ""))
+      .filter(Boolean);
     add("/" + segs.join("/"), path.relative(ROOT, f));
   }
 }
@@ -112,7 +134,12 @@ const covered = (r) => existing.some((e) => e === r || e.startsWith(r + "?"));
 const missing = found.filter((r) => !covered(r));
 
 if (process.argv.includes("--check")) {
-  for (const s of skipped) console.error("dod-routes: skipped " + s);
+  if (skipped.length) {
+    console.error(`dod-routes: ${skipped.length} dynamic route(s) have no sample value:`);
+    for (const s of skipped) console.error("  " + s);
+    console.error("A route with no sample is never measured, so it silently sits outside the score.");
+    process.exit(1);
+  }
   if (missing.length) {
     console.error(
       `dod-routes: ${missing.length} route(s) of the app are missing from e2e/dod/routes.json:\n  ` +

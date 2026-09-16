@@ -32,9 +32,16 @@ export default async function globalSetup(config: FullConfig) {
   const baseURL = config.projects[0]?.use?.baseURL ?? `http://localhost:${process.env.PORT ?? "3000"}`;
   const browser = await chromium.launch();
   const page = await browser.newPage({ baseURL });
+  // A sign-in screen behind Suspense paints its fields only once the client bundle is
+  // there, and on a cold dev server the first compile of that route can take minutes.
+  // Playwright's 30s default turns that into "QA login failed: page.fill timeout" and a
+  // score of 0 for every gated page — a compile time reported as a broken product.
+  const COMPILE_MS = 180_000;
+  const userSelector = process.env.DOD_USER_SELECTOR ?? "input[type=email]";
   try {
-    await page.goto(process.env.DOD_LOGIN_PATH ?? "/login", { waitUntil: "domcontentloaded" });
-    await page.fill(process.env.DOD_USER_SELECTOR ?? "input[type=email]", user);
+    await page.goto(process.env.DOD_LOGIN_PATH ?? "/login", { waitUntil: "domcontentloaded", timeout: COMPILE_MS });
+    await page.locator(userSelector).waitFor({ state: "visible", timeout: COMPILE_MS });
+    await page.fill(userSelector, user);
     await page.fill(process.env.DOD_PASSWORD_SELECTOR ?? "input[type=password]", password);
     await page.click(process.env.DOD_SUBMIT_SELECTOR ?? "button[type=submit]");
     await page.waitForLoadState("networkidle").catch(() => {});

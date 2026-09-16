@@ -127,7 +127,7 @@ for (const route of routes as string[]) {
             // a bounce to a login or access-denied screen, or an empty body means the
             // page was not measured, so it must not be scored as if it passed.
             const landed = new URL(page.url()).pathname + new URL(page.url()).search;
-            const expected = route.split("?")[0];
+            const expected = route.split("?")[0] ?? route;
             const bounced =
               !landed.startsWith(expected) &&
               /login|signin|sign-in|auth|unauthorized|forbidden|403|no-access|\u05d4\u05ea\u05d7\u05d1\u05e8/i.test(landed);

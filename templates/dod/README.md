@@ -26,8 +26,12 @@ Then, in the project:
 
 1. `e2e/dod/routes.json`: EVERY route of the app, generated, never hand-picked. Put sample values for
    dynamic segments in `e2e/dod/route-params.json` (`{ "id": "1" }`), then run `node e2e/dod/routes.mjs`;
-   it adds every route it finds and keeps extra entries such as `"/plans?state=error"`. `node e2e/dod/routes.mjs --check`
-   exits 1 when the app has a route the file does not cover: run it in CI so a new page cannot ship unmeasured.
+   it adds every route it finds and keeps extra entries such as `"/plans?state=error"`. Most apps reuse one
+   param name for unrelated things — `[id]` is a booking on one screen and a receipt on another — so a key
+   shaped like a route pattern carries its own values and wins over the bare name:
+   `{ "id": "1", "/receipt/[id]": { "id": "70000000-…" } }`. `node e2e/dod/routes.mjs --check` exits 1 when
+   the app has a route the file does not cover, and when a dynamic segment has no sample at all: run it in CI
+   so a new page cannot ship unmeasured.
 2. `playwright.dod.config.ts`: the dev port and `webServer.command` (`pnpm dev -p`, `vite --port`, ...).
 3. `package.json` scripts: `"dod": "node e2e/dod/routes.mjs --check && playwright test -c playwright.dod.config.ts"`
    (one route while building a screen: `pnpm dod -- --grep "<slug>__"`). Parallelism: `DOD_WORKERS=8 pnpm dod`.
