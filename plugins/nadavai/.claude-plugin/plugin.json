@@ -71,6 +71,14 @@
       "marketplace": "wondelai-skills"
     },
     {
+      "name": "product-strategy",
+      "marketplace": "wondelai-skills"
+    },
+    {
+      "name": "metaskills",
+      "marketplace": "wondelai-skills"
+    },
+    {
       "name": "intent",
       "marketplace": "intent"
     },
