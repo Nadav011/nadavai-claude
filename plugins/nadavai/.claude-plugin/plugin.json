@@ -55,10 +55,6 @@
       "marketplace": "claude-plugins-official"
     },
     {
-      "name": "sentry",
-      "marketplace": "claude-plugins-official"
-    },
-    {
       "name": "skill-creator",
       "marketplace": "claude-plugins-official"
     },

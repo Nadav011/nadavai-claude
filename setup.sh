@@ -80,7 +80,7 @@ system_check
 step "Done"
 cat <<MSG
   Open a new Claude Code session, then:
-    /mcp                     sign in to Supabase, Cloudflare and Sentry (OAuth, once per machine)
+    /mcp                     sign in to Supabase, Cloudflare and PostHog (OAuth, once per machine)
     claude doctor            confirm plugins and hooks load
     omc doctor conflicts     confirm nothing shadows a plugin skill
   Backups of anything replaced: ${BACKUP} (only if something was moved)
