@@ -21,6 +21,8 @@ jobs:
       - run: pnpm dod
         env:
           ARGOS_TOKEN: ${{ secrets.ARGOS_TOKEN }}
+      - name: DoD score must be 100
+        run: node -e "const s=require('./reports/dod/dod.json').totals.score; if (s!==100) { console.error('DoD score ' + s + ', required 100'); process.exit(1) }"
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -6,7 +6,7 @@
 - [ ] Loading, empty, error and success states exist for every new list or fetch
 - [ ] Only tokens from the token file; no new font or dependency
 - [ ] `pnpm lint:ui` clean (tailwind-rtl + impeccable detect)
-- [ ] `pnpm dod` = 100 on the touched routes (or every deduction explained)
+- [ ] `pnpm dod` = 100 on the touched routes (CI fails below it)
 - [ ] Console clean in the browser
 - [ ] Copy follows the voice in PRODUCT.md
 
