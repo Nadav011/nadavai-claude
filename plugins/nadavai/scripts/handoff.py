@@ -496,18 +496,26 @@ def row_line(r: dict) -> str:
 
 
 def fzf(lines: list[str], header: str, preview: str | None = None) -> str | None:
-    cmd = ["fzf", "--ansi", "--with-nth=2..", "--delimiter=\t", "--header", header,
-           "--height=90%", "--layout=reverse", "--border", "--no-sort"]
+    cmd = ["fzf", "--ansi", "--with-nth=2..", "--delimiter=\t",
+           "--header", f"{header}\nenter = choose   esc = quit   ctrl-/ = toggle preview",
+           "--layout=reverse", "--border", "--no-sort", "--prompt=type to filter> "]
+    # No --height: in fzf 0.44 its inline mode does not return a selection when stdout
+    # is a pipe, so Enter silently yields nothing. Full screen is correct here anyway.
     if preview:
-        cmd += ["--preview", preview, "--preview-window=right:55%:wrap"]
+        cmd += ["--preview", preview, "--preview-window=right:55%:wrap",
+                "--bind=ctrl-/:toggle-preview"]
     try:
         proc = subprocess.run(cmd, input="\n".join(lines), capture_output=True, text=True)
     except OSError as exc:
         print(f"handoff: cannot run fzf ({exc})", file=sys.stderr)
         return None
-    if proc.returncode not in (0, 1, 130):  # 1 = no match, 130 = user pressed esc
-        print(f"handoff: fzf failed ({proc.stderr.strip()[:200]}). "
-              "The picker needs a real terminal.", file=sys.stderr)
+    if proc.returncode == 130:
+        print("handoff: cancelled", file=sys.stderr)
+    elif proc.returncode == 1:
+        print("handoff: nothing matched the filter you typed", file=sys.stderr)
+    elif proc.returncode != 0:
+        print(f"handoff: fzf failed ({proc.stderr.strip()[:200] or 'no error text'}, "
+              f"exit {proc.returncode}). The picker needs a real terminal.", file=sys.stderr)
     return proc.stdout.strip() or None
 
 
@@ -554,7 +562,6 @@ def interactive(args) -> int:
                     f"C=claude X=codex K=kimi",
                     preview=f"python3 {Path(__file__).resolve()} --preview {{1}}")
     if not picked:
-        print("handoff: nothing picked", file=sys.stderr)
         return 1
     path = Path(picked.split("\t", 1)[0])
     row = next(r for r in rows if r["path"] == str(path))
