@@ -1,11 +1,31 @@
 #!/usr/bin/env bash
-# GLOBAL PRE-COMMIT HOOK v1.0.0 (nadavai). UI gate for projects set up by /ux-setup.
+# GLOBAL PRE-COMMIT HOOK v1.1.0 (nadavai). UI gate for projects set up by /ux-setup.
 # Runs only when the repo's package.json defines a "lint:ui" script; otherwise exits 0.
-# On staged *.ts/*.tsx/*.jsx: eslint --fix --max-warnings=0 (tailwind-rtl rules are warnings, so
-# warnings must fail), then impeccable detect on the same files (pinned devDependency, no network).
-# --no-warn-ignored: a repo whose eslint config ignores e2e/ or scripts/ still stages files from
-# there, and eslint reports each one as a warning — which --max-warnings=0 turns into a blocked
-# commit over files the project deliberately does not lint.
+#
+# On staged *.ts/*.tsx/*.jsx, in order:
+#   1. the RTL scan below, which belongs to this hook and to no plugin;
+#   2. eslint --fix --max-warnings=0 (a project's own rules; warnings must fail);
+#   3. impeccable detect on the same files, when the repo pins it as a devDependency.
+#
+# Why the hook owns the RTL scan (16/09/2026): until v1.0.0 the only thing standing
+# between a copy-pasted LTR snippet and main was eslint-plugin-tailwind-rtl. A project
+# that declines that plugin therefore had NO commit-time RTL gate at all, while its
+# CLAUDE.md and .claude/rules/ui.md both promised one — proved on TherapyFlow, where a
+# staged `className="ml-4"` walked straight through. And declining it is reasonable: on
+# a Radix codebase it reports `side="left"` (a component API that flips itself) and the
+# word "left" inside an English test title, and its --fix rewrites them to `side="start"`,
+# which Radix does not accept. So the gate cannot be a plugin's job. These patterns are
+# the ones TherapyFlow's tests/fidelity/rtl-logical-properties.test.ts uses.
+#
+# This is the fast first line, not the complete one: it reads single lines and only ones
+# that look like class strings, so a class list split across lines still needs `lint:ui`
+# (which runs the project's own full scan) in CI. A physical class that is correct because
+# it sits inside a `dir="ltr"` island is exempted by putting `rtl-ok` in a comment on the
+# same line.
+#
+# --no-warn-ignored: a repo whose eslint config ignores e2e/ or scripts/ still stages files
+# from there, and eslint reports each one as a warning — which --max-warnings=0 turns into a
+# blocked commit over files the project deliberately does not lint.
 set -uo pipefail
 root="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
 [ -f "$root/package.json" ] || exit 0
@@ -15,7 +35,33 @@ pm=pnpm; [ -f yarn.lock ] && pm=yarn; [ -f package-lock.json ] && pm=npx; { [ -f
 mapfile -t files < <(git diff --cached --name-only --diff-filter=ACMR -- '*.ts' '*.tsx' '*.jsx' | grep -vE '^(node_modules|\.next|dist|build)/' || true)
 [ "${#files[@]}" -eq 0 ] && exit 0
 run() { if [ "$pm" = npx ] || [ "$pm" = bunx ]; then $pm "$@"; else $pm exec "$@"; fi; }
-run eslint --fix --max-warnings=0 --no-warn-ignored "${files[@]}" || { echo "pre-commit: eslint (tailwind-rtl) failed; fix the files above" >&2; exit 1; }
+
+# Tailwind utilities whose axis is the screen rather than the reading order.
+# `space-x-*` is here although it reads neutral: it spaces children with margin-left,
+# so in an RTL document the gap lands on the wrong side of every child.
+# `slide-in-from-left-*` is deliberately absent: that is the animation Radix pairs with
+# the physical side it computed itself, where the physical spelling is the correct one.
+rtl_physical='(?<![\w:-])(?:ml|mr|pl|pr)-[\d.]+(?:\b|/)|(?<![\w:-])text-(?:left|right)(?![\w-])|(?<![\w:-])rounded-(?:l|r|tl|tr|bl|br)-|(?<![\w:-])border-(?:l|r)-[\d.]|(?<!from-)(?<![\w:-])(?:left|right)-[\d.]+(?:\b|/)|(?<![\w:-])space-x-[\d.]+'
+rtl_hits=""
+for f in "${files[@]}"; do
+  # The staged blob, not the working tree: the hook gates what is being committed,
+  # and those two differ the moment a file is staged and then edited again.
+  hit=$(git show ":$f" 2>/dev/null | grep -nP "$rtl_physical" \
+    | grep -E 'className|class=|cva\(|cn\(' \
+    | grep -vE '^[0-9]+:[[:space:]]*(//|\*|/\*)' \
+    | grep -v 'rtl-ok' || true)
+  [ -n "$hit" ] && rtl_hits+="$(sed "s|^|$f:|" <<<"$hit")"$'\n'
+done
+if [ -n "$rtl_hits" ]; then
+  echo "pre-commit: physical direction classes in a right-to-left product:" >&2
+  printf '%s' "$rtl_hits" >&2
+  echo "Use the logical spelling — ms/me/ps/pe, text-start/text-end, rounded-s-/rounded-e-," >&2
+  echo "border-s/border-e, inset-s-/inset-e-, gap-* instead of space-x-*." >&2
+  echo "Correct inside a dir=\"ltr\" island? Put rtl-ok in a comment on the same line." >&2
+  exit 1
+fi
+
+run eslint --fix --max-warnings=0 --no-warn-ignored "${files[@]}" || { echo "pre-commit: eslint failed; fix the files above" >&2; exit 1; }
 if grep -q '"impeccable"' package.json; then
   run impeccable detect "${files[@]}" || { echo "pre-commit: impeccable detect found anti-patterns" >&2; exit 1; }
 fi
