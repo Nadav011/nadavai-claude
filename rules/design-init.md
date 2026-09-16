@@ -7,6 +7,10 @@ removed from all repos on 2026-09-16 (backups under
 `~/Desktop/claude-backup-20260915/projects/<repo>/design/`) so that the new files are derived
 from the code alone; never merge the old documents back in.
 
+If Nadav runs `/ux-setup` (the nadav-design skill), it covers these six steps and more (rules layer,
+mobile shell, foundations, styleguide route, release wiring, enforcement): follow it instead and do
+not run the six steps twice. This rule is the minimum path when he does not.
+
 If `PROJECT-FACTS.md` also exists, finish `project-reinit.md` first (through its commit), then
 start here. Tell Nadav in one short Hebrew message that the design layer is pending and that the
 six steps below run in this session, in order, one at a time. Nadav types the slash commands;
