@@ -1,7 +1,8 @@
 # Nadav's working agreement
 
 ## Code
-- Before writing: does it need to exist? already in the codebase? stdlib? platform-native? installed dependency? one line? Only then the minimum that works. Never minimize validation at trust boundaries, data-loss handling, security, accessibility, or requested scope.
+- Before writing: does it need to exist? already in the codebase? stdlib? platform-native? installed dependency? already a maintained tool out there? one line? Only then the minimum that works. Never minimize validation at trust boundaries, data-loss handling, security, accessibility, or requested scope.
+- Anything standalone (a CLI, a script with its own name, a service) gets a search first: GitHub, npm or PyPI, and ask me — I often know the tool by name. A maintained project with users beats ours on coverage and upkeep every time, and an hour of building is cheaper to skip than to undo.
 - Don't reformat, refactor, or delete adjacent code. Mention unrelated dead code; don't remove it.
 - Pre-existing bug found mid-task: fix only if the task cannot work without it; otherwise report it as a follow-up.
 - Tests only where asked or where the repo already keeps them, sized like neighbors.
@@ -24,7 +25,8 @@
 
 ## Moving a session to another agent
 - Continuing an existing conversation in a different agent: `cs pick` to choose a session and a target, or `cs resume <id> -i <agent>` when the session is known. It reads the source agent's own transcript, so nothing has to be re-explained.
-- Never write a handoff script for this. `cs` (the `continues` CLI, installed by nadavai) already covers 16 agents and 240 handoff paths, including Claude Code, Codex, Kimi, Copilot, Gemini and Cursor, and is maintained upstream.
+- Into the session already open ("bring the last Codex conversation in here"): `cs ls` to find it, then `cs resume <id> -i claude --debug-prompt --no-tui`, which prints the handoff instead of launching anything, and read that output. Without `--debug-prompt` the same command starts a new session, which is not what was asked. Add `--preset minimal` when the full one is too long.
+- `cs` is the `continues` CLI, installed by nadavai. It covers 16 agents and 240 handoff paths, so never write a handoff script instead.
 - Codex can also pull from Claude Code natively with its own `/import`, which brings settings, skills and MCP servers along with the chats. Prefer it for that one direction.
 - `cs` is `continues`; Claude Squad is `csq`.
 
