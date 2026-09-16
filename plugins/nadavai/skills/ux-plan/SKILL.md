@@ -1,12 +1,10 @@
 ---
 name: ux-plan
-description: "Plan one feature before code: PRD via /write-spec, JTBD, Intent flows + IA + localize, ux-heuristics with RTL, optional Claude Design mockup, ends with the screen list. Use when Nadav types /ux-plan <feature> or asks to plan a feature the right way. Thin shortcut: runs the `plan` mode of the nadav-design skill."
-argument-hint: "<feature>"
+description: "Plan one feature before code: PRD via /write-spec, JTBD, Intent flows + IA + localize, ux-heuristics with RTL, optional Claude Design mockup, ends with the screen list. Use when Nadav types /ux-plan FEATURE or asks to plan a feature the right way. Thin shortcut: runs the `plan` mode of the nadav-design skill."
 ---
 # ux-plan
 
-This is a shortcut. Do exactly what the `plan` mode of the **nadav-design** skill says, with `$ARGUMENTS` as its argument.
+This is a shortcut for the `plan` mode of the **nadavai:nadav-design** skill. Same plugin, same version, always.
 
-1. Locate the master skill file, in this order: `~/nadavai/plugins/nadavai/skills/nadav-design/SKILL.md`; otherwise the newest `skills/nadav-design/SKILL.md` under `~/.claude/plugins/cache/nadavai/`; otherwise `~/.claude/skills/nadav-design/SKILL.md`. If none exists, tell Nadav in one line and stop.
-2. Read its **Hard rules** section and its **Mode `plan`** section. Follow them verbatim: one step at a time, evidence after every step, stop on failure, Hebrew chat, logical CSS only, never craft/bolder/overdrive/delight.
-3. Print the mode's step checklist first, then start step 1.
+1. Invoke the Skill tool with skill `nadavai:nadav-design` and args `plan $ARGUMENTS` (the mode word first, then whatever Nadav typed). If the Skill tool cannot load it, read `${CLAUDE_PLUGIN_ROOT}/skills/nadav-design/SKILL.md` and follow its **Hard rules** and its **Mode `plan`** section verbatim with `plan $ARGUMENTS` as `$ARGUMENTS`. Never look for the master anywhere else.
+2. Start at the first step of that section (step 0 where it exists), one step at a time, evidence after every step, stop on failure, Hebrew chat.

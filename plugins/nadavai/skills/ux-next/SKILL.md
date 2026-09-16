@@ -4,7 +4,7 @@ description: "Where this project stands in the UI/UX loop (setup → retro → a
 ---
 # ux-next
 
-This is a shortcut. Do exactly what the `next` mode of the **nadav-design** skill says.
+This is a shortcut for the `next` mode of the **nadavai:nadav-design** skill. Same plugin, same version, always.
 
-1. Locate the master skill file, in this order: `~/nadavai/plugins/nadavai/skills/nadav-design/SKILL.md`; otherwise the newest `skills/nadav-design/SKILL.md` under `~/.claude/plugins/cache/nadavai/`; otherwise `~/.claude/skills/nadav-design/SKILL.md`. If none exists, tell Nadav in one line and stop.
-2. Read its **Hard rules**, **Mode `retro`** step 4b and **Which mode when**. Run the gap scan, then print in Hebrew: the position in the loop, the last recorded run, and the next commands with one reason each. Do not start any mode.
+1. Invoke the Skill tool with skill `nadavai:nadav-design` and args `next $ARGUMENTS` (the mode word first, then whatever Nadav typed). If the Skill tool cannot load it, read `${CLAUDE_PLUGIN_ROOT}/skills/nadav-design/SKILL.md` and follow its **Hard rules** and its **Mode `next`** section verbatim with `next $ARGUMENTS` as `$ARGUMENTS`. Never look for the master anywhere else.
+2. Start at the first step of that section (step 0 where it exists), one step at a time, evidence after every step, stop on failure, Hebrew chat. Starts nothing, prints the position and the next commands.
