@@ -30,9 +30,13 @@ if [ "$ALL" = 1 ]; then
   done < <(dependency_ids)
 fi
 
+step "continues CLI"
+ensure_continues
+
 step "Links"
 link_rules
 link_git
+link_shortcuts
 retire_duplicate_skills
 
 step "Done"

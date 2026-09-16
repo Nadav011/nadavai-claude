@@ -120,6 +120,28 @@ ensure_omc() {
   omc setup --quiet || warn "omc setup reported a problem; run 'omc setup' by hand"
 }
 
+ensure_continues() {
+  if ! command -v continues >/dev/null 2>&1; then
+    log "installing the continues CLI (npm -g continues)"
+    npm install -g continues
+  fi
+}
+
+link_shortcuts() {
+  # `cs` runs continues. Claude Squad ships a binary of the same name, so the first
+  # run moves it to `csq` and nothing overwrites a binary that is already there.
+  local dst="$HOME/.local/bin/cs"
+  if [ -f "$dst" ] && [ ! -L "$dst" ]; then
+    if [ -e "$HOME/.local/bin/csq" ]; then
+      backup_path "$dst" "cs"
+    else
+      mv "$dst" "$HOME/.local/bin/csq"
+      log "moved the existing cs binary (Claude Squad) to csq"
+    fi
+  fi
+  link_file "$REPO/bin/cs" "$dst"
+}
+
 dependency_ids() {
   node -e '
     const m = require(process.argv[1]);

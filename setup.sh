@@ -73,6 +73,10 @@ link_git
 step "OMC CLI, CLAUDE.md and HUD"
 ensure_omc
 
+step "continues CLI and the cs shortcut"
+ensure_continues
+link_shortcuts
+
 step "System tools (informational)"
 system_check
 

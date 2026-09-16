@@ -1,0 +1,10 @@
+#!/bin/bash
+# cs — continues: resume an AI coding session in a different tool.
+#
+#   cs pick                     choose a session, then choose which agent continues it
+#   cs ls                       every session across the installed agents
+#   cs resume <id> -i codex     hand one session to a specific agent
+#
+# Resolved through PATH so an fnm node upgrade does not break this shortcut.
+# Claude Squad, which also ships a `cs`, is installed as `csq`.
+exec continues "$@"
