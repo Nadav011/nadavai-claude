@@ -22,6 +22,12 @@
 ## Second model
 - Run `omc ask codex` before a significant plan, after significant work, and for any change touching auth, payments, data, or money. Skip for text, spacing, or single-file fixes. Report its findings and what you did with them.
 
+## Moving a session to another agent
+- Continuing an existing conversation in a different agent: `cs pick` to choose a session and a target, or `cs resume <id> -i <agent>` when the session is known. It reads the source agent's own transcript, so nothing has to be re-explained.
+- Never write a handoff script for this. `cs` (the `continues` CLI, installed by nadavai) already covers 16 agents and 240 handoff paths, including Claude Code, Codex, Kimi, Copilot, Gemini and Cursor, and is maintained upstream.
+- Codex can also pull from Claude Code natively with its own `/import`, which brings settings, skills and MCP servers along with the chats. Prefer it for that one direction.
+- `cs` is `continues`; Claude Squad is `csq`.
+
 ## Approval gates
 - Ask before: auth or permission changes, payment logic, DB migrations or deletions, app-store publishing, any paid-service spend.
 - Routine web deploys proceed once the test suite passes; run a health check after.
