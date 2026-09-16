@@ -32,6 +32,13 @@ add_marketplace claude-plugins-official anthropics/claude-plugins-official
 add_marketplace omc https://github.com/Yeachan-Heo/oh-my-claudecode.git
 add_marketplace i-have-adhd ayghri/i-have-adhd
 add_marketplace agricidaniel-claude-seo AgriciDaniel/claude-seo
+add_marketplace impeccable pbakaus/impeccable
+add_marketplace addy-web-quality-skills addyosmani/web-quality-skills
+add_marketplace knowledge-work-plugins anthropics/knowledge-work-plugins
+add_marketplace wondelai-skills wondelai/skills
+add_marketplace intent ghaida/intent
+add_marketplace posthog PostHog/ai-plugin
+add_marketplace interfaces jakubkrehel/skills
 add_marketplace nadavai "$MARKETPLACE_SOURCE"
 
 step "Plugins"

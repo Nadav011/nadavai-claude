@@ -13,8 +13,8 @@ No secrets live in this repo. OAuth logins, API keys and tokens stay per machine
 | Part | Where | Delivered by |
 |---|---|---|
 | Bundle plugin `nadavai` | `plugins/nadavai/` | `claude plugin install nadavai@nadavai` |
-| Dependencies: oh-my-claudecode (OMC), i-have-adhd, context7, typescript-lsp, pyright-lsp, playwright, supabase, chrome-devtools-mcp, cloudflare, sentry, skill-creator | `plugins/nadavai/.claude-plugin/plugin.json` | installed and enabled automatically with the bundle |
-| Skills: qa-report, vercel-react-best-practices, vercel-composition-patterns, hebrew-rtl-best-practices, hebrew-i18n, israeli-accessibility-compliance, capacitor-app-development, capacitor-plugins | `plugins/nadavai/skills/` | the bundle (invoked as `/nadavai:<skill>` or by trigger) |
+| Dependencies: oh-my-claudecode (OMC), i-have-adhd, context7, typescript-lsp, pyright-lsp, playwright, supabase, chrome-devtools-mcp, cloudflare, sentry, skill-creator; UI/UX and product layer: impeccable, intent, interfaces, ux-design, product-innovation, product-management, web-quality-skills, posthog | `plugins/nadavai/.claude-plugin/plugin.json` | installed and enabled automatically with the bundle |
+| Skills: qa-report, vercel-react-best-practices, vercel-composition-patterns, vercel-react-view-transitions, hebrew-rtl-best-practices, hebrew-i18n, hebrew-tailwind-preset, israeli-accessibility-compliance, capacitor-app-development, capacitor-plugins, shadcn, animate, review-animations, improve-animations, find-animation-opportunities, emil-design-eng, mobile-native, prototype, argos-cli, argos-pr-review, argos-upload | `plugins/nadavai/skills/` | the bundle (invoked as `/nadavai:<skill>` or by trigger) |
 | Bright Data MCP (search engine, unblocked scrape, Reddit/X/YouTube data; groups social, research, advanced_scraping) | `plugins/nadavai/mcp.json` (not `.mcp.json`: the global gitignore drops that name) | the bundle; needs `BRIGHTDATA_API_TOKEN` per machine, see Secrets |
 | Repo-sync hooks (SessionStart status, PostToolUse edit reminder) | `plugins/nadavai/hooks/`, `plugins/nadavai/scripts/` | the bundle |
 | Rules (working agreement, OMC team size, nadavai, project re-init) | `rules/` | `setup.sh` symlinks `~/.claude/rules` here |
@@ -104,3 +104,4 @@ Own content (rules, scripts, qa-report) is MIT. Bundled skills keep their upstre
 | vercel-react-best-practices, vercel-composition-patterns | vercel-labs/agent-skills |
 | capacitor-app-development, capacitor-plugins | capawesome-team/skills |
 | hebrew-rtl-best-practices, hebrew-i18n, israeli-accessibility-compliance | installed 2026-09-16 with `npx skills add`; see each SKILL.md |
+| animate, review-animations, improve-animations, find-animation-opportunities, emil-design-eng, mobile-native, prototype, shadcn, argos-*, vercel-react-view-transitions, hebrew-tailwind-preset | added in the UI/UX phase, 2026-09-16; upstream noted in each SKILL.md |

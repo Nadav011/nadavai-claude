@@ -61,6 +61,38 @@
     {
       "name": "skill-creator",
       "marketplace": "claude-plugins-official"
+    },
+    {
+      "name": "impeccable",
+      "marketplace": "impeccable"
+    },
+    {
+      "name": "web-quality-skills",
+      "marketplace": "addy-web-quality-skills"
+    },
+    {
+      "name": "product-management",
+      "marketplace": "knowledge-work-plugins"
+    },
+    {
+      "name": "ux-design",
+      "marketplace": "wondelai-skills"
+    },
+    {
+      "name": "product-innovation",
+      "marketplace": "wondelai-skills"
+    },
+    {
+      "name": "intent",
+      "marketplace": "intent"
+    },
+    {
+      "name": "posthog",
+      "marketplace": "posthog"
+    },
+    {
+      "name": "interfaces",
+      "marketplace": "interfaces"
     }
   ]
 }

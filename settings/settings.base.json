@@ -32,23 +32,92 @@
     "cloudflare@claude-plugins-official": true,
     "sentry@claude-plugins-official": true,
     "skill-creator@claude-plugins-official": true,
-    "claude-seo@agricidaniel-claude-seo": false
+    "claude-seo@agricidaniel-claude-seo": false,
+    "impeccable@impeccable": true,
+    "web-quality-skills@addy-web-quality-skills": true,
+    "product-management@knowledge-work-plugins": true,
+    "ux-design@wondelai-skills": true,
+    "product-innovation@wondelai-skills": true,
+    "intent@intent": true,
+    "posthog@posthog": true,
+    "interfaces@interfaces": true
   },
   "extraKnownMarketplaces": {
     "nadavai": {
-      "source": { "source": "github", "repo": "Nadav011/nadavai-claude" },
+      "source": {
+        "source": "github",
+        "repo": "Nadav011/nadavai-claude"
+      },
       "autoUpdate": true
     },
     "omc": {
-      "source": { "source": "git", "url": "https://github.com/Yeachan-Heo/oh-my-claudecode.git" },
+      "source": {
+        "source": "git",
+        "url": "https://github.com/Yeachan-Heo/oh-my-claudecode.git"
+      },
       "autoUpdate": true
     },
     "i-have-adhd": {
-      "source": { "source": "github", "repo": "ayghri/i-have-adhd" },
+      "source": {
+        "source": "github",
+        "repo": "ayghri/i-have-adhd"
+      },
       "autoUpdate": true
     },
     "agricidaniel-claude-seo": {
-      "source": { "source": "github", "repo": "AgriciDaniel/claude-seo" }
+      "source": {
+        "source": "github",
+        "repo": "AgriciDaniel/claude-seo"
+      }
+    },
+    "impeccable": {
+      "source": {
+        "source": "github",
+        "repo": "pbakaus/impeccable"
+      },
+      "autoUpdate": true
+    },
+    "addy-web-quality-skills": {
+      "source": {
+        "source": "github",
+        "repo": "addyosmani/web-quality-skills"
+      },
+      "autoUpdate": true
+    },
+    "knowledge-work-plugins": {
+      "source": {
+        "source": "github",
+        "repo": "anthropics/knowledge-work-plugins"
+      },
+      "autoUpdate": true
+    },
+    "wondelai-skills": {
+      "source": {
+        "source": "github",
+        "repo": "wondelai/skills"
+      },
+      "autoUpdate": true
+    },
+    "intent": {
+      "source": {
+        "source": "github",
+        "repo": "ghaida/intent"
+      },
+      "autoUpdate": true
+    },
+    "posthog": {
+      "source": {
+        "source": "github",
+        "repo": "PostHog/ai-plugin"
+      },
+      "autoUpdate": true
+    },
+    "interfaces": {
+      "source": {
+        "source": "github",
+        "repo": "jakubkrehel/skills"
+      },
+      "autoUpdate": true
     }
   }
 }
