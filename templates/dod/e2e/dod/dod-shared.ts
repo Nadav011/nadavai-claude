@@ -1,6 +1,18 @@
 import path from "node:path";
 
-export const REPORTS_DIR = path.resolve(__dirname, "..", "..", "reports", "dod");
+/**
+ * One codebase, sometimes more than one product. Set `DOD_VERTICAL` when a repo
+ * ships several apps that cannot share a score: a route list, a QA account, a port
+ * and a report directory per product. TherapyFlow (09/2026) has three — a clinic and
+ * a salon that are the same bundle switched by a database column, and a customer app
+ * that is a separate vite mode with no login of its own. Averaging three designs into
+ * one number says nothing about any of them.
+ *
+ * Unset is the normal case and behaves exactly as before: one product, `reports/dod`.
+ */
+export const VERTICAL = process.env.DOD_VERTICAL ?? "";
+
+export const REPORTS_DIR = path.resolve(__dirname, "..", "..", "reports", "dod", VERTICAL);
 export const SCREENS_DIR = path.join(REPORTS_DIR, "screens");
 export const RESULTS_DIR = path.join(REPORTS_DIR, "results");
 // QA session reused by every entry, written by global-setup. Untracked: reports/ is git-ignored.
@@ -19,7 +31,10 @@ export function routeSlug(route: string): string {
     route
       .replace(/^\//, "")
       .replace(/[^a-zA-Z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "") || "home"
+      // "root", not "home": `/` and `/home` are two different screens, and when both
+      // slug to the same name the second entry overwrites the first, so one route goes
+      // unmeasured while the report still counts it. The slug has to be injective.
+      .replace(/^-+|-+$/g, "") || "root"
   );
 }
 
@@ -46,6 +61,17 @@ export interface EntryResult {
   // never "passing", so it forces the score to 0 until access is fixed.
   unreachable: boolean;
   unreachable_reason: string | null;
+  /**
+   * Whether the app actually painted this route. `unreachable` above is about the
+   * response; this is about the render, and they fail apart. A suspense fallback
+   * answers 200, has no contrast defects, no small targets and no console errors, so
+   * an unsettled page scores a perfect 100 — which is how TherapyFlow's /mini-site
+   * reported 100 on 16/09 while its screenshot showed nothing but "loading your
+   * salon…". "Nothing wrong" and "nothing there" read identically to a probe suite
+   * that only looks for defects, so presence has to be asserted, not assumed.
+   */
+  reached: boolean;
+  not_reached_reason: string | null;
   screenshot: string | null;
   overflow: { scrollWidth: number; clientWidth: number; failed: boolean };
   axe: { critical_serious: number; violations: AxeViolation[] };
@@ -57,6 +83,7 @@ export interface EntryResult {
 
 export interface Totals {
   unreachable: number;
+  unreached: number;
   overflow_failures: number;
   axe_critical_serious: number;
   console_errors: number;
@@ -76,9 +103,13 @@ export interface Totals {
  *  -10 per reduced-motion violation
  *  -100 if any entry was unreachable (non-2xx, a redirect to a login screen, or a load error):
  *     a page the QA account cannot open is not "passing", it is unmeasured.
+ *  -100 if any entry was never reached: the response arrived but the app did not paint.
+ *     Same reason, one layer up — averaging an unrendered page in as "perfect" is the
+ *     single failure mode that makes the whole number a lie.
  */
 export function score(t: Omit<Totals, "score">): number {
   if (t.unreachable > 0) return 0;
+  if (t.unreached > 0) return 0;
   let s = 100;
   s -= 15 * t.overflow_failures;
   s -= 5 * t.axe_critical_serious;
@@ -101,6 +132,7 @@ export function aggregate(entries: EntryResult[]): Totals {
   const max = (xs: number[]) => (xs.length ? Math.max(...xs) : 0);
   const t = {
     unreachable: entries.filter((e) => e.unreachable).length,
+    unreached: entries.filter((e) => !e.unreachable && !e.reached).length,
     overflow_failures: entries.filter((e) => e.overflow.failed).length,
     axe_critical_serious: 0,
     console_errors: 0,

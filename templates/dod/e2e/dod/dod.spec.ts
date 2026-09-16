@@ -15,6 +15,39 @@ async function settle(page: Page) {
   await page.waitForTimeout(SETTLE_MS);
 }
 
+/**
+ * Did the app paint this route, or is the probe about to measure a loading screen?
+ * Returns null when the page is really there, otherwise the reason it is not.
+ *
+ * Every other probe here looks for a defect, and a page that never rendered has none:
+ * no contrast failures, no small targets, no console errors. So it scores 100, and the
+ * report says the screen passed when what it means is that nobody looked at it. The
+ * thresholds are deliberately loose — a short screen is still a screen, and a page that
+ * documents a loading state is not stuck in one — because a blunt version of this check
+ * fails real screens, which is worse than the hole it closes.
+ */
+async function reachRoute(page: Page): Promise<string | null> {
+  const painted = () =>
+    page.evaluate(() => {
+      const root = document.getElementById("root") ?? document.querySelector("main, #__next, body > div");
+      if (!root || root.children.length === 0) return "empty root";
+      const text = (document.body.innerText ?? "").replace(/\s+/g, " ").trim();
+      if (text.length < 10) return `blank: only ${text.length} characters of text`;
+      const loading = [...document.querySelectorAll('[role="status"]')].some((el) =>
+        /loading|טוענים|טוען/i.test(el.textContent ?? ""),
+      );
+      return loading && text.length < 200 ? "still showing a loading state" : null;
+    });
+
+  const deadline = Date.now() + 15_000;
+  let reason = await painted();
+  while (reason !== null && Date.now() < deadline) {
+    await page.waitForTimeout(500);
+    reason = await painted();
+  }
+  return reason;
+}
+
 async function fontFamilies(page: Page): Promise<string[]> {
   return page.evaluate(() => {
     const set = new Set<string>();
@@ -162,6 +195,8 @@ for (const route of routes as string[]) {
             load_error: null,
             unreachable: false,
             unreachable_reason: null,
+            reached: false,
+            not_reached_reason: null,
             screenshot: null,
             overflow: { scrollWidth: 0, clientWidth: 0, failed: false },
             axe: { critical_serious: 0, violations: [] },
@@ -208,6 +243,13 @@ for (const route of routes as string[]) {
             } else if (/403|401|אין לך הרשאה|אין הרשאה|access denied|unauthorized|forbidden/i.test(deniedText)) {
               result.unreachable = true;
               result.unreachable_reason = "access-denied screen rendered";
+            }
+
+            // Only worth asking once the response itself is sound: an access-denied
+            // screen has painted perfectly well, it is just the wrong page.
+            if (!result.unreachable) {
+              result.not_reached_reason = await reachRoute(page);
+              result.reached = result.not_reached_reason === null;
             }
 
             const shot = path.join(SCREENS_DIR, `${name}.png`);
@@ -271,7 +313,7 @@ for (const route of routes as string[]) {
           fs.writeFileSync(path.join(RESULTS_DIR, `${name}.json`), JSON.stringify(result, null, 2));
           test.info().annotations.push({
             type: "dod",
-            description: `status=${result.status} unreachable=${result.unreachable} overflow=${result.overflow.failed} axe=${result.axe.critical_serious} console=${consoleErrors.length} fonts=${result.fonts.count} touch=${result.touch_targets.failures} rm=${result.reduced_motion.violations}`,
+            description: `status=${result.status} unreachable=${result.unreachable} reached=${result.reached} overflow=${result.overflow.failed} axe=${result.axe.critical_serious} console=${consoleErrors.length} fonts=${result.fonts.count} touch=${result.touch_targets.failures} rm=${result.reduced_motion.violations}`,
           });
         });
       });
