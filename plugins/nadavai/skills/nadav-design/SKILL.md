@@ -1,12 +1,12 @@
 ---
 name: nadav-design
 description: Activate Nadav's UI/UX environment on a project, end to end, one verified step at a time. Modes: `setup` (once per project, Next or Vite: clean slate, RTL infra, font, tokens, multi-brand, PRODUCT.md with voice, DESIGN.md, rules layer, shadcn MCP, mobile shell, foundations, styleguide route, DoD, release wiring, enforcement), `plan <feature>` (before code: /write-spec PRD, JTBD, Intent flows + IA, ux-heuristics, optional Claude Design mockup), `screen <name>` (build or redesign one screen with shadcn on DESIGN.md tokens, then Impeccable critique + harden, review-animations, detect, DoD, screenshots, commit), `audit` (baseline map, no fixes), `ship` (pre-flight, web-quality audit, IS 5568 + privacy, DoD 100, Argos baseline, device check, copy pass, SEO, metrics + PostHog), `retro` (after any run: what was skipped, batched, failed or lowered, then approved edits to this skill and its templates). Use when Nadav types /nadav-design, asks to "activate the design environment", "set up UI/UX on this project", "plan feature X", "build/redesign screen X the right way", "audit the UI", or "prepare for release". Never batch steps, never skip evidence, stop on failure.
-argument-hint: setup | plan <feature> | screen <name> | audit | ship | retro
+argument-hint: next | setup | plan <feature> | screen <name> | audit | ship | retro
 ---
 
 # nadav-design
 
-Mode is the first word of `$ARGUMENTS` (`setup`, `plan`, `screen`, `audit`, `ship`, `retro`). If empty, ask which mode in one line and stop.
+Mode is the first word of `$ARGUMENTS` (`setup`, `plan`, `screen`, `audit`, `ship`, `retro`, `next`). If empty or `next`: do not start a mode; run the gap scan (retro step 4b) and print, in Hebrew, where this project stands in the loop (see "Which mode when"), the last run from `.omc/design-runs/`, and the next one to three commands with the reason. Nadav never has to remember the order.
 
 ## Hard rules (every mode)
 
@@ -17,7 +17,7 @@ Mode is the first word of `$ARGUMENTS` (`setup`, `plan`, `screen`, `audit`, `shi
 - No new font, library or dependency without asking. Do not touch mock data or existing tests unless asked.
 - Never run `/impeccable craft`, `bolder`, `overdrive` or `delight` on product screens. Impeccable is the reviewer, not the generator.
 - If a required plugin or skill is missing, report it and stop; do not install. Required: impeccable, shadcn, emil-design-eng, review-animations, hebrew-tailwind-preset, hebrew-rtl-best-practices, argos-cli, web-quality-skills.
-- Before starting, print the step checklist for the mode and tick it as you go. Every mode ends by writing the ticked checklist with one evidence line per step to `.omc/design-runs/<mode>-<YYYY-MM-DD>.md` and then running `retro` steps 0-5 automatically in short form (findings and proposals only, nothing applied); the full `/ux-retro` is for when Nadav wants the edits applied.
+- Before starting, print the step checklist for the mode and tick it as you go. Every mode ends by writing the ticked checklist with one evidence line per step to `.omc/design-runs/<mode>-<YYYY-MM-DD>.md` and then running `retro` steps 0-5 automatically in short form (findings and proposals only, nothing applied); the full `/ux-retro` is for when Nadav wants the edits applied. The very last line of every mode is always `הבא: /ux-<mode> ...`, the next command in the loop for this project, with one reason; never end without it.
 - **Quality bar: the highest threshold everywhere, in every project, new or existing.** DoD = 100, axe = 0 violations, Addy a11y = 100, Lighthouse from `lighthouserc.json` (performance >= 0.95, accessibility, best-practices and SEO = 1, LCP <= 2.0s, CLS <= 0.05, TBT <= 150ms), `lint:ui` = 0 findings, console clean. A threshold is never lowered or ignored to pass: the code is fixed, or the gap is reported with its cause and left open. In `screen` and `ship`, fixes go to the standard of the reviewer, not "good enough".
 - Projects are Next.js (app router) or Vite + React, often wrapped by Capacitor/TWA. Step 1 of `setup` records the project shape and every later step uses these names: `TOKENS` (the token CSS file: `app/globals.css`, `src/index.css` or `src/globals.css`), `SHELL` (`app/layout.tsx`, or `index.html` + `src/main.tsx`), `UI_DIRS` (`app/ components/` or `src/`), `PM` (from the lockfile), `DEV_CMD` and port. Never assume Next paths on a Vite project.
 
@@ -65,7 +65,7 @@ This is the full preparation Nadav wants on an existing project before any renov
 4. **Codebase-wide.** `npx impeccable detect UI_DIRS`; `npx eslint . ` (tailwind-rtl rule count); `grep` for stray hex colors, physical direction classes, `transition: all`, fonts loaded; `/improve-animations` (Emil, read-only) if any motion exists. Evidence: counts and the report paths.
 5. **Measurement.** web-quality-skills audit on every route in `e2e/dod/routes.json` via Chrome DevTools MCP; `pnpm dod` on all routes. Evidence: reports.
 6. **Tokens vs reality.** Compare DESIGN.md tokens with what screens actually use; list drift (colors, radii, fonts, spacing outside the scale). Evidence: the list.
-7. **Renovation plan.** Write `docs/ui-audit/PLAN.md`: per screen a P0-P3 list with file:line, the recommended order of `/nadav-design screen <name>` runs (critical + most P0 first), what is shared (fix once in components/ before screens), and an estimate per screen. Show it to Nadav and stop. Nothing is fixed in this mode.
+7. **Renovation plan.** Write `docs/ui-audit/PLAN.md`: per screen a P0-P3 list as `- [ ]` checkboxes with file:line (the `screen` mode ticks them, and `next` reads them), the recommended order of `/nadav-design screen <name>` runs (critical + most P0 first), what is shared (fix once in components/ before screens), and an estimate per screen. Show it to Nadav and stop. Nothing is fixed in this mode.
 
 ## Mode `screen <name>` (one screen, new or redesign)
 
@@ -78,7 +78,7 @@ This is the full preparation Nadav wants on an existing project before any renov
 6. `npx impeccable detect UI_DIRS` clean; `npx eslint --fix .` clean; then the Vercel web-design-guidelines skill as a static lint on the changed files (a11y, forms, focus, animation, Intl), and `vercel-react-best-practices` + `vercel-composition-patterns` on the same files (waterfalls, bundle, memo, composition); fix the findings or explain each one left.
 7. `PM dod` (add the route to `e2e/dod/routes.json`). Score must be 100 or every deduction explained.
 8. Screenshots at 375 and 1440, light and dark, RTL. Look at them; fix anything visibly wrong.
-9. Commit with Conventional Commits. Report: score, screenshots paths, what changed, what was left out. Ask before starting another screen.
+9. Commit with Conventional Commits; tick the screen's items in `docs/ui-audit/PLAN.md` if it exists. Report: score, screenshots paths, what changed, what was left out. Ask before starting another screen.
 
 Optional after a critical screen, only if Nadav asks: `/interfaces:interface-review`, `/interfaces:break`.
 
@@ -120,4 +120,8 @@ Optional after a critical screen, only if Nadav asks: `/interfaces:interface-rev
 
 ## Which mode when
 
-`setup` once per project → `plan <feature>` per feature → `screen <name>` per screen → `audit` any time you want a map without changes → `ship` before release and once after launch → `retro` after every run, so the skill learns from each project.
+**Existing project:** `setup` (step 0 clean slate) → `retro` → `audit` → Nadav approves `docs/ui-audit/PLAN.md` → `screen <name>` in PLAN order (shared first, then critical) → `ship` → `retro` → after launch: `plan <feature>` → `screen` per screen; `ship` step 8 weekly.
+
+**New project:** `shadcn create --rtl` → `setup` (step 11b direction pick) → `retro` → `plan <feature>` → `screen <name>` per screen from the plan → `audit` after 4-5 screens → `screen` for the fixes → `ship` → `retro` → launch.
+
+`next` (or no argument) tells Nadav where the project is in this order and what to run. `retro` after every run, so the skill learns from each project.
