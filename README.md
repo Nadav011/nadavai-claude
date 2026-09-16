@@ -19,7 +19,7 @@ No secrets live in this repo. OAuth logins, API keys and tokens stay per machine
 | Repo-sync hooks (SessionStart status, PostToolUse edit reminder) and the SessionStart project check (re-init pending while `PROJECT-FACTS.md` exists, UI LOOP next command from the tracked setup artifacts, design layer pending while a UI project lacks `DESIGN.md` or `PRODUCT.md`) | `plugins/nadavai/hooks/`, `plugins/nadavai/scripts/` | the bundle |
 | Rules (working agreement, OMC team size, nadavai, project re-init, design-init with impeccable) | `rules/` | `setup.sh` symlinks `~/.claude/rules` here |
 | Templates that /ux-setup copies into a project: DoD gate (`dod/`), project UI rule (`ui-rules/`), CI gate + Lighthouse budget + PR template (`ci/`), structural house base (`design/`) | `templates/` | see `templates/README.md` |
-| Settings defaults (model, effort, Hebrew, auto permissions, agent teams, enabled plugins, marketplaces with auto-update) | `settings/settings.base.json` | `setup.sh` deep-merges into `~/.claude/settings.json` |
+| Settings defaults (model, effort, Hebrew, bypass permissions, agent teams, enabled plugins, marketplaces with auto-update) | `settings/settings.base.json` | `setup.sh` deep-merges into `~/.claude/settings.json` |
 | Global git hooks (Conventional Commits, Trivy + typecheck pre-push, Cloudflare Pages auto-deploy) and global ignore | `git/` | `setup.sh` symlinks `~/.git-hooks` and `~/.config/git/ignore` here |
 | claude-seo (AgriciDaniel) installed but disabled | `setup.sh` | enable per marketing repo, see SEO below |
 | OMC CLI, `~/.claude/CLAUDE.md` (OMC block), HUD statusline | `setup.sh` runs `omc setup` | |
