@@ -28,6 +28,7 @@ jobs:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
       - run: pnpm exec playwright install --with-deps chromium
+      - run: node e2e/dod/routes.mjs --check
       - run: pnpm dod
         env:
           ARGOS_TOKEN: ${{ secrets.ARGOS_TOKEN }}

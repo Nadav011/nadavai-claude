@@ -9,8 +9,10 @@ export default defineConfig({
   testDir: "./e2e/dod",
   timeout: 120_000,
   expect: { timeout: 10_000 },
-  fullyParallel: false,
-  workers: 1,
+  // Every entry writes its own result file, so workers are safe. All routes x 2 viewports x 2 schemes
+  // is a long run on a big app: raise DOD_WORKERS on a strong machine, lower it if the dev server chokes.
+  fullyParallel: true,
+  workers: Number(process.env.DOD_WORKERS ?? 4),
   retries: 0,
   reporter: [["list"]],
   outputDir: "./test-results/dod",
