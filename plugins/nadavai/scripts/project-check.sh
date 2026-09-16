@@ -8,6 +8,18 @@ set -u
 D="${CLAUDE_PROJECT_DIR:-$PWD}"
 [ -d "$D" ] || exit 0
 
+# Only real projects: a git repo with a package manifest. Keeps the home directory and scratch folders quiet.
+is_project=0
+if [ "$(git -C "$D" rev-parse --show-toplevel 2>/dev/null)" = "$(cd "$D" && pwd -P)" ] \
+   && { [ -f "$D/package.json" ] || [ -f "$D/pyproject.toml" ] || [ -f "$D/pubspec.yaml" ] || [ -f "$D/Package.swift" ]; }; then is_project=1; fi
+
+if [ "$is_project" = 1 ] && [ ! -f "$D/CLAUDE.md" ] && [ ! -f "$D/PROJECT-FACTS.md" ]; then
+  printf '%s\n' "CLAUDE.MD MISSING: this project has no CLAUDE.md. Tell Nadav once, in Hebrew, to run /init and then /oh-my-claudecode:deepinit in this session; afterwards make AGENTS.md a symlink to CLAUDE.md (for Codex) and commit."
+fi
+if [ "$is_project" = 1 ] && [ -f "$D/CLAUDE.md" ] && [ ! -e "$D/AGENTS.md" ]; then
+  printf '%s\n' "AGENTS.MD MISSING: CLAUDE.md exists but AGENTS.md does not. Create it as a symlink to CLAUDE.md (ln -s CLAUDE.md AGENTS.md) so Codex reads the same instructions, and commit."
+fi
+
 if [ -f "$D/PROJECT-FACTS.md" ]; then
   printf '%s\n' "PROJECT REINIT PENDING: this project has PROJECT-FACTS.md at its root, so it was cleaned but not re-initialized. Follow ~/.claude/rules/project-reinit.md now: tell Nadav to run /init, then /oh-my-claudecode:deepinit, then paste the step-3 merge prompt from that rule."
 fi
@@ -19,11 +31,23 @@ if [ -f "$D/package.json" ] && grep -qE '"(react|next|vite|vue|svelte|@angular/c
   if [ -n "$missing" ]; then
     printf '%s\n' "DESIGN SETUP PENDING: this UI project has no $missing at its root. Follow ~/.claude/rules/design-init.md (after project-reinit if that is pending too): tell Nadav the six impeccable steps run in this session, in order."
   fi
+  if [ -f "$D/DESIGN.md" ] && [ -f "$D/PRODUCT.md" ] && [ ! -d "$D/e2e/dod" ]; then
+    printf '%s\n' "DOD GATE MISSING: DESIGN.md and PRODUCT.md exist but e2e/dod/ does not. Finish step 6 of ~/.claude/rules/design-init.md (copy ~/nadavai/templates/dod/, fill routes.json, add the dod script) and commit."
+  fi
   # PostHog: every production app reports usage and errors to it (rules/posthog-init.md).
   # Silent once the SDK is in package.json or CLAUDE.md mentions PostHog (connected or "not used").
   if ! grep -qE '"(posthog-js|posthog-node|posthog-react-native|@posthog/[a-z0-9-]+)"' "$D/package.json" \
      && ! grep -qi 'posthog' "$D/CLAUDE.md" 2>/dev/null; then
     printf '%s\n' "POSTHOG PENDING: this UI project has no PostHog SDK in package.json and CLAUDE.md does not mention PostHog. Follow ~/.claude/rules/posthog-init.md: tell Nadav once, in Hebrew, that the app is not connected to PostHog and ask whether to connect it now or mark it as not used."
+  fi
+fi
+# Stack tools that live in the project's .mcp.json (PROJECT-CLEANUP.md, "stack additions").
+if [ -f "$D/package.json" ]; then
+  if grep -q '"@capacitor/core"' "$D/package.json" && ! grep -q '"maestro"' "$D/.mcp.json" 2>/dev/null; then
+    printf '%s\n' "MAESTRO MCP MISSING: this Capacitor app has no maestro server in .mcp.json. Add {\"mcpServers\":{\"maestro\":{\"command\":\"maestro\",\"args\":[\"mcp\"]}}} (merge into the existing file) so mobile flows can run; .mcp.json stays untracked by the global gitignore."
+  fi
+  if grep -q '"next"' "$D/package.json" && ! grep -q 'next-devtools-mcp' "$D/.mcp.json" 2>/dev/null; then
+    printf '%s\n' "NEXT DEVTOOLS MCP MISSING: this Next.js app has no next-devtools-mcp server in .mcp.json. Add {\"mcpServers\":{\"next-devtools\":{\"command\":\"npx\",\"args\":[\"-y\",\"next-devtools-mcp@latest\"]}}} (merge into the existing file)."
   fi
 fi
 exit 0
