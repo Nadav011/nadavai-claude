@@ -1,0 +1,57 @@
+/* nadavai house base: structure only. Colors, font family and radius personality come
+   from the app's own theme in the token file. Installed by /ux-setup step 4 as
+   `@import "./base.css";` right after the tailwind import. Do not edit per project. */
+
+@theme {
+  /* Type scale, 1.2 ratio on 16px; the font family is the app's choice */
+  --text-xs: 0.75rem;   --text-xs--line-height: 1rem;
+  --text-sm: 0.875rem;  --text-sm--line-height: 1.25rem;
+  --text-base: 1rem;    --text-base--line-height: 1.6;
+  --text-lg: 1.125rem;  --text-lg--line-height: 1.6;
+  --text-xl: 1.25rem;   --text-xl--line-height: 1.4;
+  --text-2xl: 1.5rem;   --text-2xl--line-height: 1.3;
+  --text-3xl: 1.875rem; --text-3xl--line-height: 1.2;
+  --text-4xl: 2.25rem;  --text-4xl--line-height: 1.15;
+  --tracking-normal: 0; /* Hebrew never gets letter-spacing */
+
+  /* Spacing: Tailwind's 4px scale is the house scale; never override */
+  --spacing: 0.25rem;
+
+  /* Motion (Emil standards): short, eased, never `transition: all` */
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-enter: cubic-bezier(0, 0, 0.2, 1);
+  --ease-exit: cubic-bezier(0.4, 0, 1, 1);
+  --duration-fast: 120ms;
+  --duration-base: 200ms;
+  --duration-slow: 320ms;
+
+  /* Layers */
+  --z-sticky: 10;
+  --z-drawer: 40;
+  --z-modal: 50;
+  --z-toast: 60;
+
+  /* Touch and shell (TWA / WebView / Capacitor); in RTL start = right */
+  --size-touch: 2.75rem;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-start: env(safe-area-inset-right, 0px);
+  --safe-end: env(safe-area-inset-left, 0px);
+}
+
+@layer base {
+  html { color-scheme: light dark; -webkit-text-size-adjust: 100%; }
+  body { min-height: 100dvh; overscroll-behavior: none; }
+  :focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+  button, [role="button"], a, input, select, textarea { touch-action: manipulation; }
+  [dir="ltr"] { unicode-bidi: isolate; }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
