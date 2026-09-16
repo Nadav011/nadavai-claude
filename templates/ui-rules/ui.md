@@ -1,6 +1,6 @@
 ---
 paths:
-  - "{UI_GLOB}"
+  - "{app,components,src}/**"
 ---
 
 # UI rules (installed by /ux-setup)
