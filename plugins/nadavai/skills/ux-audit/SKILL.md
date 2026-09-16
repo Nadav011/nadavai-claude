@@ -1,6 +1,6 @@
 ---
 name: ux-audit
-description: Deep preparation of an existing project before any renovation: inventory of every route and component, critique + screenshots per screen, interfaces on critical screens, detector/eslint/animation audit codebase-wide, web-quality + DoD on all routes, token drift, and a renovation plan in docs/ui-audit/PLAN.md. No fixes. Use when Nadav types /ux-audit or asks for a full UI audit / map before renovations. Thin shortcut: runs the `audit` mode of the nadav-design skill.
+description: "Deep preparation of an existing project before any renovation: inventory of every route and component, critique + screenshots per screen, interfaces on critical screens, detector/eslint/animation audit codebase-wide, web-quality + DoD on all routes, token drift, and a renovation plan in docs/ui-audit/PLAN.md. No fixes. Use when Nadav types /ux-audit or asks for a full UI audit / map before renovations. Thin shortcut: runs the `audit` mode of the nadav-design skill."
 ---
 # ux-audit
 

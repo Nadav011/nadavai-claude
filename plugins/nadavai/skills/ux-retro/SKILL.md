@@ -1,6 +1,6 @@
 ---
 name: ux-retro
-description: Retrospective on the last /ux-setup, /ux-plan, /ux-screen, /ux-audit or /ux-ship run: which steps were skipped, batched, done without evidence or failed, which thresholds were lowered, which tools misfired, what Nadav himself has not run yet in the project (gap scan across setup/plan/screen/audit/ship, proposed as the next commands), tool freshness, then approved edits to the nadav-design skill, its templates and rules in ~/nadavai. Use when Nadav types /ux-retro or asks "what did the skill miss", "how to improve the skill", "update the skill from this run". Thin shortcut: runs the `retro` mode of the nadav-design skill. Never touches the project.
+description: "Retrospective on the last /ux-setup, /ux-plan, /ux-screen, /ux-audit or /ux-ship run: which steps were skipped, batched, done without evidence or failed, which thresholds were lowered, which tools misfired, what Nadav himself has not run yet in the project (gap scan across setup/plan/screen/audit/ship, proposed as the next commands), tool freshness, then approved edits to the nadav-design skill, its templates and rules in ~/nadavai. Use when Nadav types /ux-retro or asks \"what did the skill miss\", \"how to improve the skill\", \"update the skill from this run\". Thin shortcut: runs the `retro` mode of the nadav-design skill. Never touches the project."
 ---
 # ux-retro
 

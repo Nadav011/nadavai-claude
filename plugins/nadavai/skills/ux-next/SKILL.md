@@ -1,6 +1,6 @@
 ---
 name: ux-next
-description: Where this project stands in the UI/UX loop (setup → retro → audit → screen → ship) and the next one to three commands to run, read from .omc/design-runs, the setup files and docs/ui-audit/PLAN.md. Use when Nadav types /ux-next, asks "what now", "what is next", "where were we", "what did I forget", or forgets the order. Thin shortcut: runs the `next` mode of the nadav-design skill. Starts nothing.
+description: "Where this project stands in the UI/UX loop (setup → retro → audit → screen → ship) and the next one to three commands to run, read from .omc/design-runs, the setup files and docs/ui-audit/PLAN.md. Use when Nadav types /ux-next, asks \"what now\", \"what is next\", \"where were we\", \"what did I forget\", or forgets the order. Thin shortcut: runs the `next` mode of the nadav-design skill. Starts nothing."
 ---
 # ux-next
 

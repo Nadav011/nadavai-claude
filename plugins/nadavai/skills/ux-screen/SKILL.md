@@ -1,7 +1,7 @@
 ---
 name: ux-screen
-description: Build or redesign ONE screen through the full loop: brief, shadcn on DESIGN.md tokens, /impeccable critique + harden, /review-animations, interfaces review if critical, detect + eslint, DoD, screenshots, commit. Use when Nadav types /ux-screen <name> or asks to build/redesign screen X the right way. Thin shortcut: runs the `screen` mode of the nadav-design skill.
-argument-hint: <screen name>
+description: "Build or redesign ONE screen through the full loop: brief, shadcn on DESIGN.md tokens, /impeccable critique + harden, /review-animations, interfaces review if critical, detect + eslint, DoD, screenshots, commit. Use when Nadav types /ux-screen <name> or asks to build/redesign screen X the right way. Thin shortcut: runs the `screen` mode of the nadav-design skill."
+argument-hint: "<screen name>"
 ---
 # ux-screen
 
