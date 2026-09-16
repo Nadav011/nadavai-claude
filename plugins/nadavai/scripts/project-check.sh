@@ -38,7 +38,12 @@ if [ -f "$D/package.json" ] && grep -qE '"(react|next|vite|vue|svelte|@angular/c
   if [ -f "$D/DESIGN.md" ] && [ -f "$D/PRODUCT.md" ]; then
     if [ ! -f "$D/.claude/rules/ui.md" ] || [ ! -d "$D/e2e/dod" ] || [ ! -f "$D/.github/workflows/ui.yml" ] || [ ! -f "$D/lighthouserc.json" ]; then
       ui_next="/ux-setup (setup artifacts incomplete: ui.md, e2e/dod, ui.yml or lighthouserc.json missing)"
-    elif [ ! -f "$D/docs/ui-audit/PLAN.md" ]; then ui_next="/ux-audit for an existing project, /ux-plan <feature> for a new one"
+    elif ls "$D"/docs/specs/*.md >/dev/null 2>&1 && grep -qE '^\s*- \[ \]' "$D"/docs/specs/*.md; then ui_next="/ux-screen <first unchecked screen in docs/specs/*.md>"
+    elif [ ! -f "$D/docs/ui-audit/PLAN.md" ]; then
+      done_screens="$(cat "$D"/docs/specs/*.md 2>/dev/null | grep -cE '^\s*- \[x\]' || true)"
+      if [ "${done_screens:-0}" -ge 4 ]; then ui_next="/ux-audit (${done_screens} screens built, no docs/ui-audit/PLAN.md yet)"
+      elif ls "$D"/docs/specs/*.md >/dev/null 2>&1; then ui_next="/ux-plan <feature> (all planned screens built; plan the next feature) or /ux-audit"
+      else ui_next="/ux-audit for an existing project, /ux-plan <feature> for a new one"; fi
     elif grep -qE '^\s*- \[ \]' "$D/docs/ui-audit/PLAN.md"; then ui_next="/ux-screen <first open item in docs/ui-audit/PLAN.md>"
     elif ! grep -qiE 'UI system.*(released|release [0-9]{4}-[0-9]{2}-[0-9]{2})' "$D/STATUS.md" "$D/BACKLOG.md" 2>/dev/null; then ui_next="/ux-ship"
     else ui_next="/ux-plan <feature> for the next feature; /ux-ship step 8 weekly; /ux-retro after each run"
