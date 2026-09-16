@@ -31,3 +31,13 @@
 
 ## Vague requests
 - A new feature idea with no anchor (file, screen, acceptance criteria): one question if that settles it, otherwise /deep-interview. A clear task gets no questions. Never ask a question already answered; put answers in the spec.
+
+## UI/UX and product routing (one owner per step)
+- Unclear what to build, for whom, or whether at all: intent (`/intent:strategize`, agent ember).
+- Flows, information architecture, screen structure, interface copy: intent (`/intent:journey`, `/intent:wireframe`, `/intent:articulate`, agent wren).
+- Building or upgrading a screen in code: impeccable, per design-init.md (polish and harden; never craft, bolder or overdrive on an existing app).
+- Reviewing an existing screen: interfaces (`/interfaces:interface-review`, then the matching `better-*` skill). Accessibility: israeli-accessibility-compliance first, `/intent:include` for design-level questions.
+- Product documents (spec for stakeholders, roadmap, sprint plan, stakeholder update, research synthesis): product-management. The plan for a code task stays with OMC.
+- ux-design and product-innovation are reference libraries: use one only when Nadav names it.
+- Motion: animate builds, review-animations critiques, improve-animations audits. Components: shadcn. Mobile feel on the web: mobile-native.
+- Code planning, execution and verification stay with OMC, and every UI task ends with the browser evidence the Verification section requires.
