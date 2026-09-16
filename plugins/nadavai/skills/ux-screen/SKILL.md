@@ -1,6 +1,6 @@
 ---
 name: ux-screen
-description: "Build or redesign ONE screen through the full loop: brief, shadcn on DESIGN.md tokens, /impeccable critique + harden, /review-animations, interfaces review if critical, detect + eslint, DoD, screenshots, commit. Use when Nadav types /ux-screen NAME or asks to build/redesign screen X the right way. Thin shortcut: runs the `screen` mode of the nadav-design skill."
+description: "Build or redesign one screen, reviewed and gated (the `screen` mode of nadav-design). Use when Nadav types /ux-screen NAME or asks to build or redesign a screen the right way."
 ---
 # ux-screen
 

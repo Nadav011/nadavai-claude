@@ -1,6 +1,6 @@
 ---
 name: ux-ship
-description: "Release gate, measurement only (wiring was done by /ux-setup): pre-flight, web-quality audit (Addy), IS 5568 + accessibility statement + privacy, DoD 100, Argos baseline, device check in the TWA/Capacitor shell, copy pass against the product voice, SEO pass, /intent:measure + PostHog events, funnel and replay review. Use when Nadav types /ux-ship or asks to prepare for release. Thin shortcut: runs the `ship` mode of the nadav-design skill."
+description: "Release gate, measurement only (the `ship` mode of nadav-design). Use when Nadav types /ux-ship or asks to prepare for release."
 ---
 # ux-ship
 

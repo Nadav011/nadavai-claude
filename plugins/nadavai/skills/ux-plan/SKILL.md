@@ -1,6 +1,6 @@
 ---
 name: ux-plan
-description: "Plan one feature before code: PRD via /write-spec, JTBD, Intent flows + IA + localize, ux-heuristics with RTL, optional Claude Design mockup, ends with the screen list. Use when Nadav types /ux-plan FEATURE or asks to plan a feature the right way. Thin shortcut: runs the `plan` mode of the nadav-design skill."
+description: "Plan one feature before code (the `plan` mode of nadav-design). Use when Nadav types /ux-plan FEATURE or asks to plan a feature the right way."
 ---
 # ux-plan
 

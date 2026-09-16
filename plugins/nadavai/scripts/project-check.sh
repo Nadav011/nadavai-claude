@@ -32,20 +32,18 @@ if [ -f "$D/package.json" ] && grep -qE '"(react|next|vite|vue|svelte|@angular/c
     printf '%s\n' "DESIGN SETUP PENDING: this UI project has no $missing at its root. Tell Nadav once, in Hebrew, to run /ux-setup (the nadav-design skill; ~/.claude/rules/design-init.md is the fallback when it is unavailable), after project-reinit if that is pending too."
   fi
   if [ -f "$D/DESIGN.md" ] && [ -f "$D/PRODUCT.md" ] && [ ! -d "$D/e2e/dod" ]; then
-    printf '%s\n' "DOD GATE MISSING: DESIGN.md and PRODUCT.md exist but e2e/dod/ does not. Finish step 6 of ~/.claude/rules/design-init.md (copy ~/nadavai/templates/dod/, fill routes.json, add the dod script) and commit."
+    printf '%s\n' "DOD GATE MISSING: DESIGN.md and PRODUCT.md exist but e2e/dod/ does not. Tell Nadav to run /ux-setup (its step 12 installs the gate from ~/nadavai/templates/dod/); design-init.md step 6 is the fallback."
   fi
-  # UI loop position (nadav-design skill): where the project stands and what to run next.
+  # UI loop position (nadav-design skill), derived from tracked files only (rules in its Hard rules).
   if [ -f "$D/DESIGN.md" ] && [ -f "$D/PRODUCT.md" ]; then
-    has_run() { ls "$D/.omc/design-runs/$1"-*.md >/dev/null 2>&1; }
-    last_run="$(ls -t "$D"/.omc/design-runs/*.md 2>/dev/null | head -1 | xargs -r basename)"
-    if ! has_run setup; then ui_next="/ux-setup (no setup run recorded in .omc/design-runs/)"
-    elif ! has_run retro; then ui_next="/ux-retro (setup ran, retro did not)"
-    elif ! has_run audit && ! has_run plan; then ui_next="/ux-audit for an existing project, /ux-plan <feature> for a new one"
-    elif [ -f "$D/docs/ui-audit/PLAN.md" ] && grep -qE '^\s*- \[ \]' "$D/docs/ui-audit/PLAN.md"; then ui_next="/ux-screen <first open item in docs/ui-audit/PLAN.md>"
-    elif ! has_run ship; then ui_next="/ux-ship"
+    if [ ! -f "$D/.claude/rules/ui.md" ] || [ ! -d "$D/e2e/dod" ] || [ ! -f "$D/.github/workflows/ui.yml" ] || [ ! -f "$D/lighthouserc.json" ]; then
+      ui_next="/ux-setup (setup artifacts incomplete: ui.md, e2e/dod, ui.yml or lighthouserc.json missing)"
+    elif [ ! -f "$D/docs/ui-audit/PLAN.md" ]; then ui_next="/ux-audit for an existing project, /ux-plan <feature> for a new one"
+    elif grep -qE '^\s*- \[ \]' "$D/docs/ui-audit/PLAN.md"; then ui_next="/ux-screen <first open item in docs/ui-audit/PLAN.md>"
+    elif ! grep -qiE 'UI system.*(released|release [0-9]{4}-[0-9]{2}-[0-9]{2})' "$D/STATUS.md" "$D/BACKLOG.md" 2>/dev/null; then ui_next="/ux-ship"
     else ui_next="/ux-plan <feature> for the next feature; /ux-ship step 8 weekly; /ux-retro after each run"
     fi
-    printf '%s\n' "UI LOOP: last run ${last_run:-none}; next: $ui_next. Tell Nadav in one Hebrew line at the start of the session (or /ux-next for the full picture)."
+    printf '%s\n' "UI LOOP: next: $ui_next. Tell Nadav in one Hebrew line at the start of the session (or /ux-next for the full picture)."
   fi
   # PostHog: every production app reports usage and errors to it (rules/posthog-init.md).
   # Silent once the SDK is in package.json or CLAUDE.md mentions PostHog (connected or "not used").
