@@ -1,7 +1,7 @@
 {
   "ci": {
     "collect": {
-      "numberOfRuns": 3,
+      "numberOfRuns": 5,
       "settings": {
         "locale": "he"
       },
@@ -16,7 +16,7 @@
         "categories:performance": [
           "error",
           {
-            "minScore": 0.95
+            "minScore": 1
           }
         ],
         "categories:accessibility": [
@@ -61,7 +61,8 @@
             "maxNumericValue": 3000
           }
         ]
-      }
+      },
+      "aggregationMethod": "median"
     },
     "upload": {
       "target": "filesystem",
