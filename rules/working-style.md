@@ -17,7 +17,7 @@
 - Exploration or repeatable flows: Playwright MCP inside a subagent.
 - Debugging (console, network, performance, Lighthouse): Chrome DevTools MCP, preferring the chrome-devtools-cli skill.
 - Nadav's logged-in sessions: Claude in Chrome.
-- Research sources (Reddit, X, YouTube, sites that block fetches, search with site or date filters): the Bright Data MCP. `search_engine` first, then by URL `web_data_reddit_posts`, `web_data_x_posts`, `web_data_youtube_videos` (has the transcript), or `scrape_as_markdown`. Reddit comments: `scrape_as_markdown` on the old.reddit.com URL. X discovery: `search_engine` with `site:x.com`. Every finding keeps its URL. One open page: WebFetch.
+- Research sources (Reddit, X, YouTube, sites that block fetches, search with site or date filters): the Bright Data MCP. `search_engine` first, then by URL `web_data_reddit_posts` (post plus comments), `web_data_x_posts`, `web_data_youtube_videos` (transcript, chapters, comments; allow up to 3 minutes), or `scrape_as_markdown` for other sites. Plain scraping of reddit.com is blocked on this account; use the data tool. X discovery: `search_engine` with `site:x.com`. Every finding keeps its URL. One open page: WebFetch.
 
 ## Second model
 - Run `omc ask codex` before a significant plan, after significant work, and for any change touching auth, payments, data, or money. Skip for text, spacing, or single-file fixes. Report its findings and what you did with them.

@@ -56,7 +56,7 @@ The Bright Data server reads its token from the `BRIGHTDATA_API_TOKEN` environme
 ```
 
 `setup.sh` keeps local keys like this one when it merges `settings.base.json`. Free tier: 5,000 credits a month,
-no card; leave auto-recharge off. Structured `web_data_*` calls cost one credit per record returned.
+no card; leave auto-recharge off. Structured `web_data_*` calls cost one credit per record returned. Verified 2026-09-16: `web_data_reddit_posts` returns the post with its comments, `web_data_youtube_videos` returns transcript, chapters and comments (1 to 3 minutes per call); `scrape_as_markdown` on reddit.com is refused without KYC, so use the data tools for Reddit.
 
 ## Daily cycle: change something
 
