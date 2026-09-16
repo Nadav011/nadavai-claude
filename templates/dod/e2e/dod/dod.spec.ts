@@ -3,6 +3,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { test, type Page } from "@playwright/test";
+import { argosScreenshot } from "@argos-ci/playwright";
 import AxeBuilder from "@axe-core/playwright";
 import routes from "./routes.json";
 import { RESULTS_DIR, SCHEMES, SCREENS_DIR, VIEWPORTS, routeSlug, type EntryResult } from "./dod-shared";
@@ -203,9 +204,30 @@ for (const route of routes as string[]) {
             await page.screenshot({ path: shot, fullPage: true });
             result.screenshot = path.relative(path.resolve(SCREENS_DIR, "..", ".."), shot);
 
+            // Argos compares this frame with the same frame from the previous run and
+            // shows what moved. It answers the question the score cannot — "one token
+            // changed, which other screens changed with it" — and it is the reason the
+            // DoD walks every route rather than a sample. Without ARGOS_TOKEN it is a
+            // no-op, so a local run costs nothing and uploads nothing.
+            if (process.env.ARGOS_TOKEN) await argosScreenshot(page, name, { threshold: 0.2 });
+
             result.overflow = await overflow(page);
 
-            const axe = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag22aa"]).analyze();
+            // Retried once, because a page that finishes a client-side navigation while
+            // axe is walking it throws "Execution context was destroyed" — and the
+            // catch below would then record the page as UNREACHABLE, which reads as
+            // "the QA account has no access" when what actually happened is that the
+            // page moved. axe documents this case itself
+            // (dequelabs/axe-core-npm error-handling.md). One settle and one retry.
+            const runAxe = () =>
+              new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag22aa"]).analyze();
+            let axe: Awaited<ReturnType<typeof runAxe>>;
+            try {
+              axe = await runAxe();
+            } catch {
+              await settle(page);
+              axe = await runAxe();
+            }
             result.axe.violations = axe.violations.map((v) => ({
               id: v.id,
               impact: v.impact ?? "unknown",
