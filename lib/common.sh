@@ -74,11 +74,6 @@ plugin_installed() {
 
 link_rules() { link_dir "$REPO/rules" "$CFG/rules"; }
 
-link_bin() {
-  # Repo scripts that are also run from a plain shell, not only from Claude Code.
-  link_file "$REPO/plugins/nadavai/scripts/handoff.py" "$HOME/.local/bin/handoff"
-}
-
 retire_duplicate_skills() {
   # A user-level skill with the same name as a plugin skill shadows it. Move such copies aside.
   local d name
