@@ -28,6 +28,10 @@ export interface AxeViolation {
   impact: string;
   help: string;
   nodes: number;
+  /** The first few failing elements, so a finding can be acted on without a
+   *  second run. A count alone sends you hunting for an element that may only
+   *  appear at one width, in one colour scheme, or at one time of day. */
+  samples: { target: string; html: string }[];
 }
 
 export interface EntryResult {
