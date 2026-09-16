@@ -3,12 +3,10 @@
     "collect": {
       "numberOfRuns": 3,
       "settings": {
-        "preset": "mobile",
         "locale": "he"
       },
       "url": [
-        "http://localhost:{PORT}/",
-        "http://localhost:{PORT}/styleguide"
+        "http://localhost:{PORT}/"
       ],
       "startServerCommand": "{START_CMD}",
       "startServerReadyPattern": "ready|Local:|localhost"
@@ -66,7 +64,8 @@
       }
     },
     "upload": {
-      "target": "temporary-public-storage"
+      "target": "filesystem",
+      "outputDir": ".lighthouseci"
     }
   }
 }

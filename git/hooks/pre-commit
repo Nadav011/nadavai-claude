@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# GLOBAL PRE-COMMIT HOOK v1.0.0 (nadavai). UI gate for projects set up by /ux-setup.
+# Runs only when the repo's package.json defines a "lint:ui" script; otherwise exits 0.
+# On staged *.ts/*.tsx/*.jsx: eslint --fix --max-warnings=0 (tailwind-rtl rules are warnings, so
+# warnings must fail), then impeccable detect on the same files (pinned devDependency, no network).
+set -uo pipefail
+root="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+[ -f "$root/package.json" ] || exit 0
+grep -q '"lint:ui"' "$root/package.json" || exit 0
+cd "$root"
+pm=pnpm; [ -f yarn.lock ] && pm=yarn; [ -f package-lock.json ] && pm=npx; [ -f bun.lockb ] || [ -f bun.lock ] && pm=bunx
+mapfile -t files < <(git diff --cached --name-only --diff-filter=ACMR -- '*.ts' '*.tsx' '*.jsx' | grep -vE '^(node_modules|\.next|dist|build)/' || true)
+[ "${#files[@]}" -eq 0 ] && exit 0
+run() { if [ "$pm" = npx ] || [ "$pm" = bunx ]; then $pm "$@"; else $pm exec "$@"; fi; }
+run eslint --fix --max-warnings=0 "${files[@]}" || { echo "pre-commit: eslint (tailwind-rtl) failed; fix the files above" >&2; exit 1; }
+if grep -q '"impeccable"' package.json; then
+  run impeccable detect "${files[@]}" || { echo "pre-commit: impeccable detect found anti-patterns" >&2; exit 1; }
+fi
+git add -- "${files[@]}"
+exit 0
