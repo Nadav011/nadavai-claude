@@ -50,8 +50,8 @@ want to revert alone. Skip a sub-step that is already in place and say so.
    globals.css." Commit.
 
 Also run, only when relevant: `/nadavai:review-animations` if the project has animations,
-`/interfaces:better-interface` on one critical screen, `/web-quality-skills:web-quality-audit`
-before a release, PostHog after it.
+`/interfaces:better-interface` on one critical screen, and before a release the go-live pass from
+working-style.md (claude-seo `/seo audit` plus `lighthouse_audit` through the Chrome DevTools MCP).
 
 Never run `/impeccable craft`, `bolder` or `overdrive` on an existing app: they replace the
 incumbent look and produce the generic "Impeccable look" instead of polishing the product's own.
