@@ -11,7 +11,7 @@ TEXT_RE='impeccable|superdesign|ui-ux-pro-max|taste-skill|gpt-taste|design-taste
 # Files the new setup creates or edits on purpose; ignored only with --verify.
 ALLOW_RE='^(DESIGN\.md|PRODUCT\.md|design/[^/]+/DESIGN\.md|docs/specs/|docs/ui-audit/|e2e/dod/|playwright\.dod\.config\.ts|\.claude/rules/ui\.md|\.claude/settings\.json|\.mcp\.json|\.omc/archive/|\.omc/design-runs/|\.github/workflows/ui\.yml|\.github/PULL_REQUEST_TEMPLATE\.md|lighthouserc\.json|package\.json|CLAUDE\.md|AGENTS\.md|STATUS\.md|BACKLOG\.md|.*/base\.css|.*styleguide.*|app/accessibility/|app/privacy/)'
 verify=0; [ "${1:-}" = "--verify" ] && verify=1
-names="$(git ls-files -co --exclude-standard | grep -viE '^(node_modules|\.next|dist|build|public/fonts)/' | grep -iE "$NAME_RE" || true)"
+names="$({ git ls-files -co --exclude-standard; git ls-files -oi --exclude-standard; } | sort -u | grep -viE '^(node_modules|\.next|dist|build|public/fonts)/' | grep -iE "$NAME_RE" || true)"
 texts="$(grep -rilE "$TEXT_RE" --include='*.md' --include='*.json' --include='*.mdc' --include='*.txt' --include='*.html' --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=.git --exclude-dir=dist --exclude-dir=build --exclude-dir=state --exclude-dir=logs --exclude-dir=handoffs --exclude-dir=artifacts --exclude-dir=reports --exclude-dir=test-results --exclude-dir=playwright-report . 2>/dev/null | sed 's|^\./||' || true)"
 all="$(printf '%s\n%s\n' "$names" "$texts" | sed '/^$/d' | sort -u)"
 if [ "$verify" = 1 ]; then all="$(printf '%s\n' "$all" | grep -vE "$ALLOW_RE" || true)"; fi

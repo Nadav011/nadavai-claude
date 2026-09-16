@@ -17,22 +17,26 @@
   /* Spacing: Tailwind's 4px scale is the house scale; never override */
   --spacing: 0.25rem;
 
-  /* Motion (Emil standards): short, eased, never `transition: all` */
+  /* Motion (Emil standards): short, eased, never `transition: all`. Utilities: duration-fast/base/slow, ease-standard/enter/exit, z-sticky/drawer/modal/toast */
   --ease-standard: cubic-bezier(0.2, 0, 0, 1);
   --ease-enter: cubic-bezier(0, 0, 0.2, 1);
   --ease-exit: cubic-bezier(0.4, 0, 1, 1);
-  --duration-fast: 120ms;
-  --duration-base: 200ms;
-  --duration-slow: 320ms;
+  --transition-duration-fast: 120ms;
+  --transition-duration-base: 200ms;
+  --transition-duration-slow: 320ms;
 
   /* Layers */
-  --z-sticky: 10;
-  --z-drawer: 40;
-  --z-modal: 50;
-  --z-toast: 60;
+  --z-index-sticky: 10;
+  --z-index-drawer: 40;
+  --z-index-modal: 50;
+  --z-index-toast: 60;
 
-  /* Touch and shell (TWA / WebView / Capacitor); in RTL start = right */
+  /* Touch */
   --size-touch: 2.75rem;
+}
+
+/* Shell insets (TWA / WebView / Capacitor); `static` so they reach :root even when only JS reads them. In RTL start = right. */
+@theme static {
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --safe-start: env(safe-area-inset-right, 0px);
