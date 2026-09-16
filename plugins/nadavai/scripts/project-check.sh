@@ -19,5 +19,11 @@ if [ -f "$D/package.json" ] && grep -qE '"(react|next|vite|vue|svelte|@angular/c
   if [ -n "$missing" ]; then
     printf '%s\n' "DESIGN SETUP PENDING: this UI project has no $missing at its root. Follow ~/.claude/rules/design-init.md (after project-reinit if that is pending too): tell Nadav the six impeccable steps run in this session, in order."
   fi
+  # PostHog: every production app reports usage and errors to it (rules/posthog-init.md).
+  # Silent once the SDK is in package.json or CLAUDE.md mentions PostHog (connected or "not used").
+  if ! grep -qE '"(posthog-js|posthog-node|posthog-react-native|@posthog/[a-z0-9-]+)"' "$D/package.json" \
+     && ! grep -qi 'posthog' "$D/CLAUDE.md" 2>/dev/null; then
+    printf '%s\n' "POSTHOG PENDING: this UI project has no PostHog SDK in package.json and CLAUDE.md does not mention PostHog. Follow ~/.claude/rules/posthog-init.md: tell Nadav once, in Hebrew, that the app is not connected to PostHog and ask whether to connect it now or mark it as not used."
+  fi
 fi
 exit 0
