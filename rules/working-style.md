@@ -33,11 +33,12 @@
 - A new feature idea with no anchor (file, screen, acceptance criteria): one question if that settles it, otherwise /deep-interview. A clear task gets no questions. Never ask a question already answered; put answers in the spec.
 
 ## UI/UX and product routing (one owner per step)
-- Unclear what to build, for whom, or whether at all: intent (`/intent:strategize`, agent ember).
-- Flows, information architecture, screen structure, interface copy: intent (`/intent:journey`, `/intent:wireframe`, `/intent:articulate`, agent wren).
-- Building or upgrading a screen in code: impeccable, per design-init.md (polish and harden; never craft, bolder or overdrive on an existing app).
-- Reviewing an existing screen: interfaces (`/interfaces:interface-review`, then the matching `better-*` skill). Accessibility: israeli-accessibility-compliance first, `/intent:include` for design-level questions.
-- Product documents (spec for stakeholders, roadmap, sprint plan, stakeholder update, research synthesis): product-management. The plan for a code task stays with OMC.
-- ux-design and product-innovation are reference libraries: use one only when Nadav names it.
-- Motion: animate builds, review-animations critiques, improve-animations audits. Components: shadcn. Mobile feel on the web: mobile-native.
+- Unclear problem, audience, or whether to build at all: intent agent ember (`/intent:strategize`, `/intent:investigate`). product-innovation frameworks are citable references, not the owner.
+- Flows, information architecture, wireframes, and new interface copy: intent agent wren (`/intent:journey`, `/intent:organize`, `/intent:wireframe`, `/intent:articulate`).
+- Building, restyling, or fixing a screen in code: impeccable (`polish`, `harden`, `critique`, `clarify`, `adapt`, `layout`, `typeset`); design-init.md lists what is off-limits on an existing app. OMC designer only when impeccable is unavailable.
+- Reviewing existing UI code: `/interfaces:better-interface` (it dispatches to the better-* skills itself; never call a better-* skill as the entry point). Reviewing a diff: `/interfaces:interface-review`. A design with no code yet: intent agent vigil (`/intent:evaluate`).
+- Accessibility: better-accessibility fixes code; israeli-accessibility-compliance answers IS 5568 and Hebrew RTL compliance; `/intent:include` for design-level decisions.
+- Copy already in code that reads badly: better-writing. Motion: animate builds, review-animations critiques a diff, improve-animations audits a codebase. Components: shadcn (automatic when components.json exists); variants of a real page: `/interfaces:variant`. Mobile web feel: mobile-native; native iOS conventions only: ios-hig-design.
+- Product documents: product-management (write-spec for a PRD, roadmap-update, sprint-planning, stakeholder-update, synthesize-research when it feeds a roadmap, `/brainstorm` for product ideas). Engineering handoff of a decided design: intent agent rune (`/intent:specify`). Metrics after release: product-management:metrics-review; defining them before release: `/intent:measure`.
+- ux-design and product-innovation are reference libraries: cite one only when Nadav names it. Their keywords ("fix the design", "design review", "usability audit", "loading state") never make them the owner.
 - Code planning, execution and verification stay with OMC, and every UI task ends with the browser evidence the Verification section requires.
