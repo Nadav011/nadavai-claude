@@ -107,6 +107,8 @@ for (const route of routes as string[]) {
             scheme,
             status: null,
             load_error: null,
+            unreachable: false,
+            unreachable_reason: null,
             screenshot: null,
             overflow: { scrollWidth: 0, clientWidth: 0, failed: false },
             axe: { critical_serious: 0, violations: [] },
@@ -120,6 +122,30 @@ for (const route of routes as string[]) {
             const resp = await page.goto(route, { waitUntil: "domcontentloaded" });
             result.status = resp?.status() ?? null;
             await settle(page);
+
+            // Access check: the QA account must be able to open every page. A non-2xx,
+            // a bounce to a login or access-denied screen, or an empty body means the
+            // page was not measured, so it must not be scored as if it passed.
+            const landed = new URL(page.url()).pathname + new URL(page.url()).search;
+            const expected = route.split("?")[0];
+            const bounced =
+              !landed.startsWith(expected) &&
+              /login|signin|sign-in|auth|unauthorized|forbidden|403|no-access|\u05d4\u05ea\u05d7\u05d1\u05e8/i.test(landed);
+            const deniedText = await page
+              .locator("body")
+              .innerText()
+              .then((x) => x.slice(0, 400))
+              .catch(() => "");
+            if (result.status !== null && result.status >= 400) {
+              result.unreachable = true;
+              result.unreachable_reason = `HTTP ${result.status}`;
+            } else if (bounced) {
+              result.unreachable = true;
+              result.unreachable_reason = `redirected to ${landed}: the QA account has no access`;
+            } else if (/403|401|אין לך הרשאה|אין הרשאה|access denied|unauthorized|forbidden/i.test(deniedText)) {
+              result.unreachable = true;
+              result.unreachable_reason = "access-denied screen rendered";
+            }
 
             const shot = path.join(SCREENS_DIR, `${name}.png`);
             await page.screenshot({ path: shot, fullPage: true });
@@ -149,13 +175,15 @@ for (const route of routes as string[]) {
             result.reduced_motion = await reducedMotionViolations(page);
           } catch (err) {
             result.load_error = err instanceof Error ? err.message.slice(0, 500) : String(err);
+            result.unreachable = true;
+            result.unreachable_reason = result.load_error;
           }
 
           fs.mkdirSync(RESULTS_DIR, { recursive: true });
           fs.writeFileSync(path.join(RESULTS_DIR, `${name}.json`), JSON.stringify(result, null, 2));
           test.info().annotations.push({
             type: "dod",
-            description: `status=${result.status} overflow=${result.overflow.failed} axe=${result.axe.critical_serious} console=${consoleErrors.length} fonts=${result.fonts.count} touch=${result.touch_targets.failures} rm=${result.reduced_motion.violations}`,
+            description: `status=${result.status} unreachable=${result.unreachable} overflow=${result.overflow.failed} axe=${result.axe.critical_serious} console=${consoleErrors.length} fonts=${result.fonts.count} touch=${result.touch_targets.failures} rm=${result.reduced_motion.violations}`,
           });
         });
       });

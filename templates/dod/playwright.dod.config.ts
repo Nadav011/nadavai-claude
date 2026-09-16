@@ -1,4 +1,6 @@
+import fs from "node:fs";
 import { defineConfig } from "@playwright/test";
+import { STORAGE_STATE } from "./e2e/dod/dod-shared";
 
 // Definition-of-Done gate (`pnpm dod`). Separate config so it never runs, or is run by,
 // the project's own Playwright suite. Adjust `port` and `webServer.command` per project.
@@ -20,6 +22,8 @@ export default defineConfig({
   globalTeardown: "./e2e/dod/global-teardown.ts",
   use: {
     baseURL,
+    // The QA session from global-setup; every page of the app must open with it.
+    storageState: fs.existsSync(STORAGE_STATE) ? STORAGE_STATE : undefined,
     locale: "he-IL",
     trace: "off",
     video: "off",

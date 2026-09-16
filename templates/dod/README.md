@@ -9,6 +9,12 @@ under 44 px (mobile only), animations that keep moving under `prefers-reduced-mo
 fails on findings; it writes `reports/dod/dod.json` (score 100 minus penalties) and screenshots
 under `reports/dod/screens/`.
 
+The run is authenticated as the QA account, which must be able to open every page: `DOD_USER` and
+`DOD_PASSWORD` in `.env.local` (plus `DOD_LOGIN_PATH`, `DOD_USER_SELECTOR`, `DOD_PASSWORD_SELECTOR`,
+`DOD_SUBMIT_SELECTOR`, `DOD_READY_PATH` when the login screen differs from the defaults). `global-setup`
+logs in once into `reports/dod/qa-storage-state.json` and every entry reuses it. A page the session cannot
+open is recorded as `unreachable` and the score drops to 0: an unmeasured page is never a passing page.
+
 Install into a project:
 
 ```bash
