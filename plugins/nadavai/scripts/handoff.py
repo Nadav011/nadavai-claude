@@ -105,6 +105,133 @@ def kimi_sessions(workdir: Path) -> list[Path]:
 FINDERS = {"claude": claude_sessions, "codex": codex_sessions, "kimi": kimi_sessions}
 
 
+# ------------------------------------------------------------------------- index
+
+CACHE = HOME / ".cache" / "handoff" / "index.json"
+HEAD_BYTES = 512_000    # enough to reach the title record in a normal session
+FULL_BYTES = 48_000_000  # retry budget when the head yielded no title at all
+
+
+def all_project_dirs() -> list[Path]:
+    root = HOME / ".claude" / "projects"
+    return sorted([d for d in root.iterdir() if d.is_dir()]) if root.is_dir() else []
+
+
+def peek(path: Path, agent: str, budget: int = HEAD_BYTES) -> dict:
+    """Head-scan for a session's title and working directory, within a byte budget."""
+    title = cwd = None
+    try:
+        with path.open(encoding="utf-8", errors="replace") as fh:
+            for line in fh.read(budget).splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if agent == "claude":
+                    cwd = rec.get("cwd") or cwd
+                    if rec.get("type") == "ai-title" and rec.get("aiTitle"):
+                        title = rec["aiTitle"]
+                    if (title is None and rec.get("type") == "user"
+                            and rec.get("origin", {}).get("kind") == "human"):
+                        c = rec.get("message", {}).get("content")
+                        text = c if isinstance(c, str) else "".join(
+                            b.get("text", "") for b in c or [] if b.get("type") == "text")
+                        title = strip_noise(text)[:70] or None
+                else:
+                    payload = rec.get("payload") or {}
+                    if rec.get("type") == "session_meta":
+                        cwd = payload.get("cwd") or cwd
+                    elif (payload.get("type") == "message" and payload.get("role") == "user"
+                          and title is None):
+                        text = "".join(c.get("text", "") for c in payload.get("content", []) or []
+                                       if c.get("type") in ("input_text", "text"))
+                        title = strip_noise(text)[:70] or None
+                if title and cwd:
+                    break
+    except OSError:
+        pass
+    if not title and budget < FULL_BYTES:
+        # A session that opens with megabytes of pasted attachments hides its title
+        # past the head budget. Rare, and the result is cached, so re-read in full.
+        return peek(path, agent, FULL_BYTES)
+    return {"title": (title or "").replace("\n", " ").strip(), "cwd": cwd or ""}
+
+
+def build_index(agents: tuple[str, ...], limit: int, project: Path | None) -> list[dict]:
+    """All sessions across agents, newest first, with titles cached by mtime."""
+    try:
+        cache = json.loads(CACHE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        cache = {}
+
+    candidates: list[tuple[str, Path]] = []
+    if "claude" in agents:
+        dirs = [PROJECT_DIR_OF(project)] if project else all_project_dirs()
+        for d in dirs:
+            if d and d.is_dir():
+                candidates += [("claude", f) for f in d.glob("*.jsonl")]
+    if "codex" in agents:
+        root = HOME / ".codex" / "sessions"
+        if root.is_dir():
+            candidates += [("codex", f) for f in root.rglob("rollout-*.jsonl")]
+    if "kimi" in agents:
+        candidates += [("kimi", f) for f in kimi_sessions(project or Path.cwd())]
+
+    rows = []
+    for agent, f in candidates:
+        try:
+            st = f.stat()
+        except OSError:
+            continue
+        if st.st_size < 2048:
+            continue  # a session with nothing in it
+        rows.append({"agent": agent, "path": str(f), "mtime": st.st_mtime, "size": st.st_size})
+    rows.sort(key=lambda r: r["mtime"], reverse=True)
+    rows = rows[:limit]
+
+    stale = [r for r in rows
+             if cache.get(r["path"], {}).get("mtime") != r["mtime"]]
+    if stale:
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=16) as pool:
+            for r, info in zip(stale, pool.map(
+                    lambda r: peek(Path(r["path"]), r["agent"]), stale)):
+                cache[r["path"]] = {"mtime": r["mtime"], **info}
+        CACHE.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            CACHE.write_text(json.dumps(cache), encoding="utf-8")
+        except OSError:
+            pass
+
+    for r in rows:
+        r.update({k: v for k, v in cache.get(r["path"], {}).items() if k != "mtime"})
+    rows = [r for r in rows if r.get("title")]
+    if project:
+        # Claude rows are already scoped by their project directory; Codex and Kimi
+        # keep every session in one store, so they are scoped by recorded cwd.
+        rows = [r for r in rows if r["agent"] == "claude" or is_within(r.get("cwd"), project)]
+    return rows
+
+
+def is_within(cwd: str | None, project: Path) -> bool:
+    if not cwd:
+        return False
+    p = Path(cwd)
+    return p == project or project in p.parents or p in project.parents
+
+
+def PROJECT_DIR_OF(workdir: Path) -> Path | None:
+    root = HOME / ".claude" / "projects"
+    for candidate in [workdir, *workdir.parents]:
+        d = root / re.sub(r"[^A-Za-z0-9]", "-", str(candidate))
+        if d.is_dir():
+            return d
+    return None
+
+
 def resolve_session(agent: str, workdir: Path, want: str | None) -> tuple[str, Path]:
     if want and Path(want).is_file():
         path = Path(want)
@@ -353,35 +480,105 @@ def launch(target: str, doc: Path, source: str, note: str | None, workdir: Path)
     return subprocess.call(cmd, cwd=workdir)
 
 
+# --------------------------------------------------------------------------- pick
+
+AGENT_MARK = {"claude": "C", "codex": "X", "kimi": "K"}
+
+
+def row_line(r: dict) -> str:
+    """One fzf row: tab-separated, first field is the machine-readable key."""
+    when = dt.datetime.fromtimestamp(r["mtime"]).strftime("%m-%d %H:%M")
+    proj = Path(r.get("cwd") or "").name or "-"
+    mb = r["size"] / 1_048_576
+    size = f"{mb:.0f}M" if mb >= 1 else f"{r['size'] // 1024}K"
+    return (f"{r['path']}\t{AGENT_MARK[r['agent']]} {when}  "
+            f"{proj[:22]:<22} {size:>4}  {r['title'][:70]}")
+
+
+def fzf(lines: list[str], header: str, preview: str | None = None) -> str | None:
+    cmd = ["fzf", "--ansi", "--with-nth=2..", "--delimiter=\t", "--header", header,
+           "--height=90%", "--layout=reverse", "--border", "--no-sort"]
+    if preview:
+        cmd += ["--preview", preview, "--preview-window=right:55%:wrap"]
+    try:
+        proc = subprocess.run(cmd, input="\n".join(lines), capture_output=True, text=True)
+    except OSError as exc:
+        print(f"handoff: cannot run fzf ({exc})", file=sys.stderr)
+        return None
+    if proc.returncode not in (0, 1, 130):  # 1 = no match, 130 = user pressed esc
+        print(f"handoff: fzf failed ({proc.stderr.strip()[:200]}). "
+              "The picker needs a real terminal.", file=sys.stderr)
+    return proc.stdout.strip() or None
+
+
+def numbered(lines: list[str], header: str) -> str | None:
+    """Fallback when fzf is missing: a plain numbered menu."""
+    print(header, file=sys.stderr)
+    for i, line in enumerate(lines[:40], 1):
+        print(f"{i:3}. {line.split(chr(9), 1)[-1]}", file=sys.stderr)
+    try:
+        choice = input("number> ").strip()
+    except (EOFError, KeyboardInterrupt):
+        return None
+    return lines[int(choice) - 1] if choice.isdigit() and 1 <= int(choice) <= len(lines) else None
+
+
+def choose(lines: list[str], header: str, preview: str | None = None) -> str | None:
+    picked = fzf(lines, header, preview) if shutil.which("fzf") else None
+    if picked is None and not shutil.which("fzf"):
+        picked = numbered(lines, header)
+    return picked
+
+
+def preview_session(path: Path) -> int:
+    """Rendered for the fzf preview pane; never raises, the pane must always draw."""
+    try:
+        agent = "codex" if "rollout-" in path.name else sniff_agent(path)
+        data = PARSERS[agent](path)
+        text = render_raw(data, agent.capitalize())
+    except Exception as exc:  # a preview is not worth failing the picker over
+        text = f"(cannot preview: {exc})"
+    print("\n".join(text.splitlines()[:400]))
+    return 0
+
+
+def interactive(args) -> int:
+    agents = AGENTS if args.source in (None, "auto") else (args.source,)
+    rows = build_index(agents, args.limit, args.project.resolve() if args.here else None)
+    if not rows:
+        die("no sessions found.")
+
+    scope = str(args.project.resolve()) if args.here else "all projects"
+    picked = choose([row_line(r) for r in rows],
+                    f"session to hand over  ({len(rows)} found, {scope})  "
+                    f"C=claude X=codex K=kimi",
+                    preview=f"python3 {Path(__file__).resolve()} --preview {{1}}")
+    if not picked:
+        print("handoff: nothing picked", file=sys.stderr)
+        return 1
+    path = Path(picked.split("\t", 1)[0])
+    row = next(r for r in rows if r["path"] == str(path))
+
+    targets = [f"{t}\t{label}" for t, label in (
+        ("codex", "codex   - open Codex on this work"),
+        ("kimi", "kimi    - open Kimi on this work"),
+        ("claude", "claude  - open a fresh Claude Code session on this work"),
+        ("file", "file    - only write the handoff document, launch nothing"),
+    ) if t != row["agent"] or t == "claude"]
+    chosen = choose(targets, f"[{row['title'][:60]}]  which agent continues it?")
+    if not chosen:
+        return 1
+    target = chosen.split("\t", 1)[0]
+
+    workdir = Path(row["cwd"]) if row.get("cwd") and Path(row["cwd"]).is_dir() \
+        else args.project.resolve()
+    return run(target, row["agent"], path, workdir, args)
+
+
 # ---------------------------------------------------------------------------- main
 
-def main() -> int:
-    ap = argparse.ArgumentParser(prog="handoff", description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("target", choices=TARGETS, nargs="?", default="file",
-                    help="agent to hand over to, or 'file' to only write the document")
-    ap.add_argument("--from", dest="source", choices=AGENTS + ("auto",), default="claude",
-                    help="agent to hand over from (default: claude; 'auto' = newest session)")
-    ap.add_argument("--session", help="session id fragment, a transcript path, or 'latest'")
-    ap.add_argument("--project", type=Path, default=Path.cwd(), help="repository (default: cwd)")
-    ap.add_argument("--raw", action="store_true", help="mechanical extraction, no LLM summary")
-    ap.add_argument("--model", default="haiku", help="model used for the summary")
-    ap.add_argument("--note", help="extra instruction appended to the pickup prompt")
-    ap.add_argument("--out", type=Path, help="write here instead of .omc/handoffs/")
-    ap.add_argument("--no-launch", action="store_true", help="write the document, do not launch")
-    ap.add_argument("--list", action="store_true", help="list candidate sessions and exit")
-    args = ap.parse_args()
 
-    workdir = args.project.resolve()
-
-    if args.list:
-        for a in (AGENTS if args.source == "auto" else (args.source,)):
-            for p in FINDERS[a](workdir)[:10]:
-                stamp = dt.datetime.fromtimestamp(p.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
-                print(f"{a:7} {stamp}  {p.stem[:36]}  {p.stat().st_size // 1024}KB")
-        return 0
-
-    source, session = resolve_session(args.source, workdir, args.session)
+def run(target: str, source: str, session: Path, workdir: Path, args) -> int:
     data = PARSERS[source](session)
     if not data["turns"]:
         die(f"{session.name} has no conversation to hand over")
@@ -394,7 +591,7 @@ def main() -> int:
         out = args.out
     else:
         base = data["title"] or session.stem
-        slug = re.sub(r"[^\w֐-׿]+", "-", base).strip("-")[:40] or "session"
+        slug = re.sub(r"[^\w\u0590-\u05FF]+", "-", base).strip("-")[:40] or "session"
         out = workdir / ".omc" / "handoffs" / f"{dt.date.today()}-{source}-{slug}.md"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(
@@ -404,9 +601,51 @@ def main() -> int:
         encoding="utf-8")
     print(out)
 
-    if args.target == "file" or args.no_launch:
+    if target == "file" or args.no_launch:
         return 0
-    return launch(args.target, out, source, args.note, workdir)
+    return launch(target, out, source, args.note, workdir)
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(prog="handoff", description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("target", choices=TARGETS, nargs="?",
+                    help="agent to hand over to, or 'file' to only write the document. "
+                         "Omit it to pick a session and a target interactively.")
+    ap.add_argument("--from", dest="source", choices=AGENTS + ("auto",), default=None,
+                    help="agent to hand over from (default: every agent when picking, "
+                         "claude for a direct handover)")
+    ap.add_argument("--session", help="session id fragment, a transcript path, or 'latest'")
+    ap.add_argument("--project", type=Path, default=Path.cwd(), help="repository (default: cwd)")
+    ap.add_argument("--here", action="store_true",
+                    help="limit the picker to this project (default: every project)")
+    ap.add_argument("--limit", type=int, default=300, help="sessions to index for the picker")
+    ap.add_argument("--raw", action="store_true", help="mechanical extraction, no LLM summary")
+    ap.add_argument("--model", default="haiku", help="model used for the summary")
+    ap.add_argument("--note", help="extra instruction appended to the pickup prompt")
+    ap.add_argument("--out", type=Path, help="write here instead of .omc/handoffs/")
+    ap.add_argument("--no-launch", action="store_true", help="write the document, do not launch")
+    ap.add_argument("--list", action="store_true", help="print candidate sessions and exit")
+    ap.add_argument("--preview", type=Path, help=argparse.SUPPRESS)  # fzf preview pane
+    args = ap.parse_args()
+
+    if args.preview:
+        return preview_session(args.preview)
+
+    if args.list:
+        agents = AGENTS if args.source in (None, "auto") else (args.source,)
+        rows = build_index(agents, args.limit,
+                           args.project.resolve() if args.here else None)
+        for r in rows:
+            print(row_line(r).split("\t", 1)[1])
+        return 0
+
+    if args.target is None and args.session is None:
+        return interactive(args)
+
+    workdir = args.project.resolve()
+    source, session = resolve_session(args.source or "claude", workdir, args.session)
+    return run(args.target or "file", source, session, workdir, args)
 
 
 if __name__ == "__main__":

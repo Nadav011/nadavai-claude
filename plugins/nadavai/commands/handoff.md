@@ -45,10 +45,17 @@ The work lives in another agent's transcript and continues here.
 
 ## No arguments
 
-Run `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/handoff.py" --list --from auto` and show the user
-the candidate sessions across all three agents, then ask which direction they want.
+The bare `handoff` command is an interactive picker and needs a real terminal, so do not run
+it from a tool call. Instead run
+`python3 "${CLAUDE_PLUGIN_ROOT}/scripts/handoff.py" --list` (add `--here` to scope it to this
+project), show the user the candidate sessions across all three agents, and ask which one and
+which direction they want.
 
 ## Notes
+
+- `handoff` with no arguments, run by the user in their own terminal, lists every session from
+  every agent in fzf with a preview pane, then asks which agent continues it. That is the path
+  to recommend when the user does not already know which session they mean.
 
 - `--raw` skips the summary model: mechanical extraction only, free and instant, but the
   document is larger and the receiving agent reads more.
