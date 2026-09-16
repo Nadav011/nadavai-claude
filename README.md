@@ -15,7 +15,7 @@ No secrets live in this repo. OAuth logins, API keys and tokens stay per machine
 | Bundle plugin `nadavai` | `plugins/nadavai/` | `claude plugin install nadavai@nadavai` |
 | Dependencies: oh-my-claudecode (OMC), i-have-adhd, context7, typescript-lsp, pyright-lsp, playwright, supabase, chrome-devtools-mcp, cloudflare, sentry, skill-creator | `plugins/nadavai/.claude-plugin/plugin.json` | installed and enabled automatically with the bundle |
 | Skills: qa-report, vercel-react-best-practices, vercel-composition-patterns, hebrew-rtl-best-practices, hebrew-i18n, israeli-accessibility-compliance, capacitor-app-development, capacitor-plugins | `plugins/nadavai/skills/` | the bundle (invoked as `/nadavai:<skill>` or by trigger) |
-| Bright Data MCP (search engine, unblocked scrape, Reddit/X/YouTube data; Pro mode) | `plugins/nadavai/.mcp.json` | the bundle; needs `BRIGHTDATA_API_TOKEN` per machine, see Secrets |
+| Bright Data MCP (search engine, unblocked scrape, Reddit/X/YouTube data; groups social, research, advanced_scraping) | `plugins/nadavai/mcp.json` (not `.mcp.json`: the global gitignore drops that name) | the bundle; needs `BRIGHTDATA_API_TOKEN` per machine, see Secrets |
 | Repo-sync hooks (SessionStart status, PostToolUse edit reminder) | `plugins/nadavai/hooks/`, `plugins/nadavai/scripts/` | the bundle |
 | Rules (working agreement, OMC team size, nadavai, project re-init) | `rules/` | `setup.sh` symlinks `~/.claude/rules` here |
 | Settings defaults (model, effort, Hebrew, auto permissions, agent teams, enabled plugins, marketplaces with auto-update) | `settings/settings.base.json` | `setup.sh` deep-merges into `~/.claude/settings.json` |
