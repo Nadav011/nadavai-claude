@@ -24,6 +24,8 @@ order, and nothing else first:
 
 5. After the commit, remind Nadav to run `/fewer-permission-prompts` once in this project and
    to open one fresh session to confirm only OMC, the global rules and the global plugins load.
+6. If the project has a UI and no `DESIGN.md` or `PRODUCT.md`, continue with `design-init.md`
+   in the same session, because its six steps assume the fresh CLAUDE.md from step 3.
 
 Why: the three active projects (TherapyFlow, Green Room, SporChat) went through exactly this
 flow on 2026-09-15 and 2026-09-16, and it produced CLAUDE.md files that are short, factual and

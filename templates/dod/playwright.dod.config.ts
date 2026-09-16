@@ -1,0 +1,33 @@
+import { defineConfig } from "@playwright/test";
+
+// Definition-of-Done gate (`pnpm dod`). Separate config so it never runs, or is run by,
+// the project's own Playwright suite. Adjust `port` and `webServer.command` per project.
+const port = process.env.PORT ?? "3000";
+const baseURL = `http://localhost:${port}`;
+
+export default defineConfig({
+  testDir: "./e2e/dod",
+  timeout: 120_000,
+  expect: { timeout: 10_000 },
+  fullyParallel: false,
+  workers: 1,
+  retries: 0,
+  reporter: [["list"]],
+  outputDir: "./test-results/dod",
+  globalSetup: "./e2e/dod/global-setup.ts",
+  globalTeardown: "./e2e/dod/global-teardown.ts",
+  use: {
+    baseURL,
+    locale: "he-IL",
+    trace: "off",
+    video: "off",
+  },
+  webServer: {
+    command: `pnpm dev -p ${port}`,
+    url: baseURL,
+    reuseExistingServer: true,
+    timeout: 180_000,
+    stdout: "ignore",
+    stderr: "pipe",
+  },
+});

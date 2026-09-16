@@ -9,6 +9,12 @@
             "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/session-check.sh",
             "timeout": 15,
             "statusMessage": "Checking the nadavai repo..."
+          },
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/project-check.sh",
+            "timeout": 5,
+            "statusMessage": "Checking project setup state..."
           }
         ]
       }
