@@ -156,9 +156,15 @@ async function reducedMotionViolations(page: Page) {
       const timing = eff.getComputedTiming();
       // A near-zero duration is the accepted "disable" technique.
       const dur = typeof timing.duration === "number" ? timing.duration : 0;
-      if (usesTransform && dur > 50) {
+      const target = eff.target as Element | null;
+      // The other accepted technique, and the one the WCAG note actually describes:
+      // a busy indicator that has to keep turning because it is the only thing saying
+      // the app is still working, slowed until it no longer reads as motion. A spinner
+      // at 1.4s or more is that, not a defect — and a probe that cannot tell the two
+      // apart teaches people to delete the honest fix.
+      const slowedSpinner = dur >= 1400 && target?.classList.contains("animate-spin");
+      if (usesTransform && dur > 50 && !slowedSpinner) {
         violations++;
-        const target = eff.target as Element | null;
         if (samples.length < 8) {
           samples.push(
             `${target?.tagName.toLowerCase() ?? "?"}${target?.className ? "." + String(target.className).split(" ").slice(0, 3).join(".") : ""} ${a.constructor.name} ${dur}ms`,

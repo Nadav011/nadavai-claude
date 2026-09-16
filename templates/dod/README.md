@@ -32,6 +32,17 @@ Then, in the project:
    `{ "id": "1", "/receipt/[id]": { "id": "70000000-…" } }`. `node e2e/dod/routes.mjs --check` exits 1 when
    the app has a route the file does not cover, and when a dynamic segment has no sample at all: run it in CI
    so a new page cannot ship unmeasured.
+1b. When `routes.json` cannot say what the project needs, replace it with a TypeScript module
+   (`e2e/dod/routes.ts`) and move the `--check` into the project's own test suite. Two shapes need
+   this: several products from one codebase, each with its own list (`routesFor(vertical)`), and a
+   route deliberately left out, which a JSON array cannot carry a reason for. The check that
+   replaces `routes.mjs --check` has to assert the same things or it is not a replacement: every
+   route of the app is either measured or excluded with a written reason, every excluded route
+   still exists, and no two routes share a report slug. TherapyFlow's
+   `tests/fidelity/dod-routes-complete.test.ts` is the worked example — the slug assertion is
+   there because `/` and `/home` collided and one screen went unmeasured while the report still
+   counted it.
+
 2. `playwright.dod.config.ts`: the dev port and `webServer.command` (`pnpm dev -p`, `vite --port`, ...).
 3. `package.json` scripts: `"dod": "node e2e/dod/routes.mjs --check && playwright test -c playwright.dod.config.ts"`
    (one route while building a screen: `pnpm dod -- --grep "<slug>__"`). Parallelism: `DOD_WORKERS=8 pnpm dod`.
