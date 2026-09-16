@@ -73,7 +73,7 @@ This is the full preparation Nadav wants on an existing project before any renov
 
 ## Mode `screen <name>` (one screen, new or redesign)
 
-1. **Brief.** Write a 10-line brief for the screen: purpose, user, data source, and every state (loading, empty, error, success), acceptance: RTL, 375 and 1440, dark mode, keyboard, touch targets >= 44px, reduced-motion, real Hebrew copy, tokens only. Show it; wait for OK.
+1. **Brief.** Write a 10-line brief for the screen: purpose, user, data source, and every state (loading, empty, error, success), acceptance: RTL, 375 and 1440, dark mode, keyboard, touch targets >= 44px, reduced-motion, real Hebrew copy, tokens only. If the screen renders content a user typed or uploaded, the brief also lists its hostile cases (mixed Hebrew and Latin on one line, a 300-character word, a pasted URL, an emoji-only entry, a failed upload, a reported item) and the `.claude/rules/ui.md` user-content rules apply. Show it; wait for OK.
 2. **Build or redesign** with shadcn components only (add via `PM dlx shadcn@latest add <name>`), tokens from globals.css, logical properties. For a redesign: keep behavior, strings, routes and data code unchanged.
 3. `/impeccable critique` on the screen (the skill names it, per the carve-out in working-style.md).
 4. Fix what it named with Impeccable's own fixers, inside the existing design language: `/impeccable polish` for the P0/P1 findings, then `/impeccable harden` (edge cases, long text, RTL, states). Nadav types both; you apply nothing by hand that these two cover.
