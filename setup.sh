@@ -69,6 +69,7 @@ log "$CFG/.i-have-adhd-always"
 
 step "Git hooks and global ignore"
 link_git
+link_bin
 
 step "OMC CLI, CLAUDE.md and HUD"
 ensure_omc

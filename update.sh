@@ -33,6 +33,7 @@ fi
 step "Links"
 link_rules
 link_git
+link_bin
 retire_duplicate_skills
 
 step "Done"
