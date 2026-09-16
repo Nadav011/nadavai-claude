@@ -34,7 +34,6 @@
     "skill-creator@claude-plugins-official": true,
     "claude-seo@agricidaniel-claude-seo": false,
     "impeccable@impeccable": true,
-    "web-quality-skills@addy-web-quality-skills": true,
     "product-management@knowledge-work-plugins": true,
     "ux-design@wondelai-skills": true,
     "product-innovation@wondelai-skills": true,
@@ -74,13 +73,6 @@
       "source": {
         "source": "github",
         "repo": "pbakaus/impeccable"
-      },
-      "autoUpdate": true
-    },
-    "addy-web-quality-skills": {
-      "source": {
-        "source": "github",
-        "repo": "addyosmani/web-quality-skills"
       },
       "autoUpdate": true
     },

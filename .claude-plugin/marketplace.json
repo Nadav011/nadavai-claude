@@ -11,7 +11,6 @@
     "i-have-adhd",
     "claude-plugins-official",
     "impeccable",
-    "addy-web-quality-skills",
     "knowledge-work-plugins",
     "wondelai-skills",
     "intent",
@@ -21,7 +20,7 @@
   "plugins": [
     {
       "name": "nadavai",
-      "description": "Everything in one install: oh-my-claudecode, context7, LSPs, Playwright, Supabase, Chrome DevTools, Cloudflare, Sentry, skill-creator, i-have-adhd, Bright Data research MCP, the UI/UX and product layer (Impeccable, intent, interfaces, ux-design, product-innovation, product-management, web-quality-skills, PostHog), plus Nadav's skills and repo-sync hooks.",
+      "description": "Everything in one install: oh-my-claudecode, context7, LSPs, Playwright, Supabase, Chrome DevTools, Cloudflare, Sentry, skill-creator, i-have-adhd, Bright Data research MCP, the UI/UX and product layer (Impeccable, intent, interfaces, ux-design, product-innovation, product-management, PostHog), plus Nadav's skills and repo-sync hooks.",
       "source": "./plugins/nadavai",
       "category": "productivity",
       "keywords": [
