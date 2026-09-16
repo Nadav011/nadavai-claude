@@ -27,6 +27,17 @@ const DIR = path.join(ROOT, "e2e", "dod");
 const OUT = path.join(DIR, "routes.json");
 const PARAMS = path.join(DIR, "route-params.json");
 const params = fs.existsSync(PARAMS) ? JSON.parse(fs.readFileSync(PARAMS, "utf8")) : {};
+/**
+ * Routes the gate must not measure, with the reason beside each one in
+ * route-params.json under `_exclude`. Two kinds qualify, and only two:
+ *   * a route that cannot exist in the build under test — a development-only
+ *     screen, when the gate measures a production build;
+ *   * a bare path whose real screen needs a query parameter, where that
+ *     parameterised entry is already in the list.
+ * Anything else belongs in the score. An exclusion is a decision someone has to
+ * read, which is why it lives in the file with its reason rather than in code.
+ */
+const EXCLUDE = new Set(Object.keys(params._exclude ?? {}));
 const skipped = [];
 const MISSING = "%%MISSING%%";
 const SKIP_FILE = /\.(test|spec|stories|d)\.[tj]sx?$/;
@@ -128,7 +139,7 @@ if (!routes.size) {
 }
 routes.delete("/*");
 
-const found = [...routes].sort();
+const found = [...routes].filter((r) => !EXCLUDE.has(r)).sort();
 const existing = fs.existsSync(OUT) ? JSON.parse(fs.readFileSync(OUT, "utf8")) : [];
 const covered = (r) => existing.some((e) => e === r || e.startsWith(r + "?"));
 const missing = found.filter((r) => !covered(r));
@@ -153,7 +164,7 @@ if (process.argv.includes("--check")) {
 }
 
 // Write every app route, keeping extra entries already there (state variants such as "?state=error").
-const merged = [...new Set([...found, ...existing])].sort();
+const merged = [...new Set([...found, ...existing])].filter((r) => !EXCLUDE.has(r)).sort();
 fs.writeFileSync(OUT, JSON.stringify(merged, null, 2) + "\n");
 for (const s of skipped) console.log("skipped " + s);
 console.log(

@@ -195,6 +195,16 @@ for (const route of routes as string[]) {
             } else if (bounced) {
               result.unreachable = true;
               result.unreachable_reason = `redirected to ${landed}: the QA account has no access`;
+            } else if (/הדף לא נמצא|page not found|404/i.test(deniedText) && !route.includes("404")) {
+              // A route in the list that answers with the app's own not-found page is
+              // not being measured — it is the 404 screen being measured 110 times.
+              // /book/confirmed did exactly this: it needs ?bookingId=, so the gate
+              // scored the not-found page 100 while the screen that shows a customer
+              // their door code was never opened. A route list is only as good as the
+              // parameters that make its pages real.
+              result.unreachable = true;
+              result.unreachable_reason =
+                "renders the not-found page — the route needs a query parameter (add it to routes.json)";
             } else if (/403|401|אין לך הרשאה|אין הרשאה|access denied|unauthorized|forbidden/i.test(deniedText)) {
               result.unreachable = true;
               result.unreachable_reason = "access-denied screen rendered";
