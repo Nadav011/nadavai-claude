@@ -16,6 +16,7 @@
     "capacitor",
     "qa"
   ],
+  "mcpServers": "./.mcp.json",
   "dependencies": [
     {
       "name": "oh-my-claudecode",

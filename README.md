@@ -15,6 +15,7 @@ No secrets live in this repo. OAuth logins, API keys and tokens stay per machine
 | Bundle plugin `nadavai` | `plugins/nadavai/` | `claude plugin install nadavai@nadavai` |
 | Dependencies: oh-my-claudecode (OMC), i-have-adhd, context7, typescript-lsp, pyright-lsp, playwright, supabase, chrome-devtools-mcp, cloudflare, sentry, skill-creator | `plugins/nadavai/.claude-plugin/plugin.json` | installed and enabled automatically with the bundle |
 | Skills: qa-report, vercel-react-best-practices, vercel-composition-patterns, hebrew-rtl-best-practices, hebrew-i18n, israeli-accessibility-compliance, capacitor-app-development, capacitor-plugins | `plugins/nadavai/skills/` | the bundle (invoked as `/nadavai:<skill>` or by trigger) |
+| Bright Data MCP (search engine, unblocked scrape, Reddit/X/YouTube data; Pro mode) | `plugins/nadavai/.mcp.json` | the bundle; needs `BRIGHTDATA_API_TOKEN` per machine, see Secrets |
 | Repo-sync hooks (SessionStart status, PostToolUse edit reminder) | `plugins/nadavai/hooks/`, `plugins/nadavai/scripts/` | the bundle |
 | Rules (working agreement, OMC team size, nadavai, project re-init) | `rules/` | `setup.sh` symlinks `~/.claude/rules` here |
 | Settings defaults (model, effort, Hebrew, auto permissions, agent teams, enabled plugins, marketplaces with auto-update) | `settings/settings.base.json` | `setup.sh` deep-merges into `~/.claude/settings.json` |
@@ -44,6 +45,18 @@ Then open Claude Code once and run `/mcp` to sign in to Supabase, Cloudflare and
 `settings.json`) is moved to `~/.claude/nadavai-backup-<timestamp>/`.
 
 The clone must be at `~/nadavai`, or set `NADAVAI_HOME` for the hooks and scripts.
+
+## Secrets (per machine, never in the repo)
+
+The Bright Data server reads its token from the `BRIGHTDATA_API_TOKEN` environment variable. Put it in
+`~/.claude/settings.json` so every launcher (terminal, IDE, desktop app) sees it:
+
+```json
+{ "env": { "BRIGHTDATA_API_TOKEN": "your-token" } }
+```
+
+`setup.sh` keeps local keys like this one when it merges `settings.base.json`. Free tier: 5,000 credits a month,
+no card; leave auto-recharge off. Structured `web_data_*` calls cost one credit per record returned.
 
 ## Daily cycle: change something
 

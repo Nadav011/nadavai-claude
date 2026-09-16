@@ -147,5 +147,6 @@ android-sdk|[ -d "${ANDROID_HOME:-$HOME/Android/Sdk}" ]|Capacitor Android builds
 maestro|command -v maestro|mobile flows: curl -fsSL https://get.maestro.mobile.dev | bash
 bubblewrap|command -v bubblewrap|TWA: npm i -g @bubblewrap/cli
 sox|command -v sox|/voice input
+brightdata-token|grep -q BRIGHTDATA_API_TOKEN "$CFG/settings.json"|add {"env":{"BRIGHTDATA_API_TOKEN":"..."}} to ~/.claude/settings.json (README, Secrets)
 LIST
 }
