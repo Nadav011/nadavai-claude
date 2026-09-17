@@ -2,11 +2,13 @@
 # GLOBAL PRE-PUSH HOOK v4.0.0 — APEX Industry Standard
 #
 # LAYER 1 (ALL branches, ~15s): Trivy CRITICAL CVE scan
-# LAYER 2 (main/master only, ~30s): TypeScript typecheck + Flutter analyze
+# LAYER 2 (main/master only, ~45s): TypeScript typecheck + affected tests + Flutter analyze
 #
 # Philosophy:
 #   - CRITICAL CVEs block ALL pushes (any branch) — security is non-negotiable
 #   - TypeScript errors block main/master only — feature branches trust CI
+#   - The tests that touch the push block main; the FULL suite does not — it runs
+#     where nobody waits for it (CI, and the deploy, which is manual)
 #   - Everything else (Stryker, Lighthouse, LangGraph) → CI + systemd timers
 #   - Bypass: git push --no-verify  (emergency only)
 
@@ -20,8 +22,10 @@ cd "$REPO_ROOT"
 
 # ── Read what branch is being pushed ─────────────────────────────
 PUSH_TARGET_BRANCH=""
+PUSH_REMOTE_SHA=""
 while read -r local_ref local_sha remote_ref remote_sha; do
   PUSH_TARGET_BRANCH=$(echo "$remote_ref" | sed 's|refs/heads/||')
+  PUSH_REMOTE_SHA="$remote_sha"
 done
 
 ERRORS=0
@@ -78,6 +82,12 @@ has_script() {
   python3 -c "import json,sys; sys.exit(0 if '$1' in json.load(open('package.json')).get('scripts',{}) else 1)" 2>/dev/null
 }
 
+# vitest specifically, not any "test" script: --changed is a vitest flag, and a
+# repo on jest or node:test would be handed an argument it does not understand.
+has_vitest() {
+  python3 -c "import json,sys; d=json.load(open('package.json')); sys.exit(0 if 'vitest' in {**d.get('dependencies',{}), **d.get('devDependencies',{})} else 1)" 2>/dev/null
+}
+
 # Node.js: typecheck
 if [ -f "package.json" ]; then
   PM=$(detect_pm)
@@ -89,6 +99,39 @@ if [ -f "package.json" ]; then
     else
       echo "✅ typecheck passed"
     fi
+  fi
+fi
+
+# Node.js: the tests that touch what is being pushed.
+#
+# Not the whole suite. On a repo of this size the full run is 3m27s and the
+# tests that touch one commit are 12s — and a gate a person waits three minutes
+# for is a gate they learn to bypass. The full suite still has to be green, but
+# it belongs where nobody is waiting on it: CI, and the deploy, which is manual.
+#
+# The base is what the REMOTE already has, so a push of five commits checks all
+# five rather than the last one. A new branch (all-zero remote sha) or a sha this
+# clone cannot resolve falls back to the last commit.
+if [ -f "package.json" ] && has_vitest; then
+  CHANGED_BASE="$PUSH_REMOTE_SHA"
+  case "$CHANGED_BASE" in
+    ''|*[!0]*) ;;          # a real sha, keep it
+    *) CHANGED_BASE="" ;;  # all zeros: the remote has no such branch yet
+  esac
+  if [ -z "$CHANGED_BASE" ] || ! git cat-file -e "${CHANGED_BASE}^{commit}" 2>/dev/null; then
+    CHANGED_BASE="HEAD~1"
+  fi
+  echo "  tests touching this push (base: ${CHANGED_BASE})..."
+  # --passWithNoTests: a docs-only or config-only push legitimately touches none.
+  # timeout: this layer is meant to cost seconds, so if it ever costs five
+  # minutes something is wrong and the person should hear about it rather than
+  # watch a terminal hang.
+  if ! timeout 300 npx vitest run --changed "$CHANGED_BASE" --passWithNoTests 2>&1 | tail -20; then
+    echo "❌ tests touching this push failed — fix before pushing to main"
+    echo "   Run them yourself: npx vitest run --changed ${CHANGED_BASE}"
+    ERRORS=$((ERRORS + 1))
+  else
+    echo "✅ affected tests passed"
   fi
 fi
 
