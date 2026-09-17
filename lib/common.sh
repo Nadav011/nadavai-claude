@@ -113,8 +113,11 @@ link_git() {
 
 ensure_omc() {
   if ! command -v omc >/dev/null 2>&1; then
-    log "installing the omc CLI (npm -g oh-my-claudecode)"
-    npm install -g oh-my-claudecode
+    # The package is oh-my-claude-sisyphus, not oh-my-claudecode: the latter name
+    # on npm is an unrelated project at 0.2.15 that ships no omc binary, so
+    # installing it leaves `omc setup` unable to run at all.
+    log "installing the omc CLI (npm -g oh-my-claude-sisyphus)"
+    npm install -g oh-my-claude-sisyphus
   fi
   # Installs ~/.claude/CLAUDE.md (OMC block), the HUD statusline and OMC hooks.
   omc setup --quiet || warn "omc setup reported a problem; run 'omc setup' by hand"
@@ -158,6 +161,48 @@ dependency_ids() {
     const m = require(process.argv[1]);
     for (const d of m.dependencies || []) console.log(typeof d === "string" ? d : `${d.name}@${d.marketplace || "nadavai"}`);
   ' "$REPO/plugins/nadavai/.claude-plugin/plugin.json"
+}
+
+npm_globals() {
+  # Names from npm-globals.txt, comments and blank lines stripped.
+  sed -e 's/#.*//' -e 's/[[:space:]]//g' "$REPO/npm-globals.txt" | grep -v '^$'
+}
+
+ensure_npm_globals() {
+  # Opt-in: hundreds of MB. Only installs what is missing.
+  local installed missing=() pkg
+  installed="$(npm ls -g --depth=0 --parseable 2>/dev/null | sed 's|.*/node_modules/||')"
+  while read -r pkg; do
+    grep -qxF "$pkg" <<<"$installed" || missing+=("$pkg")
+  done < <(npm_globals)
+  if [ "${#missing[@]}" -eq 0 ]; then log "all global npm packages present"; return; fi
+  log "installing ${#missing[@]} missing: ${missing[*]}"
+  npm install -g "${missing[@]}" || warn "npm install -g reported a problem"
+}
+
+report_npm_globals() {
+  local installed pkg missing=0
+  installed="$(npm ls -g --depth=0 --parseable 2>/dev/null | sed 's|.*/node_modules/||')"
+  while read -r pkg; do
+    grep -qxF "$pkg" <<<"$installed" || { missing=$((missing + 1)); }
+  done < <(npm_globals)
+  if [ "$missing" -gt 0 ]; then
+    printf '  %-8s %-22s %s\n' "MISSING" "npm globals ($missing)" "run ./setup.sh --npm"
+  else
+    printf '  %-8s %-22s\n' "ok " "npm globals"
+  fi
+}
+
+link_shell() {
+  # One source line in ~/.bashrc, so the repo owns the shared shell environment
+  # and ~/.bashrc keeps everything machine-specific.
+  local rc="$HOME/.bashrc" marker="# nadavai shell environment"
+  if grep -qF "$marker" "$rc" 2>/dev/null; then log "$rc already sources shell/nadavai.sh"; return; fi
+  {
+    printf '\n%s\n' "$marker"
+    printf '%s\n' '[ -r "$HOME/nadavai/shell/nadavai.sh" ] && . "$HOME/nadavai/shell/nadavai.sh"'
+  } >> "$rc"
+  log "appended the source line to $rc"
 }
 
 system_check() {

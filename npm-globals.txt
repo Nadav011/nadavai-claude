@@ -1,0 +1,36 @@
+# Global npm packages this environment expects. One name per line, comments allowed.
+# Installed by `./setup.sh --npm` or `./update.sh --npm`, never automatically:
+# it is a few hundred MB and a new machine rarely needs all of it on day one.
+#
+# fnm keeps global packages PER NODE VERSION. Install them under the version
+# `fnm default` points at, or a new shell will find none of them.
+
+# Agents and Claude tooling
+oh-my-claude-sisyphus    # the omc CLI (NOT oh-my-claudecode, which is a different project)
+continues                # the cs session-handoff CLI
+ccusage                  # token and cost accounting
+mcporter                 # inspect and call MCP servers from the shell
+repomix                  # pack a repo into one file for an LLM
+
+# Deploy
+vercel
+
+# Quality gates
+eslint
+stylelint
+knip                     # unused files, exports and dependencies
+jscpd                    # copy-paste detector
+squawk-cli               # postgres migration linter
+size-limit               # bundle budget
+mega-linter-runner
+@axe-core/cli            # accessibility, used by the DoD gate
+
+# Testing and performance
+lighthouse
+memlab                   # memory leak detection
+appium                   # mobile automation
+@playwright/test
+
+# Mobile and build
+@bubblewrap/cli          # TWA packaging
+typescript

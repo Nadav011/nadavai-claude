@@ -4,6 +4,7 @@
 #
 #   ./setup.sh            marketplace from GitHub (Nadav011/nadavai-claude)
 #   ./setup.sh --local    marketplace from this clone (offline / before the first push)
+#   ./setup.sh --npm      also install the global npm packages in npm-globals.txt
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -11,9 +12,11 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$REPO/lib/common.sh"
 
 MARKETPLACE_SOURCE="Nadav011/nadavai-claude"
+WITH_NPM=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --local) MARKETPLACE_SOURCE="$REPO" ;;
+    --npm) WITH_NPM=1 ;;
     -h|--help) sed -n '2,7p' "$0"; exit 0 ;;
     *) die "unknown option: $1" ;;
   esac
@@ -70,6 +73,9 @@ log "$CFG/.i-have-adhd-always"
 step "Git hooks and global ignore"
 link_git
 
+step "Shell environment (~/.bashrc sources shell/nadavai.sh)"
+link_shell
+
 step "OMC CLI, CLAUDE.md and HUD"
 ensure_omc
 
@@ -77,8 +83,14 @@ step "continues CLI and the cs shortcut"
 ensure_continues
 link_shortcuts
 
+if [ "$WITH_NPM" = 1 ]; then
+  step "Global npm packages"
+  ensure_npm_globals
+fi
+
 step "System tools (informational)"
 system_check
+report_npm_globals
 
 step "Done"
 cat <<MSG

@@ -3,14 +3,21 @@
 #
 #   ./update.sh          nadavai only (marketplace + plugin + symlinks)
 #   ./update.sh --all    also refresh every other marketplace and dependency plugin
+#   ./update.sh --npm    also install any missing global npm package
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/common.sh
 source "$REPO/lib/common.sh"
 
-ALL=0
-[ "${1:-}" = "--all" ] && ALL=1
+ALL=0; NPM=0
+for a in "$@"; do
+  case "$a" in
+    --all) ALL=1 ;;
+    --npm) NPM=1 ;;
+    -h|--help) sed -n '2,7p' "$0"; exit 0 ;;
+  esac
+done
 
 step "Repo"
 if [ -n "$(git -C "$REPO" status --porcelain)" ]; then
@@ -33,9 +40,15 @@ fi
 step "continues CLI"
 ensure_continues
 
+if [ "$NPM" = 1 ]; then
+  step "Global npm packages"
+  ensure_npm_globals
+fi
+
 step "Links"
 link_rules
 link_git
+link_shell
 link_shortcuts
 retire_duplicate_skills
 

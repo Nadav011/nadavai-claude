@@ -78,6 +78,23 @@ The build concurrency caps in `settings.base.json` (`MAKEFLAGS=-j6`, `VITEST_MAX
 `CARGO_BUILD_JOBS=6`) exist because unbounded test and build runners are what actually bring a
 machine to its knees, not the number of projects. Raise them per machine if it has the cores to spare.
 
+## Shell and global npm
+
+`setup.sh` appends one line to `~/.bashrc` that sources `shell/nadavai.sh`. The repo owns the shared
+part of the shell (Claude env vars, build concurrency, the CLI and git aliases); `~/.bashrc` keeps
+everything machine-specific such as SDK paths and PATH order. Every alias is guarded on its tool
+existing, so a machine without `eza` or `batcat` gets the plain command rather than a broken one.
+
+The concurrency caps derive from `nproc` (about 40% of threads) instead of a fixed number, because a
+value tuned for one machine is wrong on the next. Override with `NADAVAI_JOBS=n` before the source line.
+
+`npm-globals.txt` lists the global packages this environment expects. They are **not** installed
+automatically; run `./setup.sh --npm` (or `./update.sh --npm`) when the machine should have them.
+`setup.sh` reports how many are missing on every run.
+
+fnm keeps global packages per Node version, so install them under the version `fnm default` points at.
+Check with `fnm list`; globals installed under a different version are invisible to a new shell.
+
 ## Secrets (per machine, never in the repo)
 
 The Bright Data server reads its token from the `BRIGHTDATA_API_TOKEN` environment variable. Put it in
