@@ -1,0 +1,118 @@
+#!/usr/bin/env bash
+# Claude session hub. One fzf menu of actions + resumable sessions.
+#
+# Modes (first arg):
+#   inline  (default) — run the chosen action in THIS window. Used as window-1
+#                       of a fresh session via `tm`. A cancel drops to a shell
+#                       so the session is never killed.
+#   window            — open the chosen action in a NEW tmux window. Used by the
+#                       Alt+o popup launcher; a cancel just closes the popup.
+# Second arg = base directory for "new/continue/grid" (the popup passes the
+# current pane's project path; inline uses the shell's $PWD).
+DIR="$HOME/.claude/projects/-home-nadavcohen"
+MODE="${1:-inline}"
+BASEDIR="${2:-$PWD}"
+[ -d "$BASEDIR" ] || BASEDIR="$PWD"
+
+in_tmux() { [ -n "$TMUX" ]; }
+
+# cancel: inline keeps the window alive as a shell; popup just exits.
+cancel() {
+  if [ "$MODE" = "inline" ] && in_tmux; then exec "$SHELL" -l; else exit 0; fi
+}
+
+# launch <dir> [claude args...] — run claude in-place (inline) or a new window.
+launch() {
+  local d="$1"; shift
+  if [ "$MODE" = "window" ]; then
+    tmux new-window -c "$d" "claude $*"
+  else
+    cd "$d" 2>/dev/null || true
+    exec claude "$@"
+  fi
+}
+
+# grid <dir> — open 4 parallel claude panes (inline: this window; popup: a new one).
+grid() {
+  local d="$1" w
+  if [ "$MODE" = "window" ]; then
+    w=$(tmux new-window -P -F '#{window_id}' -c "$d" 'claude')
+    tmux split-window -h -d -t "$w" -c "$d" 'claude'; tmux select-layout -t "$w" tiled >/dev/null
+    tmux split-window -v -d -t "$w" -c "$d" 'claude'; tmux select-layout -t "$w" tiled >/dev/null
+    tmux split-window -v -d -t "$w" -c "$d" 'claude'; tmux select-layout -t "$w" tiled >/dev/null
+  else
+    tmux split-window -h -d -c "$d" 'claude'; tmux select-layout tiled >/dev/null
+    tmux split-window -v -d -c "$d" 'claude'; tmux select-layout tiled >/dev/null
+    tmux split-window -v -d -c "$d" 'claude'; tmux select-layout tiled >/dev/null
+    exec claude
+  fi
+}
+
+MENU=$( {
+  printf '%s\n' "✚  שיחה חדשה (כאן)::NEW"
+  printf '%s\n' "↻  המשך שיחה אחרונה בתיקייה::CONT"
+  printf '%s\n' "⛓  רשת 4 סוכנים במקביל::GRID"
+  printf '%s\n' "📁  פתח בתיקיית פרויקט אחרת::PROJ"
+  printf '%s\n' "──────────────────────────────::SEP"
+  ls -t "$DIR"/*.jsonl 2>/dev/null | python3 -c '
+import sys, json, os, time
+for p in sys.stdin.read().splitlines():
+    sid = os.path.basename(p).replace(".jsonl","")
+    snippet = ""
+    try:
+        with open(p, encoding="utf-8", errors="replace") as f:
+            for line in f:
+                try: o = json.loads(line)
+                except Exception: continue
+                if o.get("type") == "user":
+                    c = o.get("message", {}).get("content")
+                    if isinstance(c, str):
+                        txt = c
+                    elif isinstance(c, list):
+                        txt = next((b.get("text","") for b in c if isinstance(b,dict) and b.get("type")=="text"), "")
+                    else:
+                        continue
+                    txt = txt.strip().split("\n")[0]
+                    if txt and not txt.startswith("<") and "hook" not in txt.lower() and "system-reminder" not in txt.lower():
+                        snippet = txt[:90]
+                        break
+    except Exception: pass
+    if not snippet: snippet = "(no preview)"
+    age = time.time() - os.path.getmtime(p)
+    if   age < 3600:  rel = f"{int(age/60):>3}m ago"
+    elif age < 86400: rel = f"{int(age/3600):>3}h ago"
+    elif age < 604800:rel = f"{int(age/86400):>3}d ago"
+    else:             rel = time.strftime("%Y-%m-%d", time.localtime(os.path.getmtime(p)))
+    print(f"{rel}  │  {snippet}::{sid}")
+'
+} | fzf --reverse --height=90% --border --delimiter='::' --with-nth=1 \
+        --prompt='בחר פעולה או סשן: ' \
+        --header='Enter=פתח · הקלד לחיפוש · Esc=בטל' )
+
+# Tag is the last ::-delimited field (action keyword or session UUID).
+TAG=$(printf '%s' "$MENU" | awk -F'::' '{print $NF}')
+
+case "$TAG" in
+  ""|SEP)
+    cancel
+    ;;
+  NEW)
+    launch "$BASEDIR"
+    ;;
+  CONT)
+    launch "$BASEDIR" --continue
+    ;;
+  GRID)
+    if in_tmux; then grid "$BASEDIR"; else exec claude; fi
+    ;;
+  PROJ)
+    proj=$(zoxide query -l 2>/dev/null | sed "s|^$HOME|~|" \
+           | fzf --reverse --prompt='פרויקט: ' --header='Enter=פתח · Esc=חזור')
+    [ -z "$proj" ] && cancel
+    proj="${proj/#\~/$HOME}"
+    launch "$proj"
+    ;;
+  *)
+    launch "$BASEDIR" --resume "$TAG"
+    ;;
+esac

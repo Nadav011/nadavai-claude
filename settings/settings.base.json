@@ -10,7 +10,14 @@
     "defaultMode": "bypassPermissions"
   },
   "env": {
-    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
+    "VITEST_MAX_THREADS": "6",
+    "VITEST_MIN_THREADS": "1",
+    "VITEST_MAX_FORKS": "6",
+    "MAKEFLAGS": "-j6",
+    "CARGO_BUILD_JOBS": "6",
+    "UV_THREADPOOL_SIZE": "8",
+    "NEXT_TELEMETRY_DISABLED": "1"
   },
   "disableClaudeAiConnectors": true,
   "skipDangerousModePermissionPrompt": true,
@@ -105,5 +112,6 @@
       },
       "autoUpdate": true
     }
-  }
+  },
+  "skipWorkflowUsageWarning": true
 }

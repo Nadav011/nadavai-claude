@@ -140,6 +140,17 @@ link_shortcuts() {
     fi
   fi
   link_file "$REPO/bin/cs" "$dst"
+
+  # Every other script in bin/ is linked under the same name. A local file that is
+  # not already our symlink is moved to the backup first, so nothing is overwritten.
+  local src name target
+  for src in "$REPO"/bin/*; do
+    name="$(basename "$src")"
+    [ "$name" = "cs" ] && continue
+    target="$HOME/.local/bin/$name"
+    if [ -e "$target" ] && [ ! -L "$target" ]; then backup_path "$target" "$name"; fi
+    link_file "$src" "$target"
+  done
 }
 
 dependency_ids() {

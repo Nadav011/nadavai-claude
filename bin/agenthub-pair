@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+TOKEN_FILE="${AGENT_HUB_TOKEN_FILE:-$HOME/.config/agent-hub/token}"
+PAIRING_URL="${AGENT_HUB_PAIRING_URL:-https://msi.tailda1373.ts.net:9443}"
+QR_VIEWER="${AGENT_HUB_QR_VIEWER:-eog}"
+RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp}"
+
+fail() {
+  printf 'agenthub-pair: %s\n' "$1" >&2
+  exit 1
+}
+
+[[ -f "$TOKEN_FILE" ]] || fail "קובץ קוד הגישה לא נמצא"
+[[ "$(stat -c '%a' "$TOKEN_FILE")" == "600" ]] || fail "קובץ קוד הגישה חייב להיות בהרשאת 0600"
+command -v python3 >/dev/null 2>&1 || fail "python3 אינו מותקן"
+python3 -c 'import qrcode' >/dev/null 2>&1 || fail "החבילה המקומית python-qrcode אינה מותקנת"
+[[ -x "$QR_VIEWER" ]] || command -v "$QR_VIEWER" >/dev/null 2>&1 || fail "מציג התמונות אינו זמין"
+[[ -d "$RUNTIME_DIR" ]] || fail "תיקיית runtime אינה קיימת"
+
+IFS= read -r TOKEN <"$TOKEN_FILE"
+[[ ${#TOKEN} -ge 24 && ${#TOKEN} -le 4096 && ! "$TOKEN" =~ [[:space:]] ]] || fail "קוד הגישה בקובץ אינו תקין"
+
+umask 077
+QR_PATH="$(mktemp "$RUNTIME_DIR/agenthub-pairing-XXXXXX.png")"
+cleanup() {
+  rm -f -- "$QR_PATH"
+  unset TOKEN AGENT_HUB_PAIRING_TOKEN
+}
+trap cleanup EXIT HUP INT TERM
+
+export AGENT_HUB_PAIRING_TOKEN="$TOKEN"
+export AGENT_HUB_PAIRING_URL="$PAIRING_URL"
+export AGENT_HUB_PAIRING_QR="$QR_PATH"
+python3 - <<'PY'
+import os
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
+import qrcode
+
+base_url = os.environ["AGENT_HUB_PAIRING_URL"].rstrip("/")
+token = os.environ["AGENT_HUB_PAIRING_TOKEN"]
+path = os.environ["AGENT_HUB_PAIRING_QR"]
+parsed = urlsplit(base_url)
+if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or parsed.fragment:
+    raise SystemExit("invalid secure pairing URL")
+query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+query["token"] = token
+if parsed.port is not None:
+    query["daemon_port"] = str(parsed.port)
+pairing_path = f"{parsed.path.rstrip('/')}/"
+pairing_url = urlunsplit((parsed.scheme, parsed.netloc, pairing_path, urlencode(query), ""))
+qrcode.make(pairing_url).save(path)
+PY
+unset AGENT_HUB_PAIRING_TOKEN
+
+printf 'קוד הצימוד פתוח. סרוק אותו באייפון וסגור את החלון בסיום.\n'
+"$QR_VIEWER" --new-instance "$QR_PATH"

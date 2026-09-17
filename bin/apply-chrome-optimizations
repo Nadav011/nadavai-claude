@@ -1,0 +1,104 @@
+#!/usr/bin/env bash
+# Chrome Optimization Script — applies all pending manual steps
+# Created: 2026-03-01
+set -euo pipefail
+
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+ok()   { echo -e "${GREEN}✓${NC} $1"; }
+warn() { echo -e "${YELLOW}⚠${NC} $1"; }
+fail() { echo -e "${RED}✗${NC} $1"; }
+info() { echo -e "${CYAN}ℹ${NC} $1"; }
+
+echo -e "\n${CYAN}═══ Chrome Optimization Script ═══${NC}\n"
+
+# ── 1. Chrome Memory Saver Policy ──
+POLICY_DIR="/etc/opt/chrome/policies/managed"
+POLICY_FILE="${POLICY_DIR}/memory-saver.json"
+POLICY_CONTENT='{"HighEfficiencyModeEnabled":true,"TabDiscardingEnabled":true}'
+
+info "Step 1: Chrome Memory Saver Policy"
+if [[ -f "$POLICY_FILE" ]] && grep -q "HighEfficiencyModeEnabled" "$POLICY_FILE" 2>/dev/null; then
+    ok "Memory Saver policy already exists"
+else
+    sudo mkdir -p "$POLICY_DIR"
+    echo "$POLICY_CONTENT" | sudo tee "$POLICY_FILE" > /dev/null
+    sudo chmod 644 "$POLICY_FILE"
+    ok "Memory Saver policy created at ${POLICY_FILE}"
+fi
+
+# ── 2. Verify .desktop override ──
+DESKTOP_FILE="$HOME/.local/share/applications/google-chrome.desktop"
+
+info "Step 2: Chrome .desktop override"
+if [[ -f "$DESKTOP_FILE" ]]; then
+    if grep -q "TabDiscarding" "$DESKTOP_FILE"; then
+        ok ".desktop override has all flags"
+    else
+        warn ".desktop override exists but missing flags"
+    fi
+else
+    fail ".desktop override not found — flags won't load"
+    warn "Copy from /usr/share/applications/google-chrome.desktop and add flags"
+fi
+
+# ── 3. Verify chrome-flags.conf is NOT relied upon ──
+info "Step 3: chrome-flags.conf status"
+FLAGS_FILE="$HOME/.config/chrome-flags.conf"
+if [[ -f "$FLAGS_FILE" ]]; then
+    warn "chrome-flags.conf exists but is IGNORED on Pop!_OS/Debian"
+    warn "All flags must be in .desktop file (already done in step 2)"
+else
+    ok "No stale chrome-flags.conf present"
+fi
+
+# ── 4. Check if Chrome is running ──
+info "Step 4: Chrome restart status"
+if pgrep -x "chrome" > /dev/null 2>&1 || pgrep -f "google-chrome" > /dev/null 2>&1; then
+    CHROME_PIDS=$(pgrep -f "google-chrome" | wc -l)
+    warn "Chrome is running (${CHROME_PIDS} processes) — restart required for changes to take effect"
+    echo ""
+    echo -e "  ${YELLOW}After restart, verify:${NC}"
+    echo "    1. chrome://gpu      → Hardware acceleration enabled"
+    echo "    2. chrome://policy   → HighEfficiencyModeEnabled = true"
+    echo "    3. chrome://flags    → No overrides needed (all via command line)"
+    echo ""
+    read -rp "  Kill Chrome now and relaunch? [y/N] " answer
+    if [[ "${answer,,}" == "y" ]]; then
+        pkill -f "google-chrome" 2>/dev/null || true
+        sleep 2
+        nohup google-chrome-stable > /dev/null 2>&1 &
+        disown
+        ok "Chrome restarted with new flags"
+    else
+        info "Restart Chrome manually when ready"
+    fi
+else
+    ok "Chrome not running — next launch will use new flags"
+fi
+
+# ── 5. Summary ──
+echo ""
+echo -e "${CYAN}═══ Summary ═══${NC}"
+echo ""
+
+# Verify policy
+if [[ -f "$POLICY_FILE" ]]; then
+    ok "Memory Saver policy: ACTIVE"
+else
+    fail "Memory Saver policy: MISSING"
+fi
+
+# Verify desktop
+if [[ -f "$DESKTOP_FILE" ]] && grep -q "TabDiscarding" "$DESKTOP_FILE"; then
+    ok ".desktop flags: ACTIVE"
+else
+    fail ".desktop flags: MISSING"
+fi
+
+echo ""
+ok "Done"

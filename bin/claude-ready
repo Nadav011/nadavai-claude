@@ -1,0 +1,183 @@
+#!/usr/bin/env bash
+# ═══════════════════════════════════════════════════════════════════
+# claude-ready — Smart Claude launcher for Kitty tab restore
+# Instead of launching claude immediately (causing APIERROR),
+# shows recent conversations and waits for user to pick one.
+#
+# Usage: claude-ready [directory] [--auto]
+#   --auto: skip picker, auto-continue last conversation
+# ═══════════════════════════════════════════════════════════════════
+set -euo pipefail
+
+DIR="${1:-.}"
+AUTO_MODE=false
+
+# Parse args
+for arg in "$@"; do
+  case "$arg" in
+    --auto) AUTO_MODE=true ;;
+    -*) ;;
+    *) DIR="$arg" ;;
+  esac
+done
+
+cd "$DIR" 2>/dev/null || cd "$HOME"
+DIR="$(pwd)"
+
+# ─── Color codes ──────────────────────────────────────────────────
+RESET="\033[0m"
+BOLD="\033[1m"
+DIM="\033[2m"
+BLUE="\033[38;5;110m"
+GREEN="\033[38;5;114m"
+YELLOW="\033[38;5;221m"
+CYAN="\033[38;5;81m"
+GRAY="\033[38;5;244m"
+WHITE="\033[38;5;255m"
+
+# ─── Project name from directory ──────────────────────────────────
+PROJECT_NAME="$(basename "$DIR")"
+
+# ─── Find conversations for this directory ────────────────────────
+CLAUDE_DIR="$HOME/.claude/projects"
+# Convert path to Claude's format: /home/user/Desktop/cash → -home-user-Desktop-cash
+ENCODED_PATH="$(echo "$DIR" | sed 's|/|-|g; s|^-||')"
+CONV_DIR="${CLAUDE_DIR}/-${ENCODED_PATH}"
+# Also try without leading dash
+[[ ! -d "$CONV_DIR" ]] && CONV_DIR="${CLAUDE_DIR}/${ENCODED_PATH}"
+
+# ─── Get recent conversations ────────────────────────────────────
+declare -a CONV_IDS=()
+declare -a CONV_DATES=()
+declare -a CONV_SUMMARIES=()
+
+if [[ -d "$CONV_DIR" ]]; then
+  while IFS= read -r jsonl_file; do
+    [[ -f "$jsonl_file" ]] || continue
+    conv_id="$(basename "$jsonl_file" .jsonl)"
+    # Skip non-UUID filenames
+    [[ "$conv_id" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] || continue
+
+    mod_date="$(stat -c '%Y' "$jsonl_file" 2>/dev/null || echo "0")"
+    human_date="$(date -d "@$mod_date" '+%d/%m %H:%M' 2>/dev/null || echo "?")"
+
+    # Get first user message as summary (first 80 chars)
+    summary="$(head -20 "$jsonl_file" 2>/dev/null | python3 -c '
+import sys, json
+for line in sys.stdin:
+    try:
+        obj = json.loads(line.strip())
+        if obj.get("role") == "user":
+            content = obj.get("content", "")
+            if isinstance(content, list):
+                for item in content:
+                    if isinstance(item, dict) and item.get("type") == "text":
+                        text = item.get("text", "")[:80]
+                        if text:
+                            print(text)
+                            sys.exit(0)
+            elif isinstance(content, str) and content.strip():
+                print(content[:80])
+                sys.exit(0)
+    except:
+        pass
+print("(no summary)")
+' 2>/dev/null || echo "(no summary)")"
+
+    CONV_IDS+=("$conv_id")
+    CONV_DATES+=("$human_date")
+    CONV_SUMMARIES+=("$summary")
+  done < <(ls -t "${CONV_DIR}"/*.jsonl 2>/dev/null | head -10)
+fi
+
+NUM_CONVS=${#CONV_IDS[@]}
+
+# ─── Display banner ──────────────────────────────────────────────
+clear
+echo ""
+echo -e "${BLUE}${BOLD}  Claude Code ${RESET}${DIM}— ${PROJECT_NAME}${RESET}"
+echo -e "${DIM}  $(printf '%.0s─' {1..50})${RESET}"
+echo ""
+
+if [[ $NUM_CONVS -eq 0 ]]; then
+  echo -e "  ${GRAY}No recent conversations in this directory${RESET}"
+  echo ""
+  echo -e "  ${WHITE}[Enter]${RESET} Start new conversation"
+  echo -e "  ${WHITE}[r]${RESET}     Resume picker (all conversations)"
+  echo -e "  ${WHITE}[q]${RESET}     Exit to shell"
+  echo ""
+else
+  echo -e "  ${GREEN}Recent conversations:${RESET}"
+  echo ""
+  for i in "${!CONV_IDS[@]}"; do
+    num=$((i + 1))
+    date="${CONV_DATES[$i]}"
+    summary="${CONV_SUMMARIES[$i]}"
+    # Truncate summary
+    [[ ${#summary} -gt 60 ]] && summary="${summary:0:57}..."
+
+    if [[ $i -eq 0 ]]; then
+      echo -e "  ${CYAN}${BOLD}[${num}]${RESET} ${WHITE}${summary}${RESET}"
+      echo -e "      ${DIM}${date} — last active${RESET}"
+    else
+      echo -e "  ${GRAY}[${num}]${RESET} ${summary}"
+      echo -e "      ${DIM}${date}${RESET}"
+    fi
+  done
+  echo ""
+  echo -e "  ${DIM}$(printf '%.0s─' {1..50})${RESET}"
+  echo -e "  ${WHITE}[Enter]${RESET} Continue last  ${WHITE}[1-${NUM_CONVS}]${RESET} Pick  ${WHITE}[n]${RESET} New  ${WHITE}[r]${RESET} Resume picker  ${WHITE}[q]${RESET} Shell"
+  echo ""
+fi
+
+# ─── Auto mode: just continue ────────────────────────────────────
+if [[ "$AUTO_MODE" == true ]] && [[ $NUM_CONVS -gt 0 ]]; then
+  echo -e "  ${DIM}Auto-continuing in 2s... (press any key to pick)${RESET}"
+  if read -t 2 -n 1 key 2>/dev/null; then
+    AUTO_MODE=false
+  else
+    exec claude --continue
+  fi
+fi
+
+# ─── Interactive picker ──────────────────────────────────────────
+while true; do
+  echo -ne "  ${CYAN}>${RESET} "
+  read -r choice
+
+  case "${choice,,}" in
+    ""|"1")
+      if [[ $NUM_CONVS -gt 0 ]]; then
+        echo -e "\n  ${GREEN}Resuming last conversation...${RESET}\n"
+        exec claude --resume "${CONV_IDS[0]}"
+      else
+        echo -e "\n  ${GREEN}Starting new conversation...${RESET}\n"
+        exec claude
+      fi
+      ;;
+    [2-9])
+      idx=$((choice - 1))
+      if [[ $idx -lt $NUM_CONVS ]]; then
+        echo -e "\n  ${GREEN}Resuming conversation ${choice}...${RESET}\n"
+        exec claude --resume "${CONV_IDS[$idx]}"
+      else
+        echo -e "  ${YELLOW}Invalid choice${RESET}"
+      fi
+      ;;
+    n|new)
+      echo -e "\n  ${GREEN}Starting new conversation...${RESET}\n"
+      exec claude
+      ;;
+    r|resume)
+      echo -e "\n  ${GREEN}Opening resume picker...${RESET}\n"
+      exec claude --resume
+      ;;
+    q|quit|exit)
+      echo -e "\n  ${DIM}Dropped to shell. Type 'claude' to start.${RESET}\n"
+      exec bash
+      ;;
+    *)
+      echo -e "  ${YELLOW}Invalid choice. Enter a number, 'n', 'r', or 'q'${RESET}"
+      ;;
+  esac
+done

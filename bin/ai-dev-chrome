@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  cat <<'EOF'
+Usage: ai-dev-chrome
+
+Opens a dedicated AI browser window with core AI/dev tabs.
+EOF
+  exit 0
+fi
+
+CHROME_BIN=""
+if [[ -x "/opt/google/chrome/chrome" ]]; then
+  CHROME_BIN="/opt/google/chrome/chrome"
+elif command -v google-chrome >/dev/null 2>&1; then
+  CHROME_BIN="$(command -v google-chrome)"
+fi
+
+if [[ -z "${CHROME_BIN}" ]]; then
+  echo "Chrome binary not found." >&2
+  exit 1
+fi
+
+PROFILE_DIR="${HOME}/.config/google-chrome"
+
+URLS=(
+  "https://chatgpt.com/"
+  "https://claude.ai/"
+  "https://gemini.google.com/"
+  "https://platform.openai.com/docs/overview"
+  "https://docs.anthropic.com/"
+  "https://github.com/"
+  "http://localhost:3000/"
+  "http://localhost:3001/"
+  "http://localhost:5678/"
+)
+
+if [[ ! -d "${PROFILE_DIR}" ]]; then
+  exec "${CHROME_BIN}" --new-window "${URLS[@]}"
+fi
+
+exec "${CHROME_BIN}" \
+  --new-window \
+  --profile-directory=Default \
+  "${URLS[@]}"

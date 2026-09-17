@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Jump to any open agent / tmux window across all sessions (fzf popup, bound to Alt+s).
+# 🤖 marks windows whose foreground process is claude/node (a running agent).
+sel=$(tmux list-windows -a -F '#{session_name}:#{window_index}|#{window_name}|#{pane_current_command}' \
+  | awk -F'|' '{ mark=($3 ~ /node|claude/)?"🤖":"▫"; printf "%s  ·  %s %s::%s\n", $1, mark, $2, $1 }' \
+  | fzf --reverse --delimiter='::' --with-nth=1 \
+        --prompt='קפוץ אל סוכן/סשן: ' \
+        --header='Enter=מעבר · הקלד לחיפוש · Esc=בטל')
+
+[ -z "$sel" ] && exit 0
+id=$(printf '%s' "$sel" | awk -F'::' '{print $NF}')
+tmux switch-client -t "$id"

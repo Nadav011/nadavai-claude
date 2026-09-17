@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# Restore the original Claude Desktop app (undo claude-rtl-apply).
+set -euo pipefail
+
+RES="/usr/lib/claude-desktop/node_modules/electron/dist/resources"
+
+if [[ ! -e "$RES/app.asar.rtl-backup" ]]; then
+  echo "No RTL backup found at $RES/app.asar.rtl-backup — nothing to restore." >&2
+  exit 1
+fi
+
+OWNER="$(stat -c '%u:%g' "$RES/app.asar")"
+
+echo "Restoring original Claude Desktop (needs admin)..."
+sudo bash -c '
+  set -e
+  RES="'"$RES"'"; OWNER="'"$OWNER"'"
+  cp -a "$RES/app.asar.rtl-backup" "$RES/app.asar"
+  if [[ -e "$RES/app.asar.unpacked.rtl-backup" ]]; then
+    rm -rf "$RES/app.asar.unpacked"
+    cp -a "$RES/app.asar.unpacked.rtl-backup" "$RES/app.asar.unpacked"
+  fi
+  chown -R "$OWNER" "$RES/app.asar" "$RES/app.asar.unpacked"
+'
+
+echo "Done. Original Claude Desktop restored. Restart the app."

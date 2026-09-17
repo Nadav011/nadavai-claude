@@ -47,6 +47,37 @@ Then open Claude Code once and run `/mcp` to sign in to Supabase, Cloudflare and
 
 The clone must be at `~/nadavai`, or set `NADAVAI_HOME` for the hooks and scripts.
 
+## Second machine
+
+`setup.sh` reproduces everything the repo can hold: marketplaces, plugins and their MCP servers,
+rules, skills, git hooks, `settings.base.json`, the `bin/` scripts, the omc CLI and the HUD.
+Three things it cannot, because they are secret, personal or huge:
+
+| What | How it gets there |
+| --- | --- |
+| `~/.claude/secrets/` (API keys, Android upload keystores) | `carry.sh` |
+| `~/.claude/projects/*/memory/` (what Claude remembers per project) | `carry.sh` |
+| `BRIGHTDATA_API_TOKEN` in `settings.json` | `carry.sh` |
+| Session history, `~/.claude/projects` in full | `carry.sh --with-history` (GBs, rarely worth it) |
+| MCP sign-in for Supabase, Cloudflare, PostHog, Vercel | `/mcp` once per machine (OAuth) |
+| Orca skills (`computer-use`, `orca-cli`, `orchestration`) | installing Orca; they live in `~/.agents` |
+| Official synced skills (docs, docx, pdf, pptx, xlsx) | Claude downloads them from the account by itself |
+
+```bash
+# on the machine that has the state
+./carry.sh send msi          # or: ./carry.sh pack, then move the file yourself
+# on the new machine, after setup.sh
+~/nadavai/carry.sh restore ~/nadavai-carry-<stamp>.tar.gz.gpg
+```
+
+The archive is always AES256 with a passphrase; nothing unencrypted is ever written to disk.
+Losing the Android upload keystores means the Play Store apps can never be updated again, so they
+are the one thing worth a second copy in a password manager as well.
+
+The build concurrency caps in `settings.base.json` (`MAKEFLAGS=-j6`, `VITEST_MAX_THREADS=6`,
+`CARGO_BUILD_JOBS=6`) exist because unbounded test and build runners are what actually bring a
+machine to its knees, not the number of projects. Raise them per machine if it has the cores to spare.
+
 ## Secrets (per machine, never in the repo)
 
 The Bright Data server reads its token from the `BRIGHTDATA_API_TOKEN` environment variable. Put it in

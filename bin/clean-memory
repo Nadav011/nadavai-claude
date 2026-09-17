@@ -1,0 +1,346 @@
+#!/bin/bash
+# ═══════════════════════════════════════════════════════════════
+# clean-memory — Kill orphan MCP / vitest / Dart processes
+# Usage: clean-memory [--dry-run]
+# ═══════════════════════════════════════════════════════════════
+
+set -euo pipefail
+
+DRY_RUN=""
+if [[ "${1:-}" == "--dry-run" ]]; then
+    DRY_RUN="true"
+fi
+
+mem_used_mb() {
+    free -m | awk '/^Mem:/ {print $3}'
+}
+
+echo "═══════════════════════════════════════════════════════════════"
+echo "  clean-memory — Orphan process cleanup"
+echo "  $(date '+%Y-%m-%d %H:%M:%S')${DRY_RUN:+ [DRY RUN — no processes killed]}"
+echo "═══════════════════════════════════════════════════════════════"
+
+BEFORE=$(mem_used_mb)
+echo "  Memory before: ${BEFORE}MB used"
+echo ""
+
+# ───────────────────────────────────────────────────────────────
+# Collect all active Claude session PIDs (to protect their children)
+# ───────────────────────────────────────────────────────────────
+CLAUDE_PIDS=$(pgrep -x "claude" 2>/dev/null || true)
+CLAUDE_CODE_PIDS=$(pgrep -f "claude.*/cli/index\|claude-code\|@anthropic.*claude" 2>/dev/null || true)
+ALL_CLAUDE_PIDS=$(printf '%s\n%s\n' "$CLAUDE_PIDS" "$CLAUDE_CODE_PIDS" | sort -u | grep -v '^$' || true)
+
+if [ -z "$ALL_CLAUDE_PIDS" ]; then
+    echo "  No running claude processes found — all MCP processes are orphans."
+fi
+
+# ───────────────────────────────────────────────────────────────
+# Helper: walk process tree up to depth 8, return true if any
+# ancestor PID is in ALL_CLAUDE_PIDS
+# ───────────────────────────────────────────────────────────────
+has_claude_ancestor() {
+    local pid="$1"
+    local depth=0
+    local search="$pid"
+    while [ "$depth" -lt 8 ] && [ "${search:-1}" -gt 1 ] 2>/dev/null; do
+        search=$(awk '/^PPid:/ {print $2}' /proc/"$search"/status 2>/dev/null || echo "1")
+        if echo "$ALL_CLAUDE_PIDS" | grep -qx "$search" 2>/dev/null; then
+            return 0
+        fi
+        depth=$((depth + 1))
+    done
+    return 1
+}
+
+# ───────────────────────────────────────────────────────────────
+# Helper: get process elapsed seconds from /proc/<pid>/stat
+# ───────────────────────────────────────────────────────────────
+proc_elapsed_seconds() {
+    local pid="$1"
+    local starttime hz btime uptime_s elapsed
+    starttime=$(awk '{print $22}' /proc/"$pid"/stat 2>/dev/null || echo "0")
+    hz=$(getconf CLK_TCK 2>/dev/null || echo "100")
+    btime=$(awk '/^btime/ {print $2}' /proc/stat 2>/dev/null || echo "0")
+    uptime_s=$(awk '{print int($1)}' /proc/uptime 2>/dev/null || echo "0")
+    # process start time in seconds since epoch
+    local proc_start_epoch=$(( btime + starttime / hz ))
+    local now_epoch
+    now_epoch=$(date +%s)
+    echo $(( now_epoch - proc_start_epoch ))
+}
+
+KILLED=0
+KILLED_PIDS=()
+ORPHAN_MEM_MB=0
+
+kill_orphan() {
+    local pid="$1" label="$2" mem="$3"
+    ORPHAN_MEM_MB=$((ORPHAN_MEM_MB + mem))
+    echo "  ORPHAN[$label]: PID=$pid  MEM=${mem}MB"
+    if [ -n "$DRY_RUN" ]; then
+        echo "    (dry-run: would kill)"
+    else
+        kill -TERM "$pid" 2>/dev/null || true
+        KILLED_PIDS+=("$pid")
+        KILLED=$((KILLED + 1))
+    fi
+}
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1 — MCP server processes
+# ═══════════════════════════════════════════════════════════════
+# MCP servers are now wrapper scripts in ~/.local/bin/ named:
+#   mcp-server-memory, mcp-server-sequential-thinking,
+#   mcp-server-filesystem, mcp-server-github, mcp-server-shadcn,
+#   mcp-server-colors-and-fonts, mcp-server-reactbits,
+#   mcp-server-lucide-icons, mcp-server-next-devtools, mcp-server-supabase
+#
+# Their child node/python processes show the real executable paths.
+# We match both the wrapper comm names and underlying process args.
+# ───────────────────────────────────────────────────────────────
+MCP_PATTERNS=(
+    # Wrapper script comm names (direct)
+    "mcp-server-"
+    # Underlying node processes launched by wrappers
+    "modelcontextprotocol"
+    "mcp_server"
+    "@mcp/"
+    # Residual npx/npm exec MCP processes (legacy cleanup)
+    "npx.*mcp"
+    "npm exec.*mcp"
+    "uvx.*mcp"
+    # Specific MCP packages still possibly running via npx
+    "chroma-mcp"
+    "firecrawl-mcp"
+    "reactbits-dev-mcp"
+    "colorsandfonts/mcp"
+    "context7-mcp"
+    "browserstack-mcp"
+    "playwright-mcp"
+    "mcp-chrome"
+    "ms-playwright"
+    "\.mcp\."
+    # Dart MCP server (auto-detected by Claude Code, bypasses disabled flags)
+    "dart.*mcp-server"
+    # Vibe Kanban (orphan Rust binary + node launcher)
+    "vibe-kanban"
+)
+
+GREP_PATTERN=$(printf '%s\|' "${MCP_PATTERNS[@]}")
+GREP_PATTERN="${GREP_PATTERN%\\|}"
+
+echo "  [MCP] Scanning for orphan MCP server processes..."
+
+while IFS= read -r line; do
+    PID=$(echo "$line" | awk '{print $1}')
+    CMD=$(echo "$line" | cut -d' ' -f2-)
+
+    [ "$PID" = "$$" ] && continue
+    [ "$PID" = "$PPID" ] && continue
+
+    # Protect processes owned by an active Claude session
+    if [ -n "$ALL_CLAUDE_PIDS" ] && has_claude_ancestor "$PID"; then
+        continue
+    fi
+
+    # If a shell/terminal is the direct parent, only kill when no Claude is running
+    # (user may have started MCPs manually for testing)
+    PARENT_PID=$(awk '/^PPid:/ {print $2}' /proc/"$PID"/status 2>/dev/null || echo "1")
+    PARENT_CMD=$(cat /proc/"$PARENT_PID"/comm 2>/dev/null || echo "")
+    if echo "$PARENT_CMD" | grep -qE "^(bash|zsh|fish|sh|tmux|screen|kitty)$"; then
+        [ -n "$ALL_CLAUDE_PIDS" ] && continue
+    fi
+
+    PROC_MEM=$(awk '/^VmRSS:/ {print int($2/1024)}' /proc/"$PID"/status 2>/dev/null || echo "0")
+    echo "  ORPHAN[MCP]: PID=$PID  MEM=${PROC_MEM}MB  CMD=${CMD:0:80}"
+    kill_orphan "$PID" "MCP" "$PROC_MEM"
+
+done < <(ps -eo pid,args --no-headers 2>/dev/null | grep -E "$GREP_PATTERN" | grep -v grep || true)
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 2 — Orphan vitest processes
+# Kill if: parent PID is 1 (fully detached) OR
+#          running > 30 minutes AND no controlling terminal
+# ═══════════════════════════════════════════════════════════════
+VITEST_THRESHOLD_SECS=1800  # 30 minutes
+
+echo ""
+echo "  [vitest] Scanning for orphan vitest processes..."
+
+while IFS= read -r line; do
+    PID=$(echo "$line" | awk '{print $1}')
+    CMD=$(echo "$line" | cut -d' ' -f2-)
+
+    [ "$PID" = "$$" ] && continue
+    [ "$PID" = "$PPID" ] && continue
+
+    # Never kill vitest owned by an active Claude session
+    if [ -n "$ALL_CLAUDE_PIDS" ] && has_claude_ancestor "$PID"; then
+        continue
+    fi
+
+    PARENT_PID=$(awk '/^PPid:/ {print $2}' /proc/"$PID"/status 2>/dev/null || echo "1")
+    ELAPSED=$(proc_elapsed_seconds "$PID")
+
+    # Has controlling terminal? (tty field in /proc/<pid>/stat column 7 = 0 means no tty)
+    TTY=$(awk '{print $7}' /proc/"$PID"/stat 2>/dev/null || echo "-1")
+    NO_TTY=false
+    [ "$TTY" = "0" ] || [ "$TTY" = "-1" ] && NO_TTY=true
+
+    IS_ORPHAN=false
+    if [ "$PARENT_PID" = "1" ]; then
+        IS_ORPHAN=true
+    elif [ "$ELAPSED" -gt "$VITEST_THRESHOLD_SECS" ] && [ "$NO_TTY" = "true" ]; then
+        IS_ORPHAN=true
+    fi
+
+    if [ "$IS_ORPHAN" = "true" ]; then
+        PROC_MEM=$(awk '/^VmRSS:/ {print int($2/1024)}' /proc/"$PID"/status 2>/dev/null || echo "0")
+        echo "  ORPHAN[vitest]: PID=$PID  MEM=${PROC_MEM}MB  ELAPSED=${ELAPSED}s  CMD=${CMD:0:80}"
+        kill_orphan "$PID" "vitest" "$PROC_MEM"
+    fi
+
+done < <(ps -eo pid,args --no-headers 2>/dev/null | grep -E "vitest|v8-compile-cache.*vitest" | grep -v grep || true)
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 3 — Orphan Dart language servers
+# Kill if: running > 60 minutes AND no controlling terminal
+# ═══════════════════════════════════════════════════════════════
+DART_THRESHOLD_SECS=3600  # 60 minutes
+
+echo ""
+echo "  [Dart] Scanning for orphan Dart language server processes..."
+
+while IFS= read -r line; do
+    PID=$(echo "$line" | awk '{print $1}')
+    CMD=$(echo "$line" | cut -d' ' -f2-)
+
+    [ "$PID" = "$$" ] && continue
+    [ "$PID" = "$PPID" ] && continue
+
+    # Never kill Dart servers owned by an active Claude session
+    if [ -n "$ALL_CLAUDE_PIDS" ] && has_claude_ancestor "$PID"; then
+        continue
+    fi
+
+    ELAPSED=$(proc_elapsed_seconds "$PID")
+    TTY=$(awk '{print $7}' /proc/"$PID"/stat 2>/dev/null || echo "-1")
+    NO_TTY=false
+    [ "$TTY" = "0" ] || [ "$TTY" = "-1" ] && NO_TTY=true
+
+    if [ "$ELAPSED" -gt "$DART_THRESHOLD_SECS" ] && [ "$NO_TTY" = "true" ]; then
+        PROC_MEM=$(awk '/^VmRSS:/ {print int($2/1024)}' /proc/"$PID"/status 2>/dev/null || echo "0")
+        echo "  ORPHAN[dart-ls]: PID=$PID  MEM=${PROC_MEM}MB  ELAPSED=${ELAPSED}s  CMD=${CMD:0:80}"
+        kill_orphan "$PID" "dart-ls" "$PROC_MEM"
+    fi
+
+done < <(ps -eo pid,args --no-headers 2>/dev/null | grep -E "dart.*language.server|dart.*analysis.server|dart_language_server|analysis_server\.dart\.snapshot" | grep -v grep || true)
+
+# ───────────────────────────────────────────────────────────────
+# SECTION 4 — Stale stress-test tmpfs mounts + orphan test processes
+# ───────────────────────────────────────────────────────────────
+echo ""
+echo "  [tmpfs] Checking for stale stress-test mounts..."
+
+if mountpoint -q /mnt/memstress 2>/dev/null; then
+    echo "  STALE: /mnt/memstress is still mounted"
+    if [ -n "$DRY_RUN" ]; then
+        USED=$(du -sh /mnt/memstress 2>/dev/null | awk '{print $1}')
+        echo "    (dry-run: would clean ${USED:-unknown} and unmount)"
+    else
+        rm -rf /mnt/memstress/* 2>/dev/null || true
+        umount -l /mnt/memstress 2>/dev/null || true
+        rmdir /mnt/memstress 2>/dev/null || true
+        echo "  Unmounted /mnt/memstress"
+    fi
+else
+    echo "  OK: /mnt/memstress not mounted"
+fi
+
+# Kill orphan stress-test bash processes (background monitors from ZRAM/SSD tests)
+while IFS= read -r LINE; do
+    OPID=$(echo "$LINE" | awk '{print $1}')
+    if [ -n "$OPID" ]; then
+        echo "  ORPHAN[stress-test]: PID=$OPID"
+        if [ -z "$DRY_RUN" ]; then
+            kill -9 "$OPID" 2>/dev/null || true
+            KILLED=$((KILLED + 1))
+        fi
+    fi
+done < <(ps -eo pid,args --no-headers 2>/dev/null | grep -E "(zram-capacity|zram-500gb|stress-ssd)" | grep -v grep || true)
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 5 — Orphan GitHub Actions runner worker processes
+# Kill if: matches --experimental-import-meta-resolve (runner worker signature)
+#          AND running > 60 minutes (active jobs complete in < 60 min)
+#          AND NOT a RunnerService.js process (those are keepers)
+# ═══════════════════════════════════════════════════════════════
+RUNNER_THRESHOLD_SECS=3600  # 60 minutes
+
+echo ""
+echo "  [runner] Scanning for orphan GitHub Actions worker processes..."
+
+while IFS= read -r line; do
+    PID=$(echo "$line" | awk '{print $1}')
+    CMD=$(echo "$line" | cut -d' ' -f2-)
+
+    [ "$PID" = "$$" ] && continue
+
+    # Skip RunnerService.js — those are the actual runner daemons, keep them
+    echo "$CMD" | grep -q "RunnerService.js" && continue
+
+    ELAPSED=$(proc_elapsed_seconds "$PID")
+
+    if [ "$ELAPSED" -gt "$RUNNER_THRESHOLD_SECS" ]; then
+        PROC_MEM=$(awk '/^VmRSS:/ {print int($2/1024)}' /proc/"$PID"/status 2>/dev/null || echo "0")
+        echo "  ORPHAN[runner]: PID=$PID  MEM=${PROC_MEM}MB  ELAPSED=${ELAPSED}s"
+        kill_orphan "$PID" "runner" "$PROC_MEM"
+    fi
+
+done < <(ps -eo pid,args --no-headers 2>/dev/null | grep "experimental-import-meta-resolve" | grep -v grep || true)
+
+# ───────────────────────────────────────────────────────────────
+# Wait for SIGTERM, then SIGKILL stragglers
+# ───────────────────────────────────────────────────────────────
+if [ ${#KILLED_PIDS[@]} -gt 0 ]; then
+    sleep 2
+    for PID in "${KILLED_PIDS[@]}"; do
+        if kill -0 "$PID" 2>/dev/null; then
+            kill -KILL "$PID" 2>/dev/null || true
+            echo "  SIGKILL sent to straggler PID=$PID"
+        fi
+    done
+fi
+
+# ───────────────────────────────────────────────────────────────
+# Sync filesystem buffers
+# ───────────────────────────────────────────────────────────────
+echo ""
+echo "  Syncing filesystem buffers..."
+sync 2>/dev/null || true
+
+# ───────────────────────────────────────────────────────────────
+# Summary
+# ───────────────────────────────────────────────────────────────
+AFTER=$(mem_used_mb)
+DELTA=$((BEFORE - AFTER))
+
+echo ""
+echo "═══════════════════════════════════════════════════════════════"
+echo "  SUMMARY"
+echo "═══════════════════════════════════════════════════════════════"
+if [ -n "$DRY_RUN" ]; then
+    echo "  [DRY RUN] Orphan processes found : $KILLED"
+    echo "  [DRY RUN] Estimated recoverable  : ~${ORPHAN_MEM_MB}MB"
+else
+    echo "  Orphan processes killed : $KILLED"
+    echo "  Memory before          : ${BEFORE}MB"
+    echo "  Memory after           : ${AFTER}MB"
+    if [ "$DELTA" -gt 0 ]; then
+        echo "  Freed                  : ~${DELTA}MB"
+    else
+        echo "  Freed                  : 0MB (OS reclaims lazily — check in ~30s)"
+    fi
+fi
+echo "═══════════════════════════════════════════════════════════════"

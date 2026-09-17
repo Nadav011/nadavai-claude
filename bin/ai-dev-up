@@ -1,0 +1,117 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+SESSION="ai"
+WORKDIR="${HOME}/Code"
+ATTACH=1
+START_STACK=0
+START_CHROME=0
+
+usage() {
+  cat <<'EOF'
+Usage: ai-dev-up [options]
+
+Options:
+  --session NAME   tmux session name (default: ai)
+  --dir PATH       workspace directory (default: ~/Code)
+  --stack          start ~/ai-stack/start-everything.sh in background
+  --chrome         open AI browser tabs in Chrome
+  --attach         attach to tmux session (default)
+  --no-attach      do not attach
+  -h, --help       show help
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --session)
+      SESSION="${2:-}"
+      shift 2
+      ;;
+    --dir)
+      WORKDIR="${2:-}"
+      shift 2
+      ;;
+    --stack)
+      START_STACK=1
+      shift
+      ;;
+    --chrome)
+      START_CHROME=1
+      shift
+      ;;
+    --attach)
+      ATTACH=1
+      shift
+      ;;
+    --no-attach)
+      ATTACH=0
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown argument: $1" >&2
+      usage
+      exit 1
+      ;;
+  esac
+done
+
+if ! command -v tmux >/dev/null 2>&1; then
+  echo "tmux is required but not installed." >&2
+  exit 1
+fi
+
+if [[ ! -d "${WORKDIR}" ]]; then
+  WORKDIR="${HOME}"
+fi
+
+create_ai_layout() {
+  tmux new-session -d -s "${SESSION}" -n code -c "${WORKDIR}"
+
+  tmux split-window -h -t "${SESSION}:code" -c "${WORKDIR}"
+  tmux split-window -v -t "${SESSION}:code.1" -c "${WORKDIR}"
+  tmux split-window -v -t "${SESSION}:code.2" -c "${WORKDIR}"
+  tmux select-layout -t "${SESSION}:code" tiled
+  tmux select-pane -t "${SESSION}:code.1" -T "editor"
+  tmux select-pane -t "${SESSION}:code.2" -T "tests"
+  tmux select-pane -t "${SESSION}:code.3" -T "git"
+  tmux select-pane -t "${SESSION}:code.4" -T "run"
+
+  tmux new-window -t "${SESSION}" -n agents -c "${WORKDIR}"
+  tmux split-window -h -t "${SESSION}:agents" -c "${WORKDIR}"
+  tmux select-layout -t "${SESSION}:agents" even-horizontal
+  tmux select-pane -t "${SESSION}:agents.1" -T "assistant-a"
+  tmux select-pane -t "${SESSION}:agents.2" -T "assistant-b"
+
+  tmux new-window -t "${SESSION}" -n ops -c "${WORKDIR}"
+  tmux split-window -h -t "${SESSION}:ops" -c "${WORKDIR}"
+  tmux send-keys -t "${SESSION}:ops.2" 'btop || htop || top' C-m
+  tmux select-layout -t "${SESSION}:ops" even-horizontal
+  tmux select-pane -t "${SESSION}:ops.1" -T "logs"
+  tmux select-pane -t "${SESSION}:ops.2" -T "monitor"
+
+  tmux new-window -t "${SESSION}" -n research -c "${WORKDIR}"
+  tmux select-window -t "${SESSION}:code"
+}
+
+if ! tmux has-session -t "${SESSION}" 2>/dev/null; then
+  create_ai_layout
+fi
+
+if [[ "${START_STACK}" -eq 1 ]] && [[ -x "${HOME}/ai-stack/start-everything.sh" ]]; then
+  mkdir -p "${HOME}/.cache"
+  nohup "${HOME}/ai-stack/start-everything.sh" > "${HOME}/.cache/ai-stack-start.log" 2>&1 &
+fi
+
+if [[ "${START_CHROME}" -eq 1 ]] && [[ -x "${HOME}/.local/bin/ai-dev-chrome" ]]; then
+  "${HOME}/.local/bin/ai-dev-chrome" >/dev/null 2>&1 || true
+fi
+
+if [[ "${ATTACH}" -eq 1 ]] && [[ -z "${TMUX:-}" ]]; then
+  exec tmux attach -t "${SESSION}"
+fi

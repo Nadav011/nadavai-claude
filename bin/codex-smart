@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage:
+  codex-smart [--print-profile] [mode] [codex args...]
+
+Modes:
+  auto       Auto-route by prompt keywords (default)
+  architect  Complex architecture / migration / security tasks
+  reviewer   Deep code review
+  builder    General implementation tasks
+  fast       Quick fixes and lightweight tasks
+  balanced   Default high-quality coding
+
+Examples:
+  codex-smart architect
+  codex-smart reviewer "Review uncommitted changes for regressions"
+  codex-smart auto "Refactor auth flow and add tests"
+  codex-smart fast "Fix typo in README"
+  codex-smart --print-profile auto "Fix typo in README"
+EOF
+}
+
+choose_auto_profile() {
+  local text="$1"
+  local lower
+  lower="$(printf '%s' "$text" | tr '[:upper:]' '[:lower:]')"
+
+  if [[ "$lower" =~ (review|audit|code[[:space:]]*review|regression|vulnerab|owasp|pentest) ]]; then
+    printf '%s\n' "reviewer"
+    return
+  fi
+
+  if [[ "$lower" =~ (architect|architecture|design|migrat|refactor|rewrite|incident|production|perf|performance|optimiz|complex|multi[[:space:]-]*step|orchestrat|deep|security|rls|policy) ]]; then
+    printf '%s\n' "architect"
+    return
+  fi
+
+  if [[ "$lower" =~ (typo|small|quick|minor|format|lint|readme|docs|rename) ]]; then
+    printf '%s\n' "fast"
+    return
+  fi
+
+  printf '%s\n' "builder"
+}
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  usage
+  exit 0
+fi
+
+print_only=0
+if [[ "${1:-}" == "--print-profile" ]]; then
+  print_only=1
+  shift || true
+fi
+
+mode="${1:-auto}"
+shift || true
+
+case "$mode" in
+  auto|architect|reviewer|builder|fast|balanced) ;;
+  *)
+    # If first arg is not a known mode, treat the full input as task text for auto routing.
+    set -- "$mode" "$@"
+    mode="auto"
+    ;;
+esac
+
+if [[ "$mode" == "auto" ]]; then
+  if [[ "$#" -eq 0 ]]; then
+    profile="balanced"
+  else
+    profile="$(choose_auto_profile "$*")"
+  fi
+else
+  profile="$mode"
+fi
+
+if [[ "${CODEX_SMART_DEBUG:-0}" == "1" ]]; then
+  printf 'codex-smart profile: %s\n' "$profile" >&2
+fi
+
+if [[ "$print_only" -eq 1 ]]; then
+  printf '%s\n' "$profile"
+  exit 0
+fi
+
+exec codex --profile "$profile" "$@"

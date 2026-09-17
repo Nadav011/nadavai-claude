@@ -1,0 +1,127 @@
+#!/usr/bin/env bash
+# Apply Hebrew RTL to the Claude Desktop app by injecting CSS/JS into its
+# renderer. Safe + idempotent: keeps a pristine backup, leaves the native
+# binaries (app.asar.unpacked) byte-identical. Re-run after an app update.
+#
+#   claude-rtl-apply      -> apply RTL
+#   claude-rtl-remove     -> restore the original (separate script)
+set -euo pipefail
+
+RES="/usr/lib/claude-desktop/node_modules/electron/dist/resources"
+ASAR="$RES/app.asar"
+UNPACKED="$RES/app.asar.unpacked"
+WORK="$(mktemp -d /tmp/claude-rtl.XXXXXX)"
+trap 'rm -rf "$WORK"' EXIT
+
+if [[ ! -f "$ASAR" ]]; then
+  echo "Claude Desktop app.asar not found at $ASAR" >&2
+  exit 1
+fi
+
+ASAR_CLI=(npx --yes @electron/asar)
+
+# Already patched? (e.g. run twice without an update in between)
+if "${ASAR_CLI[@]}" list "$ASAR" 2>/dev/null | grep -q '/rtl-injection.js'; then
+  echo "Claude Desktop is already in RTL mode. Nothing to do."
+  exit 0
+fi
+
+echo "Extracting current app..."
+cp "$ASAR" "$WORK/app.asar"
+cp -a "$UNPACKED" "$WORK/app.asar.unpacked"
+"${ASAR_CLI[@]}" extract "$WORK/app.asar" "$WORK/src"
+
+# --- inject RTL stylesheet/script ---
+cat > "$WORK/src/rtl-injection.js" <<'RTLJS'
+// RTL injection for Claude Desktop (Hebrew). Loaded from frame-fix-entry.js.
+const { app } = require('electron');
+
+// Chat-content RTL only. We do NOT flip the whole app (no html{direction:rtl}),
+// so the sidebar / top bar / buttons keep their normal layout. Each text block
+// auto-detects direction from its content, so Hebrew reads right-to-left and
+// English/code stays left-to-right.
+const RTL_CSS = `
+  /* Code, terminals and syntax blocks stay left-to-right */
+  pre, code, kbd, samp,
+  .cm-editor, .monaco-editor, [data-language], [class*="hljs"], [class*="language-"] {
+    direction: ltr !important;
+    unicode-bidi: isolate;
+    text-align: left;
+  }
+
+  /* Prose and editable fields auto-detect direction per block
+     so mixed Hebrew/English reads correctly */
+  p, li, h1, h2, h3, h4, h5, h6, blockquote, ul, ol, dl, dd, dt, td, th, figcaption,
+  [contenteditable="true"], textarea {
+    unicode-bidi: plaintext;
+  }
+`;
+
+function setDir(contents) {
+  contents
+    .executeJavaScript(
+      "try{document.documentElement.setAttribute('dir','rtl');document.documentElement.lang='he';}catch(e){}",
+      true
+    )
+    .catch(() => {});
+}
+
+function apply(contents) {
+  if (!contents || (contents.isDestroyed && contents.isDestroyed())) return;
+  contents.on('dom-ready', () => {
+    contents.insertCSS(RTL_CSS).catch(() => {});
+    setDir(contents);
+  });
+  contents.on('did-navigate-in-page', () => setDir(contents));
+}
+
+app.on('web-contents-created', (_event, contents) => apply(contents));
+RTLJS
+
+# --- wire it into the entry file (idempotent) ---
+ENTRY="$WORK/src/frame-fix-entry.js"
+if [[ -f "$ENTRY" ]] && ! grep -q "rtl-injection" "$ENTRY"; then
+  # insert the require right before the original main is loaded
+  if grep -q "index.pre.js" "$ENTRY"; then
+    sed -i "s|require('./.vite/build/index.pre.js');|require('./rtl-injection.js');\nrequire('./.vite/build/index.pre.js');|" "$ENTRY"
+  else
+    echo "require('./rtl-injection.js');" >> "$ENTRY"
+  fi
+fi
+
+echo "Repacking..."
+"${ASAR_CLI[@]}" pack "$WORK/src" "$WORK/app.asar.new" \
+  --unpack-dir "{node_modules/@ant/claude-native,node_modules/node-pty/build/Release}" \
+  --unpack "cowork-vm-service.js"
+
+# sanity: the rebuilt native binaries must match the originals exactly
+for f in node_modules/@ant/claude-native/claude-native-binding.node \
+         node_modules/node-pty/build/Release/pty.node ; do
+  if [[ -f "$UNPACKED/$f" ]]; then
+    a=$(sha256sum "$UNPACKED/$f" | cut -d' ' -f1)
+    b=$(sha256sum "$WORK/app.asar.new.unpacked/$f" | cut -d' ' -f1)
+    if [[ "$a" != "$b" ]]; then
+      echo "ABORT: native binary $f changed during repack." >&2
+      exit 1
+    fi
+  fi
+done
+
+OWNER="$(stat -c '%u:%g' "$ASAR")"
+
+echo "Installing (needs admin)..."
+# back up the pristine original only if no backup exists yet
+sudo bash -c '
+  set -e
+  RES="'"$RES"'"; WORK="'"$WORK"'"; OWNER="'"$OWNER"'"
+  [[ -e "$RES/app.asar.rtl-backup" ]] || cp -a "$RES/app.asar" "$RES/app.asar.rtl-backup"
+  [[ -e "$RES/app.asar.unpacked.rtl-backup" ]] || cp -a "$RES/app.asar.unpacked" "$RES/app.asar.unpacked.rtl-backup"
+  cp "$WORK/app.asar.new" "$RES/app.asar"
+  rm -rf "$RES/app.asar.unpacked"
+  cp -a "$WORK/app.asar.new.unpacked" "$RES/app.asar.unpacked"
+  chown -R "$OWNER" "$RES/app.asar" "$RES/app.asar.unpacked"
+  chmod 644 "$RES/app.asar"
+'
+
+echo "Done. Claude Desktop is now in Hebrew RTL mode."
+echo "Restart the app for the change to take effect."
