@@ -1,0 +1,11 @@
+{
+  "_comment": "Sample values for the dynamic segments of this app's routes, all seeded into the LOCAL database. A bare key is the default for that param name; a key that looks like a route pattern wins for that route, which matters when [id] means one entity on one screen and another elsewhere. A segment with no value here fails `routes.mjs --check` rather than quietly dropping the page out of the score.",
+  "_exclude": {
+    "_comment": "Routes the gate must not measure, each with a reason of at least 20 characters — routes.mjs --check fails on a blank one. Only two kinds qualify: a route that cannot exist in the build under test, and a bare path whose real screen needs a query parameter that is already in the list under its own entry."
+  },
+  "_gated": [],
+  "_gated_comment": "Path prefixes the app protects, e.g. [\"/admin\", \"/coach\"]. A route inside one of these may not land outside it: that is how a middleware refusing access is told apart from a legitimate alias. Leave empty when the app gates nothing.",
+  "_alias": {
+    "_comment": "Routes that deliberately redirect somewhere else, as \"/from\": \"why\". Only needed when the destination leaves a _gated area; the destination must itself be a route in routes.json, so it is still measured under its own name. Everything else that redirects is reported as unreachable, which is the point."
+  }
+}

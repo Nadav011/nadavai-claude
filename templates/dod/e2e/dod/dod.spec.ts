@@ -5,6 +5,7 @@ import path from "node:path";
 import { test, type Page } from "@playwright/test";
 import { argosScreenshot } from "@argos-ci/playwright";
 import AxeBuilder from "@axe-core/playwright";
+import params from "./route-params.json";
 import routes from "./routes.json";
 import { RESULTS_DIR, SCHEMES, SCREENS_DIR, VIEWPORTS, routeSlug, type EntryResult } from "./dod-shared";
 
@@ -29,14 +30,26 @@ async function settle(page: Page) {
 async function reachRoute(page: Page): Promise<string | null> {
   const painted = () =>
     page.evaluate(() => {
-      const root = document.getElementById("root") ?? document.querySelector("main, #__next, body > div");
-      if (!root || root.children.length === 0) return "empty root";
-      const text = (document.body.innerText ?? "").replace(/\s+/g, " ").trim();
-      if (text.length < 10) return `blank: only ${text.length} characters of text`;
-      const loading = [...document.querySelectorAll('[role="status"]')].some((el) =>
-        /loading|טוענים|טוען/i.test(el.textContent ?? ""),
+      // Read the ROUTE'S OWN region, never the whole body. Any app with a shell —
+      // a skip link, a nav, a footer — puts several hundred characters on screen
+      // before the route contributes a single one, so a body-length test can never
+      // fail there no matter what the page did.
+      const region = document.querySelector("main, #main-content, #root, #__next");
+      const text = (() => {
+        if (region) return (region as HTMLElement).innerText ?? "";
+        const clone = document.body.cloneNode(true) as HTMLElement;
+        for (const el of clone.querySelectorAll(
+          'nav, footer, header, [role="navigation"], [role="banner"], [role="contentinfo"], script, style, [aria-hidden="true"]',
+        ))
+          el.remove();
+        return clone.innerText ?? "";
+      })();
+      const clean = text.replace(/\s+/g, " ").trim();
+      if (clean.length < 10) return `content region has ${clean.length} characters`;
+      const busy = [...document.querySelectorAll('[role="status"], [aria-busy="true"]')].some((el) =>
+        /loading|טוענים|טוען|רגע/i.test((el as HTMLElement).textContent ?? ""),
       );
-      return loading && text.length < 200 ? "still showing a loading state" : null;
+      return busy && clean.length < 200 ? "still showing a loading state" : null;
     });
 
   const deadline = Date.now() + 15_000;
@@ -222,9 +235,34 @@ for (const route of routes as string[]) {
             // page was not measured, so it must not be scored as if it passed.
             const landed = new URL(page.url()).pathname + new URL(page.url()).search;
             const expected = route.split("?")[0] ?? route;
-            const bounced =
-              !landed.startsWith(expected) &&
-              /login|signin|sign-in|auth|unauthorized|forbidden|403|no-access|\u05d4\u05ea\u05d7\u05d1\u05e8/i.test(landed);
+            // ANY redirect away from the requested path means this page was not
+            // measured, wherever it went. The rule used to be `!landed.startsWith(expected)`
+            // AND a keyword test for a login-looking destination — two holes at once.
+            // A middleware that sends an unauthorised visitor to `/` matches no keyword,
+            // so on Green Room 52 admin and coach routes could each have been awarded
+            // the HOME PAGE's score, four entries apiece, and the report would have
+            // said 100. And `startsWith` let `/admin` stand in for `/adminXYZ`.
+            //
+            // Apps do have legitimate aliases, so `alias` is the narrow, declared
+            // exception: the destination must itself be a route in the list, so it is
+            // measured under its own name. A GATED route (an area listed in `_gated`)
+            // may leave its own area only if route-params.json says so in writing,
+            // under `_alias` — otherwise "it left /admin" is indistinguishable from
+            // "the middleware refused it", the very failure this check exists to catch.
+            const landedPath = landed.split("?")[0] ?? landed;
+            const GATED_AREAS = (params as { _gated?: string[] })._gated ?? [];
+            const gated = GATED_AREAS.find(
+              (prefix) => expected === prefix || expected.startsWith(`${prefix}/`),
+            );
+            const leftItsArea =
+              !!gated && !(landedPath === gated || landedPath.startsWith(`${gated}/`));
+            const declaredAlias = (params as { _alias?: Record<string, string> })._alias ?? {};
+            const alias =
+              landedPath !== expected &&
+              (!leftItsArea || route in declaredAlias) &&
+              (routes as string[]).some((r) => (r.split("?")[0] ?? r) === landedPath);
+            if (alias) result.redirected_to = landed;
+            const bounced = landedPath !== expected && !alias;
             const deniedText = await page
               .locator("body")
               .innerText()
@@ -249,6 +287,13 @@ for (const route of routes as string[]) {
             } else if (/403|401|אין לך הרשאה|אין הרשאה|access denied|unauthorized|forbidden/i.test(deniedText)) {
               result.unreachable = true;
               result.unreachable_reason = "access-denied screen rendered";
+            } else if (/משהו השתבש|שגיאה בטעינה|something went wrong|try again later/i.test(deniedText)) {
+              // An error boundary that caught a failed fetch renders a tidy little
+              // card: no overflow, no axe violation, no console error (it was
+              // caught), two fonts, no small targets. Indistinguishable from a
+              // perfect page unless the copy is matched.
+              result.unreachable = true;
+              result.unreachable_reason = "the app's own error screen rendered";
             }
 
             // Only worth asking once the response itself is sound: an access-denied

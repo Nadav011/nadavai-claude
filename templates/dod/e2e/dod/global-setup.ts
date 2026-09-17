@@ -15,6 +15,41 @@ import { REPORTS_DIR, RESULTS_DIR, SCREENS_DIR, STORAGE_STATE } from "./dod-shar
  * which is the correct, loud failure.
  */
 export default async function globalSetup(config: FullConfig) {
+  // This suite signs in with the widest role the app has and then opens every page
+  // in it, hundreds of browser entries deep. Pointed at a production backend that is
+  // a full-access crawl of real customer data by an automated browser. Nothing here
+  // ever intends that — but on Green Room the only thing that had ever kept it local
+  // was a gitignored `.env.local`, a file `actions/checkout` wipes on every CI run.
+  // A workflow that forgot to declare the URL would not have failed; it would have
+  // run, against whatever the deployed default was.
+  //
+  // So the run refuses rather than assumes. Set `DOD_ALLOW_REMOTE=1` to override,
+  // deliberately, in a shell where someone typed it.
+  if (!process.env.DOD_ALLOW_REMOTE) {
+    const LOOPBACK = /^(https?:\/\/)?(127\.0\.0\.1|localhost|\[::1\]|0\.0\.0\.0)(:|\/|$)/;
+    const BACKEND_VARS = [
+      "NEXT_PUBLIC_SUPABASE_URL",
+      "VITE_SUPABASE_URL",
+      "PUBLIC_SUPABASE_URL",
+      "SUPABASE_URL",
+      "DATABASE_URL",
+      "NEXT_PUBLIC_API_URL",
+      "VITE_API_URL",
+      "DOD_BACKEND_URL",
+    ];
+    const remote = BACKEND_VARS.filter(
+      (k) => process.env[k] && !LOOPBACK.test(process.env[k] as string),
+    );
+    if (remote.length) {
+      throw new Error(
+        `[dod] refusing to run: ${remote
+          .map((k) => `${k}=${process.env[k]}`)
+          .join(", ")} — not a loopback address. The DoD signs in with full access and ` +
+          "browses every page; it runs against a local stack only. Set DOD_ALLOW_REMOTE=1 to override.",
+      );
+    }
+  }
+
   fs.rmSync(RESULTS_DIR, { recursive: true, force: true });
   fs.rmSync(SCREENS_DIR, { recursive: true, force: true });
   fs.mkdirSync(RESULTS_DIR, { recursive: true });

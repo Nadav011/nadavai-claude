@@ -70,6 +70,10 @@ export interface EntryResult {
    * salon…". "Nothing wrong" and "nothing there" read identically to a probe suite
    * that only looks for defects, so presence has to be asserted, not assumed.
    */
+  /** Set when the route is a DECLARED alias: where it landed, so the report says
+   *  which page was actually measured under this name. An undeclared redirect is
+   *  `unreachable`, not an alias — see `_alias` in route-params.json. */
+  redirected_to?: string;
   reached: boolean;
   not_reached_reason: string | null;
   screenshot: string | null;
