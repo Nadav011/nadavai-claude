@@ -228,3 +228,38 @@ sox|command -v sox|/voice input
 brightdata-token|grep -q BRIGHTDATA_API_TOKEN "$CFG/settings.json"|add {"env":{"BRIGHTDATA_API_TOKEN":"..."}} to ~/.claude/settings.json (README, Secrets)
 LIST
 }
+
+mirror_rules_to_codex() {
+  # Codex reads only $CODEX_HOME/AGENTS.md globally, so the rules are mirrored into a
+  # delimited block there. OMX owns the rest of the file; only the block is rewritten,
+  # and it is appended when absent.
+  local home="${CODEX_HOME:-$HOME/.codex}"
+  local target="$home/AGENTS.md"
+  [ -d "$home" ] || { log "no $home; skipping Codex rules mirror"; return; }
+  local body; body="$(mktemp)"
+  {
+    printf '<!-- NADAVAI RULES START - generated from %s/rules by ~/nadavai/update.sh. Do not edit by hand. -->\n\n' "$CFG"
+    printf '# Global rules (mirrored from Claude Code)\n\n'
+    local f
+    for f in "$CFG"/rules/*.md; do
+      [ -e "$f" ] || continue
+      printf '<!-- source: rules/%s -->\n' "$(basename "$f")"
+      cat "$f"; printf '\n'
+    done
+    printf '<!-- NADAVAI RULES END -->\n'
+  } > "$body"
+  if [ -f "$target" ] && grep -q 'NADAVAI RULES START' "$target"; then
+    local out; out="$(mktemp)"
+    awk -v body="$body" '
+      /NADAVAI RULES START/ { while ((getline line < body) > 0) print line; close(body); skip=1; next }
+      /NADAVAI RULES END/   { skip=0; next }
+      !skip
+    ' "$target" > "$out"
+    mv "$out" "$target"
+  else
+    printf '\n' >> "$target"
+    cat "$body" >> "$target"
+  fi
+  rm -f "$body"
+  log "$target rules block refreshed"
+}

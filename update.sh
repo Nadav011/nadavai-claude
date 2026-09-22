@@ -51,6 +51,7 @@ link_git
 link_shell
 link_shortcuts
 retire_duplicate_skills
+mirror_rules_to_codex
 
 step "Done"
 log "Restart open Claude Code sessions, or run /reload-plugins, to load the new version."
