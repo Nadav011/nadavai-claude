@@ -22,6 +22,7 @@
 
 ## Second model
 - Run `omc ask codex` before a significant plan, after significant work, and for any change touching auth, payments, data, or money. Skip for text, spacing, or single-file fixes. Report its findings and what you did with them.
+- When Codex cannot run (out of quota, not installed, erroring, timing out), a fresh Opus 5.5 does the same review in its place: a new subagent with a clean context (`model: opus`, never a fork or a resumed agent), given only the review question, the artifact and the file paths, read-only. The step is never skipped, never replaced by the author's own review, and never waits silently for Codex to come back; say in the report which reviewer ran. Why: a reviewer that shares the author's context shares its blind spots (Nadav, 2026-09-25).
 
 ## Moving a session to another agent
 - Continuing an existing conversation in a different agent: `cs pick` to choose a session and a target, or `cs resume <id> -i <agent>` when the session is known. It reads the source agent's own transcript, so nothing has to be re-explained.
