@@ -34,6 +34,7 @@
 ## Approval gates
 - Ask before: auth or permission changes, payment logic, DB migrations or deletions, app-store publishing, any paid-service spend.
 - Routine web deploys proceed once the test suite passes; run a health check after.
+- Pre-approved, never ask: `git push` to any branch other than main (no force push), and deleting local files that are temporary, generated, or created in the current session. Why: both are easy to undo, and asking about them stalled work (Nadav, 2026-09-25).
 
 ## Learning
 - When verified work produced a repeatable workflow, capture it as a project-scoped skill under .omc/skills/ (skillify). Run skill-creator evals only when a skill misfires. Nothing global (skills, rules, CLAUDE.md) without asking.
