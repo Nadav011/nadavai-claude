@@ -7,7 +7,8 @@
   },
   "language": "hebrew",
   "permissions": {
-    "defaultMode": "bypassPermissions"
+    "defaultMode": "bypassPermissions",
+    "disableAutoMode": "disable"
   },
   "env": {
     "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
@@ -17,7 +18,8 @@
     "MAKEFLAGS": "-j6",
     "CARGO_BUILD_JOBS": "6",
     "UV_THREADPOOL_SIZE": "8",
-    "NEXT_TELEMETRY_DISABLED": "1"
+    "NEXT_TELEMETRY_DISABLED": "1",
+    "POSTHOG_MCP_EXEC_GATE_DISABLE": "1"
   },
   "disableClaudeAiConnectors": true,
   "skipDangerousModePermissionPrompt": true,
