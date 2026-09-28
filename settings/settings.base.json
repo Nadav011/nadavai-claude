@@ -19,7 +19,8 @@
     "CARGO_BUILD_JOBS": "6",
     "UV_THREADPOOL_SIZE": "8",
     "NEXT_TELEMETRY_DISABLED": "1",
-    "POSTHOG_MCP_EXEC_GATE_DISABLE": "1"
+    "POSTHOG_MCP_EXEC_GATE_DISABLE": "1",
+    "CLAUDE_CODE_SUBAGENT_MODEL": "claude-sonnet-5-5"
   },
   "disableClaudeAiConnectors": true,
   "skipDangerousModePermissionPrompt": true,
