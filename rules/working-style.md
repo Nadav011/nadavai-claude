@@ -22,7 +22,7 @@
 
 ## Second model
 - Run a second model before a significant plan, after significant work, and for any change touching auth, payments, data, or money. Skip for text, spacing, or single-file fixes. Report its findings, what you did with them, and which reviewer ran.
-- Any one of three reviewers counts: SOL through `omc ask codex` (gpt-6-sol at xhigh, set in `~/.codex/config.toml`), Grok 4.7 at xhigh through `omc ask grok` (set in `~/.grok/config.toml`), or a fresh Opus 5.5. Start with `omc ask codex`; when it cannot run (out of quota, not installed, erroring, timing out), use Grok or Opus in its place. Why: Codex ran out of quota twice in September 2026, and Nadav approved Grok 4.7 xhigh and Opus as equal stand-ins (2026-09-26).
+- Any one of three reviewers counts: SOL through `omc ask codex` (gpt-6.1-sol at xhigh, the only Codex model, set in `~/.codex/config.toml`), Grok 4.7 at xhigh through `omc ask grok` (set in `~/.grok/config.toml`), or a fresh Opus 5.5. Start with `omc ask codex`; when it cannot run (out of quota, not installed, erroring, timing out), use Grok or Opus in its place. Why: Codex ran out of quota twice in September 2026, and Nadav approved Grok 4.7 xhigh and Opus as equal stand-ins (2026-09-26).
 - Opus as the reviewer means a new subagent with a clean context (`model: opus`, never a fork or a resumed agent), given only the review question, the artifact and the file paths, read-only. The step is never skipped, never replaced by the author's own review, and never waits silently for a provider to come back. Why: a reviewer that shares the author's context shares its blind spots (Nadav, 2026-09-25).
 
 ## Moving a session to another agent
