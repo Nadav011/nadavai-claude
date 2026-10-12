@@ -1,0 +1,177 @@
+{
+  "$comment": "Copy to <out>/redesign.json and fill. Paths are relative to this file. Field reference: ../README.md «redesign.json». Fonts are local files (copy them into fonts/); the demo makes no network request. Every colour in \"theme\" is a placeholder to replace with the app's own (BRIEF.md «Colour roles»).",
+  "app": "MyApp",
+  "title": "MyApp · דמו העיצוב החדש",
+  "title_html": "MyApp · דמו העיצוב החדש",
+  "lede": "כל מסך של האפליקציה: מימין איך הוא נראה היום, לידו העיצוב החדש בכל המצבים שלו. אלה הדמיות לעיון, לא קוד.",
+  "lang": "he",
+  "dir": "rtl",
+  "output": "demo.html",
+  "phone": {
+    "width": 390,
+    "height": 844,
+    "frame": 8
+  },
+  "playwright": "<app repo>/node_modules/playwright/index.mjs",
+  "dirs": {
+    "parts": "parts",
+    "sections": "sections",
+    "css": "css",
+    "assets": "assets",
+    "icons": "icons",
+    "today": "today"
+  },
+  "fonts": [
+    {
+      "family": "Assistant",
+      "file": "fonts/Assistant-Variable.woff2",
+      "weight": "200 800"
+    }
+  ],
+  "tokens": {
+    "font": "\"Assistant\", system-ui, -apple-system, \"Segoe UI\", sans-serif",
+    "r-group": "14px",
+    "r-btn": "12px",
+    "safe-b": "24px",
+    "nav-h": "calc(60px + var(--safe-b))"
+  },
+  "theme": {
+    "$comment": "PLACEHOLDERS: every value below is replaced with the app's own colour from BRIEF.md. \"ok\" is the success colour of THIS app (it may be its gold, not green); \"live\" is its live/now colour.",
+    "default": "dark",
+    "dark": {
+      "page": "#0d0f12",
+      "page-ink": "#eef1f4",
+      "page-2": "#a9b1bb",
+      "page-hair": "#2a3038",
+      "page-surface": "#171b20",
+      "page-accent": "#f2c14e",
+      "focus": "#7cb7ff",
+      "bg": "#111418",
+      "surface": "#1b2027",
+      "surface-2": "#252b33",
+      "hair": "#ffffff1a",
+      "ink": "#eef1f4",
+      "ink-2": "#a9b1bb",
+      "accent": "#f2c14e",
+      "accent-ink": "#1d1606",
+      "accent-text": "#f2c14e",
+      "ok": "#3ecf8e",
+      "warn": "#f2b84b",
+      "warn-tint": "#3a2f17",
+      "danger": "#ff6b6b",
+      "live": "#3ecf8e"
+    },
+    "light": {
+      "page": "#e9ecef",
+      "page-ink": "#15191e",
+      "page-2": "#4d5662",
+      "page-hair": "#c9cfd6",
+      "page-surface": "#ffffff",
+      "page-accent": "#7a5a00",
+      "focus": "#1f5fbf",
+      "bg": "#f6f7f9",
+      "surface": "#ffffff",
+      "surface-2": "#e9ecef",
+      "hair": "#d5dae0",
+      "ink": "#15191e",
+      "ink-2": "#4d5662",
+      "accent": "#f2c14e",
+      "accent-ink": "#1d1606",
+      "accent-text": "#7a5a00",
+      "ok": "#1d7a4f",
+      "warn": "#8a5a00",
+      "warn-tint": "#f6ecd5",
+      "danger": "#b3261e",
+      "live": "#1d7a4f"
+    }
+  },
+  "screens": [
+    {
+      "id": "home",
+      "tab": "1 · בית"
+    },
+    {
+      "id": "profile",
+      "tab": "2 · פרופיל"
+    }
+  ],
+  "nav": {
+    "items": [
+      {
+        "id": "home",
+        "label": "בית",
+        "icon": "home",
+        "screen": "home"
+      },
+      {
+        "id": "profile",
+        "label": "פרופיל",
+        "icon": "user",
+        "screen": "profile"
+      }
+    ],
+    "unread_label": "יש עדכונים"
+  },
+  "labels": {
+    "today": "היום",
+    "after": "אחרי",
+    "new": "חדש",
+    "state": "מצב",
+    "proposal": "מוצע"
+  },
+  "plan": "plan/build-plan.md",
+  "anchors": {
+    "unit_id": "U-\\d+[a-z]?",
+    "id_sources": [
+      "sections/*.html",
+      "FEATURES-PROPOSED.md"
+    ],
+    "retired": [],
+    "split": {}
+  },
+  "today": {
+    "$comment": "allow_origins and approvals stay empty until Nadav approves an origin: then add it with \"answer N\", N being his row in DECISIONS-ANSWERED.md that names the host (README step 2).",
+    "base_url": "http://127.0.0.1:3000/he/",
+    "routes": [
+      {
+        "name": "home",
+        "path": "home",
+        "expect": "<text only the right home shows>"
+      },
+      {
+        "name": "profile",
+        "path": "profile",
+        "expect": "<text only the right profile shows>",
+        "wait": 500
+      }
+    ],
+    "reject": [
+      "<the app's offline page text>",
+      "<its error boundary text>"
+    ],
+    "local_storage": {
+      "<first-visit overlay seen key>": "1"
+    },
+    "allow_origins": [],
+    "approvals": {},
+    "storage_state": "../.auth/qa-storage.json"
+  },
+  "today_missing": {},
+  "publish_limit_mb": 16,
+  "sr_only": [
+    "sr-only",
+    "visually-hidden"
+  ],
+  "lint": [
+    {
+      "name": "named-span-without-role",
+      "pattern": "<span\\b(?=[^>]*\\baria-label=\")(?![^>]*\\s(?:role|aria-hidden)=)[^>]*>",
+      "hint": "a span with aria-label and no role is a generic element; screen readers drop the name. Use role=\"button\" or role=\"img\"."
+    },
+    {
+      "name": "hebrew-in-ltr",
+      "pattern": "dir=\"ltr\"[^>]*>[^<]*[\\u0590-\\u05FF]",
+      "hint": "Hebrew inside an LTR island reads backwards; keep the island to the number or the Latin name only."
+    }
+  ]
+}

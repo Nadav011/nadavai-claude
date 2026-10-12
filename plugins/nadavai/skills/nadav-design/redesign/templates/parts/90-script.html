@@ -1,0 +1,26 @@
+<script>
+(function(){
+  var root=document.documentElement;
+  var tabs=document.querySelectorAll('.switch [data-s]'),screens=document.querySelectorAll('.screen');
+  function show(id){
+    if(!document.getElementById('s-'+id))return;
+    tabs.forEach(function(b){b.setAttribute('aria-selected',b.dataset.s===id?'true':'false')});
+    screens.forEach(function(s){s.classList.toggle('on',s.id==='s-'+id)});
+    try{localStorage.setItem('demo-screen',id)}catch(e){}
+  }
+  tabs.forEach(function(b){b.addEventListener('click',function(){show(b.dataset.s);window.scrollTo({top:0})})});
+  /* a tab-bar item inside a phone opens its screen, like the real app would */
+  document.querySelectorAll('[data-demo-screen]').forEach(function(el){
+    function go(){show(el.dataset.demoScreen);window.scrollTo({top:0})}
+    el.addEventListener('click',go);
+    el.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();go()}});
+  });
+  /* theme: data-theme on <html> wins; without it the system setting decides */
+  var btns=document.querySelectorAll('.tbtn[data-theme]');
+  function current(){return root.getAttribute('data-theme')||(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark')}
+  function mark(){var t=current();btns.forEach(function(b){b.setAttribute('aria-pressed',b.dataset.theme===t?'true':'false')})}
+  btns.forEach(function(b){b.addEventListener('click',function(){root.setAttribute('data-theme',b.dataset.theme);mark();try{localStorage.setItem('demo-theme',b.dataset.theme)}catch(e){}})});
+  try{var th=localStorage.getItem('demo-theme');if(th)root.setAttribute('data-theme',th);var saved=localStorage.getItem('demo-screen');if(saved)show(saved)}catch(e){}
+  mark();
+})();
+</script>

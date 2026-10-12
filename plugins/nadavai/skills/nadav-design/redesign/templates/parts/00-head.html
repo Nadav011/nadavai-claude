@@ -1,0 +1,79 @@
+<style>
+/* =====================================================================
+   Redesign demo · shared base (parts/00-head.html)
+   Owned by the SHARED lane only; screen lanes put their CSS in css/<id>.css with a screen prefix.
+   Tokens come from redesign.json ("tokens" and "theme"); build.py writes them before this block.
+   Logical properties only (inline/block, start/end): the demo is RTL-first.
+   The component skeleton at the end is a starting point: replace it with BRIEF.md's components.
+   ===================================================================== */
+*{box-sizing:border-box}
+html{background:var(--page);color:var(--page-ink)}
+body{margin:0;font-family:var(--font);font-size:16px;line-height:1.45;-webkit-text-size-adjust:100%}
+.wrap{max-inline-size:1440px;margin-inline:auto;padding-inline:24px;padding-block:24px 96px}
+.masthead h1{font-size:28px;line-height:1.15;margin-block:4px 8px;text-wrap:balance}
+.masthead .lede{max-inline-size:72ch;margin:0;color:var(--page-2)}
+.legend{display:flex;flex-wrap:wrap;gap:6px 18px;margin-block:12px;font-size:14px;color:var(--page-2)}
+.legend b{color:var(--page-ink)}
+.theme-row{display:flex;gap:8px;margin-block-end:8px}
+.tbtn,.switch button{min-block-size:44px;padding-inline:14px;border-radius:999px;border:1px solid var(--page-hair);background:var(--page-surface);color:var(--page-ink);font:inherit;font-weight:600;cursor:pointer}
+.tbtn[aria-pressed="true"]{border-color:var(--page-ink)}
+.switch{position:sticky;inset-block-start:0;z-index:10;display:flex;gap:6px;overflow-x:auto;padding-block:10px;background:var(--page);scrollbar-width:thin}
+.switch button{flex:0 0 auto}
+.switch button[aria-selected="true"]{background:var(--page-ink);color:var(--page);border-color:transparent}
+:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
+
+/* a screen: heading, the compare grid of columns, then the notes */
+.screen{display:none;margin-block-start:16px}
+.screen.on{display:block}
+.screen-head h2{font-size:22px;line-height:1.2;margin-block:8px 18px;text-wrap:balance}
+.compare{display:grid;grid-template-columns:repeat(auto-fill,var(--phone-w));gap:32px 20px;align-items:start}
+.col{display:grid;gap:10px;justify-items:center;align-content:start}
+.col-label{max-inline-size:var(--phone-w);font-size:13px;font-weight:700;color:var(--page-2);text-align:center;text-wrap:balance}
+.col-label.after{color:var(--page-accent)}
+.col-label small{display:block;margin-block-start:4px;font-size:12px;font-weight:600;color:var(--page-2)}
+.col.proposal .phone{outline:2px dashed var(--page-accent);outline-offset:6px}
+.col-note{max-inline-size:var(--phone-w);margin:0;font-size:13px;color:var(--page-2);text-align:center}
+.notes{grid-column:1/-1;max-inline-size:80ch;display:grid;gap:10px}
+.notes h3{margin:0;font-size:15px;color:var(--page-2)}
+.notes ul{margin:0;padding-inline-start:18px;display:grid;gap:7px;font-size:15px}
+.notes .keep,.notes .open{list-style:none;margin-inline-start:-18px;padding-inline-start:10px;font-size:14px;color:var(--page-2)}
+.notes .keep{border-inline-start:3px solid var(--ok)}
+.notes .open{border-inline-start:3px solid var(--warn)}
+@media (max-width:880px){.wrap{padding-inline:12px}.compare{grid-template-columns:minmax(0,1fr);justify-items:center}}
+
+/* the phone: a fixed frame; .body scrolls; the tab bar (the NAV placeholder) is a direct child after .body so it stays put */
+.phone{position:relative;inline-size:min(var(--phone-w),100%);block-size:var(--phone-h);border:var(--frame) solid #0a0a0a;border-radius:44px;overflow:hidden;isolation:isolate;container:phone/inline-size;background:var(--bg);color:var(--ink);font-size:17px;line-height:1.35}
+.phone > .body{position:absolute;inset:0;overflow-y:auto;overflow-x:hidden;padding-block-end:calc(var(--nav-h) + 12px);scrollbar-width:none}
+.phone > .body.no-nav{padding-block-end:calc(var(--safe-b) + 12px)}
+.phone.shot{overflow-y:auto;scrollbar-width:none}
+.phone.shot img{display:block;inline-size:100%;block-size:auto}
+.status{display:flex;justify-content:space-between;padding-block:14px 6px;padding-inline:28px;font-size:15px;font-weight:600}
+.nav{position:absolute;inset-inline:0;inset-block-end:0;z-index:5;display:flex;justify-content:space-around;padding-block:6px calc(6px + var(--safe-b));background:var(--surface);border-block-start:1px solid var(--hair)}
+.nav [data-demo-screen]{position:relative;display:grid;justify-items:center;align-content:center;gap:2px;min-inline-size:60px;min-block-size:48px;font-size:11px;font-weight:600;color:var(--ink-2);cursor:pointer}
+.nav .on{color:var(--accent-text)}
+.nav .unread::after{content:"";position:absolute;inset-block-start:4px;inset-inline-end:16px;inline-size:8px;block-size:8px;border-radius:50%;background:var(--danger)}
+.ic{inline-size:24px;block-size:24px;flex:0 0 auto;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.ic.s{inline-size:18px;block-size:18px}
+.rtl-flip{transform:scaleX(-1)}
+.sr-only{position:absolute;inline-size:1px;block-size:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.num{font-variant-numeric:tabular-nums}
+
+/* ---- component skeleton (replace with BRIEF.md's shared components; one component per job) ---- */
+.top{display:flex;align-items:center;gap:4px;min-block-size:52px;padding-inline:8px}
+.top .title{flex:1;min-inline-size:0;font-size:17px;font-weight:700;text-align:center}
+.hbtn{display:grid;place-items:center;inline-size:44px;block-size:44px;border-radius:50%;color:var(--ink)}
+.h1{margin-block:8px 14px;margin-inline:16px;font-size:30px;line-height:1.15;font-weight:800}
+.group{margin-inline:16px;margin-block-end:16px;border-radius:var(--r-group);background:var(--surface);overflow:hidden}
+.group-title{margin-block:18px 8px;margin-inline:20px;font-size:13px;font-weight:700;color:var(--ink-2)}
+.row{display:flex;align-items:center;gap:12px;min-block-size:56px;padding-block:8px;padding-inline:16px;border-block-end:1px solid var(--hair)}
+.row:last-child{border-block-end:0}
+.row .grow{flex:1;min-inline-size:0}
+.row .sub{display:block;font-size:13px;color:var(--ink-2)}
+.btn{display:flex;align-items:center;justify-content:center;gap:8px;min-block-size:48px;padding-inline:20px;border:0;border-radius:var(--r-btn);font:inherit;font-weight:700}
+.btn.primary{background:var(--accent);color:var(--accent-ink)}
+.btn.quiet{background:var(--surface-2);color:var(--ink)}
+.empty{display:grid;justify-items:center;gap:10px;padding-block:48px;padding-inline:28px;text-align:center;color:var(--ink-2)}
+.empty b{font-size:19px;color:var(--ink)}
+.skel{display:block;border-radius:8px;background:var(--surface-2)}
+.banner{display:flex;gap:10px;align-items:center;margin-block:8px;margin-inline:16px;padding:12px 14px;border-radius:12px;background:var(--warn-tint);color:var(--ink)}
+</style>

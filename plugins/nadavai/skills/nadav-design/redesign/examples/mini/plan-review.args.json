@@ -1,0 +1,13 @@
+{
+  "out": ".",
+  "skill": "../..",
+  "app": "app",
+  "round": "r1",
+  "date": "11.10",
+  "planItems": {
+    "file": "state/r1/plan.json",
+    "n": 2
+  },
+  "commit": false,
+  "nonce": "mini1"
+}

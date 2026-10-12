@@ -1,0 +1,153 @@
+{
+  "$comment": "Test fixture for the redesign tools: a two-screen running-club app. The parts are the templates themselves, so this fixture proves them too. Playwright comes from $PLAYWRIGHT_MODULE or --pw. Run the commands in README.md from this folder.",
+  "app": "רצים",
+  "title": "רצים · דמו העיצוב החדש (fixture)",
+  "lede": "שני מסכים, כדי לבדוק את הכלים: מימין המסך היום, לידו העיצוב החדש בכל המצבים שלו.",
+  "lang": "he",
+  "dir": "rtl",
+  "output": "demo.html",
+  "phone": {
+    "width": 390,
+    "height": 844,
+    "frame": 8
+  },
+  "dirs": {
+    "parts": "../../templates/parts",
+    "sections": "sections",
+    "css": "css",
+    "assets": "assets",
+    "icons": "icons",
+    "today": "today"
+  },
+  "fonts": [],
+  "tokens": {
+    "font": "system-ui, -apple-system, \"Segoe UI\", Arial, sans-serif",
+    "r-group": "14px",
+    "r-btn": "12px",
+    "safe-b": "24px",
+    "nav-h": "calc(60px + var(--safe-b))"
+  },
+  "theme": {
+    "default": "dark",
+    "dark": {
+      "page": "#0d0f12",
+      "page-ink": "#eef1f4",
+      "page-2": "#a9b1bb",
+      "page-hair": "#2a3038",
+      "page-surface": "#171b20",
+      "page-accent": "#f2c14e",
+      "focus": "#7cb7ff",
+      "bg": "#111418",
+      "surface": "#1b2027",
+      "surface-2": "#252b33",
+      "hair": "#ffffff1a",
+      "ink": "#eef1f4",
+      "ink-2": "#a9b1bb",
+      "accent": "#f2c14e",
+      "accent-ink": "#1d1606",
+      "accent-text": "#f2c14e",
+      "ok": "#3ecf8e",
+      "warn": "#f2b84b",
+      "warn-tint": "#3a2f17",
+      "danger": "#ff6b6b",
+      "live": "#3ecf8e"
+    },
+    "light": {
+      "page": "#e9ecef",
+      "page-ink": "#15191e",
+      "page-2": "#4d5662",
+      "page-hair": "#c9cfd6",
+      "page-surface": "#ffffff",
+      "page-accent": "#7a5a00",
+      "focus": "#1f5fbf",
+      "bg": "#f6f7f9",
+      "surface": "#ffffff",
+      "surface-2": "#e9ecef",
+      "hair": "#d5dae0",
+      "ink": "#15191e",
+      "ink-2": "#4d5662",
+      "accent": "#f2c14e",
+      "accent-ink": "#1d1606",
+      "accent-text": "#7a5a00",
+      "ok": "#1d7a4f",
+      "warn": "#8a5a00",
+      "warn-tint": "#f6ecd5",
+      "danger": "#b3261e",
+      "live": "#1d7a4f"
+    }
+  },
+  "screens": [
+    {
+      "id": "home",
+      "tab": "1 · הריצות"
+    },
+    {
+      "id": "profile",
+      "tab": "2 · פרופיל"
+    }
+  ],
+  "nav": {
+    "items": [
+      {
+        "id": "home",
+        "label": "ריצות",
+        "icon": "home",
+        "screen": "home"
+      },
+      {
+        "id": "profile",
+        "label": "פרופיל",
+        "icon": "user",
+        "screen": "profile"
+      }
+    ],
+    "unread_label": "יש עדכונים"
+  },
+  "labels": {
+    "today": "היום",
+    "after": "אחרי",
+    "new": "חדש",
+    "state": "מצב",
+    "proposal": "מוצע"
+  },
+  "plan": "plan/build-plan.md",
+  "anchors": {
+    "unit_id": "U-\\d+[a-z]?",
+    "id_sources": [
+      "sections/*.html"
+    ],
+    "retired": [],
+    "split": {}
+  },
+  "today": {
+    "base_url": "http://127.0.0.1:8977/",
+    "routes": [
+      {
+        "name": "home",
+        "path": "home.html",
+        "expect": "הריצות שלי"
+      },
+      {
+        "name": "profile",
+        "path": "profile.html",
+        "expect": "דנה לוי"
+      }
+    ]
+  },
+  "sr_only": [
+    "sr-only",
+    "visually-hidden"
+  ],
+  "lint": [
+    {
+      "name": "named-span-without-role",
+      "pattern": "<span\\b(?=[^>]*\\baria-label=\")(?![^>]*\\s(?:role|aria-hidden)=)[^>]*>",
+      "hint": "a span with aria-label and no role is a generic element; screen readers drop the name. Use role=\"button\" or role=\"img\"."
+    },
+    {
+      "name": "hebrew-in-ltr",
+      "pattern": "dir=\"ltr\"[^>]*>[^<]*[\\u0590-\\u05FF]",
+      "hint": "Hebrew inside an LTR island reads backwards; keep the island to the number or the Latin name only."
+    }
+  ]
+}

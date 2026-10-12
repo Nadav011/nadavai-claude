@@ -1,0 +1,23 @@
+{
+  "out": ".",
+  "skill": "../..",
+  "app": "app",
+  "round": "r1",
+  "date": "11.10",
+  "screens": [
+    "home",
+    "profile"
+  ],
+  "laneSize": 1,
+  "auditSize": 2,
+  "mode": "build",
+  "story": {
+    "screens": [
+      "home",
+      "profile"
+    ],
+    "file": "STORY.md"
+  },
+  "commit": false,
+  "nonce": "mini1"
+}

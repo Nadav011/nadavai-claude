@@ -1,0 +1,65 @@
+<!-- sections/<id>.html · one screen of the demo. Replace every SCREEN and every «…» placeholder.
+     Column labels are the contract with the build plan: the plan cites them verbatim («אחרי · …»), so a label is never
+     renamed or removed once the plan exists (a changed design gets a new label; check-anchors proves it).
+     «היום» columns are today's app and are never edited. Order: היום, אחרי, every state, approved new, proposals. -->
+<section class="screen" id="s-SCREEN">
+  <div class="screen-head"><h2>N · שם המסך: מה השתנה, במשפט אחד</h2></div>
+  <div class="compare">
+
+    <div class="col"><div class="col-label">היום · <bdi dir="ltr">/route</bdi></div>
+      <div class="phone shot"><img src="{{IMG:SCREEN}}" alt="צילום המסך היום: מה רואים בו, במשפט אחד"></div></div>
+
+    <div class="col"><div class="col-label after">אחרי · שם המצב הראשי<small>מה חדש בו, אם יש</small></div>
+      <div class="phone"><div class="body">
+        <div class="status"><span class="num" dir="ltr">21:13</span><span aria-hidden="true">●●●</span></div>
+        <div class="top"><span class="hbtn" role="button" aria-label="חיפוש"><svg class="ic"><use href="#i-search"/></svg></span><span class="title">כותרת</span><span class="hbtn" aria-hidden="true"></span></div>
+        <h1 class="h1">כותרת גדולה</h1>
+        <div class="group">
+          <div class="row" role="link"><span class="grow">שורה<span class="sub">שורת משנה</span></span><svg class="ic s" aria-hidden="true"><use href="#i-chevron-left"/></svg></div>
+        </div>
+      </div>{{NAV:SCREEN}}</div></div>
+
+    <!-- one «מצב · …» phone for EVERY state INVENTORY.md lists for this screen -->
+    <div class="col"><div class="col-label after">מצב · ריק</div>
+      <div class="phone"><div class="body">
+        <div class="status"><span class="num" dir="ltr">21:13</span><span aria-hidden="true">●●●</span></div>
+        <div class="empty"><b>עוד אין כאן כלום</b><span>משפט אחד שאומר מה יופיע כאן ואיך מתחילים.</span><button class="btn primary" type="button">הפעולה הראשונה</button></div>
+      </div>{{NAV:SCREEN}}</div></div>
+
+    <div class="col"><div class="col-label after">מצב · טוען</div>
+      <div class="phone"><div class="body" aria-busy="true">
+        <div class="status"><span class="num" dir="ltr">21:13</span><span aria-hidden="true">●●●</span></div>
+        <div class="group"><div class="row"><span class="skel" style="inline-size:60%;block-size:16px"></span></div></div>
+      </div>{{NAV:SCREEN}}</div></div>
+
+    <div class="col"><div class="col-label after">מצב · שגיאה</div>
+      <div class="phone"><div class="body">
+        <div class="status"><span class="num" dir="ltr">21:13</span><span aria-hidden="true">●●●</span></div>
+        <div class="empty" role="alert"><b>זה לא נטען</b><span>מה קרה, במילים של המשתמש.</span><button class="btn quiet" type="button">נסו שוב</button></div>
+      </div>{{NAV:SCREEN}}</div></div>
+
+    <div class="col"><div class="col-label after">מצב · אין חיבור</div>
+      <div class="phone"><div class="body">
+        <div class="status"><span class="num" dir="ltr">21:13</span><span aria-hidden="true">●●●</span></div>
+        <div class="banner" role="status">אין חיבור לאינטרנט. מה שכבר נטען נשאר כאן.</div>
+      </div>{{NAV:SCREEN}}</div></div>
+
+    <!-- an approved feature that does not exist today: «חדש · מאושר · <title>», as finished as any target phone -->
+
+    <!-- a proposal for after the core (FEATURES-PROPOSED.md): dashed frame, the note UNDER the phone -->
+    <div class="col proposal"><div class="col-label after">מוצע · DD.MM · אחרי הליבה · שם ההצעה</div>
+      <div class="phone"><div class="body">
+        <div class="status"><span class="num" dir="ltr">21:13</span><span aria-hidden="true">●●●</span></div>
+      </div>{{NAV:SCREEN}}</div>
+      <p class="col-note">אחרי הליבה · נכנס לתוכנית ב־DD.MM · U-N</p></div>
+
+    <div class="notes">
+      <h3>מה השתנה ולמה</h3>
+      <ul>
+        <li>שינוי אחד בשורה, עם הסיבה (תשובה N, BRIEF.md או INVENTORY.md).</li>
+        <li class="keep">מה נשאר בדיוק כמו היום, ולמה.</li>
+        <li class="open">שאלה פתוחה, עם המספר שלה ב־DECISIONS-OPEN.md.</li>
+      </ul>
+    </div>
+  </div>
+</section>

@@ -1,0 +1,12 @@
+# copied to <out>/.gitignore at step 0
+# generated: rebuilt from sources by tools/build.py and tools/publish-prep.py
+demo.html
+out/
+pub/
+work/
+__pycache__/
+# screenshots stay on this machine (large, regenerable from history/<id>/*/pre/); today's are inputs and are kept
+*.png
+!today/*.png
+# QA sessions for capture-today.mjs hold live tokens
+.auth/

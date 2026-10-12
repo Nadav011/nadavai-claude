@@ -1,0 +1,6 @@
+/* home lane: every class carries the screen prefix (home-) so nothing collides */
+.home-mark{inline-size:28px;block-size:28px;margin-inline:8px}
+.home-next{display:grid;gap:6px;margin-inline:16px;margin-block-end:8px;padding:16px;border-radius:var(--r-group);background:var(--surface)}
+.home-when{font-size:14px;color:var(--ink-2)}
+.home-next b{font-size:20px}
+.home-meta{font-size:14px;color:var(--ink-2);margin-block-end:6px}
