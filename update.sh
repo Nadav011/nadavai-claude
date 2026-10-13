@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Pull the latest repo state and refresh the installed nadavai plugin and links.
 #
-#   ./update.sh          nadavai only (marketplace + plugin + symlinks)
+#   ./update.sh          nadavai only (marketplace + plugin + model policy + symlinks)
 #   ./update.sh --all    also refresh every other marketplace and dependency plugin
 #   ./update.sh --npm    also install any missing global npm package
 set -euo pipefail
@@ -44,6 +44,9 @@ if [ "$NPM" = 1 ]; then
   step "Global npm packages"
   ensure_npm_globals
 fi
+
+step "Model policy"
+apply_model_policy
 
 step "Links"
 link_rules

@@ -104,6 +104,27 @@ merge_settings() {
   log "merged settings.base.json into $target"
 }
 
+apply_model_policy() {
+  # Re-apply only the model keys of settings.base.json on update. A full merge would also
+  # reset per-machine values such as the concurrency caps.
+  local target="$CFG/settings.json"
+  if [ ! -f "$target" ]; then merge_settings; return; fi
+  node -e '
+    const fs = require("fs");
+    const [base, target, backup] = process.argv.slice(1);
+    const b = JSON.parse(fs.readFileSync(base, "utf8"));
+    const raw = fs.readFileSync(target, "utf8");
+    const cur = JSON.parse(raw);
+    for (const k of ["model", "availableModels"]) if (k in b) cur[k] = b[k];
+    const next = JSON.stringify(cur, null, 2) + "\n";
+    if (next === raw) { console.log("  model policy already current"); process.exit(0); }
+    fs.mkdirSync(backup, { recursive: true });
+    fs.writeFileSync(backup + "/settings.json", raw);
+    fs.writeFileSync(target, next);
+    console.log("  applied model and availableModels from settings.base.json to " + target);
+  ' "$REPO/settings/settings.base.json" "$target" "$BACKUP"
+}
+
 link_git() {
   link_dir "$REPO/git/hooks" "$HOME/.git-hooks"
   git config --global core.hooksPath "$HOME/.git-hooks"
