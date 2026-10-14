@@ -14,7 +14,10 @@ input=$(cat)
 if command -v jq >/dev/null 2>&1 && file=$(jq -r '.tool_input.file_path // empty' <<<"$input" 2>/dev/null); then
   [ -n "$file" ] || exit 0
   inside=0
-  for f in "$(realpath -m -- "$file")" "$(realpath -ms -- "$file")"; do
+  # Physical, lexical, and lexical then physical (node's realpathSync resolves `..`
+  # before it follows symlinks).
+  lex=$(realpath -ms -- "$file")
+  for f in "$(realpath -m -- "$file")" "$lex" "$(realpath -m -- "$lex")"; do
     for dir in "$NADAVAI_HOME" "$CLAUDE_CONFIG_DIR/plugins/cache/nadavai"; do
       for d in "$(realpath -m -- "$dir")" "$(realpath -ms -- "$dir")"; do
         case "$f" in "$d"|"$d"/*) inside=1 ;; esac
