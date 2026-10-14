@@ -12,6 +12,8 @@
 ## Verification
 - A UI change is done only with browser evidence: a Playwright snapshot or screenshot AND a clean console. Check RTL and mobile width on every user-facing screen.
 - Before a public web app goes live: a one-time SEO pass with the claude-seo plugin enabled for that project (`/seo audit`, `/seo geo`), fix what it measured, then disable the plugin again. Day-to-day dev keeps it off.
+- Waiting for NadavAI CI: `ci-wait <repo> <sha|branch>` with `run_in_background: true`, never a status loop. It pins the sha, knows each repo's contexts, and exits 0 green, 1 red, 2 timeout, 3 NadavAI down. Why: a status loop wakes the agent on every poll and can read a newer push's status as its own.
+- Long local commands run with `run_in_background: true` and you continue when the completion notice arrives; never `sleep` + grep a log in a loop. Why: in the week to 2026-10-14, 825 sleeps (38.8 agent-hours) waited on local logs, and every wake-up is one more full-context request.
 
 ## Browser routing (one tool per job)
 - Regression: the project's Playwright suite via Bash.
