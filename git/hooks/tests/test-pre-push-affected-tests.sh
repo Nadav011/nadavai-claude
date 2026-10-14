@@ -194,6 +194,18 @@ case_docs_only_runs_nothing() {
   fi
 }
 
+case_own_force_rerun_triggers() {
+  echo "=== CASE: a repo with its own forceRerunTriggers gets the full suite for a docs change ==="
+  local d="$TMPROOT/owntriggers"; setup_repo "$d" with-vitest; make_fake_npx "$d" 0
+  commit_change "$d" vitest.config.ts 'export default { test: { forceRerunTriggers: ["**/README.md"] } }'
+  local base; base=$(cd "$d" && git rev-parse HEAD)
+  commit_change "$d" README.md 'two'
+  run_hook "$d" "$base" || true
+  [ "$(args "$d")" = "vitest run --passWithNoTests" ] \
+    && ok own-force-rerun-triggers \
+    || bad own-force-rerun-triggers "expected the full suite, got: $(args "$d")"
+}
+
 case_skips_without_vitest() {
   echo "=== CASE: a repo not on vitest is left alone (related is a vitest command) ==="
   local d="$TMPROOT/novitest"; setup_repo "$d" without-vitest; make_fake_npx "$d" 1
@@ -258,6 +270,7 @@ case_new_branch_runs_full
 case_unknown_sha_runs_full
 case_full_triggers
 case_docs_only_runs_nothing
+case_own_force_rerun_triggers
 case_skips_without_vitest
 case_typecheck_via_repo_script
 case_runs_in_parallel

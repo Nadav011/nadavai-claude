@@ -95,7 +95,8 @@ fi
 #     config, a setup file, .env*, fixtures or snapshots (tests read those through fs);
 #   - a code file was deleted or renamed (its importers are not in the graph any more);
 #   - any file is unclassified (SQL, YAML, shell, HTML...: a test may read it via fs).
-# Documentation, licences, .github/ and raster images are ignored.
+# Documentation, licences, .github/ and raster images are ignored, unless the repo's
+# vite/vitest config sets its own forceRerunTriggers (they may name any file).
 TEST_MODE=related   # related | full
 TEST_REASON=""
 RELATED_FILES=()
@@ -112,6 +113,9 @@ classify_push() {
   if ! files=$(git diff --name-only --no-renames "$base" "$head" 2>/dev/null); then
     TEST_MODE=full; TEST_REASON="git could not diff ${base:0:7}..${head:0:7}"; return
   fi
+  # A repo with its own forceRerunTriggers may name any file, so nothing is ignored there.
+  local own_triggers=""
+  own_triggers=$(grep -ls forceRerunTriggers vite.config.* vitest.config.* vitest.workspace.* 2>/dev/null | head -1)
   while IFS= read -r f; do
     [ -n "$f" ] || continue
     name=${f##*/}
@@ -124,10 +128,15 @@ classify_push() {
     case "/$f" in
       */fixtures/*|*/__fixtures__/*|*/__snapshots__/*|*/testdata/*|*/test-data/*)
         TEST_MODE=full; TEST_REASON="$f changed (fixture read by tests)"; return ;;
-      /.github/*) continue ;;
+    esac
+    case "/$f" in
+      /.github/*|*.md|*.txt|*/LICENSE*|*/.gitignore|*.png|*.jpg|*.jpeg|*.gif|*.webp|*.avif|*.ico)
+        if [ -n "$own_triggers" ]; then
+          TEST_MODE=full; TEST_REASON="$f changed and $own_triggers sets forceRerunTriggers"; return
+        fi
+        continue ;;
     esac
     case "$name" in
-      *.md|*.txt|LICENSE*|.gitignore|*.png|*.jpg|*.jpeg|*.gif|*.webp|*.avif|*.ico) continue ;;
       *.ts|*.tsx|*.js|*.jsx|*.mjs|*.cjs|*.mts|*.cts|*.vue|*.svelte|*.css|*.scss|*.json|*.svg)
         if [ -e "$f" ]; then
           RELATED_FILES+=("$f")
