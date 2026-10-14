@@ -80,7 +80,10 @@ else
   if grep -qx main <<<"$heads"; then branch=main
   elif [ -n "$heads" ]; then branch=$(head -1 <<<"$heads")
   else
-    cmp=$(api "compare/main...$sha" -q .status) || cmp=""
+    # Guessing branch mode here would drop the deploy and gate contexts of a main
+    # commit and could call it green, so an unreadable answer stops the wait.
+    cmp=$(api "compare/main...$sha" -q .status) ||
+      { echo "ci-wait: GitHub did not say whether ${sha:0:7} is on main; pass the branch name instead" >&2; exit 64; }
     case "$cmp" in identical|behind) branch=main ;; esac
   fi
 fi
@@ -107,11 +110,18 @@ while :; do
     while IFS=$'\t' read -r c s d; do st[$c]=$s; ds[$c]=$d; done < <(
       jq -r '.statuses[] | [.context, .state, .description] | @tsv' <<<"$json")
 
+    # A branch run cancelled because a newer head arrived posts this and nothing else.
+    if [ "${st[nadavai-ci]:-}" = error ] && [[ ${ds[nadavai-ci]:-} == "superseded by "* ]]; then
+      echo "NOT MEASURED: ${OWNER}/$repo ${sha:0:7}: ${ds[nadavai-ci]}; wait on the newer sha instead"
+      exit 0
+    fi
+
     red=(); pending=(); notes=()
+    declare -A retrying=()
     for c in "${contexts[@]}"; do
       s=${st[$c]:-missing}; d=${ds[$c]:-}
       # A transient error the poller retries on its next pass is still pending.
-      if [ "$s" = error ] && [[ $d == *retry* ]]; then s=pending; fi
+      if [ "$s" = error ] && [[ $d == *retry* ]]; then s=pending; retrying[$c]=1; fi
       if [ "$s" != missing ] && [ "${shown[$c]:-}" != "$s $d" ]; then
         echo "  $c: $s: $d"; shown[$c]="$s $d"
       fi
@@ -144,18 +154,20 @@ while :; do
       if [ "$ci" = success ] && [[ $cid == "documentation only"* ]] && [ "$c" != nadavai-security ]; then
         notes+=("$c: not run, documentation only"); continue
       fi
-      if [ "$c" = nadavai-ui ] && [ "$ci" = success ] &&
-         { [ -z "${DEPLOY_AUTO[$repo]:-}" ] || [ "${st[nadavai-deploy]:-}" = success ]; } &&
-         [ "${st[nadavai-ui]:-missing}" = missing ]; then
-        # The gate runs only on main's current head; a superseded head never gets one.
+      # Deploys and gates act only on main's current head: once main moves on, a gate
+      # that never started, or a deploy or gate waiting to retry, is never posted again.
+      if { [ "$c" = nadavai-ui ] && [ "$ci" = success ] &&
+           { [ -z "${DEPLOY_AUTO[$repo]:-}" ] || [ "${st[nadavai-deploy]:-}" = success ]; } &&
+           [ "${st[nadavai-ui]:-missing}" = missing ]; } || [ -n "${retrying[$c]:-}" ]; then
         head=$(api "commits/main" -q .sha) || head=""
         if [[ $head =~ ^[0-9a-f]{40}$ ]] && [ "$head" != "$sha" ]; then
-          notes+=("nadavai-ui: not measured, main moved on to ${head:0:7}"); continue
+          notes+=("$c: not run, main moved on to ${head:0:7}"); continue
         fi
       fi
       still+=("$c")
     done
     pending=("${still[@]}")
+    unset retrying
 
     # Superseded before CI started: the poller builds only a branch's current head.
     if [ "${st[nadavai-ci]:-missing}" = missing ] && [ -n "$branch" ]; then
