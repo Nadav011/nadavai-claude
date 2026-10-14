@@ -1,0 +1,195 @@
+#!/usr/bin/env bash
+# ci-wait: wait for NadavAI CI (nadavai-ci, the poller on NadavAI) to finish one commit.
+#
+#   ci-wait <repo> <sha|branch> [--timeout MIN]     (default 90 minutes)
+#
+# Run it with run_in_background: true and carry on until the completion notice arrives,
+# instead of a status loop. It resolves a branch to its full sha once, at the start, and
+# waits on that sha only: a later push to the branch does not move what it waits for.
+#
+# Contexts per repo and mode, mirroring the arrays at the top of ~/ci/bin/nadavai-ci:
+#   branch:  nadavai-ci + nadavai-security
+#   main:    + nadavai-deploy where DEPLOY=auto (therapy-flow-v2, cash-next-app)
+#            + nadavai-ui where a UI gate is configured (all four repos)
+#   sportchat-web deploys manually and snooker-smart not at all, so no deploy context.
+#
+# Exit codes:
+#   0  nothing red: every context passed, or nadavai-ci reported that it did not
+#      measure or deploy this commit (main moved on, documentation only, superseded);
+#      the last line says which
+#   1  red: a context failed (its description carries the log path on NadavAI)
+#   2  timeout: the contexts still pending are listed
+#   3  NadavAI is down: the poller's heartbeat (state/loop.pid alive, over ssh) failed
+#      twice in a row. A missing status alone never means "down".
+set -uo pipefail
+
+OWNER=Nadav011
+HOST=${CI_WAIT_HOST:-omarchy}
+POLL=${CI_WAIT_POLL:-30}
+HEARTBEAT_EVERY=${CI_WAIT_HEARTBEAT_EVERY:-300}
+
+declare -A DEPLOY_AUTO=([therapy-flow-v2]=1 [cash-next-app]=1)
+declare -A HAS_UI=([therapy-flow-v2]=1 [snooker-smart]=1 [sportchat-web]=1 [cash-next-app]=1)
+
+usage() { sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+
+repo=""; ref=""; timeout_min=90
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -h|--help) usage 0 ;;
+    --timeout) timeout_min=${2:-}; shift ;;
+    --timeout=*) timeout_min=${1#*=} ;;
+    -*) echo "ci-wait: unknown option $1" >&2; usage 64 >&2 ;;
+    *) if [ -z "$repo" ]; then repo=$1; elif [ -z "$ref" ]; then ref=$1; else usage 64 >&2; fi ;;
+  esac
+  shift
+done
+[ -n "$repo" ] && [ -n "$ref" ] || usage 64 >&2
+[[ $timeout_min =~ ^[0-9]+$ ]] || { echo "ci-wait: --timeout takes whole minutes" >&2; exit 64; }
+repo=${repo#"$OWNER/"}
+
+heartbeat() { # 0 when the poller on NadavAI is alive
+  # shellcheck disable=SC2016  # expanded on NadavAI, not here
+  ssh -o ConnectTimeout=5 -o BatchMode=yes "$HOST" 'kill -0 "$(cat ~/ci/state/loop.pid)"' >/dev/null 2>&1
+}
+heartbeat_or_exit() {
+  heartbeat && return 0
+  sleep 20
+  heartbeat && return 0
+  echo "ci-wait: NadavAI down: no live poller (ssh $HOST, ~/ci/state/loop.pid) on two tries"
+  exit 3
+}
+
+api() { timeout 30 gh api "repos/$OWNER/$repo/$1" "${@:2}" 2>/dev/null; }
+
+# Resolve once. A full sha stays as given; anything else (branch, short sha) via GitHub.
+if [[ $ref =~ ^[0-9a-f]{40}$ ]]; then
+  sha=$ref
+else
+  sha=$(api "commits/$ref" -q .sha) || sha=""
+  [[ $sha =~ ^[0-9a-f]{40}$ ]] || { echo "ci-wait: cannot resolve $ref in $OWNER/$repo" >&2; exit 64; }
+fi
+
+# Mode: main when the commit is (or was pushed as) main, branch otherwise. The branch
+# whose head it is lets us notice when it is superseded before CI ever ran.
+branch=""
+if [[ ! $ref =~ ^[0-9a-f]{7,40}$ ]]; then
+  branch=$ref
+else
+  heads=$(api "commits/$sha/branches-where-head" -q '.[].name') || heads=""
+  if grep -qx main <<<"$heads"; then branch=main
+  elif [ -n "$heads" ]; then branch=$(head -1 <<<"$heads")
+  else
+    cmp=$(api "compare/main...$sha" -q .status) || cmp=""
+    case "$cmp" in identical|behind) branch=main ;; esac
+  fi
+fi
+mode=branch; [ "$branch" = main ] && mode=main
+
+contexts=(nadavai-ci nadavai-security)
+if [ "$mode" = main ]; then
+  [ -n "${DEPLOY_AUTO[$repo]:-}" ] && contexts+=(nadavai-deploy)
+  [ -n "${HAS_UI[$repo]:-}" ] && contexts+=(nadavai-ui)
+fi
+
+echo "ci-wait: $OWNER/$repo ${sha:0:7} (${branch:-unknown branch}, $mode mode): ${contexts[*]}"
+heartbeat_or_exit
+
+deadline=$(( SECONDS + timeout_min * 60 ))
+last_beat=$SECONDS
+declare -A shown=()
+superseded_polls=0
+
+while :; do
+  json=$(api "commits/$sha/status") || json=""
+  if [ -n "$json" ]; then
+    declare -A st=() ds=()
+    while IFS=$'\t' read -r c s d; do st[$c]=$s; ds[$c]=$d; done < <(
+      jq -r '.statuses[] | [.context, .state, .description] | @tsv' <<<"$json")
+
+    red=(); pending=(); notes=()
+    for c in "${contexts[@]}"; do
+      s=${st[$c]:-missing}; d=${ds[$c]:-}
+      # A transient error the poller retries on its next pass is still pending.
+      if [ "$s" = error ] && [[ $d == *retry* ]]; then s=pending; fi
+      if [ "$s" != missing ] && [ "${shown[$c]:-}" != "$s $d" ]; then
+        echo "  $c: $s: $d"; shown[$c]="$s $d"
+      fi
+      case "$s" in
+        success)
+          case "$d" in
+            "not deployed: main moved on"*) notes+=("$c: not deployed, main moved on") ;;
+            "documentation only"*|"live as "*"(documentation only"*) notes+=("$c: documentation only") ;;
+            "not measured"*) notes+=("$c: not measured, superseded") ;;
+            "no CI workflow"*) notes+=("$c: no CI workflow on this commit") ;;
+          esac ;;
+        failure|error) red+=("$c: $d") ;;
+        *) pending+=("$c") ;;
+      esac
+    done
+
+    if [ ${#red[@]} -gt 0 ]; then
+      echo "RED: ${OWNER}/$repo ${sha:0:7}"
+      printf '  %s\n' "${red[@]}"
+      echo "  logs are on NadavAI: ssh $HOST 'ls -t ~/ci/logs | grep ${sha:0:7}'"
+      exit 1
+    fi
+
+    # Contexts nadavai-ci will never post for this commit.
+    still=()
+    for c in "${pending[@]}"; do
+      ci=${st[nadavai-ci]:-missing}; cid=${ds[nadavai-ci]:-}
+      # A documentation-only skip posts no gate, and its deploy status only when the
+      # base was live; whatever it did not post at once it never posts.
+      if [ "$ci" = success ] && [[ $cid == "documentation only"* ]] && [ "$c" != nadavai-security ]; then
+        notes+=("$c: not run, documentation only"); continue
+      fi
+      if [ "$c" = nadavai-ui ] && [ "$ci" = success ] &&
+         { [ -z "${DEPLOY_AUTO[$repo]:-}" ] || [ "${st[nadavai-deploy]:-}" = success ]; } &&
+         [ "${st[nadavai-ui]:-missing}" = missing ]; then
+        # The gate runs only on main's current head; a superseded head never gets one.
+        head=$(api "commits/main" -q .sha) || head=""
+        if [[ $head =~ ^[0-9a-f]{40}$ ]] && [ "$head" != "$sha" ]; then
+          notes+=("nadavai-ui: not measured, main moved on to ${head:0:7}"); continue
+        fi
+      fi
+      still+=("$c")
+    done
+    pending=("${still[@]}")
+
+    # Superseded before CI started: the poller builds only a branch's current head.
+    if [ "${st[nadavai-ci]:-missing}" = missing ] && [ -n "$branch" ]; then
+      head=$(api "commits/$branch" -q .sha) || head=""
+      if [[ $head =~ ^[0-9a-f]{40}$ ]] && [ "$head" != "$sha" ]; then
+        superseded_polls=$((superseded_polls + 1))
+        if [ "$superseded_polls" -ge 3 ]; then
+          echo "NOT MEASURED: $branch moved on to ${head:0:7} before CI started on ${sha:0:7}; wait on that sha instead"
+          exit 0
+        fi
+      else
+        superseded_polls=0
+      fi
+    fi
+
+    if [ ${#pending[@]} -eq 0 ]; then
+      if [ ${#notes[@]} -gt 0 ]; then
+        echo "GREEN with notes: ${OWNER}/$repo ${sha:0:7}"
+        printf '  %s\n' "${notes[@]}"
+      else
+        what=measured; [ "$mode" = main ] && [ -n "${DEPLOY_AUTO[$repo]:-}" ] && what="measured and deployed"
+        echo "GREEN: ${OWNER}/$repo ${sha:0:7}, $what"
+      fi
+      exit 0
+    fi
+    unset st ds
+  fi
+
+  if [ $SECONDS -ge $deadline ]; then
+    echo "TIMEOUT after ${timeout_min}m: ${OWNER}/$repo ${sha:0:7}, still pending: ${pending[*]:-status unreadable}"
+    exit 2
+  fi
+  if [ $(( SECONDS - last_beat )) -ge "$HEARTBEAT_EVERY" ]; then
+    heartbeat_or_exit; last_beat=$SECONDS
+  fi
+  sleep "$POLL"
+done
