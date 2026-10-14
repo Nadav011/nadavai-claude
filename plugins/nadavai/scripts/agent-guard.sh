@@ -31,19 +31,43 @@ case "$tool" in
     ;;
   Bash)
     [ "$(jq -r '.tool_input.run_in_background // false' <<<"$input")" = true ] && exit 0
-    cmd=$(jq -r '.tool_input.command // empty' <<<"$input")
-    cmd=${cmd//$'\n'/;}
-    # sleep at a command position: line start, after ; & | ( { or do/then/else.
-    re='(^|[;&|({]|[[:space:]](do|then|else))[[:space:]]*sleep[[:space:]]+([0-9]+(\.[0-9]+)?)([smhd]?)([[:space:];&|)}]|$)'
-    rest=$cmd
-    while [[ $rest =~ $re ]]; do
-      n=${BASH_REMATCH[3]%%.*}; unit=${BASH_REMATCH[5]}
-      case "$unit" in m) n=$((n * 60)) ;; h) n=$((n * 3600)) ;; d) n=$((n * 86400)) ;; esac
-      if [ "$n" -ge 120 ]; then
-        deny "sleep ${BASH_REMATCH[3]}${unit} blocks you for $n s. Run the long command with run_in_background: true and continue when the completion notice arrives; for NadavAI CI use ci-wait <repo> <sha|branch> in the background."
-      fi
-      rest=${rest#*"${BASH_REMATCH[0]}"}
-    done
+    # Prints the longest foreground sleep in seconds and its text. Heredoc bodies and
+    # quoted strings are dropped first: they are data, not commands. A sleep counts at
+    # a command position (start, after ; & | ( { or do/then/else), all its operands
+    # summed the way GNU sleep does (sleep 1m 30s, sleep 0.5h).
+    found=$(jq -r '.tool_input.command // empty' <<<"$input" | awk '
+      function secs(w,  n, u) {
+        u = substr(w, length(w)); n = w
+        if (u ~ /[smhd]/) n = substr(w, 1, length(w) - 1); else u = "s"
+        return n * (u == "m" ? 60 : u == "h" ? 3600 : u == "d" ? 86400 : 1)
+      }
+      hd != "" { t = $0; sub(/^\t+/, "", t); if (t == hd) hd = ""; next }
+      {
+        line = $0
+        if (match(line, /<<-?[ \t]*["\x27]?[A-Za-z_][A-Za-z0-9_]*/)) {
+          hd = substr(line, RSTART, RLENGTH); sub(/^<<-?[ \t]*["\x27]?/, "", hd)
+        }
+        gsub(/\x27[^\x27]*\x27/, "", line); gsub(/"([^"\\]|\\.)*"/, "", line)
+        all = all " ; " line
+      }
+      END {
+        gsub(/[;&|(){}]/, " ; ", all); n = split(all, w, /[ \t]+/)
+        best = 0; cmdpos = 1
+        for (i = 1; i <= n; i++) {
+          if (w[i] == "") continue
+          if (cmdpos && w[i] == "sleep") {
+            tot = 0; txt = "sleep"
+            for (j = i + 1; j <= n && w[j] ~ /^[0-9]*\.?[0-9]+[smhd]?$/; j++) { tot += secs(w[j]); txt = txt " " w[j] }
+            if (tot > best) { best = tot; besttxt = txt }
+            i = j - 1; cmdpos = 0; continue
+          }
+          cmdpos = (w[i] == ";" || w[i] == "do" || w[i] == "then" || w[i] == "else")
+        }
+        if (best >= 120) printf "%d\t%s\n", best, besttxt
+      }')
+    if [ -n "$found" ]; then
+      deny "${found#*$'\t'} blocks you for ${found%%$'\t'*} s. Run the long command with run_in_background: true and continue when the completion notice arrives; for NadavAI CI use ci-wait <repo> <sha|branch> in the background."
+    fi
     ;;
 esac
 exit 0
