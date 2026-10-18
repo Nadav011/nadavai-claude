@@ -4,10 +4,24 @@
 # Plain stdout from a SessionStart hook is added to Claude's context.
 set -u
 
+AGY=0
+[ "${1:-}" = "--antigravity" ] && { AGY=1; cat >/dev/null 2>&1 || true; }
+
+emit() {
+  if [ "$AGY" = 1 ]; then
+    if [ -z "${1:-}" ]; then printf '{}\n'
+    elif command -v jq >/dev/null 2>&1; then jq -cn --arg m "$1" '{injectSteps:[{systemMessage:{systemMessage:$m}}]}'
+    else printf '{}\n'; fi
+  else
+    [ -n "${1:-}" ] && printf '%s' "$1"
+  fi
+  exit 0
+}
+
 REPO="${NADAVAI_HOME:-$HOME/nadavai}"
 CFG="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
-[ -d "$REPO/.git" ] || exit 0
-cd "$REPO" || exit 0
+[ -d "$REPO/.git" ] || emit ""
+cd "$REPO" || emit ""
 
 out=""
 
@@ -34,5 +48,5 @@ if [ -n "$installed" ] && [ -n "$head_sha" ] && [ "$installed" != "$head_sha" ] 
   out+="- Installed plugin is at ${installed:0:7}, repo is at ${head_sha:0:7}: run $REPO/update.sh."$'\n'
 fi
 
-[ -z "$out" ] && exit 0
-printf 'nadavai repo (%s) needs attention. Mention this to Nadav once, then continue:\n%s' "$REPO" "$out"
+[ -z "$out" ] && emit ""
+emit "$(printf 'nadavai repo (%s) needs attention. Mention this to Nadav once, then continue:\n%s' "$REPO" "$out")"$'\n'

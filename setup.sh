@@ -63,6 +63,7 @@ link_rules
 step "Skills (remove user-level copies that would shadow the plugin)"
 retire_duplicate_skills
 mirror_rules_to_codex
+mirror_to_antigravity
 
 step "Settings"
 merge_settings

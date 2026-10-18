@@ -55,6 +55,7 @@ link_shell
 link_shortcuts
 retire_duplicate_skills
 mirror_rules_to_codex
+mirror_to_antigravity
 
 step "Done"
 log "Restart open Claude Code sessions, or run /reload-plugins, to load the new version."

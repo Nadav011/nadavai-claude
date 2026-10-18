@@ -5,6 +5,21 @@
 #   UI project without DESIGN.md/PRODUCT.md -> design layer pending (rules/design-init.md)
 set -u
 
+if [ "${1:-}" = "--antigravity" ]; then
+  input="$(cat 2>/dev/null || true)"
+  if command -v jq >/dev/null 2>&1; then
+    ws="$(jq -r '.workspacePaths[0] // empty' <<<"$input" 2>/dev/null || true)"
+    [ -n "$ws" ] && export CLAUDE_PROJECT_DIR="$ws"
+  fi
+  out="$("$0")"
+  if [ -n "$out" ] && command -v jq >/dev/null 2>&1; then
+    jq -cn --arg m "$out" '{injectSteps:[{systemMessage:{systemMessage:$m}}]}'
+  else
+    printf '{}\n'
+  fi
+  exit 0
+fi
+
 D="${CLAUDE_PROJECT_DIR:-$PWD}"
 [ -d "$D" ] || exit 0
 

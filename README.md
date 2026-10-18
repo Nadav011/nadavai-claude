@@ -23,6 +23,7 @@ No secrets live in this repo. OAuth logins, API keys and tokens stay per machine
 | Global git hooks (Conventional Commits, Trivy + typecheck pre-push, Cloudflare Pages auto-deploy) and global ignore | `git/` | `setup.sh` symlinks `~/.git-hooks` and `~/.config/git/ignore` here |
 | claude-seo (AgriciDaniel) installed but disabled | `setup.sh` | enable per marketing repo, see SEO below |
 | OMC CLI, `~/.claude/CLAUDE.md` (OMC block), HUD statusline | `setup.sh` runs `omc setup` | |
+| Antigravity bundle (`nadavai` plugin, hooks, MCP servers, marketplace skills/subagents, and mirrored global rules with tool/model adapter) | `plugins/nadavai/.antigravity-plugin/plugin.json`, `plugins/nadavai/hooks.json`, `plugins/nadavai/mcp_config.json`, `~/.gemini/config/` | `setup.sh` and `update.sh` run `mirror_to_antigravity` |
 | i-have-adhd always-on flag | `setup.sh` touches `~/.claude/.i-have-adhd-always` | |
 
 Not included, by design: OAuth sessions (`/mcp` once per machine), Claude in Chrome (built in),

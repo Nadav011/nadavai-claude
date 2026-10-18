@@ -11,16 +11,21 @@ check() {  # name  expect(deny|allow)  json
   out=$(printf '%s' "$json" | bash "$GUARD"); rc=$?
   if [ "$rc" -ne 0 ]; then echo "FAIL: $name — exit $rc"; FAIL=$((FAIL+1)); return; fi
   if [ -z "$out" ]; then got=allow
-  elif [ "$(jq -r '.hookSpecificOutput.permissionDecision' <<<"$out")" = deny ] &&
-       [ "$(jq -r '.hookSpecificOutput.hookEventName' <<<"$out")" = PreToolUse ] &&
-       [ -n "$(jq -r '.hookSpecificOutput.permissionDecisionReason' <<<"$out")" ] &&
+  elif [ "$(jq -r '.hookSpecificOutput.permissionDecision // empty' <<<"$out")" = deny ] &&
+       [ "$(jq -r '.hookSpecificOutput.hookEventName // empty' <<<"$out")" = PreToolUse ] &&
+       [ -n "$(jq -r '.hookSpecificOutput.permissionDecisionReason // empty' <<<"$out")" ] &&
        [ "$(jq -r '.hookSpecificOutput | has("updatedInput")' <<<"$out")" = false ]; then got=deny
+  elif [ "$(jq -r '.decision // empty' <<<"$out")" = deny ] &&
+       [ -n "$(jq -r '.reason // empty' <<<"$out")" ]; then got=deny
+  elif [ "$(jq -r '.decision // empty' <<<"$out")" = ask ]; then got=allow
   else got="malformed: $out"; fi
   if [ "$got" = "$want" ]; then echo "PASS: $name"; PASS=$((PASS+1))
   else echo "FAIL: $name — want $want, got $got"; FAIL=$((FAIL+1)); fi
 }
 agent() { jq -cn --arg t "$1" --arg d "$2" '{hook_event_name:"PreToolUse",tool_name:"Agent",tool_input:{subagent_type:$t,description:$d,prompt:"p"}}'; }
 bashc() { jq -cn --arg c "$1" --argjson bg "${2:-false}" '{hook_event_name:"PreToolUse",tool_name:"Bash",tool_input:{command:$c,run_in_background:$bg}}'; }
+agy_cmd() { jq -cn --arg c "$1" --argjson d "${2:-false}" '{toolCall:{name:"run_command",args:{CommandLine:$c,IsDaemon:$d}}}'; }
+agy_sub() { jq -cn --arg t "$1" --arg r "$2" '{toolCall:{name:"invoke_subagent",args:{Subagents:[{TypeName:$t,Role:$r,Prompt:"p"}]}}}'; }
 
 check "fork without tag"            deny  "$(agent fork 'Review the plan')"
 check "fork with [fork] tag"        allow "$(agent fork '[fork] Review the plan')"
@@ -49,6 +54,13 @@ check "no sleep at all"             allow "$(bashc 'pnpm test')"
 check "sleepy word"                 allow "$(bashc 'cat sleep_300.log')"
 check "other tool"                  allow "$(jq -cn '{tool_name:"Read",tool_input:{file_path:"/tmp/sleep 300"}}')"
 check "not JSON"                    allow "sleep fork"
+check "agy: sleep 120"              deny  "$(agy_cmd 'sleep 120')"
+check "agy: sleep 60"               allow "$(agy_cmd 'sleep 60')"
+check "agy: sleep 300 daemon"       allow "$(agy_cmd 'sleep 300' true)"
+check "agy: normal command"         allow "$(agy_cmd 'pnpm test')"
+check "agy: fork without tag"       deny  "$(agy_sub fork 'Review')"
+check "agy: fork with [fork] tag"   allow "$(agy_sub fork '[fork] Review')"
+check "agy: research subagent"      allow "$(agy_sub research 'Search')"
 
 echo "----"
 echo "PASS=$PASS FAIL=$FAIL"

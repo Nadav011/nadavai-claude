@@ -1,0 +1,47 @@
+{
+  "nadavai": {
+    "SessionStart": [
+      {
+        "type": "command",
+        "command": "~/nadavai/plugins/nadavai/scripts/session-check.sh --antigravity",
+        "timeout": 15
+      },
+      {
+        "type": "command",
+        "command": "~/nadavai/plugins/nadavai/scripts/project-check.sh --antigravity",
+        "timeout": 5
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "invoke_subagent|run_command",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/nadavai/plugins/nadavai/scripts/agent-guard.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "write_to_file|replace_file_content|multi_replace_file_content",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/nadavai/plugins/nadavai/scripts/edit-reminder.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostInvocation": [
+      {
+        "type": "command",
+        "command": "~/nadavai/plugins/nadavai/scripts/edit-reminder.sh --post-invocation",
+        "timeout": 5
+      }
+    ]
+  }
+}

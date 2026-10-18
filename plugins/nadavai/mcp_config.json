@@ -1,0 +1,24 @@
+{
+  "mcpServers": {
+    "nadavai-context7": {
+      "url": "https://mcp.context7.com/mcp"
+    },
+    "nadavai-playwright": {
+      "command": "npx",
+      "args": ["@playwright/mcp@latest"]
+    },
+    "nadavai-chrome-devtools": {
+      "command": "npx",
+      "args": ["-y", "chrome-devtools-mcp@latest"]
+    },
+    "nadavai-posthog": {
+      "url": "https://mcp.posthog.com/mcp"
+    },
+    "nadavai-supabase": {
+      "url": "https://mcp.supabase.com/mcp"
+    },
+    "nadavai-cloudflare": {
+      "url": "https://mcp.cloudflare.com/mcp"
+    }
+  }
+}
