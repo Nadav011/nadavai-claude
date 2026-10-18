@@ -12,6 +12,16 @@ if [ "${1:-}" = "--antigravity" ]; then
     [ -n "$ws" ] && export CLAUDE_PROJECT_DIR="$ws"
   fi
   out="$("$0")"
+  pdir="${CLAUDE_PROJECT_DIR:-$PWD}"
+  if ls "$pdir"/.claude/rules/*.md >/dev/null 2>&1; then
+    rules_summary="PROJECT PATH-SCOPED RULES (.claude/rules/): before reading or editing files matching a rule's paths, call view_file on that rule file:"
+    for rf in "$pdir"/.claude/rules/*.md; do
+      [ -f "$rf" ] || continue
+      globs="$(awk '/^---$/{f=!f; next} f && /^[[:space:]]*-[[:space:]]*/{gsub(/^[[:space:]]*-[[:space:]]*"?|"?[[:space:]]*$/, ""); printf "%s, ", $0}' "$rf" | sed 's/, $//')"
+      rules_summary+=$'\n'"  - $rf (${globs:-always})"
+    done
+    out="${out:+$out$'\n'}$rules_summary"
+  fi
   if [ -n "$out" ] && command -v jq >/dev/null 2>&1; then
     jq -cn --arg m "$out" '{injectSteps:[{systemMessage:{systemMessage:$m}}]}'
   else

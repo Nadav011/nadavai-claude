@@ -309,6 +309,7 @@ You are running in Google Antigravity with the `nadavai` environment. Apply the 
   - `Bash` with `run_in_background: true` -> `run_command` (commands exceeding `WaitMsBeforeAsync` run in the background automatically and wake you on completion; never `sleep` + poll in a loop)
   - `Read` / `Edit` / `MultiEdit` / `Write` -> `view_file` / `replace_file_content` / `multi_replace_file_content` / `write_to_file`
   - `Grep` / `Glob` -> `grep_search` / `find_by_name`
+- **Project path-scoped rules (`.claude/rules/*.md`)**: When working in a project that has `.claude/rules/*.md` (listed at `SessionStart`), read the matching `.claude/rules/<topic>.md` file with `view_file` before editing files in its scope.
 - **Large skills (>24 KB)**: Antigravity inlines the first 24,000 bytes of an activated `SKILL.md`. When activating a skill whose `SKILL.md` is truncated (such as `nadav-design`, `capacitor-plugins`, `israeli-accessibility-compliance`, or `emil-design-eng`), call `view_file` with `StartLine` on that `SKILL.md` to read the remaining lines.
 
 <!-- ANTIGRAVITY ADAPTER END -->
@@ -328,12 +329,8 @@ HEADER
 
   if cp "$tmp" "$rules_file" 2>/dev/null; then
     log "$rules_file refreshed"
-    if [ -f "$HOME/AGENTS.md" ]; then
-      if grep -q 'ANTIGRAVITY ADAPTER START' "$HOME/AGENTS.md" 2>/dev/null; then
-        rm -f "$HOME/AGENTS.md"
-      else
-        backup_path "$HOME/AGENTS.md" "home-AGENTS.md"
-      fi
+    if [ -f "$HOME/AGENTS.md" ] && grep -q 'ANTIGRAVITY ADAPTER START' "$HOME/AGENTS.md" 2>/dev/null; then
+      rm -f "$HOME/AGENTS.md"
     fi
   else
     warn "could not write $rules_file; falling back to $HOME/AGENTS.md"
@@ -344,58 +341,103 @@ HEADER
   fi
   rm -f "$tmp"
 
-  # 2. Install nadavai plugin into Antigravity (40 skills, 6 MCP servers, lifecycle hooks).
+  # 2. Install nadavai plugin into Antigravity (40 skills, 6 MCP servers, lifecycle hooks)
+  #    and populate adapted subagents (intent + OMC) with Antigravity-valid YAML frontmatter.
   if command -v agy >/dev/null 2>&1; then
-    rm -f "$gcfg/plugins.json" 2>/dev/null || true
+    rm -f "$gcfg/plugins.json" "$gcfg/agents.json" 2>/dev/null || true
     if agy plugin install "$REPO/plugins/nadavai" >/dev/null 2>&1; then
       rm -rf "$gcfg/plugins/nadavai/.omc" 2>/dev/null || true
-      log "agy plugin nadavai installed"
+      node -e '
+        const fs = require("fs"), path = require("path"), os = require("os");
+        const home = os.homedir();
+        const outDir = process.argv[1];
+        fs.mkdirSync(outDir, { recursive: true });
+        const readOnly = new Set(["architect.md", "critic.md", "code-reviewer.md", "security-reviewer.md", "explore.md", "vigil.md"]);
+        const readTools = ["view_file", "grep_search", "find_by_name", "list_dir", "read_url_content", "search_web", "send_message", "call_mcp_tool"];
+        const writeTools = [...readTools, "write_to_file", "replace_file_content", "multi_replace_file_content", "run_command", "manage_task"];
+        const sources = [
+          { dir: `${home}/.claude/plugins/marketplaces/intent/agents`, files: ["ember.md", "wren.md", "vigil.md", "rune.md", "noor.md", "sage.md"] },
+          { dir: `${home}/.claude/plugins/marketplaces/omc/agents`, files: ["planner.md", "executor.md", "verifier.md", "code-reviewer.md", "debugger.md", "architect.md", "critic.md", "security-reviewer.md", "explore.md", "designer.md", "writer.md", "qa-tester.md"] }
+        ];
+        for (const src of sources) {
+          if (!fs.existsSync(src.dir)) continue;
+          for (const f of src.files) {
+            const p = path.join(src.dir, f);
+            if (!fs.existsSync(p)) continue;
+            let s = fs.readFileSync(p, "utf8");
+            const tools = readOnly.has(f) ? readTools : writeTools;
+            s = s.replace(/^---\n([\s\S]*?)\n---\n/, (_, fm) => {
+              const keep = [];
+              let hasModel = false;
+              for (const line of fm.split("\n")) {
+                if (/^(name|description):/.test(line)) keep.push(line);
+                else if (/^model:/.test(line)) {
+                  hasModel = true;
+                  if (line.includes("opus")) keep.push("model: pro");
+                  else if (line.includes("haiku")) keep.push("model: flash");
+                  else keep.push("model: inherit");
+                }
+              }
+              if (!hasModel) keep.push("model: inherit");
+              keep.push("tools:");
+              for (const t of tools) keep.push(`  - ${t}`);
+              return "---\n" + keep.join("\n") + "\n---\n";
+            });
+            fs.writeFileSync(path.join(outDir, f), s);
+          }
+        }
+      ' "$gcfg/plugins/nadavai/agents" 2>/dev/null || true
+      log "agy plugin nadavai installed (with adapted subagents)"
     else
       warn "agy plugin install reported a problem"
     fi
-  elif printf '{\n  "entries": [\n    { "path": "~/nadavai/plugins" }\n  ]\n}\n' > "$gcfg/plugins.json" 2>/dev/null; then
+  elif printf '{\n  "entries": [\n    { "path": "%s/plugins" }\n  ]\n}\n' "$REPO" > "$gcfg/plugins.json" 2>/dev/null; then
     log "$gcfg/plugins.json refreshed"
   fi
 
-  # 3. skills.json -> installed Claude marketplace skills + ~/.agents/skills.
+  # 3. skills.json -> curated marketplace skills + ~/.agents/skills using resolved absolute paths
+  #    so the total stays comfortably inside Antigravity's 20,000-token customizationBudget (zero truncation).
   node -e '
     const fs = require("fs"), os = require("os");
     const home = os.homedir();
-    const candidates = [
-      "~/.agents/skills",
-      "~/.claude/plugins/marketplaces/impeccable/plugin/skills",
-      "~/.claude/plugins/marketplaces/intent/skills",
-      "~/.claude/plugins/marketplaces/interfaces/skills",
-      "~/.claude/plugins/marketplaces/posthog/skills",
-      "~/.claude/plugins/marketplaces/i-have-adhd/skills",
-      "~/.claude/plugins/marketplaces/wondelai-skills/plugins/ux-design/skills",
-      "~/.claude/plugins/marketplaces/wondelai-skills/plugins/product-innovation/skills",
-      "~/.claude/plugins/marketplaces/wondelai-skills/plugins/product-strategy/skills",
-      "~/.claude/plugins/marketplaces/wondelai-skills/plugins/metaskills/skills",
-      "~/.claude/plugins/marketplaces/claude-plugins-official/plugins/skill-creator/skills",
-      "~/.claude/plugins/marketplaces/omc/skills"
+    const spec = [
+      { path: `${home}/.agents/skills`, exclude: ["synced"] },
+      { path: `${home}/.claude/plugins/marketplaces/impeccable/plugin/skills` },
+      {
+        path: `${home}/.claude/plugins/marketplaces/intent/skills`,
+        include_only: [
+          "strategize", "investigate", "journey", "organize", "wireframe",
+          "articulate", "evaluate", "fortify", "include", "localize", "measure", "specify"
+        ]
+      },
+      { path: `${home}/.claude/plugins/marketplaces/interfaces/skills` },
+      {
+        path: `${home}/.claude/plugins/marketplaces/posthog/skills`,
+        include_only: [
+          "instrument-product-analytics", "instrument-error-tracking",
+          "building-a-dashboard", "signals-scout-web-vitals",
+          "investigating-replay", "assessing-heatmaps", "querying-posthog-data"
+        ]
+      },
+      { path: `${home}/.claude/plugins/marketplaces/i-have-adhd/skills` },
+      {
+        path: `${home}/.claude/plugins/marketplaces/wondelai-skills`,
+        include_only: [
+          "ux-heuristics", "ios-hig-design", "jobs-to-be-done",
+          "mom-test", "conversion-optimization"
+        ]
+      },
+      { path: `${home}/.claude/plugins/marketplaces/claude-plugins-official/plugins/skill-creator/skills` },
+      {
+        path: `${home}/.claude/plugins/marketplaces/omc/skills`,
+        include_only: ["deep-interview", "ralplan", "ai-slop-cleaner", "skill"]
+      }
     ];
-    const entries = candidates
-      .filter((p) => fs.existsSync(p.replace(/^~/, home)))
-      .map((p) => ({ path: p }));
+    const entries = spec.filter((e) => fs.existsSync(e.path));
     fs.writeFileSync(process.argv[1], JSON.stringify({ entries }, null, 2) + "\n");
   ' "$gcfg/skills.json" 2>/dev/null && log "$gcfg/skills.json refreshed"
 
-  # 4. agents.json -> intent + OMC subagents.
-  node -e '
-    const fs = require("fs"), os = require("os");
-    const home = os.homedir();
-    const candidates = [
-      "~/.claude/plugins/marketplaces/intent/agents",
-      "~/.claude/plugins/marketplaces/omc/agents"
-    ];
-    const entries = candidates
-      .filter((p) => fs.existsSync(p.replace(/^~/, home)))
-      .map((p) => ({ path: p }));
-    fs.writeFileSync(process.argv[1], JSON.stringify({ entries }, null, 2) + "\n");
-  ' "$gcfg/agents.json" 2>/dev/null && log "$gcfg/agents.json refreshed"
-
-  # 5. Merge BRIGHTDATA_API_TOKEN from ~/.claude/settings.json into ~/.gemini/config/mcp_config.json when writable.
+  # 4. Merge BRIGHTDATA_API_TOKEN from ~/.claude/settings.json into ~/.gemini/config/mcp_config.json when writable.
   node -e '
     const fs = require("fs");
     const [claudeSettings, mcpPath] = process.argv.slice(1);
