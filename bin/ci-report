@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# ci-report: what NadavAI CI found on one commit, readable from the laptop.
+#
+#   ci-report <repo> [sha|branch]     (default: main's head)
+#
+# Agent sessions cannot read ~/ci/logs on NadavAI, and a commit status only carries a
+# log path there. This prints the summary ~/ci/bin/ci-summary builds on NadavAI: every
+# nadavai-* status with its first failure lines (failing tests, failed steps, DoD routes
+# below 100, new vulnerabilities), secrets redacted. The same summary feeds the morning
+# digest issue ("NadavAI: main is red", label nadavai-red) in each repo (2026-10-19).
+#
+# Exit codes: 0 printed, 64 bad usage or unresolvable ref, 3 NadavAI unreachable.
+set -uo pipefail
+
+OWNER=Nadav011
+HOST=${CI_WAIT_HOST:-omarchy}
+
+usage() { sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+case "${1:-}" in -h|--help) usage 0 ;; '') usage 64 >&2 ;; esac
+
+repo=${1#"$OWNER/"}; ref=${2:-main}
+# Both reach a remote shell, so only plain names and hex shas pass.
+[[ $repo =~ ^[A-Za-z0-9._-]+$ ]] || { echo "ci-report: bad repo name: $repo" >&2; exit 64; }
+
+if [[ $ref =~ ^[0-9a-f]{40}$ ]]; then
+  sha=$ref
+else
+  sha=$(timeout 30 gh api "repos/$OWNER/$repo/commits/$ref" -q .sha 2>/dev/null) || sha=""
+  [[ $sha =~ ^[0-9a-f]{40}$ ]] || { echo "ci-report: cannot resolve $ref in $OWNER/$repo" >&2; exit 64; }
+fi
+
+# shellcheck disable=SC2088  # the tilde expands on NadavAI, not here
+ssh -o ConnectTimeout=5 -o BatchMode=yes "$HOST" "~/ci/bin/ci-summary $repo $sha"
+rc=$?
+[ "$rc" = 255 ] && { echo "ci-report: NadavAI unreachable (ssh $HOST)" >&2; exit 3; }
+exit "$rc"
