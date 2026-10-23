@@ -4,6 +4,8 @@
 - Use the smallest component the check needs: plain Postgres instead of a full Supabase stack when only SQL runs; one long-lived server with a pre-migrated template database, cloned per test (`createdb -T`), instead of a fresh stack per run; one shared build or browser instead of one per agent.
 - Every test still starts from a clean state (a fresh clone, a fresh database), never from a database another test wrote to.
 - Bound the heavy part: a lock or a cap on concurrent stacks and replays, and tear each one down as soon as its run ends.
+- Wait by blocking, never by fast polling: `docker wait`, `pg_isready -t`, `inotifywait`, `flock`, or a loop that sleeps 2-5 s and uses bash builtins, not a git/awk/cut/sha256sum/psql fork per iteration. Why: on 2026-10-23 agent wait loops ran 1,200-1,700 forks/s on the MSI and cost about 20% system CPU.
+- Throwaway test Postgres (Supabase lanes, scratch containers) runs with `-c fsync=off -c synchronous_commit=off -c full_page_writes=off` or a tmpfs data dir; real or shared data never does. Why: those flushes queued behind every other write on the MSI's NVMe and froze Orca, while a test that starts from a fresh database loses nothing when crash durability is off.
 - An extra server is fine when it is the lighter path (a staging database, a container on another machine, a cloud instance), as long as it holds no real customer data. Anything that costs money goes through the paid-service approval gate.
 - The second machine (omarchy) runs CI for every repo and is weaker; do not move agent work there unless a measurement shows spare capacity, because a slower CI queue slows every agent.
 - Measure before and after (load average, container count, run time) and say what the choice saved.
