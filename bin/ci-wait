@@ -9,9 +9,9 @@
 #
 # Contexts per repo and mode, mirroring the arrays at the top of ~/ci/bin/nadavai-ci:
 #   branch:  nadavai-ci + nadavai-security
-#   main:    + nadavai-deploy where DEPLOY=auto (therapy-flow-v2, cash-next-app)
+#   main:    + nadavai-deploy where DEPLOY=auto (therapy-flow-v2, cash-next-app, snooker-smart)
 #            + nadavai-ui where a UI gate is configured (all four repos)
-#   sportchat-web deploys manually and snooker-smart not at all, so no deploy context.
+#   sportchat-web deploys manually, so no deploy context.
 #
 # Exit codes:
 #   0  nothing red: every context passed, or nadavai-ci reported that it did not
@@ -28,7 +28,7 @@ HOST=${CI_WAIT_HOST:-omarchy}
 POLL=${CI_WAIT_POLL:-30}
 HEARTBEAT_EVERY=${CI_WAIT_HEARTBEAT_EVERY:-300}
 
-declare -A DEPLOY_AUTO=([therapy-flow-v2]=1 [cash-next-app]=1)
+declare -A DEPLOY_AUTO=([therapy-flow-v2]=1 [cash-next-app]=1 [snooker-smart]=1)
 declare -A HAS_UI=([therapy-flow-v2]=1 [snooker-smart]=1 [sportchat-web]=1 [cash-next-app]=1)
 
 usage() { sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
