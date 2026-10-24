@@ -7,17 +7,14 @@ const PLUGIN = 'agent-plus'
 const COMMAND = 'agent'
 const PANE = 'agent-plus'
 
-/**
- * The agents the pane offers, in order: the id typed after /agent, the label, the command on
- * PATH, and the id `orca agent launch --agent` takes for it.
- */
+/** The agents the + offers, in order: the id typed after /agent, the label, the command on PATH. */
 const AGENTS = [
-  { id: 'codex', label: 'Codex', command: 'codex', orcaId: 'codex' },
-  { id: 'grok', label: 'Grok', command: 'grok', orcaId: 'grok' },
-  { id: 'agy', label: 'Antigravity', command: 'agy', orcaId: 'antigravity' },
-  { id: 'gemini', label: 'Gemini', command: 'gemini', orcaId: 'gemini' },
-  { id: 'opencode', label: 'OpenCode', command: 'opencode', orcaId: 'opencode' },
-  { id: 'claude', label: 'Claude', command: 'claude', orcaId: 'claude' },
+  { id: 'codex', label: 'Codex', command: 'codex' },
+  { id: 'grok', label: 'Grok', command: 'grok' },
+  { id: 'agy', label: 'Antigravity', command: 'agy' },
+  { id: 'gemini', label: 'Gemini', command: 'gemini' },
+  { id: 'opencode', label: 'OpenCode', command: 'opencode' },
+  { id: 'claude', label: 'Claude', command: 'claude' },
 ] as const
 
 type Agent = (typeof AGENTS)[number]
@@ -25,6 +22,7 @@ type Agent = (typeof AGENTS)[number]
 const installed = atom({ plugin: 'agent-plus', key: 'installed' } as const, [] as string[])
 const accounts = atom({ plugin: 'agent-plus', key: 'accounts' } as const, null as Accounts | null)
 const busy = atom({ plugin: 'agent-plus', key: 'busy' } as const, null as string | null)
+const isMenuOpen = atom({ plugin: 'agent-plus', key: 'isMenuOpen' } as const, false)
 
 /**
  * The tool calls a press makes are approved by this mod itself: the person asked for them by
@@ -56,37 +54,8 @@ async function findInstalled($: EngineInterface): Promise<string[]> {
   return AGENTS.filter(a => names.has(a.command)).map(a => a.id)
 }
 
-/**
- * The Orca CLI when this session runs in an Orca terminal, else undefined. Inside Orca a press
- * opens the agent as Orca's own + does, in a new tab of this workspace; elsewhere (the desktop
- * app) in a Terminal-panel tab.
- */
-async function findOrca($: EngineInterface): Promise<string | undefined> {
-  if ((await $.env.get('TERM_PROGRAM')) !== 'Orca') return undefined
-  const dir = await $.env.get('ORCA_CLI_BIN_DIR')
-  return dir ? `${dir}/orca` : undefined
-}
-
-/** Starts the agent in a new tab of this Orca workspace and switches to it. */
-async function openInOrca($: EngineInterface, orca: string, agent: Agent): Promise<string> {
-  const ran = await $.process.run([orca, 'agent', 'launch', '--agent', agent.orcaId, '--focus', '--json'], {
-    cwd: await $.session.cwd(),
-    timeoutMs: 30_000,
-  })
-  let reply: { ok?: boolean; error?: { message?: string } } = {}
-  try {
-    reply = JSON.parse(ran.stdout)
-  } catch {
-    // The reply is checked below by its exit code alone.
-  }
-  if (ran.exitCode !== 0 || reply.ok === false) {
-    return `Couldn't open ${agent.label} in Orca: ${reply.error?.message ?? (ran.stderr.trim() || `exit ${ran.exitCode}`)}`
-  }
-  return `${agent.label} opened in a new Orca tab.`
-}
-
 /** Runs the agent in a new Terminal-panel tab in the session's folder and brings the panel forward. */
-async function openInTerminalPanel($: EngineInterface, agent: Agent): Promise<string> {
+async function openAgent($: EngineInterface, agent: Agent): Promise<string> {
   const ran = await $.tool.call({
     tool: 'mcp__terminal__run_in_terminal',
     command: agent.command,
@@ -104,10 +73,6 @@ async function openInTerminalPanel($: EngineInterface, agent: Agent): Promise<st
   return `${agent.label} opened in the Terminal panel.`
 }
 
-let orcaCli: string | undefined
-
-const openAgent = ($: EngineInterface, agent: Agent) =>
-  orcaCli ? openInOrca($, orcaCli, agent) : openInTerminalPanel($, agent)
 
 const ccswap = ($: EngineInterface, args: string[]) => $.process.run(['ccswap', ...args], { timeoutMs: 30_000 })
 
@@ -189,17 +154,18 @@ const isBlocked = (a: ClaudeAccount) => (a.fiveHour?.pct ?? 0) >= 100 || (a.seve
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const started = await next(e)
+    // The desktop app's Code tab only: in a terminal (Orca, a plain shell) the mod stays out of
+    // the way, since Orca has its own + and account switcher.
+    if (e.surface !== 'desktop') return started
     try {
       await $.command.register({
         name: COMMAND,
-        description: 'Show the agents and accounts pane, or open an agent: /agent codex',
+        description: 'Show the Agents pane, or open an agent in the Terminal panel: /agent codex',
         argumentHint: '[codex|grok|agy|gemini|opencode|claude]',
       })
     } catch (error) {
       $.ui.toast(`agent-plus: /${COMMAND} could not be registered: ${message(error)}`)
     }
-    // Without the environment it can read, the mod opens agents in the Terminal panel.
-    orcaCli = await findOrca($).catch(() => undefined)
     try {
       const ids = await findInstalled($)
       await update($, installed, () => ids)
@@ -245,7 +211,10 @@ export const register: Register = on => {
     const known = await read($, accounts)
     const doing = await read($, busy)
 
+    const menuOpen = await read($, isMenuOpen)
+
     const openPress = (agent: Agent) => async () => {
+      await update($, isMenuOpen, () => false)
       try {
         $.ui.toast(await openAgent($, agent))
       } catch (error) {
@@ -294,13 +263,27 @@ export const register: Register = on => {
     return (
       <Box flexDirection="column" rowGap={1}>
         <Box flexDirection="column">
-          <Text bold>Open an agent</Text>
-          <Box flexDirection="row" columnGap={1} flexWrap="wrap">
-            {agents.length === 0 ? <Text dimColor>No agent CLI found on PATH</Text> : null}
-            {agents.map((agent, i) => (
-              <Button key={agent.id} label={`+ ${agent.label}`} hotkey={String(i + 1)} onPress={openPress(agent)} />
-            ))}
+          <Box flexDirection="row" columnGap={1}>
+            <Button
+              key="plus"
+              label={menuOpen ? '−' : '+'}
+              variant="primary"
+              onPress={() => update($, isMenuOpen, open => !open)}
+            />
+            <Text bold>Agents</Text>
           </Box>
+          {menuOpen && agents.length === 0 ? <Text dimColor>No agent CLI found on PATH</Text> : null}
+          {menuOpen
+            ? agents.map((agent, i) => (
+                <Button
+                  key={agent.id}
+                  label={agent.label}
+                  hotkey={String(i + 1)}
+                  plain
+                  onPress={openPress(agent)}
+                />
+              ))
+            : null}
         </Box>
 
         <Box flexDirection="column">

@@ -46,7 +46,7 @@ const ran = (stdout: string) => ({
   value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false },
 })
 
-for (const surface of ['terminal', 'desktop'] as const) {
+for (const surface of ['desktop'] as const) {
   test(`the pane lists agents and accounts, and its buttons act (${surface})`, async ($, on) => {
     const runs: (readonly string[])[] = []
     const calls: { tool: string; input: Record<string, unknown> }[] = []
@@ -56,7 +56,6 @@ for (const surface of ['terminal', 'desktop'] as const) {
     on('session.start', (_, e) => ({ cwd: e.cwd }))
     on('ui.open', () => ({ value: { isPlaced: true } }))
     on('ui.toast', () => ({ value: undefined }))
-    on('env.get', () => ({ value: undefined }))
     on('process.run', (_, e) => {
       const { argv } = e as { argv: readonly string[] }
       runs.push(argv)
@@ -73,7 +72,9 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await $.session.start({ cwd: '/repo', surface, isInteractive: true })
     const ui = await $.ui.mount({ ...PANE, surface })
 
-    // The agents on PATH, and no other.
+    // The list stays closed until the + is pressed; then the agents on PATH, and no other.
+    expect(await ui.find({ type: 'Button', key: 'codex' })).toBeUndefined()
+    await ui.press({ key: 'plus' })
     expect(await ui.find({ type: 'Button', key: 'codex' })).toBeDefined()
     expect(await ui.find({ type: 'Button', key: 'grok' })).toBeDefined()
     expect(await ui.find({ type: 'Button', key: 'gemini' })).toBeUndefined()
@@ -86,7 +87,10 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await ui.press({ key: 'switch-claude-2' })
     expect(runs.some(argv => argv.join(' ') === 'ccswap switch b@example.com')).toBe(true)
 
+    // The list is still open from the first press.
     await ui.press({ key: 'codex' })
+    // A pick closes the list again.
+    expect(await ui.find({ type: 'Button', key: 'grok' })).toBeUndefined()
     const run = calls.find(c => c.tool === 'mcp__terminal__run_in_terminal')
     expect(run?.input.command).toBe('codex')
     expect(calls.find(c => c.tool === 'mcp__ccd_view__show_pane')?.input.tab_id).toBe('t1')
@@ -94,42 +98,11 @@ for (const surface of ['terminal', 'desktop'] as const) {
   })
 }
 
-test('inside Orca a press launches the agent as an Orca tab of this workspace', async ($, on) => {
-  const runs: (readonly string[])[] = []
-  const env: Record<string, string> = { TERM_PROGRAM: 'Orca', ORCA_CLI_BIN_DIR: '/orca/bin' }
-
-  on('command.register', () => ({ value: { command: 'agent' } }))
-  on('session.start', (_, e) => ({ cwd: e.cwd }))
-  on('session.cwd', () => ({ value: '/repo' }))
-  on('ui.open', () => ({ value: { isPlaced: true } }))
-  on('ui.toast', () => ({ value: undefined }))
-  on('env.get', (_, e) => ({ value: env[(e as { name: string }).name] }))
-  on('process.run', (_, e) => {
-    const { argv } = e as { argv: readonly string[] }
-    runs.push(argv)
-    if (argv[0] === 'which') return ran('/bin/codex\n/bin/agy\n')
-    if (argv[1] === 'list') return ran(LIST)
-    return ran('{"ok":true}')
-  })
-  on('tool.call', () => {
-    throw new Error('no Terminal-panel tool inside Orca')
-  })
-
-  await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
-  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  await ui.press({ key: 'agy' })
-
-  // The accounts are read in the background too, so the launch is looked for among the runs.
-  expect(runs.map(argv => argv.join(' '))).toContain('/orca/bin/orca agent launch --agent antigravity --focus --json')
-  await ui.unmount()
-})
-
 test('a ccswap failure shows its error, not an empty account list', async ($, on) => {
   on('command.register', () => ({ value: { command: 'agent' } }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
   on('ui.toast', () => ({ value: undefined }))
-  on('env.get', () => ({ value: undefined }))
   on('process.run', (_, e) => {
     const { argv } = e as { argv: readonly string[] }
     if (argv[0] === 'which') return ran('')
@@ -151,4 +124,23 @@ test('a ccswap failure shows its error, not an empty account list', async ($, on
   expect(await ui.find({ type: 'Text', text: /ccswap list failed: store locked/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /No saved accounts/ })).toBeUndefined()
   await ui.unmount()
+})
+
+test('in a terminal (Orca, a plain shell) the mod opens nothing and registers nothing', async ($, on) => {
+  let opened = 0
+  let registered = 0
+  on('command.register', () => {
+    registered += 1
+    return { value: { command: 'agent' } }
+  })
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('ui.open', () => {
+    opened += 1
+    return { value: { isPlaced: true } }
+  })
+  on('process.run', () => ran(''))
+
+  await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+  expect(opened).toBe(0)
+  expect(registered).toBe(0)
 })

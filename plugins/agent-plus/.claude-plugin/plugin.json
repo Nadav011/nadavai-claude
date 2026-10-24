@@ -1,6 +1,6 @@
 {
   "name": "agent-plus",
-  "version": "0.2.0",
-  "description": "A right-side Agents pane: open Codex, Grok, Antigravity, Gemini, OpenCode or Claude (as an Orca tab inside Orca, else in the Terminal panel) and see and switch saved Claude and Codex accounts through ccswap",
+  "version": "0.3.0",
+  "description": "The desktop app's Agents pane: a + that lists Codex, Grok, Antigravity, Gemini, OpenCode and Claude and opens the pick in a Terminal-panel tab, and every saved Claude and Codex account with usage and a Switch button, through ccswap",
   "types": "./types/index.d.ts"
 }

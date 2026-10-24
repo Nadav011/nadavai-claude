@@ -5,6 +5,8 @@ declare module 'claude-code' {
       installed: AgentId[]
       /** The accounts as `ccswap list --json` last reported them; null before the first read. */
       accounts: Accounts | null
+      /** Whether the agent list under the + is open. */
+      isMenuOpen: boolean
       /** What a press is doing now (a switch, a save), shown in the pane; null when idle. */
       busy: string | null
     }
