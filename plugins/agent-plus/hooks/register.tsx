@@ -154,9 +154,9 @@ const isBlocked = (a: ClaudeAccount) => (a.fiveHour?.pct ?? 0) >= 100 || (a.seve
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const started = await next(e)
-    // The desktop app's Code tab only: in a terminal (Orca, a plain shell) the mod stays out of
-    // the way, since Orca has its own + and account switcher.
-    if (e.surface !== 'desktop') return started
+    // Not in a terminal (Orca, a plain shell): Orca has its own + and account switcher. The desktop
+    // app starts its session with no surface yet (null) and attaches its own afterwards.
+    if (e.surface === 'terminal') return started
     try {
       await $.command.register({
         name: COMMAND,
@@ -175,7 +175,9 @@ export const register: Register = on => {
     // Read at start, on /agent, on Refresh and after a press only: ccswap may refresh a token while
     // it reads usage, and the ccswap mod already polls on its own clock.
     void refresh($).catch(() => undefined)
-    if (e.isInteractive) await $.ui.open({ id: PANE, title: 'Agents' }).catch(() => undefined)
+    // Opened at start: the desktop app seats it beside the chat once it attaches. isInteractive is
+    // false there (the app drives the session), so it is not asked.
+    await $.ui.open({ id: PANE, title: 'Agents' }).catch(() => undefined)
     return started
   })
 

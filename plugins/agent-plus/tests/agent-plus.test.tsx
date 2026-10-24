@@ -46,13 +46,18 @@ const ran = (stdout: string) => ({
   value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false },
 })
 
-for (const surface of ['desktop'] as const) {
-  test(`the pane lists agents and accounts, and its buttons act (${surface})`, async ($, on) => {
+// The desktop app starts its session with no surface (null) and draws on `desktop` once attached.
+for (const surface of [null, 'desktop'] as const) {
+  test(`the pane lists agents and accounts, and its buttons act (session started on ${surface})`, async ($, on) => {
     const runs: (readonly string[])[] = []
     const calls: { tool: string; input: Record<string, unknown> }[] = []
 
     // Nothing sits beneath the plugin: these hooks stand for the engine.
-    on('command.register', () => ({ value: { command: 'agent' } }))
+    const registered: string[] = []
+    on('command.register', (_, e) => {
+      registered.push(String((e as { name?: unknown }).name))
+      return { value: { command: 'agent' } }
+    })
     on('session.start', (_, e) => ({ cwd: e.cwd }))
     on('ui.open', () => ({ value: { isPlaced: true } }))
     on('ui.toast', () => ({ value: undefined }))
@@ -69,8 +74,9 @@ for (const surface of ['desktop'] as const) {
       return { result: {}, text: tool === 'mcp__terminal__run_in_terminal' ? '{"tab_id":"t1"}' : '' }
     })
 
-    await $.session.start({ cwd: '/repo', surface, isInteractive: true })
-    const ui = await $.ui.mount({ ...PANE, surface })
+    await $.session.start({ cwd: '/repo', surface, isInteractive: false })
+    expect(registered).toContain('agent')
+    const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
 
     // The list stays closed until the + is pressed; then the agents on PATH, and no other.
     expect(await ui.find({ type: 'Button', key: 'codex' })).toBeUndefined()
