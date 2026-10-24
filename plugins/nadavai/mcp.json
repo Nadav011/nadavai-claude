@@ -3,6 +3,14 @@
     "brightdata": {
       "type": "http",
       "url": "https://mcp.brightdata.com/mcp?token=${BRIGHTDATA_API_TOKEN}&groups=social,research,advanced_scraping"
+    },
+    "rea": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "rea-agents@6.7.0",
+        "mcp"
+      ]
     }
   }
 }
