@@ -1,11 +1,14 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
+import type { Accounts, ClaudeAccount, CodexAccount, Window } from '../types'
+
 const PLUGIN = 'agent-plus'
 const COMMAND = 'agent'
+const PANE = 'agent-plus'
 
 /**
- * The agents the + offers, in menu order: the id typed after /agent, the label, the command on
+ * The agents the pane offers, in order: the id typed after /agent, the label, the command on
  * PATH, and the id `orca agent launch --agent` takes for it.
  */
 const AGENTS = [
@@ -19,16 +22,17 @@ const AGENTS = [
 
 type Agent = (typeof AGENTS)[number]
 
-const isOpen = atom({ plugin: 'agent-plus', key: 'isOpen' } as const, false)
 const installed = atom({ plugin: 'agent-plus', key: 'installed' } as const, [] as string[])
+const accounts = atom({ plugin: 'agent-plus', key: 'accounts' } as const, null as Accounts | null)
+const busy = atom({ plugin: 'agent-plus', key: 'busy' } as const, null as string | null)
 
 /**
  * The tool calls a press makes are approved by this mod itself: the person asked for them by
- * pressing the button or typing /agent. Without this, auto mode's classifier has no request to
+ * pressing a button or typing /agent. Without this, auto mode's classifier has no request to
  * judge a mod's call against and refuses it. Only this mod's own calls; the same tools called by
  * the model or another plugin are decided as they always are.
  */
-const ALLOW = { decision: 'allow', reason: 'Asked for with the agent-plus button or /agent.' } as const
+const ALLOW = { decision: 'allow', reason: 'Asked for with the agent-plus pane or /agent.' } as const
 
 const COMMANDS: readonly string[] = AGENTS.map(a => a.command)
 
@@ -81,11 +85,8 @@ async function openInOrca($: EngineInterface, orca: string, agent: Agent): Promi
   return `${agent.label} opened in a new Orca tab.`
 }
 
-let orcaCli: string | undefined
-
-/** Opens the agent in Orca when this session runs there, else in the desktop app's Terminal panel. */
-async function openAgent($: EngineInterface, agent: Agent): Promise<string> {
-  if (orcaCli) return openInOrca($, orcaCli, agent)
+/** Runs the agent in a new Terminal-panel tab in the session's folder and brings the panel forward. */
+async function openInTerminalPanel($: EngineInterface, agent: Agent): Promise<string> {
   const ran = await $.tool.call({
     tool: 'mcp__terminal__run_in_terminal',
     command: agent.command,
@@ -103,13 +104,95 @@ async function openAgent($: EngineInterface, agent: Agent): Promise<string> {
   return `${agent.label} opened in the Terminal panel.`
 }
 
+let orcaCli: string | undefined
+
+const openAgent = ($: EngineInterface, agent: Agent) =>
+  orcaCli ? openInOrca($, orcaCli, agent) : openInTerminalPanel($, agent)
+
+const ccswap = ($: EngineInterface, args: string[]) => $.process.run(['ccswap', ...args], { timeoutMs: 30_000 })
+
+const toWindow = (value: unknown): Window | undefined => {
+  const pct = field(value, 'pct')
+  if (typeof pct !== 'number') return undefined
+  return { pct, clock: String(field(value, 'clock') ?? ''), countdown: String(field(value, 'countdown') ?? '') }
+}
+
+/** The accounts out of `ccswap list --json`, or why they could not be read. */
+async function readAccounts($: EngineInterface): Promise<Accounts> {
+  let ran
+  try {
+    ran = await ccswap($, ['list', '--json'])
+  } catch (error) {
+    return { claude: [], codex: [], error: `ccswap did not run: ${message(error)}` }
+  }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(ran.stdout)
+  } catch {
+    return { claude: [], codex: [], error: ran.stderr.trim() || `ccswap list exited ${ran.exitCode}` }
+  }
+  // A handled failure is JSON too, `{ error: { message } }` with a non-zero exit: never an empty list.
+  const failed = field(parsed, 'error')
+  if (ran.exitCode !== 0 || failed !== undefined) {
+    const said = field(failed, 'message') ?? (typeof failed === 'string' ? failed : undefined)
+    return { claude: [], codex: [], error: `ccswap list failed: ${String(said ?? (ran.stderr.trim() || `exit ${ran.exitCode}`))}` }
+  }
+  const list = (value: unknown) => {
+    const rows = field(value, 'accounts')
+    return Array.isArray(rows) ? rows : []
+  }
+  const claude: ClaudeAccount[] = list(field(parsed, 'claude')).map(row => ({
+    number: Number(field(row, 'number')),
+    email: String(field(row, 'email') ?? ''),
+    active: field(row, 'active') === true,
+    status: String(field(row, 'usageStatus') ?? 'unknown'),
+    fiveHour: toWindow(field(field(row, 'usage'), 'fiveHour')),
+    sevenDay: toWindow(field(field(row, 'usage'), 'sevenDay')),
+  }))
+  const codex: CodexAccount[] = list(field(parsed, 'codex')).map(row => ({
+    number: Number(field(row, 'number')),
+    email: String(field(row, 'email') ?? ''),
+    label: String(field(row, 'label') ?? 'Codex'),
+    active: field(row, 'active') === true,
+  }))
+  return { claude, codex }
+}
+
+const refresh = async ($: EngineInterface) => {
+  const read = await readAccounts($)
+  await update($, accounts, () => read)
+}
+
+/** Runs one ccswap action from a press, shows it as busy, then reads the accounts again. */
+async function act($: EngineInterface, doing: string, args: string[]): Promise<void> {
+  await update($, busy, () => doing)
+  try {
+    const ran = await ccswap($, args)
+    $.ui.toast(ran.exitCode === 0 ? `${doing}: done.` : `${doing} failed: ${ran.stderr.trim() || ran.stdout.trim()}`)
+  } catch (error) {
+    $.ui.toast(`${doing} failed: ${message(error)}`)
+  } finally {
+    await update($, busy, () => null)
+    await refresh($).catch(() => undefined)
+  }
+}
+
+/** `5h 16% · resets 15:49`, or `5h blocked until 15:49` at its limit. */
+const windowText = (name: string, w: Window | undefined) => {
+  if (!w) return `${name} -`
+  if (w.pct >= 100) return `${name} blocked until ${w.clock}`
+  return `${name} ${Math.round(w.pct)}%`
+}
+
+const isBlocked = (a: ClaudeAccount) => (a.fiveHour?.pct ?? 0) >= 100 || (a.sevenDay?.pct ?? 0) >= 100
+
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const started = await next(e)
     try {
       await $.command.register({
         name: COMMAND,
-        description: 'Open Codex, Grok, Antigravity, Gemini, OpenCode or Claude in a terminal tab',
+        description: 'Show the agents and accounts pane, or open an agent: /agent codex',
         argumentHint: '[codex|grok|agy|gemini|opencode|claude]',
       })
     } catch (error) {
@@ -123,6 +206,10 @@ export const register: Register = on => {
     } catch (error) {
       $.ui.toast(`agent-plus: could not look for agents: ${message(error)}`)
     }
+    // Read at start, on /agent, on Refresh and after a press only: ccswap may refresh a token while
+    // it reads usage, and the ccswap mod already polls on its own clock.
+    void refresh($).catch(() => undefined)
+    if (e.isInteractive) await $.ui.open({ id: PANE, title: 'Agents' }).catch(() => undefined)
     return started
   })
 
@@ -138,8 +225,9 @@ export const register: Register = on => {
   on('command.run', { command: COMMAND }, async ($, e) => {
     const asked = e.args.trim().toLowerCase()
     if (!asked) {
-      await update($, isOpen, open => !open)
-      return { text: 'The agent menu is above the prompt.' }
+      await $.ui.open({ id: PANE, title: 'Agents', focus: true })
+      void refresh($).catch(() => undefined)
+      return { text: 'Agents pane opened.' }
     }
     const agent = AGENTS.find(a => a.id === asked || a.label.toLowerCase() === asked)
     if (!agent) return { text: `Unknown agent "${asked}". Use one of: ${AGENTS.map(a => a.id).join(', ')}.` }
@@ -150,15 +238,14 @@ export const register: Register = on => {
     }
   })
 
-  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    if (e.props.hasSurvey) return next(e)
-
+  on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Box, Button, Text } = $.ui.resolve(e)
     const ids = await read($, installed)
     const agents = AGENTS.filter(a => ids.includes(a.id))
+    const known = await read($, accounts)
+    const doing = await read($, busy)
 
-    const press = (agent: Agent) => async () => {
-      await update($, isOpen, () => false)
+    const openPress = (agent: Agent) => async () => {
       try {
         $.ui.toast(await openAgent($, agent))
       } catch (error) {
@@ -166,21 +253,79 @@ export const register: Register = on => {
       }
     }
 
-    if (!(await read($, isOpen))) {
-      return (
-        <Box>
-          <Button key="plus" label="+" plain dimColor onPress={() => update($, isOpen, () => true)} />
-        </Box>
-      )
-    }
+    // A row switches by email, not slot number: the slot a stale row shows may hold another
+    // account by the time it is pressed.
+    const claudeRow = (a: ClaudeAccount) => (
+      <Box key={`claude-${a.number}`} flexDirection="row" columnGap={1}>
+        <Text bold={a.active}>{a.active ? '●' : '○'} {a.number}</Text>
+        <Text bold={a.active}>{a.email}</Text>
+        {a.status === 'ok' ? (
+          <Text {...(isBlocked(a) ? { color: 'red' } : { dimColor: true })}>
+            {windowText('5h', a.fiveHour)} · {windowText('7d', a.sevenDay)}
+          </Text>
+        ) : (
+          <Text color="yellow">{a.status}</Text>
+        )}
+        {a.active ? null : (
+          <Button
+            key={`switch-claude-${a.number}`}
+            label="Switch"
+            onPress={() => act($, `Switch to ${a.email}`, ['switch', a.email])}
+          />
+        )}
+      </Box>
+    )
+
+    const codexRow = (a: CodexAccount) => (
+      <Box key={`codex-${a.number}`} flexDirection="row" columnGap={1}>
+        <Text bold={a.active}>{a.active ? '●' : '○'} {a.number}</Text>
+        <Text bold={a.active}>{a.email}</Text>
+        <Text dimColor>{a.label}</Text>
+        {a.active ? null : (
+          <Button
+            key={`switch-codex-${a.number}`}
+            label="Switch"
+            onPress={() => act($, `Switch Codex to ${a.email}`, ['codex', 'switch', a.email])}
+          />
+        )}
+      </Box>
+    )
 
     return (
-      <Box>
-        {agents.length === 0 ? <Text dimColor>No agent CLI found on PATH </Text> : null}
-        {agents.map((agent, i) => (
-          <Button key={agent.id} label={agent.label} hotkey={String(i + 1)} onPress={press(agent)} />
-        ))}
-        <Button key="close" label="Close" role="dismiss" onPress={() => update($, isOpen, () => false)} />
+      <Box flexDirection="column" rowGap={1}>
+        <Box flexDirection="column">
+          <Text bold>Open an agent</Text>
+          <Box flexDirection="row" columnGap={1} flexWrap="wrap">
+            {agents.length === 0 ? <Text dimColor>No agent CLI found on PATH</Text> : null}
+            {agents.map((agent, i) => (
+              <Button key={agent.id} label={`+ ${agent.label}`} hotkey={String(i + 1)} onPress={openPress(agent)} />
+            ))}
+          </Box>
+        </Box>
+
+        <Box flexDirection="column">
+          <Text bold>Claude accounts</Text>
+          {known === null ? <Text dimColor>Reading accounts…</Text> : null}
+          {known?.error ? <Text color="red">{known.error}</Text> : null}
+          {known && !known.error && known.claude.length === 0 ? (
+            <Text dimColor>No saved accounts. Log in, then press Save current login.</Text>
+          ) : null}
+          {known?.claude.map(claudeRow)}
+        </Box>
+
+        {known && known.codex.length > 0 ? (
+          <Box flexDirection="column">
+            <Text bold>Codex accounts</Text>
+            {known.codex.map(codexRow)}
+            <Text dimColor>Restart Codex after a switch.</Text>
+          </Box>
+        ) : null}
+
+        <Box flexDirection="row" columnGap={1}>
+          <Button key="refresh" label="Refresh" hotkey="r" onPress={() => refresh($).catch(() => undefined)} />
+          <Button key="save" label="Save current login" onPress={() => act($, 'Save current Claude login', ['add'])} />
+          {doing ? <Text dimColor>{doing}…</Text> : null}
+        </Box>
       </Box>
     )
   })

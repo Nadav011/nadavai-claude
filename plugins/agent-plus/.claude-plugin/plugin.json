@@ -1,6 +1,6 @@
 {
   "name": "agent-plus",
-  "version": "0.1.0",
-  "description": "A + button above the prompt that opens Codex, Grok, Antigravity, Gemini, OpenCode or Claude in a Terminal-panel tab of this project",
+  "version": "0.2.0",
+  "description": "A right-side Agents pane: open Codex, Grok, Antigravity, Gemini, OpenCode or Claude (as an Orca tab inside Orca, else in the Terminal panel) and see and switch saved Claude and Codex accounts through ccswap",
   "types": "./types/index.d.ts"
 }
