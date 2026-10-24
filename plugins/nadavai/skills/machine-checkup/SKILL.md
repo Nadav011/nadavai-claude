@@ -81,9 +81,12 @@ cache is not running.
 | Installer downloads whose installed version is newer, old plugin cache versions no live session started from, unused Playwright browsers, apt cache | `apt-get clean`; vacuum the journal (`--vacuum-time=14d`) only after a freeze investigation is closed, the journal is its evidence |
 
 Then dedupe instead of deleting anything still in use. Hardlinked files share one inode, so an
-in-place write in one worktree changes the others: dedupe only dependency trees (`node_modules`,
-which pnpm already hardlinks) and git-tracked asset folders that are clean in `git status`; skip
-repos with a `patches/` dir (patch-package) or postinstall steps that write into `node_modules`.
+in-place write in one worktree (Node `fs.writeFile`, Python `write_bytes`) silently changes every
+other worktree: dedupe only dependency trees (`node_modules`, which pnpm already hardlinks; skip
+repos with a `patches/` dir or postinstall steps that write into `node_modules`) and git-tracked
+asset folders that are clean in `git status`, and after an asset dedupe make the linked files
+read-only (`find <dirs> -type f -links +1 -exec chmod a-w {} +`) so an in-place write fails loudly
+instead. `git checkout` and `git pull` still work: git replaces files rather than writing into them.
 
 ```bash
 hardlink -n -t -s 4k <all node_modules dirs>     # dry run, prints "Saved"
@@ -106,10 +109,11 @@ the MSI and stalls writes meanwhile).
 - **ARCHIVE**: `scripts/archive.sh <host>-<date>[-n] <paths>` in the background (new name per
   round; it refuses paths already in the archive, paths through symlinks, a full or unmounted
   archive disk, and archiving to the same machine). It writes a per-run receipt
-  (`archive-<run>.receipt`: path, manifest, time) and exits 1 if anything failed. Delete only
-  paths in that run's receipt whose newest mtime (`find <path> -newermt @<time>`) is not after the
-  receipt time, with literal-path `rm`; leave a `MOVED-TO-NADAVAI.txt` stub where other tools may
-  look. `NOTE absolute symlink` lines in the run log point outside the copy: check them first.
+  (`archive-<run>.receipt`: path, manifest, time) and exits 1 if anything failed. Right before
+  deleting, run `scripts/archive.sh --check <receipt>`: it recomputes each source's manifest now
+  and prints `OK` or `CHANGED`. Delete only `OK` lines, with literal-path `rm`; archive `CHANGED`
+  ones again under a new name. Leave a `MOVED-TO-NADAVAI.txt` stub where other tools may look.
+  `NOTE absolute symlink` lines in the run log point outside the copy: check them first.
 - **ASK-NADAV**: AskUserQuestion batches, largest first. Typical questions: unused apps (with
   last-use date), toolchains, old project copies, swapfile size, kernel fallback, firewall
   exposure, background services that duplicate each other.

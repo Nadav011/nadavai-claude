@@ -1,55 +1,67 @@
 #!/bin/bash
 # Copy paths under $HOME to <host>:/mnt/data/archive/<name>/<same relative path> and verify the copy.
-# It never deletes. Each verified path is written to a per-run receipt; the caller deletes from that
-# receipt with literal-path rm, after checking nothing changed since (see SKILL.md step 4).
+# It never deletes. Each verified path goes into a per-run receipt; before deleting, re-run with
+# --check <receipt> (recomputes the local manifest now) and rm only the lines it prints as OK.
 #
 # usage: archive.sh <archive-name> <path under $HOME>...
+#        archive.sh --check <receipt>
 # env:   ARCHIVE_HOST (default omarchy)  CHECKUP_DIR (default ~/cleanup-audit-<date>)
 #        ARCH_IONICE (default "-c2 -n7"; "-c3" while another session is measuring the disk)
 #
-# Verification is fail-closed: every step's exit status is checked, and the manifest covers type,
-# relative path, size, symlink target and sha256 of regular files, so missing empty dirs, broken or
-# changed symlinks and special files all count as a mismatch. Exit status is 1 if any path failed.
+# Fail-closed: every step's exit status is checked; the manifest (manifest.py) covers type, path,
+# symlink target and content of every entry. Exit status 1 if any path failed.
 set -uo pipefail
+here=$(cd "$(dirname "$0")" && pwd); mf=$here/manifest.py
+io=${ARCH_IONICE:--c2 -n7}
+local_manifest() { ionice $io nice -n 19 python3 -I "$mf" "$1"; }
+
+if [ "${1:-}" = --check ]; then          # re-verify a receipt against the sources as they are now
+  rc=0
+  while IFS=$'\t' read -r src sum _; do
+    now=$(local_manifest "$src" 2>/dev/null) || now=""
+    if [ "$now" = "$sum" ]; then echo "OK $src"; else echo "CHANGED $src (keep it, archive again)"; rc=1; fi
+  done < "${2:?receipt}"
+  exit $rc
+fi
+
 name=${1:?archive name}; shift
 [[ $name =~ ^[A-Za-z0-9._-]+$ && $name != .* ]] || { echo "bad archive name: $name" >&2; exit 2; }
-host=${ARCHIVE_HOST:-omarchy}; root=/mnt/data/archive; dst=$root/$name
+host=${ARCHIVE_HOST:-omarchy}; mnt=/mnt/data; dst=$mnt/archive/$name
 dir=${CHECKUP_DIR:-$HOME/cleanup-audit-$(date +%F)}; mkdir -p "$dir"
-run=$(date +%Y%m%dT%H%M%S)-$$; receipt=$dir/archive-$run.receipt; log=$dir/archive-$run.log
-io=${ARCH_IONICE:--c2 -n7}; fail=0
-q() { printf '%q' "$1"; }                       # quote one argument for the remote shell
+run=$(date +%Y%m%dT%H%M%S)-$$; receipt=$dir/archive-$run.receipt; log=$dir/archive-$run.log; fail=0
+q() { printf '%q' "$1"; }                # quote one argument for the remote shell (bash on omarchy)
+remote_manifest() { ssh "$host" "python3 -I - $(q "$1")" < "$mf"; }
+remote_exists() {                        # prints yes / no; any other outcome is a failure
+  local out; out=$(ssh "$host" "if test -e $(q "$1") || test -L $(q "$1"); then echo yes; else echo no; fi") || return 1
+  [[ $out == yes || $out == no ]] && echo "$out"
+}
 
-# The archive must be another machine with the archive disk mounted.
+# The archive must be another machine, and the archive dir must really sit on its archive disk.
 [ "$(ssh "$host" hostname 2>/dev/null)" != "$(hostname)" ] || { echo "archive host is this machine" >&2; exit 2; }
-ssh "$host" "mountpoint -q $(q "$(dirname "$root")") && mkdir -p $(q "$dst")" || { echo "archive disk not mounted on $host" >&2; exit 2; }
-
-# Manifest: one line per entry (type, path, size, link target), plus content hashes of regular files.
-manifest() {  # run inside the parent dir; $1 = basename
-  { find ./"$1" -printf '%y %P %l\n' | LC_ALL=C sort &&
-    find ./"$1" -type f -print0 | LC_ALL=C sort -z | xargs -0 -r sha256sum; } | sha256sum | cut -c1-64
-}
-remote_manifest() {  # $1 = remote parent dir, $2 = basename; same function, run over ssh
-  ssh "$host" "set -o pipefail; cd $(q "$1") && { find ./$(q "$2") -printf '%y %P %l\n' | LC_ALL=C sort && find ./$(q "$2") -type f -print0 | LC_ALL=C sort -z | xargs -0 -r sha256sum; } | sha256sum | cut -c1-64"
-}
+ssh "$host" "mountpoint -q $mnt && mkdir -p $(q "$dst") && [ \"\$(realpath -e $(q "$dst"))\" = $(q "$dst") ] && [ \"\$(findmnt -no TARGET -T $(q "$dst"))\" = $mnt ]" \
+  || { echo "archive dir $dst on $host is not a plain directory on the $mnt disk" >&2; exit 2; }
 
 for arg in "$@"; do
   src=$(realpath -e -- "${arg%/}" 2>/dev/null) || { echo "FAILED missing $arg" >> "$log"; fail=1; continue; }
   case "$src" in "$HOME"/?*) ;; *) echo "FAILED outside \$HOME after resolving: $arg -> $src" >> "$log"; fail=1; continue ;; esac
   [ "$src" = "${arg%/}" ] || { echo "FAILED path is or passes through a symlink: $arg -> $src" >> "$log"; fail=1; continue; }
-  rel=${src#$HOME/}; parent=$(dirname "$rel"); base=$(basename "$src")
-  if ssh "$host" "test -e $(q "$dst/$rel")"; then echo "FAILED already in archive (use a new archive name): $rel" >> "$log"; fail=1; continue; fi
-  size=$(du -sk -- "$src" | cut -f1); free=$(ssh "$host" "df -Pk $(q "$dst") | awk 'NR==2{print \$4}'")
+  rel=${src#$HOME/}; parent=$(dirname "$rel")
+  ex=$(remote_exists "$dst/$rel") || { echo "FAILED could not check the archive for $rel" >> "$log"; fail=1; continue; }
+  [ "$ex" = no ] || { echo "FAILED already in archive (use a new archive name): $rel" >> "$log"; fail=1; continue; }
+  size=$(du -sk -- "$src" | cut -f1)
+  free=$(ssh "$host" "df -Pk $(q "$dst") | awk 'NR==2{print \$4}'") || free=0
   [ "${free:-0}" -gt $((size * 12 / 10)) ] || { echo "FAILED not enough space on $host for $rel" >> "$log"; fail=1; continue; }
-  # Outside symlinks still point at the original location after deletion: record them for the caller.
+  # Absolute symlinks still point at the original location after deletion: listed for the caller.
   find "$src" -type l -lname '/*' -printf "NOTE absolute symlink %p -> %l\n" >> "$log"
   echo "$(date +%T) copy $rel -> $host:$dst/$rel" >> "$log"
   ssh "$host" "mkdir -p $(q "$dst/$parent")" || { echo "FAILED mkdir $rel" >> "$log"; fail=1; continue; }
-  ionice $io rsync -aHAX -- "$src" "$host:$(q "$dst/$parent")/" >> "$log" 2>&1 || { echo "FAILED rsync $rel" >> "$log"; fail=1; continue; }
-  l=$(cd "$(dirname "$src")" && ionice $io nice -n 19 bash -c "$(declare -f manifest); set -o pipefail; manifest $(q "$base")") || l=""
-  r=$(remote_manifest "$dst/$parent" "$base") || r=""
+  # -s (protect args): rsync passes the remote path itself, so it must not be shell-quoted here.
+  ionice $io rsync -aHAX -s -- "$src" "$host:$dst/$parent/" >> "$log" 2>&1 || { echo "FAILED rsync $rel" >> "$log"; fail=1; continue; }
+  t0=$(date +%s)                         # before hashing: a write during verification is newer than t0
+  l=$(local_manifest "$src") || l=""
+  r=$(remote_manifest "$dst/$rel") || r=""
   if [[ ${#l} -eq 64 && $l == "$r" ]]; then
-    printf '%s\t%s\t%s\n' "$src" "$l" "$(date +%s)" >> "$receipt"
-    echo "$(date +%T) VERIFIED $rel ($l)" >> "$log"
+    printf '%s\t%s\t%s\n' "$src" "$l" "$t0" >> "$receipt"; echo "$(date +%T) VERIFIED $rel ($l)" >> "$log"
   else echo "FAILED verify $rel local=$l remote=$r (kept)" >> "$log"; fail=1; fi
 done
 echo "receipt: $receipt"; echo "log: $log"
