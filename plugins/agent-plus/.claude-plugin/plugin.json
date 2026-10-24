@@ -1,0 +1,6 @@
+{
+  "name": "agent-plus",
+  "version": "0.1.0",
+  "description": "A + button above the prompt that opens Codex, Grok, Antigravity, Gemini, OpenCode or Claude in a Terminal-panel tab of this project",
+  "types": "./types/index.d.ts"
+}

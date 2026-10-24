@@ -59,7 +59,8 @@
     "metaskills@wondelai-skills": true,
     "intent@intent": true,
     "posthog@posthog": true,
-    "interfaces@interfaces": true
+    "interfaces@interfaces": true,
+    "agent-plus@nadavai": true
   },
   "extraKnownMarketplaces": {
     "nadavai": {
