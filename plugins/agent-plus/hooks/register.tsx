@@ -224,74 +224,22 @@ export const register: Register = on => {
     }
   })
 
-  // Two native dropdowns in the prompt footer beside the model name: + lists the agents, and the
-  // account one lists every saved Claude and Codex login with its usage. A Select opens over the
-  // window, so the narrow footer cuts nothing; each one goes back to its resting value after a pick.
-  on('ui.render', { component: 'SessionMode' }, async ($, e, next) => {
-    if (e.surface !== 'desktop') return next(e)
+  // The + beside the model name: one native dropdown of the agents, drawn exactly as the
+  // prototype that the desktop app showed (one Select, a fixed option list, no other element).
+  // The accounts stay in the Agents pane (/agent) until a second dropdown is proven to draw there.
+  on('ui.render', { component: 'SessionMode' }, async ($, e) => {
     const elements = $.ui.resolve(e)
     const { Box, Text } = elements
     const Select = 'Select' in elements ? elements.Select : undefined
-    if (!Select) return next(e)
-
-    const ids = await read($, installed)
-    const agents = AGENTS.filter(a => ids.includes(a.id))
-    const known = await read($, accounts)
-    const doing = await read($, busy)
-    const active = known?.claude.find(a => a.active)
-
-    const accountOptions = [
-      {
-        value: 'current',
-        label: active ? `${active.email.split('@')[0]} · ${windowText('5h', active.fiveHour)}` : 'Accounts',
-      },
-      ...(known?.claude ?? []).map(a => ({
-        value: `claude:${a.email}`,
-        label: `${a.active ? '●' : '○'} Claude ${a.email} · ${
-          a.status === 'ok' ? `${windowText('5h', a.fiveHour)} · ${windowText('7d', a.sevenDay)}` : a.status
-        }`,
-      })),
-      ...(known?.codex ?? []).map(a => ({
-        value: `codex:${a.email}`,
-        label: `${a.active ? '●' : '○'} Codex ${a.email} · ${a.label}`,
-      })),
-      { value: 'save', label: 'Save current Claude login' },
-      { value: 'refresh', label: 'Refresh usage' },
-    ]
-
-    // Each pick redraws at its end, so the dropdown shows its resting value again and the same
-    // entry can be picked twice in a row.
-    const pickAccount = async (value: string) => {
-      try {
-        await switchTo(value)
-      } finally {
-        $.ui.invalidate('ui.render')
-      }
-    }
-    const switchTo = async (value: string) => {
-      if (value === 'save') return act($, 'Save current Claude login', ['add'])
-      if (value === 'refresh') return refresh($).catch(() => undefined)
-      const [kind, email] = [value.slice(0, value.indexOf(':')), value.slice(value.indexOf(':') + 1)]
-      const row =
-        kind === 'claude' ? known?.claude.find(a => a.email === email) : known?.codex.find(a => a.email === email)
-      if (!row || row.active) return
-      // By email, not slot number: the slot a stale list shows may hold another account by now.
-      return kind === 'claude'
-        ? act($, `Switch to ${email}`, ['switch', email])
-        : act($, `Switch Codex to ${email} (restart Codex)`, ['codex', 'switch', email])
-    }
-
+    if (!Select) return <Text dimColor>{e.props.modes.join(' & ')}</Text>
     return (
       <Box flexDirection="row" columnGap={1}>
-        {e.props.modes.length > 0 ? <Text dimColor>{e.props.modes.join(' & ')}</Text> : null}
-        {doing ? <Text dimColor>{doing}…</Text> : null}
-        <Select key="accounts" value="current" options={accountOptions} onSelect={pickAccount} />
         <Select
-          key="agents"
+          key="agent"
           value="plus"
-          options={[{ value: 'plus', label: '+' }, ...agents.map(a => ({ value: a.id, label: a.label }))]}
+          options={[{ value: 'plus', label: '+' }, ...AGENTS.map(a => ({ value: a.id, label: a.label }))]}
           onSelect={async (value: string) => {
-            const agent = agents.find(a => a.id === value)
+            const agent = AGENTS.find(a => a.id === value)
             try {
               if (agent) $.ui.toast(await openAgent($, agent))
             } catch (error) {

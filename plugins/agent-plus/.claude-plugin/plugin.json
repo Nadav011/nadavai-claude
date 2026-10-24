@@ -1,6 +1,6 @@
 {
   "name": "agent-plus",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "The desktop app's Agents pane: a + that lists Codex, Grok, Antigravity, Gemini, OpenCode and Claude and opens the pick in a Terminal-panel tab, and every saved Claude and Codex account with usage and a Switch button, through ccswap",
   "types": "./types/index.d.ts"
 }
