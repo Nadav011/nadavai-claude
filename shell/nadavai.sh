@@ -57,3 +57,10 @@ alias aiup='ai-dev-up --attach'
 alias aiup-all='ai-dev-up --attach --stack --chrome'
 alias aichrome='ai-dev-chrome'
 alias cexplain='claude -p "Explain this error and give the exact fix:"'
+
+# --- Claude desktop Terminal panel -------------------------------------------
+# A new tab of the desktop app's Terminal panel (its +) starts with the agents and
+# accounts menu. Only there: Orca and plain terminals set another TERM_PROGRAM.
+if [ "${TERM_PROGRAM:-}" = claude-desktop ] && [[ $- == *i* ]] && [ -r "$NADAVAI_HOME/shell/desktop-terminal.sh" ]; then
+  . "$NADAVAI_HOME/shell/desktop-terminal.sh"
+fi
