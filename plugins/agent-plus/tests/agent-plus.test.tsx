@@ -150,3 +150,36 @@ test('in a terminal (Orca, a plain shell) the mod opens nothing and registers no
   expect(opened).toBe(0)
   expect(registered).toBe(0)
 })
+
+test('the footer beside the model name holds an agents + and an accounts dropdown', async ($, on) => {
+  const runs: (readonly string[])[] = []
+  const calls: string[] = []
+  on('command.register', () => ({ value: { command: 'agent' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('ui.toast', () => ({ value: undefined }))
+  on('process.run', (_, e) => {
+    const { argv } = e as { argv: readonly string[] }
+    runs.push(argv)
+    if (argv[0] === 'which') return ran('/bin/codex\n/bin/grok\n')
+    if (argv[1] === 'list') return ran(LIST)
+    return ran('{}')
+  })
+  on('tool.call', (_, e) => {
+    calls.push(`${(e as { tool: string }).tool} ${String((e as { command?: unknown }).command ?? '')}`)
+    return { result: {}, text: '{"tab_id":"t1"}' }
+  })
+
+  await $.session.start({ cwd: '/repo', surface: null, isInteractive: false })
+  const ui = await $.ui.mount({ plugin: 'agent-plus', surface: 'desktop', component: 'SessionMode', props: { modes: [] } })
+
+  await ui.select({ key: 'agents', value: 'grok' })
+  expect(calls).toContain('mcp__terminal__run_in_terminal grok')
+
+  // The account list switches by email; the active one is not switched to again.
+  await ui.select({ key: 'accounts', value: 'refresh' })
+  await ui.select({ key: 'accounts', value: 'claude:b@example.com' })
+  expect(runs.some(argv => argv.join(' ') === 'ccswap switch b@example.com')).toBe(true)
+  await ui.select({ key: 'accounts', value: 'claude:a@example.com' })
+  expect(runs.filter(argv => argv[1] === 'switch').length).toBe(1)
+  await ui.unmount()
+})

@@ -123,9 +123,20 @@ async function readAccounts($: EngineInterface): Promise<Accounts> {
   return { claude, codex }
 }
 
-const refresh = async ($: EngineInterface) => {
-  const read = await readAccounts($)
-  await update($, accounts, () => read)
+let reading: Promise<void> | undefined
+let isDesktop = false
+
+/** Reads the accounts; a call while a read runs joins it, so reads never overlap or land stale. */
+const refresh = ($: EngineInterface): Promise<void> => {
+  reading ??= (async () => {
+    try {
+      const read = await readAccounts($)
+      await update($, accounts, () => read)
+    } finally {
+      reading = undefined
+    }
+  })()
+  return reading
 }
 
 /** Runs one ccswap action from a press, shows it as busy, then reads the accounts again. */
@@ -157,10 +168,11 @@ export const register: Register = on => {
     // Not in a terminal (Orca, a plain shell): Orca has its own + and account switcher. The desktop
     // app starts its session with no surface yet (null) and attaches its own afterwards.
     if (e.surface === 'terminal') return started
+    isDesktop = true
     try {
       await $.command.register({
         name: COMMAND,
-        description: 'Show the Agents pane, or open an agent in the Terminal panel: /agent codex',
+        description: 'Open the Agents pane (agents and accounts), or open an agent in the Terminal panel: /agent codex',
         argumentHint: '[codex|grok|agy|gemini|opencode|claude]',
       })
     } catch (error) {
@@ -175,10 +187,16 @@ export const register: Register = on => {
     // Read at start, on /agent, on Refresh and after a press only: ccswap may refresh a token while
     // it reads usage, and the ccswap mod already polls on its own clock.
     void refresh($).catch(() => undefined)
-    // Opened at start: the desktop app seats it beside the chat once it attaches. isInteractive is
-    // false there (the app drives the session), so it is not asked.
-    await $.ui.open({ id: PANE, title: 'Agents' }).catch(() => undefined)
     return started
+  })
+
+  // The footer reads the accounts again after each turn, so its usage figures stay current
+  // without a timer of their own.
+  on('turn.complete', async ($, e, next) => {
+    const done = await next(e)
+    // The main loop's turns only, not each subagent's, and never in a terminal session.
+    if (isDesktop && !e.agentId) void refresh($).catch(() => undefined)
+    return done
   })
 
   // Checked on the input as decided, after any plugin above rewrote the call: only one of the
@@ -204,6 +222,87 @@ export const register: Register = on => {
     } catch (error) {
       return { text: `Couldn't open ${agent.label}: ${message(error)}` }
     }
+  })
+
+  // Two native dropdowns in the prompt footer beside the model name: + lists the agents, and the
+  // account one lists every saved Claude and Codex login with its usage. A Select opens over the
+  // window, so the narrow footer cuts nothing; each one goes back to its resting value after a pick.
+  on('ui.render', { component: 'SessionMode' }, async ($, e, next) => {
+    if (e.surface !== 'desktop') return next(e)
+    const elements = $.ui.resolve(e)
+    const { Box, Text } = elements
+    const Select = 'Select' in elements ? elements.Select : undefined
+    if (!Select) return next(e)
+
+    const ids = await read($, installed)
+    const agents = AGENTS.filter(a => ids.includes(a.id))
+    const known = await read($, accounts)
+    const doing = await read($, busy)
+    const active = known?.claude.find(a => a.active)
+
+    const accountOptions = [
+      {
+        value: 'current',
+        label: active ? `${active.email.split('@')[0]} · ${windowText('5h', active.fiveHour)}` : 'Accounts',
+      },
+      ...(known?.claude ?? []).map(a => ({
+        value: `claude:${a.email}`,
+        label: `${a.active ? '●' : '○'} Claude ${a.email} · ${
+          a.status === 'ok' ? `${windowText('5h', a.fiveHour)} · ${windowText('7d', a.sevenDay)}` : a.status
+        }`,
+      })),
+      ...(known?.codex ?? []).map(a => ({
+        value: `codex:${a.email}`,
+        label: `${a.active ? '●' : '○'} Codex ${a.email} · ${a.label}`,
+      })),
+      { value: 'save', label: 'Save current Claude login' },
+      { value: 'refresh', label: 'Refresh usage' },
+    ]
+
+    // Each pick redraws at its end, so the dropdown shows its resting value again and the same
+    // entry can be picked twice in a row.
+    const pickAccount = async (value: string) => {
+      try {
+        await switchTo(value)
+      } finally {
+        $.ui.invalidate('ui.render')
+      }
+    }
+    const switchTo = async (value: string) => {
+      if (value === 'save') return act($, 'Save current Claude login', ['add'])
+      if (value === 'refresh') return refresh($).catch(() => undefined)
+      const [kind, email] = [value.slice(0, value.indexOf(':')), value.slice(value.indexOf(':') + 1)]
+      const row =
+        kind === 'claude' ? known?.claude.find(a => a.email === email) : known?.codex.find(a => a.email === email)
+      if (!row || row.active) return
+      // By email, not slot number: the slot a stale list shows may hold another account by now.
+      return kind === 'claude'
+        ? act($, `Switch to ${email}`, ['switch', email])
+        : act($, `Switch Codex to ${email} (restart Codex)`, ['codex', 'switch', email])
+    }
+
+    return (
+      <Box flexDirection="row" columnGap={1}>
+        {e.props.modes.length > 0 ? <Text dimColor>{e.props.modes.join(' & ')}</Text> : null}
+        {doing ? <Text dimColor>{doing}…</Text> : null}
+        <Select key="accounts" value="current" options={accountOptions} onSelect={pickAccount} />
+        <Select
+          key="agents"
+          value="plus"
+          options={[{ value: 'plus', label: '+' }, ...agents.map(a => ({ value: a.id, label: a.label }))]}
+          onSelect={async (value: string) => {
+            const agent = agents.find(a => a.id === value)
+            try {
+              if (agent) $.ui.toast(await openAgent($, agent))
+            } catch (error) {
+              $.ui.toast(`Couldn't open ${agent?.label}: ${message(error)}`)
+            } finally {
+              $.ui.invalidate('ui.render')
+            }
+          }}
+        />
+      </Box>
+    )
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
