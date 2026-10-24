@@ -31,19 +31,6 @@
         "qa"
       ],
       "homepage": "https://github.com/Nadav011/nadavai-claude"
-    },
-    {
-      "name": "agent-plus",
-      "description": "Desktop app only: a right-side Agents pane with a + that lists Codex, Grok, Antigravity, Gemini, OpenCode and Claude and opens the pick in a Terminal-panel tab, and every saved Claude and Codex account with its 5h/7d usage, blocks and a Switch button, through ccswap. Does nothing in a terminal such as Orca.",
-      "source": "./plugins/agent-plus",
-      "category": "productivity",
-      "keywords": [
-        "mod",
-        "agents",
-        "accounts",
-        "codex",
-        "grok"
-      ]
     }
   ]
 }
