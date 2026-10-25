@@ -110,10 +110,24 @@ while :; do
     while IFS=$'\t' read -r c s d; do st[$c]=$s; ds[$c]=$d; done < <(
       jq -r '.statuses[] | [.context, .state, .description] | @tsv' <<<"$json")
 
-    # A branch run cancelled because a newer head arrived posts this and nothing else.
+    # A branch run cancelled because a newer head arrived posts this and nothing else, and so
+    # does a commit on main that is not built as a branch ("superseded by main ..."). After a
+    # force-push back (A->B->A, or main reset to it) the old answer stays the newest until the
+    # rebuild posts pending: while the head it names as moved on (main's for "superseded by
+    # main" and in main mode, else the branch's) is this commit again, or cannot be read, it is
+    # no answer.
     if [ "${st[nadavai-ci]:-}" = error ] && [[ ${ds[nadavai-ci]:-} == "superseded by "* ]]; then
-      echo "NOT MEASURED: ${OWNER}/$repo ${sha:0:7}: ${ds[nadavai-ci]}; wait on the newer sha instead"
-      exit 0
+      back="" moved=$branch
+      { [[ ${ds[nadavai-ci]} == "superseded by main "* ]] || [ "$mode" = main ]; } && moved=main
+      if [ -n "$moved" ]; then
+        head=$(api "commits/$moved" -q .sha) || head=""
+        { [[ ! $head =~ ^[0-9a-f]{40}$ ]] || [ "$head" = "$sha" ]; } && back=1
+      fi
+      if [ -z "$back" ]; then
+        echo "NOT MEASURED: ${OWNER}/$repo ${sha:0:7}: ${ds[nadavai-ci]}; wait on the newer sha instead"
+        exit 0
+      fi
+      st[nadavai-ci]=pending   # the poller builds it again
     fi
 
     red=(); pending=(); notes=()
