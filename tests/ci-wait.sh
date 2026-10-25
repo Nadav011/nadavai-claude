@@ -8,7 +8,8 @@ t=$(mktemp -d) || exit 1
 trap 'rm -rf -- "$t"' EXIT
 mkdir -p "$t/bin"
 # The commit's newest nadavai-ci status is an error described by $CIDESC. A branch or main reads
-# as $HEAD_<name>: a sha, "deleted" (HTTP 422, as GitHub answers a ref with no commit) or "down".
+# as $HEAD_<name>: a sha, "deleted" (HTTP 422, as GitHub answers a ref with no commit), "notfound"
+# (HTTP 404), "down" (GitHub unreachable), "empty" or "garbage" (exit 0 with no sha on stdout).
 cat >"$t/bin/gh" <<'GH'
 #!/usr/bin/env bash
 case $* in
@@ -18,6 +19,9 @@ case $* in
     all="$*"; ref=${all#*commits/}; ref=${ref%% *}; v=HEAD_$ref; v=${!v:-}
     case $v in
       deleted) echo "gh: No commit found for SHA: $ref (HTTP 422)" >&2; exit 1 ;;
+      notfound) echo "gh: Not Found (HTTP 404)" >&2; exit 1 ;;
+      empty) ;;
+      garbage) echo "<html>rate limited</html>" ;;
       down) echo "error connecting to api.github.com" >&2; exit 1 ;;
       *) echo "$v" ;;
     esac ;;
@@ -40,6 +44,9 @@ check "the branch moved on: not measured"                0 "$cancel" fix "$B" "$
 check "A->B->A, the branch back at A: waits"             2 "$cancel" fix "$A" "$B"
 check "the branch deleted (422): not measured"           0 "$cancel" fix deleted "$B"
 check "GitHub unreachable: waits"                        2 "$cancel" fix down "$B"
+check "the branch gone (404): not measured"              0 "$cancel" fix notfound "$B"
+check "an empty answer: waits"                           2 "$cancel" fix empty "$B"
+check "an answer with no sha in it: waits"               2 "$cancel" fix garbage "$B"
 check "superseded by main, main elsewhere: not measured" 0 "$bymain" fix "$A" "$B"
 check "superseded by main, main reset to A: waits"       2 "$bymain" main "$A" "$A"
 check "a branch's cancel, A now main's head: waits"      2 "$cancel" main "$A" "$A"
