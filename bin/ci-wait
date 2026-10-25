@@ -120,8 +120,14 @@ while :; do
       back="" moved=$branch
       { [[ ${ds[nadavai-ci]} == "superseded by main "* ]] || [ "$mode" = main ]; } && moved=main
       if [ -n "$moved" ]; then
-        head=$(api "commits/$moved" -q .sha) || head=""
-        { [[ ! $head =~ ^[0-9a-f]{40}$ ]] || [ "$head" = "$sha" ]; } && back=1
+        # A deleted branch (GitHub answers 404, or 422 "No commit found" for a ref) moved on for
+        # good; only a failure to reach GitHub is no answer this poll.
+        if out=$(timeout 30 gh api "repos/$OWNER/$repo/commits/$moved" -q .sha 2>&1); then
+          head=$(grep -oxE '[0-9a-f]{40}' <<<"$out" | head -1)
+          { [ -z "$head" ] || [ "$head" = "$sha" ]; } && back=1
+        elif ! grep -qE 'HTTP (404|422)' <<<"$out"; then
+          back=1
+        fi
       fi
       if [ -z "$back" ]; then
         echo "NOT MEASURED: ${OWNER}/$repo ${sha:0:7}: ${ds[nadavai-ci]}; wait on the newer sha instead"
