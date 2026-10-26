@@ -12,8 +12,8 @@
 ## Verification
 - A UI change is done only with browser evidence: a Playwright snapshot or screenshot AND a clean console. Check RTL and mobile width on every user-facing screen.
 - Before a public web app goes live: a one-time SEO pass with the claude-seo plugin enabled for that project (`/seo audit`, `/seo geo`), fix what it measured, then disable the plugin again. Day-to-day dev keeps it off.
-- Waiting for NadavAI CI: `ci-wait <repo> <sha|branch>` with `run_in_background: true`, never a status loop. It pins the sha, knows each repo's contexts, and exits 0 green, 1 red, 2 timeout, 3 NadavAI down. Why: a status loop wakes the agent on every poll and can read a newer push's status as its own.
-- Run full CI only where it adds information: on heads that change code and on the combined head that will land. Never run it a second time on a SHA or identical tree that already passed, and never force a docs-only change into a full build (it keeps the "documentation only since <sha>, which passed" answer). Local checks stay the related tests only. Why: a SporChat unit's code passed the full CI three times (unit branch, batch head, the same SHA again on main) and each pass queued every other agent behind it (Nadav, 2026-10-24: CI only where it is really needed, in every project).
+- Where each check runs, when to push, how to wait on CI and how workflows verify: `ci-policy.md`. Waiting for NadavAI CI is `ci-wait <repo> <sha|branch>` with `run_in_background: true`; it exits 0 green, 1 red, 2 timeout, 3 NadavAI down, 4 when the task that started it is gone.
+- Run full CI only where it adds information: on heads that change code and on the combined head that will land. Never run it a second time on a SHA or identical tree that already passed, and never force a docs-only change into a full build (it keeps the "documentation only since <sha>, which passed" answer). Why: a SporChat unit's code passed the full CI three times (unit branch, batch head, the same SHA again on main) and each pass queued every other agent behind it (Nadav, 2026-10-24: CI only where it is really needed, in every project).
 - Long local commands run with `run_in_background: true` and you continue when the completion notice arrives; never `sleep` + grep a log in a loop. Why: in the week to 2026-10-14, 825 sleeps (38.8 agent-hours) waited on local logs, and every wake-up is one more full-context request.
 
 ## Browser routing (one tool per job)
@@ -37,7 +37,7 @@
 
 ## Approval gates
 - Ask before: auth or permission changes, payment logic, DB migrations or deletions, app-store publishing, any paid-service spend.
-- Routine web deploys proceed once the test suite passes; run a health check after.
+- Routine web deploys proceed once the repo's CI is green on the sha being deployed; run a health check after.
 - Pre-approved, never ask: `git push` to any branch other than main (no force push), and deleting local files that are temporary, generated, or created in the current session. Why: both are easy to undo, and asking about them stalled work (Nadav, 2026-09-25).
 
 ## Learning
@@ -55,4 +55,4 @@
 - Copy already in code that reads badly: better-writing. Motion: animate builds, review-animations critiques a diff, improve-animations audits a codebase. Components: shadcn (automatic when components.json exists); variants of a real page: `/interfaces:variant`. "Feels like a website on the phone", PWA or touch feel: mobile-native; native iOS conventions only: ios-hig-design.
 - Product documents: the product skills bundled in nadavai (`write-spec` for a PRD, `roadmap-update`, `sprint-planning`, `stakeholder-update`, `synthesize-research` when it feeds a roadmap, `product-brainstorming` for product ideas). Engineering handoff of a decided design: intent agent rune (`/intent:specify`). Usage data after release (events, funnels, session replays, errors, feature flags, experiments): the PostHog plugin skills (`posthog:*`), which are also the only error tracker; `metrics-review` only writes the summary; defining metrics before release: `/intent:measure`.
 - ux-design and product-innovation are reference libraries: cite one only when Nadav names it, or when the nadav-design skill names it in a step (`mom-test` before user interviews, `conversion-optimization` for funnel features, `ios-hig-design` for a Capacitor iOS target). Their keywords ("fix the design", "design review", "usability audit", "loading state") never make them the owner.
-- Code planning, execution and verification stay with OMC, and every UI task ends with the browser evidence the Verification section requires.
+- Code planning, execution and verification stay with OMC, within `ci-policy.md` (scoped checks plus the CI status of the sha), and every UI task ends with the browser evidence the Verification section requires.

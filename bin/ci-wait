@@ -1,11 +1,23 @@
 #!/usr/bin/env bash
 # ci-wait: wait for NadavAI CI (nadavai-ci, the poller on NadavAI) to finish one commit.
 #
-#   ci-wait <repo> <sha|branch> [--timeout MIN]     (default 90 minutes)
+#   ci-wait <repo> <sha|branch> [--timeout MIN] [--require full] [--land] [--detach]
+#
+#   --timeout MIN    default 90 minutes
+#   --require full   green only on a full-scope nadavai-ci pass ("passed on NadavAI|MSI in
+#                    Nm", or the same tree or documentation only since a commit that had
+#                    one); a partial scope, not measured or superseded is exit 1
+#   --land           queue a full landing run of a branch head on NadavAI
+#                    (~/ci/state/land/<repo>__<branch, / as __>: "<sha> <epoch>"), then
+#                    wait as --require full, on a status posted after the request
+#   --detach         keep waiting when the process that started it is gone (exit 4 off;
+#                    also CI_WAIT_FOLLOW_PARENT=0)
 #
 # Run it with run_in_background: true and carry on until the completion notice arrives,
 # instead of a status loop. It resolves a branch to its full sha once, at the start, and
 # waits on that sha only: a later push to the branch does not move what it waits for.
+# Waiters on one sha share one poller (~/.cache/ci-wait), and a waiter stops when the
+# process that started it is gone.
 #
 # Contexts per repo and mode, mirroring the arrays at the top of ~/ci/bin/nadavai-ci:
 #   branch:  nadavai-ci + nadavai-security
@@ -21,24 +33,54 @@
 #   2  timeout: the contexts still pending are listed
 #   3  NadavAI is down: the poller's heartbeat (state/loop.pid alive, over ssh) failed
 #      twice in a row. A missing status alone never means "down".
+#   4  parent gone: the process that started the wait exited, or was itself orphaned
+#      (its own parent died: a shell wrapper left behind by a dead session); --detach
+#      turns this off
 set -uo pipefail
 
 OWNER=Nadav011
 HOST=${CI_WAIT_HOST:-omarchy}
 POLL=${CI_WAIT_POLL:-30}
 HEARTBEAT_EVERY=${CI_WAIT_HEARTBEAT_EVERY:-300}
+CACHE=${CI_WAIT_CACHE:-$HOME/.cache/ci-wait}
 
 declare -A DEPLOY_AUTO=([therapy-flow-v2]=1 [cash-next-app]=1 [snooker-smart]=1)
 declare -A HAS_UI=([therapy-flow-v2]=1 [snooker-smart]=1 [sportchat-web]=1 [cash-next-app]=1)
 
-usage() { sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+# The nadavai-ci description of a full-scope pass, on either CI host: NadavAI's bare, the
+# MSI's with the [msi:<token>] of its winning claim. A partial scope adds "; outside this
+# branch scope, not run: ..." and any other tag (a coverage such as [changed@<sha>]) may
+# narrow it, so neither matches. The same pattern is FULL_PASS_RE in
+# ~/nadavai/git/hooks/pre-push; change both together.
+FULL_PASS_RE='^passed on (NadavAI|MSI) in [0-9]+m( \[msi:[0-9a-f]{8}\])?$'
 
-repo=""; ref=""; timeout_min=90
+usage() { sed -n '2,38p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+
+# The fields of /proc/<pid>/stat from field 3 on, into F (F[1] the ppid, F[19] the start
+# time), read past the command name, which may hold spaces. Builtins only: it runs every poll.
+stat_fields() { # pid
+  local s
+  read -r s 2>/dev/null <"/proc/$1/stat" || return 1
+  read -ra F <<<"${s##*) }"
+}
+# The parent and its own parent, each by pid and start time, so a reused pid is not mistaken
+# for either.
+parent=$PPID parent_start="" grand="" grand_start=""
+if stat_fields "$parent"; then
+  parent_start=${F[19]} grand=${F[1]}
+  stat_fields "$grand" && grand_start=${F[19]}
+fi
+
+repo=""; ref=""; timeout_min=90; require=""; land=""; follow=${CI_WAIT_FOLLOW_PARENT:-1}
 while [ $# -gt 0 ]; do
   case "$1" in
     -h|--help) usage 0 ;;
     --timeout) timeout_min=${2:-}; shift ;;
     --timeout=*) timeout_min=${1#*=} ;;
+    --require) require=${2:-}; shift ;;
+    --require=*) require=${1#*=} ;;
+    --land) land=1 ;;
+    --detach) follow=0 ;;
     -*) echo "ci-wait: unknown option $1" >&2; usage 64 >&2 ;;
     *) if [ -z "$repo" ]; then repo=$1; elif [ -z "$ref" ]; then ref=$1; else usage 64 >&2; fi ;;
   esac
@@ -46,21 +88,106 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$repo" ] && [ -n "$ref" ] || usage 64 >&2
 [[ $timeout_min =~ ^[0-9]+$ ]] || { echo "ci-wait: --timeout takes whole minutes" >&2; exit 64; }
+case "$require" in ''|full) ;; *) echo "ci-wait: --require takes only: full" >&2; exit 64 ;; esac
+[ -n "$land" ] && require=full
 repo=${repo#"$OWNER/"}
+[[ $repo =~ ^[A-Za-z0-9._-]+$ ]] || { echo "ci-wait: $repo is not a repository name" >&2; exit 64; }
+mkdir -p "$CACHE" || exit 64
+# Snapshots, head lookups and locks of waits long over.
+find "$CACHE" -type f -mmin +1440 -delete 2>/dev/null
 
-heartbeat() { # 0 when the poller on NadavAI is alive
+# Children never hold fd 9, the poller's lock: a gh or sleep left behind by a killed
+# poller would keep the others from taking over.
+heartbeat() { # 0 when the poller on NadavAI is alive; one ssh per host per HEARTBEAT_EVERY
+  local f="$CACHE/heartbeat-$HOST" t="" now
+  printf -v now '%(%s)T' -1
+  read -r t 2>/dev/null <"$f"
+  [[ $t =~ ^[0-9]+$ ]] && [ $(( now - t )) -lt "$HEARTBEAT_EVERY" ] && return 0
   # shellcheck disable=SC2016  # expanded on NadavAI, not here
-  ssh -o ConnectTimeout=5 -o BatchMode=yes "$HOST" 'kill -0 "$(cat ~/ci/state/loop.pid)"' >/dev/null 2>&1
+  ssh -o ConnectTimeout=5 -o BatchMode=yes "$HOST" 'kill -0 "$(cat ~/ci/state/loop.pid)"' >/dev/null 2>&1 9>&- ||
+    return 1
+  echo "$now" >"$f.$$" && mv -f "$f.$$" "$f"
 }
 heartbeat_or_exit() {
   heartbeat && return 0
-  sleep 20
+  sleep 20 9>&-
   heartbeat && return 0
   echo "ci-wait: NadavAI down: no live poller (ssh $HOST, ~/ci/state/loop.pid) on two tries"
   exit 3
 }
 
-api() { timeout 30 gh api "repos/$OWNER/$repo/$1" "${@:2}" 2>/dev/null; }
+api() { timeout 30 gh api "repos/$OWNER/$repo/$1" "${@:2}" 2>/dev/null 9>&-; }
+
+# A branch's or main's head on GitHub into REPLY (empty when unreadable), shared by the
+# waiters on this repo for one poll interval.
+ref_head() { # ref
+  local k=${1//%/%25} f t="" h="" now
+  f="$CACHE/$repo@${k//\//%2F}.head"
+  printf -v now '%(%s)T' -1
+  read -r t h 2>/dev/null <"$f"
+  if [[ $t =~ ^[0-9]+$ ]] && [ $(( now - t )) -lt "$POLL" ] && [[ $h =~ ^[0-9a-f]{40}$ ]]; then
+    REPLY=$h; return 0
+  fi
+  REPLY=$(api "commits/$1" -q .sha) || REPLY=""
+  [[ $REPLY =~ ^[0-9a-f]{40}$ ]] && echo "$now $REPLY" >"$f.$$" && mv -f "$f.$$" "$f"
+  return 0
+}
+
+# One poller per (repo, sha): the waiter holding the lock reads GitHub and writes the
+# snapshot (a microsecond epoch line, then the raw status JSON) through tmp + mv; the others
+# read it while it is under two poll intervals old. A lock nobody holds is taken over at
+# once, and the new poller still uses a snapshot under one interval old; a held lock with an
+# older snapshot (its owner stuck) is polled around. Each waiter still reaches its own
+# verdict from the JSON: mode, contexts and timeout are its own.
+fetch_status() { # sets json; own_poll=1 reads GitHub whatever the snapshot says, once
+  local now=${EPOCHREALTIME//[!0-9]/} t="" fresh=2
+  flock -n 9 && fresh=1
+  json=""
+  if [ -z "${own_poll:-}" ]; then
+    { read -r t; read -r -d '' json; } 2>/dev/null <"$snap"
+    [[ $t =~ ^[0-9]+$ ]] && [ $(( now - t )) -lt $(( fresh * POLL * 1000000 )) ] && [ -n "$json" ] && return 0
+  fi
+  own_poll=""
+  json=$(api "commits/$sha/status") || json=""
+  if [ -n "$json" ]; then printf '%s\n%s\n' "$now" "$json" >"$snap.$$" && mv -f "$snap.$$" "$snap"; fi
+}
+
+# 0 once the process that started this wait is gone, or is still there but orphaned: its
+# own parent changed (a `bash -c` wrapper that outlived the session that ran it). A parent
+# that was gone before the loop began (`( ci-wait … & )`, nohup) left it to init or a
+# subreaper: nothing to follow.
+parent_gone() {
+  [ -n "$parent" ] || return 1
+  stat_fields $$ || return 1
+  [ "${F[1]}" = "$parent" ] && stat_fields "$parent" && [ "${F[19]}" = "$parent_start" ] || return 0
+  [ "${F[1]}" = "$grand" ] || return 0
+  [ -z "$grand_start" ] || { stat_fields "$grand" && [ "${F[19]}" = "$grand_start" ]; } || return 0
+  return 1
+}
+
+# 0 when nadavai-ci's answer is a full-scope pass: its own, or that of the commit it names
+# ("same tree as X", "documentation only since X"), one level, never further. 1 when it is
+# not; 2 when X's status could not be read (gh failed, timed out, or X has none yet): no
+# answer, so the wait goes on.
+full_pass() { # state description
+  local out line
+  [ "$1" = success ] || return 1
+  [[ $2 =~ $FULL_PASS_RE ]] && return 0
+  [[ $2 =~ ^(same\ tree\ as|documentation\ only\ since)\ ([0-9a-f]{7,40}),\ which\ passed ]] || return 1
+  out=$(api "commits/${BASH_REMATCH[2]}/status" \
+    -q '.statuses[] | select(.context == "nadavai-ci") | [.state, .description] | @tsv') || return 2
+  line=${out%%$'\n'*}
+  [ -n "$line" ] || return 2
+  [ "${line%%$'\t'*}" = success ] && [[ ${line#*$'\t'} =~ $FULL_PASS_RE ]]
+}
+
+not_measured() { # why
+  echo "NOT MEASURED: $1"
+  if [ "$require" = full ]; then
+    echo "  --require full: no full-scope pass of ${OWNER}/$repo ${sha:0:7}"; exit 1
+  fi
+  exit 0
+}
 
 # Resolve once. A full sha stays as given; anything else (branch, short sha) via GitHub.
 if [[ $ref =~ ^[0-9a-f]{40}$ ]]; then
@@ -95,8 +222,33 @@ if [ "$mode" = main ]; then
   [ -n "${HAS_UI[$repo]:-}" ] && contexts+=(nadavai-ui)
 fi
 
-echo "ci-wait: $OWNER/$repo ${sha:0:7} (${branch:-unknown branch}, $mode mode): ${contexts[*]}"
+# A landing run is asked for, never forced: NadavAI queues it as a full run of the branch
+# head. The request is one line, "<sha> <epoch>", in a file per repo and branch.
+if [ -n "$land" ]; then
+  if [ "$mode" = main ] || [ -z "$branch" ]; then
+    echo "ci-wait: --land takes a branch head (main always runs in full); pass the branch name" >&2; exit 64
+  fi
+  [[ $branch =~ ^[A-Za-z0-9._/-]+$ ]] || { echo "ci-wait: --land cannot name a request after $branch" >&2; exit 64; }
+  printf -v land_epoch '%(%s)T' -1
+  # shellcheck disable=SC2088  # a path on NadavAI, expanded there
+  req="~/ci/state/land/${repo}__${branch//\//__}"
+  ssh -o ConnectTimeout=5 -o BatchMode=yes "$HOST" \
+    "mkdir -p ~/ci/state/land && printf '%s %s\\n' $sha $land_epoch > $req.tmp && mv $req.tmp $req" ||
+    { echo "ci-wait: could not write the landing request of ${sha:0:7} on $HOST"; exit 3; }
+  echo "ci-wait: asked $HOST for a full landing run of ${sha:0:7} ($req)"
+  # Only an answer posted after the request is about it: the first poll reads GitHub itself.
+  own_poll=1
+fi
+
+echo "ci-wait: $OWNER/$repo ${sha:0:7} (${branch:-unknown branch}, $mode mode${require:+, require $require}): ${contexts[*]}"
 heartbeat_or_exit
+
+# A launcher that exited before now handed this wait to init or a subreaper (see parent_gone).
+stat_fields $$ && [ "${F[1]}" = "$parent" ] && [ "$parent" != 1 ] && [ -n "$parent_start" ] || parent=""
+[ "$follow" = 0 ] && parent=""
+
+snap="$CACHE/$repo-$sha.json"
+exec 9>"$CACHE/$repo-$sha.lock"
 
 deadline=$(( SECONDS + timeout_min * 60 ))
 last_beat=$SECONDS
@@ -104,11 +256,20 @@ declare -A shown=()
 superseded_polls=0
 
 while :; do
-  json=$(api "commits/$sha/status") || json=""
+  if parent_gone; then
+    echo "ci-wait: parent gone (pid $parent); stopped waiting on ${OWNER}/$repo ${sha:0:7}"
+    exit 4
+  fi
+  fetch_status
   if [ -n "$json" ]; then
-    declare -A st=() ds=()
-    while IFS=$'\t' read -r c s d; do st[$c]=$s; ds[$c]=$d; done < <(
-      jq -r '.statuses[] | [.context, .state, .description] | @tsv' <<<"$json")
+    declare -A st=() ds=() up=()
+    while IFS=$'\t' read -r c s u d; do st[$c]=$s; ds[$c]=$d; up[$c]=$u; done < <(
+      jq -r '.statuses[] | [.context, .state, ((.updated_at // "") | try fromdateiso8601 catch 0), .description] | @tsv' <<<"$json")
+    # A landing run waits for nadavai-ci's answer to the request; an older final is not it.
+    if [ -n "$land" ] && [ -n "${st[nadavai-ci]:-}" ] && [ "${up[nadavai-ci]:-0}" -lt "$land_epoch" ]; then
+      [ "${shown[land]:-}" ] || { echo "  nadavai-ci: ${st[nadavai-ci]}: ${ds[nadavai-ci]} (from before the landing request)"; shown[land]=1; }
+      st[nadavai-ci]=pending ds[nadavai-ci]="waiting for the landing run"
+    fi
 
     # A branch run cancelled because a newer head arrived posts this and nothing else, and so
     # does a commit on main that is not built as a branch ("superseded by main ..."). After a
@@ -122,7 +283,7 @@ while :; do
       if [ -n "$moved" ]; then
         # A deleted branch (GitHub answers 404, or 422 "No commit found" for a ref) moved on for
         # good; only a failure to reach GitHub is no answer this poll.
-        if out=$(timeout 30 gh api "repos/$OWNER/$repo/commits/$moved" -q .sha 2>&1); then
+        if out=$(timeout 30 gh api "repos/$OWNER/$repo/commits/$moved" -q .sha 2>&1 9>&-); then
           head=$(grep -oxE '[0-9a-f]{40}' <<<"$out" | head -1)
           { [ -z "$head" ] || [ "$head" = "$sha" ]; } && back=1
         elif ! grep -qE 'HTTP (404|422)' <<<"$out"; then
@@ -130,8 +291,7 @@ while :; do
         fi
       fi
       if [ -z "$back" ]; then
-        echo "NOT MEASURED: ${OWNER}/$repo ${sha:0:7}: ${ds[nadavai-ci]}; wait on the newer sha instead"
-        exit 0
+        not_measured "${OWNER}/$repo ${sha:0:7}: ${ds[nadavai-ci]}; wait on the newer sha instead"
       fi
       st[nadavai-ci]=pending   # the poller builds it again
     fi
@@ -179,7 +339,7 @@ while :; do
       if { [ "$c" = nadavai-ui ] && [ "$ci" = success ] &&
            { [ -z "${DEPLOY_AUTO[$repo]:-}" ] || [ "${st[nadavai-deploy]:-}" = success ]; } &&
            [ "${st[nadavai-ui]:-missing}" = missing ]; } || [ -n "${retrying[$c]:-}" ]; then
-        head=$(api "commits/main" -q .sha) || head=""
+        ref_head main; head=$REPLY
         if [[ $head =~ ^[0-9a-f]{40}$ ]] && [ "$head" != "$sha" ]; then
           notes+=("$c: not run, main moved on to ${head:0:7}"); continue
         fi
@@ -191,18 +351,26 @@ while :; do
 
     # Superseded before CI started: the poller builds only a branch's current head.
     if [ "${st[nadavai-ci]:-missing}" = missing ] && [ -n "$branch" ]; then
-      head=$(api "commits/$branch" -q .sha) || head=""
+      ref_head "$branch"; head=$REPLY
       if [[ $head =~ ^[0-9a-f]{40}$ ]] && [ "$head" != "$sha" ]; then
         superseded_polls=$((superseded_polls + 1))
         if [ "$superseded_polls" -ge 3 ]; then
-          echo "NOT MEASURED: $branch moved on to ${head:0:7} before CI started on ${sha:0:7}; wait on that sha instead"
-          exit 0
+          not_measured "$branch moved on to ${head:0:7} before CI started on ${sha:0:7}; wait on that sha instead"
         fi
       else
         superseded_polls=0
       fi
     fi
 
+    if [ ${#pending[@]} -eq 0 ]; then
+      fp=0; [ "$require" = full ] && { full_pass "${st[nadavai-ci]:-}" "${ds[nadavai-ci]:-}"; fp=$?; }
+      if [ "$fp" = 1 ]; then
+        echo "NOT FULL: ${OWNER}/$repo ${sha:0:7}: nadavai-ci says \"${ds[nadavai-ci]:-nothing}\""
+        echo "  --require full needs a full-scope pass of this tree"
+        exit 1
+      fi
+      [ "$fp" = 2 ] && pending=("nadavai-ci (the status of the commit it names is unreadable)")
+    fi
     if [ ${#pending[@]} -eq 0 ]; then
       if [ ${#notes[@]} -gt 0 ]; then
         echo "GREEN with notes: ${OWNER}/$repo ${sha:0:7}"
@@ -213,7 +381,7 @@ while :; do
       fi
       exit 0
     fi
-    unset st ds
+    unset st ds up
   fi
 
   if [ $SECONDS -ge $deadline ]; then
@@ -223,5 +391,5 @@ while :; do
   if [ $(( SECONDS - last_beat )) -ge "$HEARTBEAT_EVERY" ]; then
     heartbeat_or_exit; last_beat=$SECONDS
   fi
-  sleep "$POLL"
+  sleep "$POLL" 9>&-
 done

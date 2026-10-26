@@ -12,10 +12,16 @@
 #   - The tests that touch the push block main; the FULL suite runs only when the
 #     push could reach tests the import graph does not show (see below), otherwise
 #     where nobody waits for it (CI, and the deploy)
+#   - A sha nadavai-ci already passed in full, and a documentation-only push, skip
+#     typecheck and tests on main: CI ran them on that very tree, or nothing they
+#     read changed (see ci_full_pass and classify_push)
+#   - Every push appends one line to ~/.cache/nadavai/pre-push.log: what it ran and
+#     what each check cost
 #   - Everything else (Stryker, Lighthouse, LangGraph) → CI + systemd timers
 #   - Bypass: git push --no-verify  (emergency only)
 
 set -uo pipefail
+HOOK_T0=${EPOCHREALTIME//[!0-9]/}
 
 # Ensure ~/.local/bin is on PATH (needed on both pop-os and MSI for trivy)
 export PATH="$HOME/.local/bin:$PATH"
@@ -38,12 +44,34 @@ if [[ "$PUSH_TARGET_BRANCH" == "main" || "$PUSH_TARGET_BRANCH" == "master" ]]; t
   IS_MAIN=1
 fi
 
-# Each check runs as a background job writing <name>.out and <name>.rc here.
+# The GitHub repo the push goes to, for reading nadavai-ci's answer: git hands the hook
+# the remote's URL as $2; origin's when it does not.
+PUSH_URL=${2:-$(git remote get-url origin 2>/dev/null)}
+GH_REPO=""
+[[ $PUSH_URL =~ github\.com[:/]([^/]+/[^/]+)$ ]] && GH_REPO=${BASH_REMATCH[1]%.git}
+
+# Each check runs as a background job writing <name>.out, <name>.rc and <name>.sec here.
 JOBS_DIR=$(mktemp -d)
-trap 'rm -rf "$JOBS_DIR"' EXIT
+PUSH_LOG="$HOME/.cache/nadavai/pre-push.log"
+DECISION=branch   # on main: ci-pass-skip | docs-only | related | full:<reason> | typecheck-only | none
+GH_SEC=-          # how long reading nadavai-ci's answer took
+job_sec() { cat "$JOBS_DIR/$1.sec" 2>/dev/null || echo -; }
+since() {  # microsecond epoch -> seconds since then, to a tenth
+  local us=$(( ${EPOCHREALTIME//[!0-9]/} - $1 ))
+  printf '%d.%d' $(( us / 1000000 )) $(( us / 100000 % 10 ))
+}
+log_push() {  # one tab-separated line per push; a log it cannot write never fails the push
+  mkdir -p "${PUSH_LOG%/*}" 2>/dev/null
+  printf '%s\t%s\t%s\t%s\t%s\ttypecheck=%s\ttests=%s\ttrivy=%s\ttotal=%s\tgh=%s\n' "$(date -Iseconds)" \
+    "${GH_REPO:-${REPO_ROOT##*/}}" "${PUSH_TARGET_BRANCH:--}" "${PUSH_LOCAL_SHA:0:7}" "$DECISION" \
+    "$(job_sec typecheck)" "$(job_sec tests)" "$(job_sec trivy)" "$(since "$HOOK_T0")" "$GH_SEC" \
+    >>"$PUSH_LOG" 2>/dev/null
+}
+trap 'log_push; rm -rf "$JOBS_DIR"' EXIT
 start_job() {  # name  command...
   local name="$1"; shift
-  ( "$@" >"$JOBS_DIR/$name.out" 2>&1; echo $? >"$JOBS_DIR/$name.rc" ) &
+  ( local t0=$SECONDS; "$@" >"$JOBS_DIR/$name.out" 2>&1; echo $? >"$JOBS_DIR/$name.rc"
+    echo $((SECONDS - t0)) >"$JOBS_DIR/$name.sec" ) &
 }
 job_rc() { cat "$JOBS_DIR/$1.rc" 2>/dev/null || echo 1; }
 
@@ -96,10 +124,63 @@ fi
 #   - a code file was deleted or renamed (its importers are not in the graph any more);
 #   - any file is unclassified (SQL, YAML, shell, HTML...: a test may read it via fs).
 # Documentation, licences, .github/ and raster images are ignored, unless the repo's
-# vite/vitest config sets its own forceRerunTriggers (they may name any file).
+# vite/vitest config sets its own forceRerunTriggers that match them (triggers_miss).
+# A push of nothing but ignored files is documentation only (DOCS_ONLY): typecheck and
+# tests read none of it, so neither runs. A code file under .github/ (a workflow's own
+# script) is ignored by the tests as before but is no documentation: typecheck may read it.
 TEST_MODE=related   # related | full
 TEST_REASON=""
 RELATED_FILES=()
+DOCS_ONLY=0
+
+# 0 when the forceRerunTriggers in the config files named in TRIGGER_CONFIGS (one per
+# line) match none of the given files. It reads only a plain list of string literals,
+# with vitest's own defaults spread in; anything else (a variable, a call, a comment, a
+# negated or extglob pattern) is not certain, so it prints the first file and fails, as
+# every repo with its own triggers did before this reader. Its match is looser than
+# vitest's (a * crosses /, a trailing /** is optional), so a doubt lands on full too.
+triggers_miss() {  # files...
+  local out
+  out=$(python3 - "$@" 2>/dev/null <<'PY'
+import fnmatch, os, re, sys
+files = sys.argv[1:]
+# configDefaults.forceRerunTriggers in vitest 1 to 4.
+DEFAULTS = ["**/package.json/**", "**/{vitest,vite}.config.*/**"]
+TOK = re.compile(r"""\s+|,|'([^'\\\n]*)'|"([^"\\\n]*)"|\.\.\.configDefaults\.forceRerunTriggers\b|\]""")
+def unsure():
+    print(files[0]); sys.exit(1)
+def expand(g):
+    m = re.search(r"\{([^{}]*)\}", g)
+    if not m: return [g]
+    return [x for alt in m.group(1).split(",") for x in expand(g[:m.start()] + alt + g[m.end():])]
+globs = []
+for cfg in os.environ["TRIGGER_CONFIGS"].split("\n"):
+    src = open(cfg, encoding="utf-8").read()
+    starts = [m.end() for m in re.finditer(r"forceRerunTriggers\s*:\s*\[", src)]
+    if not starts or len(starts) != len(re.findall(r"(?<!configDefaults\.)forceRerunTriggers", src)): unsure()
+    for pos in starts:
+        while True:
+            m = TOK.match(src, pos)
+            if not m: unsure()
+            pos = m.end()
+            if m.group(0) == "]": break
+            if m.group(1) is not None or m.group(2) is not None:
+                globs.append(m.group(1) if m.group(1) is not None else m.group(2))
+            elif m.group(0).startswith("..."):
+                globs += DEFAULTS
+pats = []
+for g in globs:
+    for e in expand(g):
+        if e.startswith("!") or re.search(r"[@!+*?]\(|[{}\\]|\[:", e): unsure()
+        pats += [e, e[:-3]] if e.endswith("/**") else [e]
+for f in files:
+    if any(fnmatch.fnmatchcase(p, g) for p in (os.path.abspath(f), f) for g in pats):
+        print(f); sys.exit(1)
+PY
+  ) && return 0
+  echo "${out:-$1}"; return 1
+}
+
 classify_push() {
   local base="$PUSH_REMOTE_SHA" head="${PUSH_LOCAL_SHA:-HEAD}" files f name
   case "$base" in
@@ -113,11 +194,13 @@ classify_push() {
   if ! files=$(git diff --name-only --no-renames "$base" "$head" 2>/dev/null); then
     TEST_MODE=full; TEST_REASON="git could not diff ${base:0:7}..${head:0:7}"; return
   fi
-  # A repo with its own forceRerunTriggers may name any file, so nothing is ignored there.
-  local own_triggers=""
-  own_triggers=$(grep -ls forceRerunTriggers vite.config.* vitest.config.* vitest.workspace.* 2>/dev/null | head -1)
+  # A repo with its own forceRerunTriggers may name any file, so an ignored file is
+  # ignored there only when its triggers provably miss it.
+  local own_triggers="" docs=() n=0 code_in_docs=""
+  own_triggers=$(grep -ls forceRerunTriggers vite.config.* vitest.config.* vitest.workspace.* 2>/dev/null)
   while IFS= read -r f; do
     [ -n "$f" ] || continue
+    n=$((n + 1))
     name=${f##*/}
     case "$name" in
       package.json|pnpm-lock.yaml|pnpm-workspace.yaml|package-lock.json|npm-shrinkwrap.json|\
@@ -131,9 +214,10 @@ classify_push() {
     esac
     case "/$f" in
       /.github/*|*.md|*.txt|*/LICENSE*|*/.gitignore|*.png|*.jpg|*.jpeg|*.gif|*.webp|*.avif|*.ico)
-        if [ -n "$own_triggers" ]; then
-          TEST_MODE=full; TEST_REASON="$f changed and $own_triggers sets forceRerunTriggers"; return
-        fi
+        docs+=("$f")
+        case "$name" in
+          *.ts|*.tsx|*.js|*.jsx|*.mjs|*.cjs|*.mts|*.cts|*.vue|*.svelte|*.css|*.scss|*.json|*.svg) code_in_docs=1 ;;
+        esac
         continue ;;
     esac
     case "$name" in
@@ -149,6 +233,38 @@ classify_push() {
       *) TEST_MODE=full; TEST_REASON="$f is not a file type the import graph covers"; return ;;
     esac
   done <<<"$files"
+  if [ ${#docs[@]} -gt 0 ] && [ -n "$own_triggers" ] && ! f=$(TRIGGER_CONFIGS=$own_triggers triggers_miss "${docs[@]}"); then
+    TEST_MODE=full; TEST_REASON="$f changed and ${own_triggers%%$'\n'*} sets forceRerunTriggers"; return
+  fi
+  [ "$n" -gt 0 ] && [ ${#docs[@]} -eq "$n" ] && [ -z "$code_in_docs" ] && DOCS_ONLY=1
+}
+
+# The nadavai-ci description of a full-scope pass, on either CI host: NadavAI's bare, the
+# MSI's with the [msi:<token>] of its winning claim. A partial scope adds "; outside this
+# branch scope, not run: ..." and any other tag (a coverage such as [changed@<sha>]) may
+# narrow it, so neither matches. The same pattern is FULL_PASS_RE in ~/nadavai/bin/ci-wait;
+# change both together.
+FULL_PASS_RE='^passed on (NadavAI|MSI) in [0-9]+m( \[msi:[0-9a-f]{8}\])?$'
+CI_PASS=""
+ci_status() {  # sha -> "<state>\t<description>" of its nadavai-ci status, or nothing
+  [ -n "$GH_REPO" ] && command -v gh >/dev/null 2>&1 || return 1
+  timeout 5 gh api "repos/$GH_REPO/commits/$1/status" \
+    -q '.statuses[] | select(.context == "nadavai-ci") | [.state, .description] | @tsv' 2>/dev/null | head -1
+}
+# 0 when nadavai-ci passed this sha in full, with its description in CI_PASS. A sha it
+# answered from another commit ("same tree as X", "documentation only since X") counts
+# only when X itself passed in full; one level, never further. gh missing, down or
+# answering anything else is no pass, and the checks run as before.
+ci_full_pass() {  # sha [nested]
+  local line desc base
+  line=$(ci_status "$1")
+  [ "${line%%$'\t'*}" = success ] || return 1
+  desc=${line#*$'\t'}
+  if [[ $desc =~ $FULL_PASS_RE ]]; then CI_PASS=$desc; return 0; fi
+  [ -z "${2:-}" ] && [[ $desc =~ ^(same\ tree\ as|documentation\ only\ since)\ ([0-9a-f]{7,40}),\ which\ passed ]] || return 1
+  base=${BASH_REMATCH[2]}
+  ci_full_pass "$base" nested || return 1
+  CI_PASS="$desc; ${base:0:7}: $CI_PASS"
 }
 
 run_typecheck() { "$PM" run typecheck; }
@@ -166,16 +282,32 @@ run_tests() {
 }
 
 RUN_TYPECHECK=0; RUN_TESTS=0
+if [ "$IS_MAIN" = 1 ]; then DECISION=none; fi
 if [ "$IS_MAIN" = 1 ] && [ -f "package.json" ]; then
   PM=$(detect_pm)
-  if has_script "typecheck"; then
-    RUN_TYPECHECK=1
-    start_job typecheck run_typecheck
-  fi
-  if has_vitest; then
-    RUN_TESTS=1
+  HAS_TYPECHECK=0; HAS_VITEST=0
+  has_script "typecheck" && HAS_TYPECHECK=1
+  has_vitest && HAS_VITEST=1
+  if [ "$HAS_TYPECHECK$HAS_VITEST" != 00 ]; then
     classify_push
-    start_job tests run_tests
+    if [ "$DOCS_ONLY" = 1 ]; then
+      DECISION="docs-only"
+    elif GH_T0=${EPOCHREALTIME//[!0-9]/}; ci_full_pass "$PUSH_LOCAL_SHA"; then
+      GH_SEC=$(since "$GH_T0")
+      DECISION=ci-pass-skip
+    else
+      [ -n "$GH_REPO" ] && GH_SEC=$(since "$GH_T0")
+      DECISION=$TEST_MODE; [ "$TEST_MODE" = full ] && DECISION="full:$TEST_REASON"
+      [ "$HAS_VITEST" = 1 ] || DECISION=typecheck-only
+      if [ "$HAS_TYPECHECK" = 1 ]; then
+        RUN_TYPECHECK=1
+        start_job typecheck run_typecheck
+      fi
+      if [ "$HAS_VITEST" = 1 ]; then
+        RUN_TESTS=1
+        start_job tests run_tests
+      fi
+    fi
   fi
 fi
 
@@ -217,6 +349,11 @@ fi
 echo ""
 echo "⚡ pre-push [main] — typecheck gate"
 echo "────────────────────────────────────────────────"
+
+case "$DECISION" in
+  ci-pass-skip) echo "✅ typecheck and tests skipped: nadavai-ci passed ${PUSH_LOCAL_SHA:0:7} in full ($CI_PASS)" ;;
+  docs-only) echo "✅ typecheck and tests skipped: documentation only since ${PUSH_REMOTE_SHA:0:7}" ;;
+esac
 
 if [ "$RUN_TYPECHECK" = 1 ]; then
   echo "  TypeScript typecheck..."

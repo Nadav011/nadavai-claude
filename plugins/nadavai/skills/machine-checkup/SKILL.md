@@ -147,7 +147,8 @@ OC Lock off in the hidden BIOS menu; NVMe `bfq`, `nr_requests 64`, `wbt_lat_usec
 `agent-nice.timer` (Claude trees at nice 10); `docker-wifi-block.service`; logind lid ignore;
 SSH via Tailscale only. The GPU stays pinned at its highest state: Nadav's choice.
 
-**Omarchy / NadavAI** (`ssh omarchy`, no sudo, runs all CI). Archive target:
+**Omarchy / NadavAI** (`ssh omarchy`, no sudo, runs CI for every repo; the MSI also builds
+therapy-flow-v2 branch heads through `nadavai-slot.service`). Archive target:
 `/mnt/data/archive/<host>-<date>/` on the 2 TB disk. Do not move agent work there unless a
 measurement shows spare capacity.
 
