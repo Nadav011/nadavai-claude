@@ -96,7 +96,10 @@ has_vitest() {
 # ═══════════════════════════════════════════════════════════════
 trivy_scan() {
   local crit
-  crit=$(trivy fs . --severity CRITICAL --quiet --no-progress 2>/dev/null \
+  # Nested worktrees (.claude/worktrees, .worktrees) hold other commits: their old lockfiles
+  # blocked a docs push to snooker-smart on 2026-10-27 while main itself scanned clean.
+  crit=$(trivy fs . --severity CRITICAL --quiet --no-progress \
+    --skip-dirs '**/.claude/worktrees' --skip-dirs '**/.worktrees' 2>/dev/null \
     | grep -c "^[│├└].*CRITICAL" 2>/dev/null) || true
   echo "${crit:-0}"
   [ "${crit:-0}" -eq 0 ] 2>/dev/null
