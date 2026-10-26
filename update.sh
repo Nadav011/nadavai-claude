@@ -51,6 +51,7 @@ fi
 
 step "Model policy"
 apply_model_policy
+apply_machine_env
 
 step "Links"
 link_rules

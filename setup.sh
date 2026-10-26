@@ -71,6 +71,7 @@ mirror_to_antigravity
 
 step "Settings"
 merge_settings
+apply_machine_env
 
 step "i-have-adhd always-on"
 touch "$CFG/.i-have-adhd-always"

@@ -1,0 +1,7 @@
+{
+  "browser": {
+    "launchOptions": {
+      "ignoreDefaultArgs": ["--disable-dev-shm-usage"]
+    }
+  }
+}

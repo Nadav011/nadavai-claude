@@ -198,6 +198,28 @@ apply_model_policy() {
   ' "$REPO/settings/settings.base.json" "$target" "$BACKUP"
 }
 
+apply_machine_env() {
+  # Env values that hold a path into this checkout, so they differ per machine and cannot live
+  # in settings.base.json. PLAYWRIGHT_MCP_CONFIG keeps Chromium's shared memory in /dev/shm
+  # instead of /tmp on disk (measured 2026-10-26: Chromium was 36-52% of ext4 journal blocks).
+  local target="$CFG/settings.json"
+  [ -f "$target" ] || merge_settings
+  node -e '
+    const fs = require("fs");
+    const [target, backup, pw] = process.argv.slice(1);
+    const raw = fs.readFileSync(target, "utf8");
+    const cur = JSON.parse(raw);
+    cur.env = { ...(cur.env || {}), PLAYWRIGHT_MCP_CONFIG: pw };
+    const next = JSON.stringify(cur, null, 2) + "\n";
+    if (next === raw) { console.log("  machine env already current"); process.exit(0); }
+    fs.mkdirSync(backup, { recursive: true });
+    // merge_settings or apply_model_policy may have saved the original earlier in this run
+    if (!fs.existsSync(backup + "/settings.json")) fs.writeFileSync(backup + "/settings.json", raw);
+    fs.writeFileSync(target, next);
+    console.log("  set PLAYWRIGHT_MCP_CONFIG in " + target);
+  ' "$target" "$BACKUP" "$REPO/settings/playwright-mcp.json"
+}
+
 link_git() {
   link_dir "$REPO/git/hooks" "$HOME/.git-hooks"
   git config --global core.hooksPath "$HOME/.git-hooks"
