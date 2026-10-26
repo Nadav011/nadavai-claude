@@ -1,0 +1,25 @@
+[Unit]
+Description=WhatsApp local archive sync (wacli)
+Documentation=https://github.com/openclaw/wacli/blob/main/docs/sync.md
+StartLimitIntervalSec=0
+ConditionFileIsExecutable=%h/.local/bin/wacli
+ConditionFileIsExecutable=/usr/bin/jq
+ConditionPathExists=%h/.local/state/wacli/session.db
+
+[Service]
+Type=simple
+UMask=0077
+NoNewPrivileges=yes
+# auth status exits zero even for an unpaired store; require the JSON boolean.
+# Explicit unauthenticated state skips; check failures fail the unit and retry.
+ExecCondition=/usr/bin/python3 -I %h/.config/systemd/user/wacli-auth-check.py %h/.local/bin/wacli %h/.local/state/wacli
+# Journal only lifecycle names/timestamps, preserving the sync exit status.
+ExecStart=/bin/bash -o pipefail -c '"%h/.local/bin/wacli" --store "%h/.local/state/wacli" --events sync --follow --max-reconnect 0 --presence-mode quiet --stale-threshold 2m 2>&1 | /usr/bin/jq --unbuffered -Rc "fromjson? | objects | {event, ts}"'
+Restart=on-failure
+RestartSec=30
+RestartSteps=5
+RestartMaxDelaySec=5min
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target

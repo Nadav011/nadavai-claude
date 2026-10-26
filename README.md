@@ -8,6 +8,16 @@ The GitHub repo is `Nadav011/nadavai-claude` (`Nadav011/nadavai` is the portfoli
 
 No secrets live in this repo. OAuth logins, API keys and tokens stay per machine.
 
+WhatsApp access uses the local upstream `wacli` CLI through
+[`plugins/nadavai/skills/wacli/SKILL.md`](plugins/nadavai/skills/wacli/SKILL.md),
+with routing in `rules/whatsapp.md`. Continuous capture is opt-in per machine:
+the skill documents local installation and a symlink to
+[`systemd/user/wacli-sync.service`](systemd/user/wacli-sync.service) and its
+`wacli-auth-check.py` helper (requires Python 3, Bash, and jq). Pair on
+each approved host; session keys and the private `~/.local/state/wacli` archive
+stay there. Updates do not enable this service on other machines, and capture
+does not automatically reply or require a browser.
+
 ## What is inside
 
 | Part | Where | Delivered by |
