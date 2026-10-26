@@ -11,7 +11,7 @@ t=$(mktemp -d) || exit 1
 export PG_POOL_HOME=$t/home PG_POOL_CONTAINER=nadavai-pg-pool-test-$$ XDG_CONFIG_HOME=$t/config
 img=${PG_POOL_TEST_IMAGE:-postgres:17-alpine}
 kids=()
-cleanup() { for k in "${kids[@]}"; do kill "$k" 2>/dev/null; done; docker rm -f "$PG_POOL_CONTAINER" >/dev/null 2>&1; rm -rf -- "$t"; }
+cleanup() { for k in "${kids[@]}"; do kill "$k" 2>/dev/null; done; docker rm -fv "$PG_POOL_CONTAINER" >/dev/null 2>&1; rm -rf -- "$t"; }
 trap cleanup EXIT
 fail=0
 ok() { echo "ok   $1"; }

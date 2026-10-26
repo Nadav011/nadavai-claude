@@ -677,7 +677,7 @@ case "$cmd" in
     docker ps -a --format '{{.Names}}' >/dev/null 2>&1 || die "docker is not answering: nothing was reset"
     exec 6>"$state/locks/lifecycle.lock"
     flock -w "${PG_POOL_LOCK_WAIT:-120}" -x 6 || die "a template build or a clone is in progress on $container; nothing was reset"
-    docker rm -f "$container" >/dev/null 2>&1
+    docker rm -fv "$container" >/dev/null 2>&1
     ! docker inspect "$container" >/dev/null 2>&1 || die "$container is still there; nothing else was removed"
     rm -rf -- "$state"
     say "reset: $container removed; the next get makes it again" ;;
