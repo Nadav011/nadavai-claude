@@ -2,7 +2,7 @@
 name: action-safety
 description: Define and assess safe business actions, truthful completion states, and understandable recovery across existing apps, new apps, and feature changes. Use for an action-safety audit, new action requirements, or a targeted safety preflight and verification alongside an implementation request. Default audit is report-only for application source and runtime.
 metadata:
-  version: "1.0.3"
+  version: "1.0.4"
 ---
 
 # Action safety
@@ -59,6 +59,8 @@ For every scoped action, cover the standard's five contract groups using the che
 
 Select applicable AS-01 through AS-20 requirements and scenarios from the standard. Risk determines evidence depth, not permission to skip an invariant. Reuse current shared-pattern evidence only with recorded dependencies and action-specific wiring checks.
 
+Treat customers as nontechnical by default. Where correction is supported, provide a plainly labeled action that opens the correct authorized record, tab, section and control, revealing and focusing it where appropriate. Preserve permitted draft/return context and revalidate before intentional completion. Test the actual destination and actor/tenant binding, not just the presence of a link. For an uncertain outcome, lead to inspection of the original operation rather than a new submission. If direct repair is unavailable, name the real responsible role or support path instead of inventing a destination.
+
 ## `audit`: existing application
 
 1. Map the requested scope before sampling. Discover routes/forms, APIs/RPCs, direct SDK/table writes, imports/admin paths, jobs/queues, bots, webhooks/callbacks, scripts/maintenance and relevant read dependencies. Record searched surfaces and unsearched/unknown areas.
@@ -88,6 +90,7 @@ Select applicable AS-01 through AS-20 requirements and scenarios from the standa
 - Preserve failed-check evidence and distinguish application defects from harness/environment failures before changing anything. Record clock/timezone, locale and external-service isolation where they affect the scenario. Correct only authorized test setup; do not weaken assertions or change unrelated application behavior to obtain a pass.
 - Use synthetic data and the smallest clean isolated environment. Extend existing provider fakes for relevant commit-then-timeout, malformed/business-error response, callback ordering and crash cases. Never use real sends, charges or personal records as test fixtures.
 - Bind synthetic adapters to the actual table/API fields and response contract; reject unsupported write fields and exercise the real caller-to-handler mapping. A permissive fake that accepts nonexistent fields cannot prove a working integration. Include navigation or dialog closure while a request is pending so local error ownership cannot silently disappear with an unmounted view.
+- Distinguish entity identity from the UI flow that owns a pending result. Test leaving and returning to the same entity, reopening a form and remounting with shared application state. An old result must not close or overwrite newer work, disappear without feedback, or allow a stale form to undo a confirmed update. Preserve applicable pending/unknown gates until the required outcome and fresh prerequisites are established; a local guard does not prove durable concurrency control.
 - Assert that each injected failure reaches its intended API/provider branch and that the named response is consumed by the real handler. A fallback transport error does not verify a distinct business-refusal or malformed-response scenario, even when the test passes. Preserve the earlier result, correct the fixture and rerun the affected cases before restoring that claim.
 - Check applicable authoritative paths, concurrency/replay, partial/unknown outcomes, authorized repair/return, deferred obligations and finalized correction. Include failures of late detection/reconciliation and owner escalation, not only the happy path.
 - For user-facing changes, collect browser evidence and console results under project rules; verify mobile/RTL where applicable. Reuse documented accessible patterns only within their tested limits. Record required manual keyboard, screen-reader and nontechnical observations honestly when unavailable.
