@@ -2,7 +2,7 @@
 name: action-safety
 description: Define and assess safe business actions, truthful completion states, and understandable recovery across existing apps, new apps, and feature changes. Use for an action-safety audit, new action requirements, or a targeted safety preflight and verification alongside an implementation request. Default audit is report-only for application source and runtime.
 metadata:
-  version: "1.0.0"
+  version: "1.0.1"
 ---
 
 # Action safety
@@ -17,6 +17,7 @@ Make each business action's prerequisites, actual effects, completion evidence a
 - No mode: use `audit` for an existing app. A concrete implementation request uses `change` (or `new` for new actions) as a preflight and verification step inside the chosen coding workflow. Do not turn a request to implement into a report-only stopping point.
 - Read project instructions, the requested scope and [the standard](references/standard.md) before assessing behavior. The standard is the requirements authority; this file is the execution guide.
 - Establish the repository/worktree, revision, working diff, product/roles, action scope, output location and existing evidence. Use supplied context before asking questions. Resolve only material unknowns; label the remainder explicitly.
+- Before integrating an implementation, compare it with the intended landing revision. Preserve newer safeguards and rerun checks affected by integration; evidence from an older branch does not verify the combined result.
 
 ## Authority and artifacts
 
@@ -53,7 +54,7 @@ For every scoped action, cover the standard's five contract groups using the che
 2. **Preconditions and lifecycle:** required/conditional fields, field-specific normalization, current permissions/configuration/business state and concurrency protection. Separate draft, final and explicitly permitted incomplete saves. Deferred obligations need durable owner, due/escalation policy, repair path and consistent downstream reads; do not silently demote a required result to ancillary.
 3. **Effects and evidence:** mandatory versus approved ancillary outcomes, atomic boundary, operation identity and durable intent before external effects. Define crash boundaries and provider guarantees. Unknown results require reconciliation before any potentially duplicating retry. Protect the dispatched input snapshot while in flight/unknown; finalized fields and issued snapshots require an authorized, traceable correction transition.
 4. **Inbound and batches:** authenticate callbacks and validate identity/state transitions. Without verifiable authentication, use only a trigger for trustworthy status lookup; otherwise quarantine. Handle duplicates, unmatched and out-of-order events. Independent batches require parent and per-item identities, truthful item counts and safe item-level resume/cancellation.
-5. **Recovery experience:** persistent, nontechnical explanations of the action, known effects and next step; safe field associations; authorized repair and return with revalidation and intentional resubmission. Preserve permitted work, access boundaries and privacy. Verify keyboard/status announcements, mobile and RTL where applicable.
+5. **Recovery experience:** use the product's existing components, visual tokens and language; persistent, nontechnical explanations of the action, known effects and next step; safe field associations; authorized repair and return with revalidation and intentional resubmission. Preserve permitted work, access boundaries and privacy. Verify keyboard/status announcements, mobile and RTL where applicable.
 6. **Operations:** name a continuing recovery role/queue, current responsible person and fallback, late/stuck detection, detector-failure handling, escalation, reconciliation and cancellation semantics. Define retention, owner transfer and contradictory late evidence. An unresolved disposition preserves uncertainty and replay restrictions; it is not success.
 
 Select applicable AS-01 through AS-20 requirements and scenarios from the standard. Risk determines evidence depth, not permission to skip an invariant. Reuse current shared-pattern evidence only with recorded dependencies and action-specific wiring checks.
