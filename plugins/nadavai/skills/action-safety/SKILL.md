@@ -2,7 +2,7 @@
 name: action-safety
 description: Define and assess safe business actions, truthful completion states, and understandable recovery across existing apps, new apps, and feature changes. Use for an action-safety audit, new action requirements, or a targeted safety preflight and verification alongside an implementation request. Default audit is report-only for application source and runtime.
 metadata:
-  version: "1.0.2"
+  version: "1.0.3"
 ---
 
 # Action safety
@@ -88,6 +88,7 @@ Select applicable AS-01 through AS-20 requirements and scenarios from the standa
 - Preserve failed-check evidence and distinguish application defects from harness/environment failures before changing anything. Record clock/timezone, locale and external-service isolation where they affect the scenario. Correct only authorized test setup; do not weaken assertions or change unrelated application behavior to obtain a pass.
 - Use synthetic data and the smallest clean isolated environment. Extend existing provider fakes for relevant commit-then-timeout, malformed/business-error response, callback ordering and crash cases. Never use real sends, charges or personal records as test fixtures.
 - Bind synthetic adapters to the actual table/API fields and response contract; reject unsupported write fields and exercise the real caller-to-handler mapping. A permissive fake that accepts nonexistent fields cannot prove a working integration. Include navigation or dialog closure while a request is pending so local error ownership cannot silently disappear with an unmounted view.
+- Assert that each injected failure reaches its intended API/provider branch and that the named response is consumed by the real handler. A fallback transport error does not verify a distinct business-refusal or malformed-response scenario, even when the test passes. Preserve the earlier result, correct the fixture and rerun the affected cases before restoring that claim.
 - Check applicable authoritative paths, concurrency/replay, partial/unknown outcomes, authorized repair/return, deferred obligations and finalized correction. Include failures of late detection/reconciliation and owner escalation, not only the happy path.
 - For user-facing changes, collect browser evidence and console results under project rules; verify mobile/RTL where applicable. Reuse documented accessible patterns only within their tested limits. Record required manual keyboard, screen-reader and nontechnical observations honestly when unavailable.
 - Run relevant regression, lint/type/build checks through the existing workflow. A docs-only audit needs document/link/claim checks, not an unrelated full application build. Local tests do not prove deployment parity or external provider guarantees.
