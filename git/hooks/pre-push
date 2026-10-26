@@ -20,6 +20,10 @@
 #   - Everything else (Stryker, Lighthouse, LangGraph) → CI + systemd timers
 #   - Bypass: git push --no-verify  (emergency only)
 
+# The whole hook is one { } block, so bash reads all of it before running any of it: an edit
+# while a push runs cannot shift the lines under that push (a TF push died on a syntax error
+# this way on 2026-10-27).
+{
 set -uo pipefail
 HOOK_T0=${EPOCHREALTIME//[!0-9]/}
 
@@ -426,3 +430,5 @@ fi
 
 echo "🚀 Pushing to main..."
 exit 0
+}
+exit
