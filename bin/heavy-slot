@@ -1,0 +1,113 @@
+#!/usr/bin/env bash
+# heavy-slot: run a heavy local job (a build, a full suite, e2e, DoD, a DB replay) only
+# when one of this machine's heavy slots is free, so agents never stack more of them
+# than the machine holds.
+#
+#   heavy-slot [--slots N] -- <command...>
+#
+# Slots: --slots N, else heavy_slots in ${XDG_CONFIG_HOME:-~/.config}/nadavai/capacity,
+# else 3. The capacity file is one per host, key=value per line, # for comments:
+#   heavy_slots=3          # heavy jobs at once (this script)
+#   pg_pool_leases=12      # live pg-pool databases at once (pg-pool)
+#
+# Slot files live in ~/.cache/heavy-slot/ for every caller, so all of them share one pool.
+# Each is taken with flock: every free slot is tried at once, then one slot is waited on for
+# 2 s, round-robin. This process holds the lock and runs the command as its child, in the same
+# process group (a group kill or `timeout -s KILL` reaches both; /dev/tty and Ctrl-Z behave as
+# without heavy-slot), without the lock fd, so a daemon the command leaves behind never keeps a
+# slot. TERM, INT and HUP sent to this process are passed to the command, and the slot stays
+# held until the command has ended; then this exits 128+signal. Otherwise the command's exit
+# code is passed through. The command runs through `bash -c 'exec "$@"'`, so its words mean
+# what they would to bash (FOO=bar cmd is a command named FOO=bar, an error).
+# What still escapes: a SIGKILL of this process frees the slot at once. The command itself then
+# gets TERM (setpriv --pdeathsig, where setpriv exists), but its own children do not, and a
+# signal sent to this process alone (not the group) reaches only the command, not its children.
+#
+# Nested calls do not deadlock: the command runs with HEAVY_SLOT_HELD=<pid>:<start time> of
+# this process, and a heavy-slot whose ancestors include that live process runs its command
+# directly. Any other value is ignored.
+set -uo pipefail
+
+usage() { sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+
+slots=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -h|--help) usage 0 ;;
+    --slots) slots=${2:-}; shift ;;
+    --slots=*) slots=${1#*=} ;;
+    --) shift; break ;;
+    -*) echo "heavy-slot: unknown option $1" >&2; usage 64 >&2 ;;
+    *) break ;;
+  esac
+  shift
+done
+[ $# -gt 0 ] || usage 64 >&2
+
+stat_field() { [ -r "/proc/$1/stat" ] && awk -v f="$2" '{ sub(/^.*\) /, ""); print $(f - 2) }' "/proc/$1/stat"; }
+
+# HEAVY_SLOT_HELD counts only when its process is alive and one of this process's ancestors.
+held=${HEAVY_SLOT_HELD:-}
+if [[ $held =~ ^([0-9]+):([0-9]+)$ ]] && [ "$(stat_field "${BASH_REMATCH[1]}" 22)" = "${BASH_REMATCH[2]}" ]; then
+  holder=${BASH_REMATCH[1]} p=$$
+  while [ "$p" -gt 1 ] && [ "$p" != "$holder" ]; do p=$(stat_field "$p" 4) || break; done
+  # shellcheck disable=SC2016  # expanded by the inner bash
+  [ "$p" = "$holder" ] && exec bash -c 'exec "$@"' _ "$@"
+fi
+
+if [ -z "$slots" ]; then
+  conf=${XDG_CONFIG_HOME:-$HOME/.config}/nadavai/capacity
+  if [ -r "$conf" ]; then
+    while IFS='=' read -r k v; do
+      k=${k//[[:space:]]/}; v=${v%%#*}; v=${v//[[:space:]]/}
+      [ "$k" = heavy_slots ] && slots=$v
+    done <"$conf"
+  fi
+fi
+slots=${slots:-3}
+[[ $slots =~ ^[1-9][0-9]*$ ]] || { echo "heavy-slot: slots must be a positive whole number, got '$slots'" >&2; exit 64; }
+
+dir=$HOME/.cache/heavy-slot
+mkdir -p "$dir" || { echo "heavy-slot: cannot create $dir" >&2; exit 1; }
+
+run() { # holds fd 9's lock while the command runs as a child, without the fd
+  local child="" rc sig=0 pre=()
+  command -v setpriv >/dev/null 2>&1 && pre=(setpriv --pdeathsig TERM --)
+  fwd() { sig=$1; [ -n "$child" ] && kill "-$2" "$child" 2>/dev/null; }
+  trap 'fwd 15 TERM' TERM
+  trap 'fwd 2 INT' INT
+  trap 'fwd 1 HUP' HUP
+  # env undoes the SIGINT/SIGQUIT ignore that bash gives a background job; stdin is passed on
+  # explicitly, since a background job would get /dev/null. setpriv, env and bash all exec, so
+  # $! stays the command's pid.
+  # shellcheck disable=SC2016  # expanded by the inner bash
+  HEAVY_SLOT_HELD="$$:$(stat_field $$ 22)" "${pre[@]}" env --default-signal=INT,QUIT \
+    bash -c 'exec "$@"' _ "$@" 9>&- <&0 &
+  child=$!
+  # A signal that came before the command started is passed on now.
+  case $sig in 15) kill -TERM "$child" ;; 2) kill -INT "$child" ;; 1) kill -HUP "$child" ;; esac 2>/dev/null
+  while :; do
+    wait "$child"; rc=$?
+    # 127: the command was not found, or there is no such child (already reaped).
+    [ "$rc" = 127 ] && break
+    kill -0 "$child" 2>/dev/null || break
+  done
+  [ "$sig" != 0 ] && exit $((128 + sig))
+  exit "$rc"
+}
+
+round=0 said=0
+while :; do
+  for ((i = 0; i < slots; i++)); do
+    exec 9>>"$dir/slot.$i"
+    flock -n 9 && run "$@"
+  done
+  if [ "$said" = 0 ]; then
+    echo "heavy-slot: all $slots slots busy; waiting" >&2
+    said=1
+  fi
+  # Blocks up to 2 s on one slot, so a freed slot is taken at once and the loop never spins.
+  exec 9>>"$dir/slot.$((round % slots))"
+  flock -w 2 9 && run "$@"
+  round=$((round + 1))
+done

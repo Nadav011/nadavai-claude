@@ -1,0 +1,685 @@
+#!/usr/bin/env bash
+# pg-pool: one long-lived Postgres per image on this machine, and a fresh database per test
+# from a migrated template (CREATE DATABASE ... TEMPLATE, seconds), instead of a container per
+# agent (rules/machine-load.md; generalised from TherapyFlow's scripts/test-db-pool/pool.sh).
+#
+#   pg-pool [options] get [<repo>]           a fresh clone; prints its DSN (postgresql://...)
+#   pg-pool [options] run [<repo>] -- <cmd>  clone, export PGHOST PGPORT PGUSER PGPASSWORD
+#                                            PGDATABASE DATABASE_URL POOL_DB, run, drop on exit
+#   pg-pool renew <db> [minutes]             extend a lease (default: the --lease length)
+#   pg-pool drop <db> [--force]              drop one clone and its lease; only from the repo that
+#                                            leased it, and not while its `run` process lives,
+#                                            unless --force
+#   pg-pool gc                               drop clones whose lease expired or whose `run`
+#                                            process is gone (recovery after SIGKILL), half-built
+#                                            templates, and templates unused for 3 days. A clone
+#                                            someone is still connected to gets its lease extended,
+#                                            and is dropped only after 4 lease lengths
+#   pg-pool status                           servers, templates, clones and their leases, and the
+#                                            roles made after the baseline
+#   pg-pool [--image IMG] reset --yes        remove one server and everything in it
+#
+# Options:
+#   --image IMG            default public.ecr.aws/supabase/postgres:17.6.1.165 (or $PG_POOL_IMAGE)
+#   --migrations-dir DIR   default <repo>/supabase/migrations, else <repo>/migrations; applied
+#                          with psql in name order as `postgres`, one transaction per file unless
+#                          the file opens its own (BEGIN;)
+#   --extensions a,b       created in the template (as the superuser) before the migrations
+#   --bootstrap FILE       SQL run as the superuser in the template before the migrations
+#   --seed FILE            SQL run as `postgres` after the migrations
+#   --lease MIN            how long a `get` clone lives unless renewed (default 60; 30s also works)
+#   --label NAME           part of the clone's name
+#
+# The server: container ${PG_POOL_PREFIX:-nadavai-pg-pool}-<image> (or $PG_POOL_CONTAINER), its
+# port published on 127.0.0.1 only, fsync, full_page_writes and synchronous_commit off (all of it
+# rebuilds; after a power loss or a kill -9 of the container: reset --yes). A template is keyed
+# by a sha256 of the image, the server's identity, the extensions, the bootstrap SQL, every
+# migration's name and content, and the seed, and is rebuilt only when one of them changes.
+# Clones are capped at pg_pool_leases (${XDG_CONFIG_HOME:-~/.config}/nadavai/capacity, default
+# 12); a get waits up to 10 minutes for a free one.
+#
+# Safety, as in TherapyFlow's pool: pg_cron and pg_net work only in the `postgres` database
+# (cron.database_name, pg_net.database_name; checked when the server is made), and no migration
+# ever runs there, so a chain's jobs and HTTP requests never execute. On top of that every job is
+# switched off after each phase, every https host a chain names resolves to 127.0.0.1 inside the
+# container, and each template and clone is checked for zero active jobs and zero answered
+# requests. Roles and server settings are shared by every database, so a chain that names
+# CREATE/ALTER/DROP ROLE (or USER, GROUP), ALTER SYSTEM or ALTER DATABASE ... SET/RESET is refused
+# before anything runs; such SQL needs its own container (`# isolated-pg: <reason>`).
+#
+# The roles that existed when the server was made (the baseline) are guarded on every use: a
+# changed attribute, membership or setting of one of them, or an ALTER SYSTEM value, is put
+# back. Roles made later (a test may create one inside its clone, and SET ROLE to it where no
+# catalog shows it) are never dropped: status lists them, and only reset removes them. A
+# template build is checked strictly: if the chain changed anything of the baseline or left a
+# role its template depends on, the template is not kept and the get fails. Every extension the
+# image offers is created once in a scratch database before the baseline is taken, so the roles
+# an extension makes (pgsodium, pg_tle) are baseline roles and a chain may create the extension.
+# Needs PostgreSQL 16 or later (role memberships carry INHERIT and SET options).
+set -uo pipefail
+
+recipe=1
+home=${PG_POOL_HOME:-${XDG_CACHE_HOME:-$HOME/.cache}/pg-pool}
+say() { printf '%s\n' "$*"; }
+die() { say "pg-pool: $*" >&2; exit 1; }
+usage() { sed -n '2,60p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+
+image=${PG_POOL_IMAGE:-public.ecr.aws/supabase/postgres:17.6.1.165}
+migdir="" exts="" bootstrap="" seed="" lease=60m label=run
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -h|--help) usage 0 ;;
+    --image) image=${2:-}; shift ;;
+    --migrations-dir) migdir=${2:-}; shift ;;
+    --extensions) exts=${2:-}; shift ;;
+    --bootstrap) bootstrap=${2:-}; shift ;;
+    --seed) seed=${2:-}; shift ;;
+    --lease) lease=${2:-}; shift ;;
+    --label) label=${2:-}; shift ;;
+    -*) die "unknown option $1" ;;
+    *) break ;;
+  esac
+  shift
+done
+cmd=${1:-}; [ $# -gt 0 ] && shift
+
+secs() { # 90s, 30m, 2h or bare minutes, in seconds
+  case "$1" in
+    *s) [[ ${1%s} =~ ^[0-9]+$ ]] && say "${1%s}" ;;
+    *m) [[ ${1%m} =~ ^[0-9]+$ ]] && say $((${1%m} * 60)) ;;
+    *h) [[ ${1%h} =~ ^[0-9]+$ ]] && say $((${1%h} * 3600)) ;;
+    *) [[ $1 =~ ^[0-9]+$ ]] && say $(($1 * 60)) ;;
+  esac
+}
+
+command -v docker >/dev/null 2>&1 || die "docker is not installed"
+
+# --- the server of one image --------------------------------------------------------------
+select_server() { # sets container, state
+  local n=$image
+  [[ ${n%%/*} == *.* ]] && n=${n#*/}
+  container=${PG_POOL_CONTAINER:-${PG_POOL_PREFIX:-nadavai-pg-pool}-${n//[\/:@]/-}}
+  state=$home/$container
+  mkdir -p "$state/locks" "$state/leases" || die "cannot create $state"
+}
+
+su_user() { docker exec "$container" printenv POSTGRES_USER 2>/dev/null || say postgres; }
+admin() { local db=${DB:-postgres}; docker exec -i "$container" psql -X -q -At -U "$su" -d "$db" -v ON_ERROR_STOP=1 "$@"; }
+in_db() { local db=$1; shift; DB=$db admin "$@"; }
+as_postgres() { local db=$1; shift; docker exec -i "$container" psql -X -q -At -U postgres -d "$db" -v ON_ERROR_STOP=1 "$@"; }
+valid_name() { [[ $1 =~ ^[a-z0-9_]{1,63}$ ]]; }
+# A database name for SQL: validated, then quoted.
+qdb() { valid_name "$1" || die "refusing an unexpected database name: $1"; printf '"%s"' "$1"; }
+qi() { printf '"%s"' "${1//\"/\"\"}"; }
+ql() { printf "'%s'" "${1//\'/\'\'}"; }
+exists() { [ "$(admin -c "select count(*) from pg_database where datname = '$1'")" = 1 ]; }
+running() { [ "$(docker inspect -f '{{.State.Running}}' "$container" 2>/dev/null)" = true ] &&
+  docker exec "$container" pg_isready -q -h 127.0.0.1 -U postgres 2>/dev/null; }
+port() { docker port "$container" 5432/tcp 2>/dev/null | sed -n 's/^127\.0\.0\.1://p' | head -1; }
+server_ready() { [ ! -e "$state/server.building" ] && running && exists pool_base; }
+
+# Roles, memberships, server settings and the settings and ACLs of the databases everything is
+# copied from: what every database of the server shares. Passwords are not read.
+shared_state() {
+  admin <<'SQL'
+SELECT x FROM (
+  SELECT 'setting ' || coalesce(d.datname, '*') || ' ' || coalesce(r.rolname, '*') || ' ' || c AS x
+    FROM pg_db_role_setting s LEFT JOIN pg_database d ON d.oid = s.setdatabase LEFT JOIN pg_roles r ON r.oid = s.setrole, unnest(s.setconfig) c
+   WHERE s.setdatabase = 0 OR d.datname IN ('postgres', 'template1', 'pool_base')
+  UNION ALL
+  SELECT 'role ' || rolname || ' ' || concat_ws(' ', rolsuper, rolinherit, rolcreaterole, rolcreatedb, rolcanlogin, rolreplication, rolbypassrls, rolconnlimit, rolvaliduntil) FROM pg_roles
+  UNION ALL
+  SELECT 'member ' || concat_ws(' ', pg_get_userbyid(roleid), pg_get_userbyid(member), admin_option, inherit_option, set_option) FROM pg_auth_members
+  UNION ALL
+  SELECT 'datacl ' || datname || ' ' || coalesce(datacl::text, '-') FROM pg_database WHERE datname IN ('postgres', 'template1', 'pool_base')
+  UNION ALL
+  SELECT 'system ' || name || ' ' || coalesce(setting, '') FROM pg_file_settings WHERE sourcefile LIKE '%postgresql.auto.conf'
+) t ORDER BY x;
+SQL
+}
+# base_view: the shared state limited to the baseline roles (stdin: the state). Roles made
+# later, their memberships and their settings are left out.
+base_view() {
+  awk 'NR == FNR { if ($1 == "role") base[$2] = 1; next }
+    $1 == "role" { if (base[$2]) print; next }
+    $1 == "member" { if (base[$2] && base[$3]) print; next }
+    $1 == "setting" { if ($3 == "*" || base[$3]) print; next }
+    { print }' "$state/shared.baseline" -
+}
+check_shared() {
+  local now
+  [ -s "$state/shared.baseline" ] || { say "pg-pool: $container has no shared-state baseline (made by an older pg-pool)" >&2; return 1; }
+  now=$(shared_state | base_view) || { say "pg-pool: cannot read the shared state of $container" >&2; return 1; }
+  [ "$now" = "$(cat "$state/shared.baseline")" ] && return 0
+  say "pg-pool: roles or server settings that every database of $container shares differ from when it was made, and could not be put back (< then, > now):" >&2
+  diff "$state/shared.baseline" <(printf '%s\n' "$now") | grep '^[<>]' | head -20 >&2
+  return 1
+}
+
+# revert_shared: puts the baseline roles and server settings back: changed attributes, role
+# and database settings, ALTER SYSTEM values, the ACLs of postgres, template1 and pool_base,
+# and memberships between baseline roles (every grant of a changed pair is revoked, then the
+# baseline grants of that pair are given again).
+# Roles made later are not touched. Returns 0 when the baseline view matches afterwards.
+revert_shared() {
+  local now kind a b c rest sql="" base=$state/shared.baseline added removed pair db acl
+  local -A pairs=() dbs=()
+  tf() { [ "$1" = t ] && printf TRUE || printf FALSE; }
+  now=$(shared_state | base_view) || return 1
+  [ "$now" = "$(cat "$base")" ] && return 0
+  added=$(comm -13 <(LC_ALL=C sort "$base") <(printf '%s\n' "$now" | LC_ALL=C sort))
+  removed=$(comm -23 <(LC_ALL=C sort "$base") <(printf '%s\n' "$now" | LC_ALL=C sort))
+  setting_target() { # db role -> the ALTER prefix
+    if [ "$1" = '*' ]; then printf 'ALTER ROLE %s' "$(qi "$2")"
+    elif [ "$2" = '*' ]; then printf 'ALTER DATABASE %s' "$(qi "$1")"
+    else printf 'ALTER ROLE %s IN DATABASE %s' "$(qi "$2")" "$(qi "$1")"; fi
+  }
+  role_attrs() { # the attribute fields of a baseline role line, as ALTER ROLE options
+    local -a f; read -ra f <<<"$1"
+    local o="" i names=(SUPERUSER INHERIT CREATEROLE CREATEDB LOGIN REPLICATION BYPASSRLS)
+    for i in 0 1 2 3 4 5 6; do [ "${f[$i]}" = t ] && o="$o ${names[$i]}" || o="$o NO${names[$i]}"; done
+    o="$o CONNECTION LIMIT ${f[7]}"
+    # No expiry is NULL, which no ALTER ROLE option sets ('infinity' is stored as infinity).
+    [ -z "${f[8]:-}" ] || o="$o VALID UNTIL $(ql "${f[*]:8}")"
+    printf '%s' "$o"
+  }
+  while read -r kind a b c rest; do
+    case $kind in
+      member) pairs["$a $b"]=1 ;;
+      datacl) dbs["$a"]=1 ;;
+      setting) sql+="$(setting_target "$a" "$b") RESET $(qi "${c%%=*}");"$'\n' ;;
+      system) sql+="ALTER SYSTEM RESET $(qi "$a");"$'\n' ;;
+      role) attrs=$(grep "^role $a " "$base" | cut -d' ' -f3-)
+        sql+="ALTER ROLE $(qi "$a") WITH $(role_attrs "$attrs");"$'\n'
+        read -ra fa <<<"$attrs"
+        [ -n "${fa[8]:-}" ] || sql+="UPDATE pg_authid SET rolvaliduntil = NULL WHERE rolname = $(ql "$a");"$'\n' ;;
+    esac
+  done <<<"$added"
+  while read -r kind a b c rest; do
+    case $kind in
+      member) pairs["$a $b"]=1 ;;
+      datacl) dbs["$a"]=1 ;;
+      setting) sql+="$(setting_target "$a" "$b") SET $(qi "${c%%=*}") TO $(ql "${c#*=}${rest:+ $rest}");"$'\n' ;;
+      system) sql+="ALTER SYSTEM SET $(qi "$a") TO $(ql "$b${c:+ $c}${rest:+ $rest}");"$'\n' ;;
+      # A baseline role that is gone cannot be made again as it was (password, memberships).
+      role) grep -q "^role $a " <<<"$now" || { say "pg-pool: the baseline role $a was dropped; it cannot be put back" >&2; return 1; } ;;
+    esac
+  done <<<"$removed"
+  for pair in "${!pairs[@]}"; do
+    a=${pair% *}; b=${pair#* }
+    # Every grantor's grant goes (a REVOKE without GRANTED BY removes only the caller's own) ...
+    sql+="SELECT format('REVOKE %I FROM %I GRANTED BY %I CASCADE', $(ql "$a"), $(ql "$b"), pg_get_userbyid(grantor)) FROM pg_auth_members WHERE roleid = $(ql "$a")::regrole AND member = $(ql "$b")::regrole \gexec"$'\n'
+    # ... and the pair's baseline grants are given again, with their ADMIN, INHERIT and SET options.
+    while read -r _ _ _ c d e; do
+      sql+="GRANT $(qi "$a") TO $(qi "$b") WITH ADMIN $(tf "$c"), INHERIT $(tf "$d"), SET $(tf "$e");"$'\n'
+    done < <(grep "^member $a $b " "$base")
+  done
+  for db in "${!dbs[@]}"; do
+    # Every entry goes, then the baseline ACL is given again; a baseline with no ACL (the
+    # default) is restored as no ACL.
+    acl=$(grep "^datacl $db " "$base" | cut -d' ' -f3-)
+    sql+="SELECT format('REVOKE ALL ON DATABASE %I FROM %s', $(ql "$db"), CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE quote_ident(pg_get_userbyid(a.grantee)) END) FROM pg_database d, aclexplode(d.datacl) a WHERE d.datname = $(ql "$db") \gexec"$'\n'
+    sql+="REVOKE ALL ON DATABASE $(qi "$db") FROM PUBLIC;"$'\n'
+    if [ "$acl" = - ]; then
+      sql+="UPDATE pg_database SET datacl = NULL WHERE datname = $(ql "$db");"$'\n'
+    else
+      sql+="SELECT format('GRANT %s ON DATABASE %I TO %s%s', a.privilege_type, $(ql "$db"), CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE quote_ident(pg_get_userbyid(a.grantee)) END, CASE WHEN a.is_grantable THEN ' WITH GRANT OPTION' ELSE '' END) FROM aclexplode($(ql "$acl")::aclitem[]) a \gexec"$'\n'
+    fi
+  done
+  sql+="SELECT pg_reload_conf();"
+  say "pg-pool: putting back what differs from the baseline of $container:" >&2
+  diff "$base" <(printf '%s\n' "$now") | grep '^[<>]' | head -20 >&2
+  # Each statement is tried on its own: one that fails must not stop the rest.
+  admin -v ON_ERROR_STOP=0 <<<"$sql" >/dev/null 2>&1
+  [ "$(shared_state | base_view)" = "$(cat "$base")" ]
+}
+# require_shared: the baseline view matches, or is put back to it.
+require_shared() {
+  check_shared 2>/dev/null && return 0
+  revert_shared && { say "pg-pool: put back; $container matches its baseline again" >&2; return 0; }
+  check_shared
+}
+
+identity() { printf 'container %s image %s\n' "$(docker inspect -f '{{.Id}}' "$container" 2>/dev/null | cut -c1-12)" \
+  "$(docker inspect -f '{{.Image}}' "$container" 2>/dev/null | cut -c8-19)"; }
+
+ensure_server() {
+  su=postgres
+  if server_ready; then
+    su=$(su_user)
+    [ "$(identity)" = "$(cat "$state/server.identity" 2>/dev/null)" ] || die "$container is not the server recorded in $state (made again outside pg-pool?): pg-pool --image $image reset --yes"
+    check_shared 2>/dev/null && return 0
+    exec 8>"$state/locks/server.lock"; flock 8
+    require_shared || exit 1
+    flock -u 8
+    return 0
+  fi
+  exec 8>"$state/locks/server.lock"
+  flock 8
+  if server_ready; then flock -u 8; ensure_server; return; fi
+  docker ps -a --format '{{.Names}}' >/dev/null 2>&1 || die "docker is not answering"
+  if docker inspect "$container" >/dev/null 2>&1; then
+    docker start "$container" >/dev/null 2>&1
+  else
+    say "pg-pool: creating $container ($image)" >&2
+    [ -s "$state/password" ] || (umask 077; od -An -N24 -tx1 /dev/urandom | tr -d ' \n' >"$state/password") || die "cannot write $state/password"
+    docker run -d --name "$container" --label nadavai-pg-pool=1 -p 127.0.0.1::5432 --shm-size 256m \
+      -e POSTGRES_PASSWORD="$(cat "$state/password")" "$image" >/dev/null || die "docker run $image failed"
+    rm -f "$state/shared.baseline"; : >"$state/server.building"
+  fi
+  # TCP, not the socket: the entrypoint's init server listens on the socket only.
+  local i
+  for ((i = 0; i < 90; i++)); do running && break; sleep 2; done
+  running || die "$container did not come up in 3 minutes (docker logs $container)"
+  su=$(su_user)
+  admin -c "ALTER SYSTEM SET fsync = off" -c "ALTER SYSTEM SET full_page_writes = off" \
+    -c "ALTER SYSTEM SET synchronous_commit = off" -c "SELECT pg_reload_conf()" >/dev/null || die "cannot set the durability settings"
+  if [ -e "$state/server.building" ]; then
+    admin -v pw="$(cat "$state/password")" >/dev/null <<'SQL' || die "cannot set the password of postgres"
+SET log_statement = 'none';
+SELECT format('ALTER ROLE postgres LOGIN PASSWORD %L', :'pw') \gexec
+SQL
+    local preload cron_db net_db
+    preload=$(admin -c "show shared_preload_libraries")
+    cron_db=$(admin -c "select coalesce(current_setting('cron.database_name', true), 'postgres')")
+    net_db=$(admin -c "select coalesce(current_setting('pg_net.database_name', true), 'postgres')")
+    [ "$cron_db" = postgres ] && [ "$net_db" = postgres ] ||
+      die "$image runs pg_cron in '$cron_db' and pg_net in '$net_db'; the pool needs both in postgres, where no migration runs"
+    # pg_cron refuses CREATE EXTENSION outside cron.database_name, so it is made in postgres before
+    # postgres is copied: every template then has it, and a chain's CREATE EXTENSION IF NOT EXISTS passes.
+    if [[ $preload == *pg_cron* ]]; then
+      admin -c 'create extension if not exists pg_cron' >/dev/null || die "cannot create pg_cron in postgres"
+    fi
+    # Some extensions put roles into the cluster when they are created (pgsodium, pg_tle on the
+    # supabase image). Every extension the image offers is created once here, before the
+    # baseline, in a scratch database (one that cannot be created is skipped), so those roles
+    # are baseline roles and a chain that creates the extension passes the strict build check.
+    admin -c "DROP DATABASE IF EXISTS pool_seed_ext WITH (FORCE)" -c "CREATE DATABASE pool_seed_ext" >/dev/null ||
+      die "cannot create a scratch database for the extension roles"
+    DB=pool_seed_ext admin -v ON_ERROR_STOP=0 >/dev/null 2>&1 <<'SQL'
+SET statement_timeout = '60s';
+SELECT format('CREATE EXTENSION IF NOT EXISTS %I CASCADE', name) FROM pg_available_extensions ORDER BY name \gexec
+SQL
+    admin -c "DROP DATABASE pool_seed_ext WITH (FORCE)" >/dev/null || die "cannot drop the scratch database pool_seed_ext"
+  fi
+  if ! exists pool_base; then
+    # CREATE DATABASE ... TEMPLATE postgres needs postgres idle (so this session sits in template1);
+    # the pg_cron and pg_net workers reconnect.
+    for i in 1 2 3 4 5; do
+      DB=template1 admin >/dev/null 2>&1 <<'SQL' && break
+ALTER DATABASE postgres ALLOW_CONNECTIONS false;
+SELECT count(pg_terminate_backend(pid)) FROM pg_stat_activity WHERE datname = 'postgres' AND pid <> pg_backend_pid();
+CREATE DATABASE pool_base TEMPLATE postgres OWNER postgres;
+SQL
+      sleep 2
+    done
+    DB=template1 admin -c 'ALTER DATABASE postgres ALLOW_CONNECTIONS true' >/dev/null
+    exists pool_base || die "could not copy postgres to pool_base"
+    admin -c 'ALTER DATABASE pool_base IS_TEMPLATE true ALLOW_CONNECTIONS false' >/dev/null
+  fi
+  if [ -e "$state/server.building" ]; then
+    identity >"$state/server.identity" || die "cannot write $state/server.identity"
+    (umask 077; shared_state >"$state/shared.baseline.tmp") && [ -s "$state/shared.baseline.tmp" ] &&
+      mv -f "$state/shared.baseline.tmp" "$state/shared.baseline" || die "cannot record the shared-state baseline"
+    rm -f "$state/server.building"
+  else
+    [ "$(identity)" = "$(cat "$state/server.identity" 2>/dev/null)" ] || die "$container is not the server recorded in $state: pg-pool --image $image reset --yes"
+    require_shared || exit 1
+  fi
+  flock -u 8
+}
+
+# --- templates and clones -------------------------------------------------------------------
+# CREATE DATABASE copies neither the database's own settings nor its ACL.
+dress() { # dress <db> <source db>
+  local db=$1 src=$2 sql
+  sql=$(admin <<SQL
+SELECT format('ALTER DATABASE %I SET %s TO %L;', '$db', split_part(c, '=', 1), substr(c, strpos(c, '=') + 1))
+  FROM pg_db_role_setting s, unnest(s.setconfig) c
+ WHERE s.setdatabase = (SELECT oid FROM pg_database WHERE datname = '$src') AND s.setrole = 0;
+SELECT format('ALTER ROLE %I IN DATABASE %I SET %s TO %L;', r.rolname, '$db', split_part(c, '=', 1), substr(c, strpos(c, '=') + 1))
+  FROM pg_db_role_setting s JOIN pg_roles r ON r.oid = s.setrole, unnest(s.setconfig) c
+ WHERE s.setdatabase = (SELECT oid FROM pg_database WHERE datname = '$src');
+SELECT format('REVOKE ALL ON DATABASE %I FROM PUBLIC;', '$db');
+SELECT format('GRANT %s ON DATABASE %I TO %s;', a.privilege_type, '$db',
+              CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE quote_ident(pg_get_userbyid(a.grantee)) END)
+  FROM pg_database d, aclexplode(d.datacl) a WHERE d.datname = '$src';
+SQL
+) || return 1
+  admin <<<"$sql" >/dev/null
+}
+
+cron_off() { [ "$(in_db "$1" -c "select to_regclass('cron.job') is null")" = t ] ||
+  in_db "$1" -c "update cron.job set active = false where active" >/dev/null; }
+db_safe() { # 0 when no job is active and no request was answered
+  local active=0 answered=0
+  # A CASE would not do: the parser resolves cron.job even in the branch that never runs.
+  [ "$(in_db "$1" -c "select to_regclass('cron.job') is not null")" = t ] &&
+    { active=$(in_db "$1" -c "select count(*) from cron.job where active") || return 1; }
+  [ "$(in_db "$1" -c "select to_regclass('net._http_response') is not null")" = t ] &&
+    { answered=$(in_db "$1" -c "select count(*) from net._http_response where status_code is not null") || return 1; }
+  [ "$active" = 0 ] && [ "$answered" = 0 ] || { say "pg-pool: $1 has $active active cron jobs and $answered answered requests" >&2; return 1; }
+}
+pin_hosts() { # every host in the file, resolved to 127.0.0.1 inside the container
+  [ -s "$1" ] || return 0
+  sed 's/^/127.0.0.1 /' "$1" | docker exec -i -u root "$container" sh -c \
+    'while read -r l; do grep -qxF "$l" /etc/hosts || printf "%s\n" "$l" >>/etc/hosts; done'
+}
+
+chain_files() { # the chain in apply order: kind path
+  local f e
+  for e in ${exts//,/ }; do say "ext $e"; done
+  [ -n "$bootstrap" ] && say "bootstrap $bootstrap"
+  for f in "$migdir"/*.sql; do [ -e "$f" ] && say "migration $f"; done
+  [ -n "$seed" ] && say "seed $seed"
+}
+# scan_chain: refuses, before anything runs, a chain that names statements whose effect is
+# shared by every database of the server (comments are skipped; USER MAPPING is not a role).
+scan_chain() {
+  local kind f hits
+  while read -r kind f; do
+    [ "$kind" = ext ] && continue
+    hits=$(sed -e 's/--.*$//' "$f" | tr '\n' ' ' | sed -e 's#/\*[^*]*\*\+\([^/*][^*]*\*\+\)*/##g' | tr ';' '\n' |
+      grep -iE '(^|[^a-z_])((create|alter|drop)[[:space:]]+(role|group|user)([[:space:]]|$)|alter[[:space:]]+system([[:space:]]|$)|alter[[:space:]]+database[[:space:]].*[[:space:]](set|reset)([[:space:]]|$))' |
+      grep -viE '(create|alter|drop)[[:space:]]+user[[:space:]]+mapping' | sed -E 's/^[[:space:]]+//' | cut -c1-120 | head -3)
+    [ -z "$hits" ] || die "${f##*/} changes what every database on the shared server shares (roles or server settings), so it does not run here:
+$hits
+Such SQL needs its own container: docker run ... # isolated-pg: <reason>"
+  done < <(chain_files)
+}
+
+template_key() {
+  local kind f
+  {
+    printf 'recipe %s image %s server %s\n' "$recipe" "$image" "$(cat "$state/server.identity")"
+    while read -r kind f; do
+      case $kind in ext) say "ext $f" ;; *) printf '%s %s %s\n' "$kind" "${f##*/}" "$(sha256sum <"$f" | cut -c1-64)" ;; esac
+    done < <(chain_files)
+  } | sha256sum | cut -c1-16
+}
+
+reap_dead_builds() {
+  local db pid
+  for db in $(admin -c "select datname from pg_database where datname ~ '^tplb_'"); do
+    pid=${db##*_}
+    [[ $pid =~ ^[0-9]+$ ]] && [ -d "/proc/$pid" ] && continue
+    admin -c "DROP DATABASE IF EXISTS $(qdb "$db") WITH (FORCE)" >/dev/null 2>&1 && say "dropped $db (its build is gone)"
+  done
+}
+
+build_template() { # build_template <tpl>
+  local tpl=$1 tmp="tplb_${1#tpl_}_$$" log kind f one
+  log=$state/$tpl.build.log; : >"$log"
+  chain_files | while read -r kind f; do [ "$kind" = ext ] || cat "$f"; done |
+    grep -ohE 'https?://[A-Za-z0-9.-]+' | sed -E 's#^https?://##; s/\.$//' | grep -vxE 'localhost|127\.0\.0\.1' | sort -u >"$state/$tpl.hosts"
+  pin_hosts "$state/$tpl.hosts" || return 1
+  admin -c "DROP DATABASE IF EXISTS $(qdb "$tmp") WITH (FORCE)" -c "CREATE DATABASE $(qdb "$tmp") TEMPLATE pool_base OWNER postgres" >/dev/null 2>>"$log" || return 1
+  dress "$tmp" postgres || return 1
+  # fd 3: every docker exec -i in the body would read stdin.
+  while read -r kind f <&3; do
+    case $kind in
+      ext) in_db "$tmp" -c "CREATE EXTENSION IF NOT EXISTS $(qi "$f") CASCADE" >>"$log" 2>&1 ;;
+      bootstrap) in_db "$tmp" <"$f" >>"$log" 2>&1 ;;
+      migration|seed)
+        one=-1; grep -qiE '^[[:space:]]*BEGIN[[:space:]]*;' "$f" && one=
+        as_postgres "$tmp" $one <"$f" >>"$log" 2>&1 ;;
+    esac || { tail -15 "$log" >&2; say "pg-pool: $kind ${f##*/} failed in $tmp (log: $log)" >&2; return 1; }
+    cron_off "$tmp" || return 1
+  done 3< <(chain_files)
+  db_safe "$tmp" || return 1
+  admin -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '$tmp'" >/dev/null
+  admin -c "ALTER DATABASE $(qdb "$tmp") RENAME TO $(qdb "$tpl")" -c "ALTER DATABASE $(qdb "$tpl") IS_TEMPLATE true ALLOW_CONNECTIONS false" >/dev/null
+}
+
+ensure_template() { # sets tpl; holds the lifecycle lock shared (fd 6)
+  local built drift
+  exec 6>"$state/locks/lifecycle.lock"
+  flock -s 6
+  ensure_server
+  tpl=tpl_$(template_key)
+  exec 7>"$state/locks/$tpl.lock"
+  flock 7
+  if [ "$(admin -c "select datistemplate from pg_database where datname = '$tpl'")" != t ]; then
+    scan_chain
+    say "pg-pool: building $tpl (first use of this chain)" >&2
+    local start=$SECONDS
+    admin -c "DROP DATABASE IF EXISTS $(qdb "$tpl") WITH (FORCE)" >/dev/null 2>&1
+    trap 'admin -c "DROP DATABASE IF EXISTS $(qdb "tplb_${tpl#tpl_}_$$") WITH (FORCE)" >/dev/null 2>&1; exit 143' INT TERM
+    build_template "$tpl"; built=$?
+    trap - INT TERM
+    # A failed build may have changed the roles or settings too (they do not roll back with the
+    # template), so the comparison runs on both paths: the baseline view, and any role the
+    # template depends on that is not a baseline role (made by the chain, not by a test in a clone).
+    drift=0
+    check_shared 2>/dev/null || drift=1
+    chain_roles=$(admin -c "SELECT DISTINCT r.rolname FROM pg_shdepend s JOIN pg_roles r ON r.oid = s.refobjid AND s.refclassid = 'pg_authid'::regclass
+      JOIN pg_database d ON d.oid = s.dbid WHERE d.datname IN ($(ql "tplb_${tpl#tpl_}_$$"), $(ql "$tpl"))" |
+      while read -r r; do grep -q "^role $r " "$state/shared.baseline" || say "$r"; done)
+    [ -z "$chain_roles" ] || { drift=1; say "pg-pool: the chain made roles its template depends on: $chain_roles" >&2; }
+    if [ "$built" != 0 ] || [ "$drift" != 0 ]; then
+      admin -c "DROP DATABASE IF EXISTS $(qdb "tplb_${tpl#tpl_}_$$") WITH (FORCE)" >/dev/null 2>&1
+      admin -c "ALTER DATABASE $(qdb "$tpl") IS_TEMPLATE false" -c "DROP DATABASE IF EXISTS $(qdb "$tpl") WITH (FORCE)" >/dev/null 2>&1
+      if [ "$drift" != 0 ]; then
+        # The template is gone; a role the chain made stays until reset (status lists it).
+        exec 8>"$state/locks/server.lock"; flock 8
+        require_shared || die "the chain changed roles or server settings of the baseline, and they could not be put back (log: $state/$tpl.build.log)"
+        flock -u 8
+        die "the chain changed roles or server settings that every database here shares (baseline put back; roles it made stay until reset); such SQL needs its own container (# isolated-pg: <reason>). Template not kept (log: $state/$tpl.build.log)"
+      fi
+      die "template build failed (log: $state/$tpl.build.log)"
+    fi
+    say "pg-pool: built $tpl in $((SECONDS - start))s" >&2
+  fi
+  touch "$state/$tpl.used"
+  flock -u 7
+}
+
+lease_cap() {
+  local conf=${XDG_CONFIG_HOME:-$HOME/.config}/nadavai/capacity k v cap=12
+  if [ -r "$conf" ]; then
+    while IFS='=' read -r k v; do
+      k=${k//[[:space:]]/}; v=${v%%#*}; v=${v//[[:space:]]/}
+      [ "$k" = pg_pool_leases ] && [[ $v =~ ^[1-9][0-9]*$ ]] && cap=$v
+    done <"$conf"
+  fi
+  say "$cap"
+}
+
+proc_start() { [ -r "/proc/$1/stat" ] && awk '{ sub(/^.*\) /, ""); print $20 }' "/proc/$1/stat"; }
+
+write_lease() { # write_lease <db> <seconds> [pid]
+  local f=$state/leases/$1
+  local now; now=$(date +%s)
+  { say "expires=$((now + $2))"; say "created=$now"; say "length=$2"; say "image=$image"; say "repo=$repo"
+    if [ -n "${3:-}" ]; then say "pid=$3"; say "start=$(proc_start "$3")"; fi; } >"$f.tmp" && mv -f "$f.tmp" "$f"
+}
+lease_live() { # 0 while the lease holds: its process lives, or it has not expired
+  local f=$1 expires="" pid="" start=""
+  [ -f "$f" ] || return 1
+  while IFS='=' read -r k v; do
+    case $k in expires) expires=$v ;; pid) pid=$v ;; start) start=$v ;; esac
+  done <"$f"
+  if [ -n "$pid" ]; then [ "$(proc_start "$pid")" = "$start" ]; return; fi
+  [ -n "$expires" ] && [ "$(date +%s)" -lt "$expires" ]
+}
+
+clone() { # clone <owner pid or empty>: sets db
+  local owner=$1 waited=0 n stale f lsecs
+  lsecs=$(secs "$lease") && [ "$lsecs" -gt 0 ] || die "--lease takes minutes (60) or 30s/45m/2h, got '$lease'"
+  label=$(printf '%s' "$label" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9_' '_' | cut -c1-20)
+  ensure_template
+  db="run_${label}_$(date +%s)_$(od -An -N3 -tx1 /dev/urandom | tr -d ' \n')"
+  exec 5>"$home/leases.lock"
+  while :; do
+    flock 5
+    n=0 stale=0
+    for f in "$home"/*/leases/run_*; do
+      [ -f "$f" ] || continue
+      if lease_live "$f"; then n=$((n + 1)); else stale=1; fi
+    done
+    [ "$n" -lt "$(lease_cap)" ] && break
+    flock -u 5
+    [ "$waited" -ge 600 ] && die "all $(lease_cap) clones are leased (pg_pool_leases in the capacity file); pg-pool status"
+    [ "$waited" = 0 ] && say "pg-pool: all $(lease_cap) clones are leased; waiting" >&2
+    "$0" gc >/dev/null 2>&1
+    sleep 3; waited=$((waited + 3))
+  done
+  write_lease "$db" "$lsecs" "$owner" || die "cannot write the lease of $db"
+  flock -u 5
+  # Expired clones are dropped as soon as someone needs a new one, not only when gc runs.
+  [ "$stale" = 1 ] && "$0" gc >/dev/null 2>&1
+  exec 7>"$state/locks/$tpl.lock"
+  flock -s 7
+  if ! admin -c "CREATE DATABASE $(qdb "$db") TEMPLATE $(qdb "$tpl") OWNER postgres" >/dev/null || ! dress "$db" "$tpl"; then
+    admin -c "DROP DATABASE IF EXISTS $(qdb "$db") WITH (FORCE)" >/dev/null 2>&1; rm -f "$state/leases/$db"; die "could not create $db"
+  fi
+  touch "$state/$tpl.used"
+  flock -u 7
+  # Docker rewrites /etc/hosts when the container restarts, so the pins go in again.
+  if ! pin_hosts "$state/$tpl.hosts" || ! cron_off "$db" || ! db_safe "$db" || ! check_shared; then
+    admin -c "DROP DATABASE IF EXISTS $(qdb "$db") WITH (FORCE)" >/dev/null 2>&1; rm -f "$state/leases/$db"; die "$db is not safe; not handed out"
+  fi
+  flock -u 6
+}
+
+resolve_repo() {
+  repo=$(cd "${1:-.}" 2>/dev/null && { git rev-parse --show-toplevel 2>/dev/null || pwd; }) || die "no such directory: ${1:-.}"
+  if [ -z "$migdir" ]; then
+    if [ -d "$repo/supabase/migrations" ]; then migdir=$repo/supabase/migrations
+    elif [ -d "$repo/migrations" ]; then migdir=$repo/migrations
+    else die "no supabase/migrations or migrations in $repo; pass --migrations-dir"; fi
+  fi
+  [ -d "$migdir" ] || die "no such migrations dir: $migdir"
+  migdir=$(cd "$migdir" && pwd)
+  local f e
+  for e in ${exts//,/ }; do [[ $e =~ ^[A-Za-z0-9_-]+$ ]] || die "not an extension name: $e"; done
+  for f in "$bootstrap" "$seed"; do [ -z "$f" ] || [ -r "$f" ] || die "cannot read $f"; done
+  [ -z "$bootstrap" ] || bootstrap=$(realpath "$bootstrap")
+  [ -z "$seed" ] || seed=$(realpath "$seed")
+}
+
+lease_file() { local f; for f in "$home"/*/leases/"$1"; do [ -f "$f" ] && { say "$f"; return; }; done; }
+
+dsn() { say "postgresql://postgres:$(cat "$state/password")@127.0.0.1:$(port)/$1"; }
+
+# drop_db <state dir> <db>: the server is found from where its lease lives.
+drop_db() {
+  local st=$1 db=$2
+  container=${st##*/}; state=$st
+  if docker inspect "$container" >/dev/null 2>&1; then
+    running || docker start "$container" >/dev/null 2>&1
+    local i; for ((i = 0; i < 30; i++)); do running && break; sleep 2; done
+    su=$(su_user)
+    admin -c "DROP DATABASE IF EXISTS $(qdb "$db") WITH (FORCE)" >/dev/null || return 1
+  fi
+  rm -f "$st/leases/$db"
+}
+
+case "$cmd" in
+  get)
+    resolve_repo "${1:-}"; select_server; clone ""; dsn "$db" ;;
+  run)
+    r=""; [ "${1:-}" != -- ] && [ $# -gt 0 ] && { r=$1; shift; }
+    [ "${1:-}" = -- ] && shift
+    [ $# -gt 0 ] || die "run: no command"
+    resolve_repo "$r"; select_server; clone "$$"
+    # shellcheck disable=SC2154  # rc is assigned inside the trap
+    trap 'rc=$?; drop_db "$state" "$db" || { say "pg-pool: could not drop $db" >&2; [ "$rc" != 0 ] || rc=1; }; exit "$rc"' EXIT
+    trap 'exit 130' INT TERM
+    PGPORT=$(port)
+    export PGHOST=127.0.0.1 PGPORT PGUSER=postgres PGPASSWORD PGDATABASE=$db POOL_DB=$db POOL_CONTAINER=$container
+    PGPASSWORD=$(cat "$state/password"); DATABASE_URL=$(dsn "$db"); export DATABASE_URL
+    "$@" ;;
+  renew)
+    db=${1:?database}; valid_name "$db" || die "bad name: $db"
+    f=$(lease_file "$db"); [ -n "$f" ] || die "no lease for $db"
+    s=$(secs "${2:-$lease}") || die "bad length: ${2:-$lease}"
+    sed -i "s/^expires=.*/expires=$(($(date +%s) + s))/" "$f" && say "$db leased until $(date -d "@$(($(date +%s) + s))" '+%F %T')" ;;
+  drop)
+    db=${1:?database}; force=0; [ "${2:-}" = --force ] && force=1
+    valid_name "$db" && [[ $db == run_* ]] || die "refusing to drop $db (only run_* clones)"
+    docker ps -a --format '{{.Names}}' >/dev/null 2>&1 || die "docker is not answering: $db was not dropped"
+    f=$(lease_file "$db")
+    if [ -n "$f" ] && [ "$force" = 0 ]; then
+      lrepo=$(sed -n 's/^repo=//p' "$f"); lpid=$(sed -n 's/^pid=//p' "$f"); lstart=$(sed -n 's/^start=//p' "$f")
+      here=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+      [ -z "$lrepo" ] || [ "$lrepo" = "$here" ] || die "$db is leased by $lrepo, not $here; pg-pool drop $db --force to drop it anyway"
+      if [ -n "$lpid" ] && [ "$(proc_start "$lpid")" = "$lstart" ]; then
+        p=$$; while [ "$p" -gt 1 ] && [ "$p" != "$lpid" ]; do p=$(awk '{ sub(/^.*\) /, ""); print $2 }' "/proc/$p/stat" 2>/dev/null) || break; done
+        [ "$p" = "$lpid" ] || die "$db belongs to the live run $lpid; pg-pool drop $db --force to drop it anyway"
+      fi
+    fi
+    if [ -n "$f" ]; then drop_db "${f%/leases/*}" "$db" || die "could not drop $db"
+    else for st in "$home"/*/; do [ -d "$st" ] && drop_db "${st%/}" "$db"; done; fi ;;
+  gc)
+    for st in "$home"/*/; do
+      st=${st%/}; [ -d "$st/leases" ] || continue
+      container=${st##*/}; state=$st
+      running || continue
+      su=$(su_user)
+      exec 6>"$state/locks/lifecycle.lock"; flock -s 6
+      reap_dead_builds
+      now=$(date +%s)
+      for db in $(admin -c "select datname from pg_database where datname ~ '^run_[a-z0-9_]+$'"); do
+        lf=$st/leases/$db
+        lease_live "$lf" && continue
+        t=$(sed -E 's/^run_.*_([0-9]{10})_[0-9a-f]{6}$/\1/' <<<"$db"); [[ $t =~ ^[0-9]{10}$ ]] || t=0
+        len=$(sed -n 's/^length=//p' "$lf" 2>/dev/null); [[ $len =~ ^[0-9]+$ ]] || len=3600
+        created=$(sed -n 's/^created=//p' "$lf" 2>/dev/null); [[ $created =~ ^[0-9]+$ ]] || created=$t
+        # A clone with no lease file is being created right now, or was left by a crash before
+        # its lease was written; the time in its name tells which.
+        [ ! -f "$lf" ] && [ $((now - t)) -lt 600 ] && continue
+        # Someone still connected: the lease is extended, up to 4 lease lengths in all.
+        # Client sessions only: an autovacuum worker visits fresh databases on its own.
+        if [ "$(admin -c "select count(*) from pg_stat_activity where datname = $(ql "$db") and backend_type = 'client backend'")" != 0 ] &&
+           [ $((now - created)) -lt $((4 * len)) ]; then
+          [ -f "$lf" ] && sed -i "s/^expires=.*/expires=$((now + len))/" "$lf"
+          say "kept $db (connected; lease extended)"
+          continue
+        fi
+        admin -c "DROP DATABASE IF EXISTS $(qdb "$db") WITH (FORCE)" >/dev/null && say "dropped $db"
+        rm -f "$lf"
+      done
+      for f in "$st"/leases/run_*; do
+        [ -f "$f" ] && ! exists "${f##*/}" && ! lease_live "$f" && rm -f "$f"
+      done
+      # Templates go only under the lifecycle lock held exclusive: no build or clone is in flight.
+      if flock -n -x 6; then
+        for tpl in $(admin -c "select datname from pg_database where datname ~ '^tpl_[0-9a-f]+$'"); do
+          [ -n "$(find "$state/$tpl.used" -mmin -4320 2>/dev/null)" ] && continue
+          admin -c "ALTER DATABASE $(qdb "$tpl") IS_TEMPLATE false" -c "DROP DATABASE IF EXISTS $(qdb "$tpl")" >/dev/null && say "dropped $tpl"
+        done
+      fi
+      flock -u 6
+    done ;;
+  status)
+    found=0
+    for st in "$home"/*/; do
+      st=${st%/}; [ -d "$st/leases" ] || continue
+      found=1; container=${st##*/}; state=$st
+      if ! running; then say "$container: not running"; continue; fi
+      su=$(su_user)
+      say "$container: $(docker inspect -f '{{.Config.Image}}' "$container"), 127.0.0.1:$(port)"
+      admin -F ' ' -c "select datname, pg_size_pretty(pg_database_size(datname)) from pg_database where datname ~ '^(tpl_|run_)' order by 1" |
+        while read -r d sz; do
+          if [[ $d == run_* ]]; then
+            l=$(sed -n 's/^expires=//p' "$st/leases/$d" 2>/dev/null); p=$(sed -n 's/^pid=//p' "$st/leases/$d" 2>/dev/null)
+            say "  $d $sz $( [ -n "$p" ] && echo "held by pid $p" || { [ -n "$l" ] && echo "leased until $(date -d "@$l" '+%F %T')" || echo "no lease"; })"
+          else say "  $d $sz (template)"; fi
+        done
+      newroles=$(admin -c "select rolname from pg_roles order by 1" | while read -r r; do grep -q "^role $r " "$state/shared.baseline" || printf '%s ' "$r"; done)
+      [ -z "$newroles" ] || say "  roles made after the baseline (removed only by reset): $newroles"
+    done
+    [ "$found" = 1 ] || say "no pg-pool server yet" ;;
+  reset)
+    [ "${1:-}" = --yes ] || die "reset removes the server of $image and every database in it, including clones other runs use; pass --yes"
+    select_server
+    docker ps -a --format '{{.Names}}' >/dev/null 2>&1 || die "docker is not answering: nothing was reset"
+    exec 6>"$state/locks/lifecycle.lock"
+    flock -w "${PG_POOL_LOCK_WAIT:-120}" -x 6 || die "a template build or a clone is in progress on $container; nothing was reset"
+    docker rm -f "$container" >/dev/null 2>&1
+    ! docker inspect "$container" >/dev/null 2>&1 || die "$container is still there; nothing else was removed"
+    rm -rf -- "$state"
+    say "reset: $container removed; the next get makes it again" ;;
+  *) usage 64 >&2 ;;
+esac

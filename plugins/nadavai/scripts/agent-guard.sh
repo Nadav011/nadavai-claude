@@ -5,9 +5,24 @@
 #          the parent's model and its full context (median ~290K tokens per request).
 #   Bash:  a sleep of 120 s or more in the foreground. It blocks the agent; long local
 #          commands go to run_in_background, CI waits to ci-wait.
+# Strict mode, off unless ${XDG_CONFIG_HOME:-~/.config}/nadavai/guard-strict exists (touch it to
+# switch on, remove it to switch off; the next call reads it). Both rules apply in the
+# background too (rules/ci-policy.md, rules 4 and 7):
+#   - a while/until loop that reads a gh or CI status or a Claude tasks/*.output file, or that
+#     sleeps under 2 s. Never a for loop or a `while read` loop; a short sleep is allowed in
+#     a local readiness wait (curl localhost, a port check, pg_isready), and any command
+#     that runs heavy.sh passes. The script of `bash -c '...'` is read; heredoc bodies and
+#     other quoted strings (ssh host '...') are not.
+#   - `docker run -d` / `podman run -d` of a postgres image without --entrypoint (also an image
+#     left as a variable whose name has pg or postgres in it), `docker compose up -d` of a
+#     compose file with one, or `supabase start` / `supabase db start` (a server per agent), unless
+#     the command carries `# isolated-pg: <reason>` (cluster-wide SQL: roles, ALTER SYSTEM).
+#     pg-pool get gives a fresh database on the shared server instead.
 # Silent (exit 0, no output) for everything else.
 set -u
 input=$(cat)
+strict=0
+[ -e "${XDG_CONFIG_HOME:-$HOME/.config}/nadavai/guard-strict" ] && strict=1
 
 is_agy=0
 case "$input" in *'"toolCall"'*) is_agy=1 ;; esac
@@ -30,6 +45,7 @@ deny() {
 # Fast path: most calls carry neither word, and this runs before every Bash/run_command call.
 case "$input" in
   *'"fork"'*|*sleep*) ;;
+  *while*|*until*|*docker*|*podman*|*supabase*) [ "$strict" = 1 ] || allow ;;
   *) allow ;;
 esac
 command -v jq >/dev/null 2>&1 || allow
@@ -67,6 +83,248 @@ check_sleep() {
     }'
 }
 
+# Strict mode: prints "<rule>\t<detail>" for the first offending polling loop (rule gh, task
+# or short) or postgres server (rule pg), nothing otherwise. Quoted strings are set aside as
+# placeholders, so a keyword inside a string is not read as one, while a loop body's quoted
+# paths still count when it is classified. The script of `bash -c '...'` / `sh -c "..."` is read
+# the same way. A heredoc body is read for the docker rule only, and only when it runs: fed to a
+# shell (bash <<EOF), or written to a file the command then executes (bash f, ./f, source f).
+# Loops in heredoc bodies are never read. gh counts as polling only when it reads a status
+# (run view/watch, pr checks, commits/<sha>/status(es), check-runs). `docker compose up -d`
+# counts when the compose file (-f, or the default names in the cwd) has a postgres image.
+# check_strict <loops 0|1> <pg 0|1> <cwd>
+check_strict() {
+  awk -v loops="${1:-1}" -v pg="${2:-1}" -v cwd="${3:-$PWD}" '
+    function resc(s) { gsub(/[][\\.^$*+?(){}|\/]/, "\\\\&", s); return s }
+    # postgrest (PostgREST) is not a database server.
+    # A metrics exporter (postgres-exporter) or supabase/postgres-meta (an API) is not one either.
+    function pgimage(s) { return s !~ /exporter|postgres-meta/ && s ~ /postgres([^t]|$)|postgis|pgvector|timescale/ }
+    # skipwrap <i> <m>: the index of the command a wrapper runs: timeout [opts] N, nohup, time, command,
+    # env [opts] [VAR=..], sudo [opts], nice [-n N], stdbuf [opts], npx/pnpx/bunx [opts],
+    # pnpm|yarn|npm|bun [opts] [dlx|exec|x] [opts], and VAR=.. assignments.
+    function skipwrap(j, m,   a, vf, ch) {
+      for (ch = 1; ch && j <= m; ) {
+        ch = 0; a = w[j]
+        if (a ~ /^[A-Za-z_][A-Za-z0-9_]*=/ || a == "nohup" || a == "command" || a == "--") { j++; ch = 1; continue }
+        if (a == "timeout") {
+          for (j++; w[j] ~ /^-/; j++) if (w[j] ~ /^(-s|-k|--signal|--kill-after)$/) j++
+          j++; ch = 1; continue
+        }
+        vf = ""
+        if (a == "time") vf = " "
+        else if (a == "env") vf = " -u -C -S --unset --chdir --split-string "
+        else if (a == "sudo") vf = " -u -g -h -p -C -U -r -t -D --user --group --host --prompt --chdir "
+        else if (a == "nice") vf = " -n --adjustment "
+        else if (a == "stdbuf") vf = " -i -o -e "
+        else if (a == "npx" || a == "pnpx" || a == "bunx") vf = " -p --package -c --call "
+        else if (a == "pnpm" || a == "yarn" || a == "npm" || a == "bun") vf = " --filter -F -C --dir --prefix --cwd --workspace "
+        if (vf == "") break
+        for (j++; j <= m; j++) {
+          if (w[j] ~ /^-/) { if (index(vf, " " w[j] " ")) j++; continue }
+          if (a == "env" && w[j] ~ /^[A-Za-z_][A-Za-z0-9_]*=/) continue
+          if (vf ~ /--filter/ && (w[j] == "dlx" || w[j] == "exec" || w[j] == "x")) { a = "npx"; vf = " -p --package -c --call "; continue }
+          break
+        }
+        ch = 1
+      }
+      return j
+    }
+    # compose_pg <file>: the first postgres image in a compose file, or ""
+    function compose_pg(f,   l, r) {
+      if (f !~ /^\//) f = cwd "/" f
+      r = ""
+      while ((getline l < f) > 0) if (r == "" && l ~ /^[ \t]*image:/ && pgimage(l)) { r = l; sub(/^[ \t]*image:[ \t]*/, "", r) }
+      close(f)
+      return r
+    }
+    function expand(s,  k) {
+      while (match(s, /__Q[0-9]+__/)) { k = substr(s, RSTART + 3, RLENGTH - 5) + 0; s = substr(s, 1, RSTART - 1) q[k] substr(s, RSTART + RLENGTH) }
+      return s
+    }
+    function text(a, b,  k, s) { s = ""; for (k = a; k <= b; k++) s = s " " w[k]; return expand(s) }
+    function isnum(x) { return x ~ /^[0-9]*\.?[0-9]+s?$/ }
+    function found(rule, detail) { printf "%s\t%s\n", rule, detail; done_ = 1 }
+    # analyze <source> <mode: all|pg>: queues the scripts of nested `sh -c` calls.
+    function analyze(src, mode,   n, raw, i, m, d, e, c, k, depth, body, minsl, v, hasgh, a, det, ep, img, nxt, vn, inner, pre) {
+      while (match(src, /\x27[^\x27]*\x27|"([^"\\]|\\.)*"/)) {
+        q[++nq] = substr(src, RSTART, RLENGTH); pre = substr(src, 1, RSTART - 1)
+        if (pre ~ /(^|[^A-Za-z0-9_.\/-])(ba|z|da)?sh[ \t]+(-[A-Za-z]+[ \t]+)*-[A-Za-z]*c[ \t]+$/) {
+          inner = substr(q[nq], 2, length(q[nq]) - 2)
+          if (q[nq] ~ /^"/) { gsub(/\\"/, "\"", inner); gsub(/\\\$/, "$", inner); gsub(/\\`/, "`", inner); gsub(/\\\\/, "\\", inner) }
+          queue[++nqueue] = inner; qmode[nqueue] = mode
+        }
+        src = pre "__Q" nq "__" substr(src, RSTART + RLENGTH)
+      }
+      # ${NAME} and ${NAME:-x} become $NAME, so the braces do not split the word.
+      while (match(src, /\$\{[A-Za-z_][A-Za-z0-9_]*[^}]*\}/)) {
+        v = substr(src, RSTART + 2, RLENGTH - 3); sub(/[^A-Za-z0-9_].*$/, "", v)
+        src = substr(src, 1, RSTART - 1) "$" v substr(src, RSTART + RLENGTH)
+      }
+      gsub(/\n/, " ; ", src); gsub(/[;&|(){}`]/, " ; ", src)
+      n = split(src, raw, /[ \t]+/); m = 0
+      delete w; delete cp
+      for (i = 1; i <= n; i++) if (raw[i] != "") w[++m] = raw[i]
+      cp[1] = 1
+      for (i = 1; i <= m; i++)
+        cp[i + 1] = (w[i] ~ /^(;|do|then|else|!|while|until|if|elif)$/) || (cp[i] && w[i] ~ /^[A-Za-z_][A-Za-z0-9_]*=/)
+      for (i = 1; loops && mode == "all" && i <= m; i++) {
+        if (!cp[i] || (w[i] != "while" && w[i] != "until")) continue
+        for (d = i + 1; d <= m && !(cp[d] && w[d] == "do"); d++) ;
+        if (d > m) continue
+        depth = 1
+        for (e = d + 1; e <= m; e++) {
+          if (cp[e] && w[e] == "do") depth++
+          if (cp[e] && w[e] == "done" && --depth == 0) break
+        }
+        if (e > m) e = m
+        for (c = i + 1; c < d && w[c] ~ /^[A-Za-z_][A-Za-z0-9_]*=/; c++) ;
+        if (w[i] == "while" && w[c] == "read") continue
+        body = text(i, e); minsl = ""
+        for (k = i + 1; k < e; k++)
+          if (cp[k] && w[k] == "sleep" && isnum(w[k + 1])) { v = w[k + 1]; sub(/s$/, "", v); if (minsl == "" || v + 0 < minsl + 0) minsl = v }
+        if (minsl == "") continue
+        if (body ~ /tasks\/[^ ;]*\.output/) { found("task", w[i]); return }
+        if (body ~ /(^|[^A-Za-z0-9_.-])gh[ \t]+(run[ \t]+(view|watch)|pr[ \t]+checks)|(^|[^A-Za-z0-9_.-])gh[ \t]+api[ \t][^;]*(\/status|check-runs)|api\.github\.com[^ ;]*(\/status|check-runs)|ci-report|commits\/[^ ;]*\/status/) { found("gh", w[i]); return }
+        if (minsl + 0 < 2 && body !~ /pg_isready|\/dev\/tcp\/|nc +-[a-z]*z|ss +-[a-z]*l|lsof[^;]* -[a-zA-Z]*i|fuser|docker +(inspect|logs|exec)|(curl|wget)[^;]*(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])/) {
+          found("short", "sleep " minsl); return
+        }
+      }
+      if (!pg) return
+      # Plain NAME=value assignments, so that docker run ... $IMG can be resolved.
+      for (i = 1; i <= m; i++)
+        if (cp[i] && match(w[i], /^[A-Za-z_][A-Za-z0-9_]*=/)) { v = expand(substr(w[i], RLENGTH + 1)); gsub(/["\x27]/, "", v); asg[substr(w[i], 1, RLENGTH - 1)] = v }
+      for (i = 1; i < m; i++) {
+        # supabase start / supabase db start, behind any wrapper (timeout, env, npx -y, pnpm dlx, ...);
+        # not with -h/--help
+        if (cp[i] && w[j = skipwrap(i, m)] ~ /^supabase(@[^ ]*)?$/) {
+          sub_ = ""; hit = ""; help = 0; stop = 0
+          for (k = j + 1; k <= m && w[k] != ";"; k++) {
+            if (w[k] == "-h" || w[k] == "--help") help = 1
+            if (stop || hit != "") continue
+            if (w[k] ~ /^(--workdir|--profile|--network-id|--output|-o)$/) { k++; continue }
+            if (w[k] ~ /^-/) continue
+            if (sub_ == "" && w[k] == "start") hit = "supabase start"
+            else if (sub_ == "" && w[k] == "db") sub_ = "db"
+            else if (sub_ == "db" && w[k] == "start") hit = "supabase db start"
+            else stop = 1
+          }
+          if (hit != "" && !help) { found("supabase", hit); return }
+        }
+        # docker compose up -d / docker-compose up -d with a postgres image in the compose file
+        if ((w[i] == "docker" && w[i + 1] == "compose") || w[i] == "docker-compose") {
+          nf = 0; up = 0; det = 0
+          for (k = i + (w[i] == "docker" ? 2 : 1); k <= m && w[k] != ";"; k++) {
+            a = expand(w[k]); gsub(/["\x27]/, "", a)
+            if (a == "-f" || a == "--file") { cf[++nf] = expand(w[k + 1]); gsub(/["\x27]/, "", cf[nf]); k++; continue }
+            if (a ~ /^--file=/) { cf[++nf] = substr(a, 8); continue }
+            if (a == "up") up = 1
+            if (up && (a == "-d" || a == "--detach" || a ~ /^-[A-Za-z]*d[A-Za-z]*$/)) det = 1
+          }
+          if (!up || !det) continue
+          if (nf == 0) { cf[1] = "compose.yaml"; cf[2] = "compose.yml"; cf[3] = "docker-compose.yml"; cf[4] = "docker-compose.yaml"; nf = 4 }
+          for (k = 1; k <= nf; k++) { img = compose_pg(cf[k]); if (img != "") { found("pg", img " (compose)"); return } }
+          continue
+        }
+        if (w[i] != "docker" && w[i] != "podman") continue
+        k = i + 1; if (w[k] == "container") k++
+        if (w[k] != "run") continue
+        det = 0; ep = 0; img = ""; nxt = ""
+        for (k++; k <= m && w[k] != ";"; k++) {
+          a = w[k]
+          if (a == "--entrypoint" || a ~ /^--entrypoint=/) ep = 1
+          if (a == "--detach" || a ~ /^--detach=(true|1)$/) { det = 1; continue }
+          # A cluster of short flags (-d, -itd, -dp 5432:5432): d detaches; a last letter outside
+          # d, i, t, P, q takes the next word as its value.
+          if (a ~ /^-[A-Za-z]+$/) {
+            if (a ~ /d/) det = 1
+            if (substr(a, length(a)) !~ /[ditPq]/) k++
+            continue
+          }
+          if (a ~ /^--[A-Za-z]/) {
+            if (a ~ /=/ || a ~ /^--(rm|init|privileged|read-only|interactive|tty|quiet|publish-all|sig-proxy|no-healthcheck|oom-kill-disable)$/) continue
+            k++; continue
+          }
+          img = expand(a); if (k < m) nxt = expand(w[k + 1]); break
+        }
+        if (!det || ep) continue
+        gsub(/["\x27]/, "", img)
+        if (img ~ /^\$/) { vn = img; gsub(/[${}]/, "", vn); if (vn in asg) img = asg[vn] }
+        # An image left as a variable counts when its name says postgres or pg, or when the
+        # command after it is the postgres server.
+        if ((img !~ /^\$/ && pgimage(img)) || (img ~ /^\$/ && (nxt == "postgres" || tolower(vn) ~ /pg|postgres/))) { found("pg", img); return }
+      }
+    }
+    hd != "" {
+      t = $0; sub(/^\t+/, "", t)
+      if (t == hd) { hd = ""; nh++; hbodies[nh] = hbody; hrun[nh] = hexec; hfiles[nh] = hfile; hbody = "" } else hbody = hbody $0 "\n"
+      next
+    }
+    {
+      line = $0
+      # A heredoc start: not a here-string (<<<) and not a shift inside (( )).
+      rest = line; off = 0
+      while (match(rest, /<<-?[ \t]*["\x27]?[A-Za-z_][A-Za-z0-9_]*/)) {
+        pre = substr(line, 1, off + RSTART - 1); opn = gsub(/\(\(/, "", pre); pre = substr(line, 1, off + RSTART - 1); cls = gsub(/\)\)/, "", pre)
+        if (substr(line, off + RSTART - 1, 1) != "<" && opn <= cls) {
+          hd = substr(rest, RSTART, RLENGTH); sub(/^<<-?[ \t]*["\x27]?/, "", hd)
+          pre = substr(line, 1, off + RSTART - 1)
+          hexec = (pre ~ /(^|[^A-Za-z0-9_.\/-])(ba|z|da)?sh([ \t]+-[A-Za-z]+)*[ \t]*$/)
+          # The file it is written to: the argument of tee, else the first redirect other than /dev/null.
+          hfile = ""; r = line
+          if (match(line, /tee[ \t]+(-a[ \t]+)?[^ \t;&|<>-][^ \t;&|<>]*/)) { hfile = substr(line, RSTART, RLENGTH); sub(/^tee[ \t]+(-a[ \t]+)?/, "", hfile) }
+          while (hfile == "" && match(r, />>?[ \t]*[^ \t;&|<>]+/)) {
+            t = substr(r, RSTART, RLENGTH); sub(/^>>?[ \t]*/, "", t); r = substr(r, RSTART + RLENGTH)
+            if (t != "/dev/null") hfile = t
+          }
+          gsub(/["\x27]/, "", hfile)
+          break
+        }
+        off += RSTART + 1; rest = substr(line, off + 1)
+      }
+      # A comment, when the quotes before it are balanced: an apostrophe in it would pair with the next quote.
+      if (match(line, /(^|[ \t;])#/)) {
+        pre = substr(line, 1, RSTART); sq = gsub(/\x27/, "\x27", pre); dq = gsub(/"/, "\"", pre)
+        if (sq % 2 == 0 && dq % 2 == 0) line = substr(line, 1, RSTART)
+      }
+      # A continued line joins the next one.
+      if (sub(/\\$/, "", line)) all = all line " "; else all = all line "\n"
+    }
+    END {
+      if (hd != "") { nh++; hbodies[nh] = hbody; hrun[nh] = hexec; hfiles[nh] = hfile }
+      # A heredoc written to a file counts only when that file is run later in the command.
+      plain = all; gsub(/["\x27]/, "", plain)
+      for (h = 1; h <= nh; h++) {
+        f = hfiles[h]; b = f; sub(/^.*\//, "", b)
+        if (!hrun[h] && f != "" && (plain ~ ("(^|[;&|(\n][ \t]*|[ \t])((ba|z|da)?sh|source|\\.)[ \t]+(-[A-Za-z]+[ \t]+)*" resc(f) "([ \t;&|)\n]|$)") ||
+            plain ~ ("(^|[;&|(\n])[ \t]*" resc(f) "([ \t;&|)\n]|$)") || plain ~ ("(^|[;&|(\n])[ \t]*\\./" resc(b) "([ \t;&|)\n]|$)"))) hrun[h] = 1
+        if (hrun[h]) { queue[++nqueue] = hbodies[h]; qmode[nqueue] = "pg" }
+      }
+      queue[++nqueue] = all; qmode[nqueue] = "all"
+      for (qi = nqueue; qi >= 1 && !done_; qi--) {
+        if (qi in seen) continue
+        seen[qi] = 1; before = nqueue
+        analyze(queue[qi], qmode[qi])
+        if (nqueue > before) qi = nqueue + 1
+      }
+    }
+  ' | head -1
+}
+
+strict_guard() { # strict_guard <command>: denies, or returns
+  local found loops=1 pg=1
+  [ "$strict" = 1 ] || return 0
+  case "$1" in *heavy.sh*) loops=0 ;; esac
+  case "$1" in *'# isolated-pg:'*) pg=0 ;; esac
+  found=$(printf '%s\n' "$1" | check_strict "$loops" "$pg" "${2:-$PWD}")
+  case "${found%%$'\t'*}" in
+    gh) deny "This ${found#*$'\t'} loop polls GitHub or CI. Wait with ci-wait <repo> <sha|branch> in run_in_background (one poller per sha) and continue when the completion notice arrives." ;;
+    task) deny "This ${found#*$'\t'} loop polls a background task's output file. The completion notice arrives by itself; to react to lines as they appear, use Monitor." ;;
+    short) deny "This loop's ${found#*$'\t'} polls faster than every 2 s. Wait by blocking (docker wait, pg_isready -t, flock, inotifywait), sleep 2-5 s between checks, or run it with run_in_background / Monitor." ;;
+    supabase) deny "${found#*$'\t'} starts a whole Supabase stack per agent (on 2026-10-19 five of them, 45 containers, held this machine at load 28-41). For SQL tests use pg-pool get <repo>: a fresh database on the shared server (pg-pool drop when done). If the stack itself is the subject, add '# isolated-pg: <reason>' to the command." ;;
+    pg) deny "Starting ${found#*$'\t'} detached is a Postgres server per agent. Use pg-pool get <repo> for a fresh database on the shared server (pg-pool drop when done). If the SQL needs cluster-wide objects (roles, ALTER SYSTEM), add '# isolated-pg: <reason>' to the command." ;;
+  esac
+}
+
 if [ "$is_agy" = 1 ]; then
   tool=$(jq -r '.toolCall.name // empty' <<<"$input" 2>/dev/null)
   case "$tool" in
@@ -77,8 +335,10 @@ if [ "$is_agy" = 1 ]; then
       [ "${has_untagged_fork:-0}" -gt 0 ] && deny 'A fork inherits your model and your whole context. Use a named subagent with only the context it needs. If a fork is really what you want, put [fork] in the Role or Prompt.'
       ;;
     run_command)
+      cmd=$(jq -r '.toolCall.args.CommandLine // empty' <<<"$input")
+      strict_guard "$cmd"
       [ "$(jq -r '.toolCall.args.IsDaemon // false' <<<"$input")" = true ] && allow
-      found=$(jq -r '.toolCall.args.CommandLine // empty' <<<"$input" | check_sleep)
+      found=$(printf '%s\n' "$cmd" | check_sleep)
       if [ -n "$found" ]; then
         deny "${found#*$'\t'} blocks you for ${found%%$'\t'*} s. Run the long command in the background and continue when the completion notice arrives; for NadavAI CI use ci-wait <repo> <sha|branch>."
       fi
@@ -95,8 +355,10 @@ case "$tool" in
     deny 'A fork inherits your model and your whole context (median ~290K tokens per request). Use a named subagent_type with only the context it needs. If a fork is really what you want, put [fork] in the description.'
     ;;
   Bash)
+    cmd=$(jq -r '.tool_input.command // empty' <<<"$input")
+    strict_guard "$cmd" "$(jq -r '.cwd // empty' <<<"$input")"
     [ "$(jq -r '.tool_input.run_in_background // false' <<<"$input")" = true ] && allow
-    found=$(jq -r '.tool_input.command // empty' <<<"$input" | check_sleep)
+    found=$(printf '%s\n' "$cmd" | check_sleep)
     if [ -n "$found" ]; then
       deny "${found#*$'\t'} blocks you for ${found%%$'\t'*} s. Run the long command with run_in_background: true and continue when the completion notice arrives; for NadavAI CI use ci-wait <repo> <sha|branch> in the background."
     fi
