@@ -2,7 +2,7 @@
 name: action-safety
 description: Define and assess safe business actions, truthful completion states, and understandable recovery across existing apps, new apps, and feature changes. Use for an action-safety audit, new action requirements, or a targeted safety preflight and verification alongside an implementation request. Default audit is report-only for application source and runtime.
 metadata:
-  version: "1.0.4"
+  version: "1.0.5"
 ---
 
 # Action safety
@@ -91,6 +91,8 @@ Treat customers as nontechnical by default. Where correction is supported, provi
 - Use synthetic data and the smallest clean isolated environment. Extend existing provider fakes for relevant commit-then-timeout, malformed/business-error response, callback ordering and crash cases. Never use real sends, charges or personal records as test fixtures.
 - Bind synthetic adapters to the actual table/API fields and response contract; reject unsupported write fields and exercise the real caller-to-handler mapping. A permissive fake that accepts nonexistent fields cannot prove a working integration. Include navigation or dialog closure while a request is pending so local error ownership cannot silently disappear with an unmounted view.
 - Distinguish entity identity from the UI flow that owns a pending result. Test leaving and returning to the same entity, reopening a form and remounting with shared application state. An old result must not close or overwrite newer work, disappear without feedback, or allow a stale form to undo a confirmed update. Preserve applicable pending/unknown gates until the required outcome and fresh prerequisites are established; a local guard does not prove durable concurrency control.
+- Test pending callbacks and already displayed feedback or repair actions across logout, unresolved identity and actor/tenant changes, including after the originating view unmounts. Clearing query or mutation caches does not prove that pending callbacks were cancelled. Bind result handling and recovery actions to the live authorized scope; remove private feedback when that scope changes, and verify it does not reappear from a late callback.
+- Make synthetic late-feedback tests reflect the application's actual routing, authentication and shared-state provider placement. First prove that the original authorized actor receives the expected feedback and repair action, then test suppression or removal for unauthorized or unresolved scopes. A missing or misplaced fixture provider can suppress all feedback and produce a false safety pass.
 - Assert that each injected failure reaches its intended API/provider branch and that the named response is consumed by the real handler. A fallback transport error does not verify a distinct business-refusal or malformed-response scenario, even when the test passes. Preserve the earlier result, correct the fixture and rerun the affected cases before restoring that claim.
 - Check applicable authoritative paths, concurrency/replay, partial/unknown outcomes, authorized repair/return, deferred obligations and finalized correction. Include failures of late detection/reconciliation and owner escalation, not only the happy path.
 - For user-facing changes, collect browser evidence and console results under project rules; verify mobile/RTL where applicable. Reuse documented accessible patterns only within their tested limits. Record required manual keyboard, screen-reader and nontechnical observations honestly when unavailable.
