@@ -2,8 +2,6 @@
 
 Every check runs once, in the one place where it adds information. Nothing here removes a check; it removes the second run of the same check on the same tree. Why: in the week to 2026-10-26 the same trees were built and tested several times over (102 duplicate builds and 51 duplicate full suites inside single sessions, 23 full suites in pre-push that CI then repeated), the NadavAI queue reached an hour, and both machines sat at two to three times their core count.
 
-Rollout (2026-10-27, remove when done): until NadavAI reads landing requests, use `ci-wait <repo> <sha> --require full` instead of `--land`.
-
 ## Where each check runs
 - While working, run only scoped checks: typecheck, lint on the files you touched, `vitest related <files> --run`, a single e2e spec by path. The full suite, the production build, full e2e and Lighthouse belong to CI. Run them locally only when the task is about that check itself (a build failure, a flaky test, a perf budget). Why: CI runs them on the same sha minutes later; Claude Code's own guidance is "prefer running single tests, not the whole suite".
 - Never run the same check twice on the same tree. When a check already passed in this task and no file it reads changed since, quote that result instead of running it again; one agent of a workflow runs a shared check and the others read its result. Run builds, DoD, e2e and anything that starts a database through `heavy-slot`. Why: a result cache (`once`) was built and dropped on 2026-10-26: keying every input an agent's command can read made it either unsafe or almost never hit across agents.
