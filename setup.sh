@@ -57,6 +57,10 @@ else claude plugin install claude-seo@agricidaniel-claude-seo --scope user; fi
 claude plugin disable claude-seo@agricidaniel-claude-seo --scope user >/dev/null 2>&1 || true
 log "claude-seo disabled globally"
 
+step "Codex plugin"
+CODEX_REFRESH_FAILED=0
+refresh_codex_plugin || CODEX_REFRESH_FAILED=1
+
 step "Rules (symlink $CFG/rules -> repo)"
 link_rules
 
@@ -93,6 +97,10 @@ fi
 step "System tools (informational)"
 system_check
 report_npm_globals
+
+if [ "$CODEX_REFRESH_FAILED" = 1 ]; then
+  die "Other installer steps completed, but Codex nadavai plugin refresh failed; resolve the error above and rerun."
+fi
 
 step "Done"
 cat <<MSG

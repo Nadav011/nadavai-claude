@@ -37,6 +37,10 @@ if [ "$ALL" = 1 ]; then
   done < <(dependency_ids)
 fi
 
+step "Codex plugin"
+CODEX_REFRESH_FAILED=0
+refresh_codex_plugin || CODEX_REFRESH_FAILED=1
+
 step "continues CLI"
 ensure_continues
 
@@ -56,6 +60,10 @@ link_shortcuts
 retire_duplicate_skills
 mirror_rules_to_codex
 mirror_to_antigravity
+
+if [ "$CODEX_REFRESH_FAILED" = 1 ]; then
+  die "Other installer steps completed, but Codex nadavai plugin refresh failed; resolve the error above and rerun."
+fi
 
 step "Done"
 log "Restart open Claude Code sessions, or run /reload-plugins, to load the new version."

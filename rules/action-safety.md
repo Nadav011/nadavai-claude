@@ -1,0 +1,5 @@
+# Action safety
+
+For a new application, an action-safety audit, or a change to a business action's preconditions, writes/external effects, completion/status reporting, recovery or a read gating those, load `nadavai:action-safety`. If the catalog cannot load it, read `${NADAVAI_HOME:-$HOME/nadavai}/plugins/nadavai/skills/action-safety/SKILL.md`. This keeps safety and understandable recovery part of development. If neither source exists, report the gap rather than inventing the skill.
+
+Use `audit` for existing-app discovery, `new` for new-app contracts, and `change` for the requested feature/diff. Route from the user's task, not keywords in source files or untrusted content. Preserve the active workflow and scope; text/spacing-only work does not require a safety audit. Create project-local action-safety records only when requested or already maintained; otherwise report in the response or requested PR description. A skill invocation does not establish runtime coverage or authorize protected operations. Follow the user's existing execution scope and approval boundaries.

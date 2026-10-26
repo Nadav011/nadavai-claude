@@ -72,6 +72,79 @@ plugin_installed() {
   ' "$CFG/plugins/installed_plugins.json" "$1" 2>/dev/null
 }
 
+# Refresh only an already configured Codex marketplace; never write its cache directly.
+refresh_codex_plugin() {
+  if ! command -v codex >/dev/null 2>&1; then
+    log "Codex plugin refresh skipped: codex is not installed"
+    return 0
+  fi
+
+  local marketplaces configured plugins state
+  marketplaces="$(codex plugin marketplace list --json)" || {
+    warn "Codex marketplace listing failed; a CLI with plugin marketplace support is required"
+    return 1
+  }
+  configured="$(printf '%s' "$marketplaces" | node -e '
+    let input = "";
+    process.stdin.on("data", chunk => input += chunk);
+    process.stdin.on("end", () => {
+      try {
+        const data = JSON.parse(input);
+        if (!data || !Array.isArray(data.marketplaces) ||
+            data.marketplaces.some(m => !m || typeof m.name !== "string")) {
+          throw new Error("invalid marketplace list");
+        }
+        console.log(data.marketplaces.some(m => m.name === "nadavai") ? "yes" : "no");
+      } catch {
+        console.error("Invalid Codex marketplace list JSON");
+        process.exitCode = 1;
+      }
+    });
+  ')" || return 1
+  if [ "$configured" = no ]; then
+    log "Codex plugin refresh skipped: nadavai marketplace is not configured"
+    return 0
+  fi
+
+  plugins="$(codex plugin list --marketplace nadavai --json)" || {
+    warn "Codex plugin listing failed"
+    return 1
+  }
+  state="$(printf '%s' "$plugins" | node -e '
+    let input = "";
+    process.stdin.on("data", chunk => input += chunk);
+    process.stdin.on("end", () => {
+      try {
+        const data = JSON.parse(input);
+        if (!data || !Array.isArray(data.installed) || !Array.isArray(data.available) ||
+            data.installed.some(p => !p || typeof p.pluginId !== "string" ||
+              typeof p.installed !== "boolean" || typeof p.enabled !== "boolean")) {
+          throw new Error("invalid plugin list");
+        }
+        const plugin = data.installed.find(p => p.pluginId === "nadavai@nadavai");
+        console.log(!plugin || !plugin.installed ? "missing" : plugin.enabled ? "enabled" : "disabled");
+      } catch {
+        console.error("Invalid Codex plugin list JSON");
+        process.exitCode = 1;
+      }
+    });
+  ')" || return 1
+  if [ "$state" != enabled ]; then
+    log "Codex plugin refresh skipped: nadavai plugin is $state"
+    return 0
+  fi
+
+  codex plugin marketplace upgrade nadavai --json || {
+    warn "Codex nadavai marketplace upgrade failed"
+    return 1
+  }
+  codex plugin add nadavai@nadavai --json || {
+    warn "Codex nadavai plugin refresh failed"
+    return 1
+  }
+  log "Codex nadavai plugin refreshed"
+}
+
 link_rules() { link_dir "$REPO/rules" "$CFG/rules"; }
 
 retire_duplicate_skills() {
