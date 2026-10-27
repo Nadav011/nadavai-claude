@@ -37,10 +37,13 @@ cd "$REPO_ROOT"
 PUSH_TARGET_BRANCH=""
 PUSH_LOCAL_SHA=""
 PUSH_REMOTE_SHA=""
+PUSH_LOCALS=() PUSH_REMOTES=()   # every ref of the push, for the trivy layer
+PUSH_REMOTE_NAME=${1:-origin} PUSH_REMOTE_URL=${2:-}
 while read -r local_ref local_sha remote_ref remote_sha; do
   PUSH_TARGET_BRANCH=$(echo "$remote_ref" | sed 's|refs/heads/||')
   PUSH_LOCAL_SHA="$local_sha"
   PUSH_REMOTE_SHA="$remote_sha"
+  PUSH_LOCALS+=("$local_sha"); PUSH_REMOTES+=("$remote_sha")
 done
 
 IS_MAIN=0
@@ -66,9 +69,10 @@ since() {  # microsecond epoch -> seconds since then, to a tenth
 }
 log_push() {  # one tab-separated line per push; a log it cannot write never fails the push
   mkdir -p "${PUSH_LOG%/*}" 2>/dev/null
-  printf '%s\t%s\t%s\t%s\t%s\ttypecheck=%s\ttests=%s\ttrivy=%s\ttotal=%s\tgh=%s\n' "$(date -Iseconds)" \
+  printf '%s\t%s\t%s\t%s\t%s\ttypecheck=%s\ttests=%s\ttrivy=%s\ttotal=%s\tgh=%s\tscan=%s\n' "$(date -Iseconds)" \
     "${GH_REPO:-${REPO_ROOT##*/}}" "${PUSH_TARGET_BRANCH:--}" "${PUSH_LOCAL_SHA:0:7}" "$DECISION" \
     "$(job_sec typecheck)" "$(job_sec tests)" "$(job_sec trivy)" "$(since "$HOOK_T0")" "$GH_SEC" \
+    "$(cat "$JOBS_DIR/trivy.status" 2>/dev/null || { [ "${HAS_TRIVY:-0}" = 1 ] && echo - || echo missing; })" \
     >>"$PUSH_LOG" 2>/dev/null
 }
 trap 'log_push; rm -rf "$JOBS_DIR"' EXIT
@@ -98,15 +102,115 @@ has_vitest() {
 # ═══════════════════════════════════════════════════════════════
 # LAYER 1: Trivy CRITICAL scan — runs on EVERY push, every branch
 # ═══════════════════════════════════════════════════════════════
+# trivy scans what the push carries, not the folder on disk. Secrets: every file version the
+# push adds to the remote (git rev-list --objects of every pushed ref, minus what the remote
+# already has; on a first push, the pushed history up to 30k versions or 1 GB, else the pushed
+# trees, said aloud), so a key committed and then removed inside one push is still seen. Dependency
+# vulnerabilities: only when the push changes a dependency manifest or lockfile, and then the
+# pushed heads' versions of those files (Nadav, D3, 2026-10-27; osv in CI checks every
+# dependency on every run). Blobs are written raw by `git cat-file --batch`, so no clean or
+# smudge filter (git-crypt, LFS) turns them into text the push does not carry.
+# Why: scanning the working folder (until 2026-10-27) blocked a docs push to snooker-smart over
+# old lockfiles in nested worktrees and a checkout 607 commits behind, flagged a gitignored diff
+# in cash-next-app that is never pushed, timed out on 1.8 GB of untracked planning files in
+# therapy-flow-v2, and never counted a secret (secret findings are not table rows).
+# A trivy that fails, times out or is missing does not block (D9, unchanged).
+DEP_RE='(^|/)(package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|package-lock\.json|npm-shrinkwrap\.json|yarn\.lock|bun\.lockb?|requirements[^/]*\.txt|Pipfile(\.lock)?|poetry\.lock|pyproject\.toml|uv\.lock|go\.(mod|sum)|Cargo\.(toml|lock)|Gemfile(\.lock)?|composer\.(json|lock)|Package\.(swift|resolved)|pubspec\.(yaml|lock)|[^/]*\.csproj|packages\.lock\.json|[^/]*\.gradle(\.kts)?|gradle\.lockfile|pom\.xml|mix\.lock|deno\.(json|lock))$'
+TRIVY_WRITE='
+import os, subprocess, sys
+out, listing = sys.argv[1], sys.argv[2]
+items = [l.rstrip("\n").split("\t", 1) for l in open(listing, encoding="utf-8", errors="surrogateescape") if "\t" in l]
+p = subprocess.Popen(["git", "cat-file", "--batch"], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+n = 0
+for i, (spec, path) in enumerate(items):
+    p.stdin.write(spec.encode("utf-8", "surrogateescape") + b"\n"); p.stdin.flush()
+    head = p.stdout.readline().split()
+    if len(head) < 3:
+        continue
+    data = p.stdout.read(int(head[2])); p.stdout.read(1)
+    if head[1] != b"blob":
+        continue
+    rel = os.path.normpath(path).lstrip("/")
+    if rel.startswith(".."):
+        rel = os.path.basename(path)
+    f = os.path.join(out, str(i), rel)
+    os.makedirs(os.path.dirname(f), exist_ok=True)
+    with open(f, "wb") as fh:
+        fh.write(data)
+    n += 1
+p.stdin.close(); p.wait()
+print(n)
+'
+trivy_status() { echo "$1" >"$JOBS_DIR/trivy.status"; }   # ok|block|fail|skip, for the log
 trivy_scan() {
-  local crit
-  # Nested worktrees (.claude/worktrees, .worktrees) hold other commits: their old lockfiles
-  # blocked a docs push to snooker-smart on 2026-10-27 while main itself scanned clean.
-  crit=$(trivy fs . --severity CRITICAL --quiet --no-progress \
-    --skip-dirs '**/.claude/worktrees' --skip-dirs '**/.worktrees' 2>/dev/null \
-    | grep -c "^[│├└].*CRITICAL" 2>/dev/null) || true
-  echo "${crit:-0}"
-  [ "${crit:-0}" -eq 0 ] 2>/dev/null
+  local tmp heads=() excl=() i l r n=0 w found=0 rc dep=0 hex='^([0-9a-f]{40}|[0-9a-f]{64})$' zero='^0+$' url name cnt bytes
+  export GIT_NO_LAZY_FETCH=1   # a partial clone must not download every missing blob for this
+  for i in "${!PUSH_LOCALS[@]}"; do
+    l=${PUSH_LOCALS[$i]} r=${PUSH_REMOTES[$i]}
+    [[ $l =~ $hex && ! $l =~ $zero ]] || continue   # a deletion carries nothing
+    heads+=("$l")
+    [[ $r =~ $hex && ! $r =~ $zero ]] && git cat-file -e "$r^{commit}" 2>/dev/null && excl+=("$r")
+  done
+  [ ${#heads[@]} -eq 0 ] && { echo "nothing pushed to scan (deletions only)"; trivy_status ok; return 0; }
+  # What the remote already has: its tracking refs, found by name or, for a push to a URL, by URL.
+  name=$PUSH_REMOTE_NAME
+  if ! git for-each-ref --count=1 --format=x "refs/remotes/$name/" | grep -q x; then
+    url=${PUSH_REMOTE_URL:-$name}
+    name=$(git config --get-regexp '^remote\..*\.url$' 2>/dev/null | awk -v u="$url" '$2 == u { sub(/^remote\./, "", $1); sub(/\.url$/, "", $1); print $1; exit }')
+  fi
+  [ -n "$name" ] && git for-each-ref --count=1 --format=x "refs/remotes/$name/" | grep -q x && excl+=("--remotes=$name")
+  tmp=$(mktemp -d -p "${JOBS_DIR:-/tmp}") || { echo "trivy skipped: no temp dir"; trivy_status skip; return 0; }
+  mkdir -p "$tmp/s" "$tmp/v"
+  # Every blob version the push adds, as "<type> <sha> <size> <path>". With nothing to exclude
+  # (a first push, a remote with no tracking refs) that is the pushed history, up to a cap.
+  if ! git rev-list --objects --missing=allow-promisor "${heads[@]}" ${excl[@]+--not "${excl[@]}"} >"$tmp/objs" 2>"$tmp/rl.err"; then
+    echo "trivy skipped, not blocking: cannot list the pushed objects ($(tail -1 "$tmp/rl.err" | cut -c1-120))"
+    trivy_status skip; rm -rf -- "$tmp"; return 0
+  fi
+  git cat-file --batch-check='%(objecttype) %(objectname) %(objectsize) %(rest)' <"$tmp/objs" 2>/dev/null |
+    awk '$1 == "blob"' >"$tmp/all"
+  if [ ${#excl[@]} -eq 0 ]; then
+    cnt=$(wc -l <"$tmp/all"); bytes=$(awk '{ s += $3 } END { print s + 0 }' "$tmp/all")
+    if [ "$cnt" -gt 30000 ] || [ "$bytes" -gt 1073741824 ]; then
+      echo "history not scanned ($cnt file versions, $((bytes >> 20)) MB, nothing on the remote to compare with): the pushed trees only"
+      for l in "${heads[@]}"; do git -c core.quotePath=false ls-tree -r --format='%(objectname) %(path)' "$l"; done |
+        git cat-file --batch-check='%(objecttype) %(objectname) %(objectsize) %(rest)' 2>/dev/null | awk '$1 == "blob"' >"$tmp/all"
+    fi
+  fi
+  awk '{ print substr($0, length($1) + length($2) + length($3) + 4) }' "$tmp/all" | grep -E "$DEP_RE" | sort -u >"$tmp/deps"
+  awk '$3 < 5242880 { print $2 "\t" substr($0, length($1) + length($2) + length($3) + 4) }' "$tmp/all" >"$tmp/blobs"
+  # The heads' versions of the dependency files the push changed, whatever their size.
+  while IFS= read -r l; do
+    while IFS= read -r r; do git cat-file -e "$l:$r" 2>/dev/null && printf '%s:%s\t%s\n' "$l" "$r" "$r"; done <"$tmp/deps"
+  done < <(printf '%s\n' "${heads[@]}") >"$tmp/deplist"
+  w=$(python3 -I -c "$TRIVY_WRITE" "$tmp/s" "$tmp/blobs") || w=-1
+  if [ -s "$tmp/deplist" ]; then
+    dep=1
+    [ "$(python3 -I -c "$TRIVY_WRITE" "$tmp/v" "$tmp/deplist")" = "$(wc -l <"$tmp/deplist")" ] || w=-1
+  fi
+  if [ "$w" != "$(wc -l <"$tmp/blobs")" ]; then
+    echo "trivy skipped, not blocking: could not write every pushed file (${w} of $(wc -l <"$tmp/blobs"))"; trivy_status skip; rm -rf -- "$tmp"; return 0
+  fi
+  trivy_status ok
+  for l in s v; do
+    [ "$l" = v ] && [ "$dep" = 0 ] && continue
+    trivy fs "$tmp/$l" --severity CRITICAL --quiet --no-progress --timeout 120s \
+      --scanners "$([ "$l" = s ] && echo secret || echo vuln)" --format json --output "$tmp/$l.json" >/dev/null 2>"$tmp/$l.err"
+    rc=$?
+    if [ "$rc" != 0 ] || [ ! -s "$tmp/$l.json" ]; then
+      echo "trivy failed (exit $rc), not blocking: $(tail -1 "$tmp/$l.err" | cut -c1-160)"; trivy_status fail; continue
+    fi
+    if command -v jq >/dev/null 2>&1; then
+      n=$(jq '[.Results[]? | (.Vulnerabilities[]?, .Secrets[]?)] | length' "$tmp/$l.json")
+      jq -r '.Results[]? | .Target as $t | (.Vulnerabilities[]? | "  \($t): \(.PkgName) \(.InstalledVersion) \(.VulnerabilityID), fixed in \(.FixedVersion // "?")"), (.Secrets[]? | "  \($t):\(.StartLine) \(.Title)")' "$tmp/$l.json"
+    else
+      n=$(grep -c '"Severity": "CRITICAL"' "$tmp/$l.json")
+    fi
+    found=$((found + ${n:-0}))
+  done
+  echo "scanned $(wc -l <"$tmp/blobs") pushed file version(s) for secrets$([ "$dep" = 1 ] && echo " and $(wc -l <"$tmp/deps") dependency file(s) for vulnerabilities"), ${#heads[@]} ref(s): $found CRITICAL"
+  rm -rf -- "$tmp"
+  [ "$found" -eq 0 ] || { trivy_status block; return 1; }
 }
 HAS_TRIVY=0
 if command -v trivy >/dev/null 2>&1; then
@@ -326,21 +430,22 @@ if [ "$HAS_TRIVY" = 1 ]; then
   echo ""
   echo "⚡ pre-push [security] — trivy CRITICAL scan"
   echo "────────────────────────────────────────────────"
+  sed 's/^/   /' "$JOBS_DIR/trivy.out" 2>/dev/null
   if [ "$(job_rc trivy)" != 0 ]; then
-    echo "❌ CRITICAL CVEs found in this repo!"
+    echo "❌ CRITICAL findings (vulnerabilities or secrets) in what this push carries"
     echo "   View:  trivy fs . --severity HIGH,CRITICAL"
     echo "   Fix:   bash ~/.claude/autoresearch/trivy-auto-pr.sh \$(pwd)"
     echo ""
     ERRORS=$((ERRORS + 1))
   else
-    echo "✅ Trivy: 0 CRITICAL CVEs"
+    echo "✅ Trivy: 0 CRITICAL findings"
     echo "────────────────────────────────────────────────"
   fi
 fi
 
 # Block here if CRITICAL CVEs (applies to all branches)
 if [ $ERRORS -gt 0 ]; then
-  echo "🚫 Push blocked — fix CRITICAL CVEs above"
+  echo "🚫 Push blocked — fix the CRITICAL findings above"
   echo "   Bypass (emergency): git push --no-verify"
   exit 1
 fi
@@ -414,16 +519,17 @@ fi
 # LAYER 3: auto-deploy to Cloudflare Pages (main/master only, opt-in)
 # A repo opts in by committing a `.cf-deploy` file whose first non-comment
 # line is its Cloudflare Pages project name. Runs in the BACKGROUND so it
-# never blocks or fails the push; uses the stored wrangler login.
+# never blocks or fails the push; uses the stored wrangler login. It deploys the
+# pushed sha only after the push reached the remote (cf_autodeploy_after_push).
 # ═══════════════════════════════════════════════════════════════
 if { [ "$PUSH_TARGET_BRANCH" = "main" ] || [ "$PUSH_TARGET_BRANCH" = "master" ]; } && [ -f "$REPO_ROOT/.cf-deploy" ]; then
   CF_PROJECT=$(grep -vE '^\s*#' "$REPO_ROOT/.cf-deploy" | head -1 | tr -d '[:space:]')
   if [ -n "$CF_PROJECT" ]; then
     CF_LOG="/tmp/cf-autodeploy-$CF_PROJECT.log"
     CF_LIB="$HOME/.git-hooks/lib/cf-autodeploy.sh"
-    echo "🌐 auto-deploy → Cloudflare Pages ($CF_PROJECT) — building+deploying in background"
+    echo "🌐 auto-deploy → Cloudflare Pages ($CF_PROJECT) — after the push lands, in background"
     echo "   (log: $CF_LOG)"
-    nohup bash -c "source '$CF_LIB' && cf_autodeploy_pipeline '$REPO_ROOT' '$CF_PROJECT' '$CF_LOG'" >"$CF_LOG" 2>&1 &
+    nohup bash -c "source '$CF_LIB' && cf_autodeploy_after_push '$REPO_ROOT' '$CF_PROJECT' '$CF_LOG' '$PUSH_LOCAL_SHA' '$PUSH_REMOTE_NAME' '$PUSH_TARGET_BRANCH' '$PPID'" >"$CF_LOG" 2>&1 &
     disown 2>/dev/null || true
   fi
 fi

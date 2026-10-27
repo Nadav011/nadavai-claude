@@ -97,3 +97,42 @@ cf_autodeploy_pipeline() {
   write_deploy_failure_marker "$cf_project" "$rollback_status" "$rollback_msg" "$cf_log"
   return 1
 }
+
+# Deploys the pushed commit only once it is on the remote (Nadav, D7, 2026-10-27). The pre-push
+# hook runs before git sends anything, so this waits for that `git push` to exit, checks that the
+# remote branch now points at the pushed sha, and builds that sha in a clean worktree. Until then
+# a rejected push (not a fast-forward) still deployed, and the build used the working folder
+# (dirty or behind) rather than what was pushed. These repos have no nadavai-ci, so the local
+# typecheck and tests of pre-push layer 2, which ran before this, are the gate.
+cf_autodeploy_after_push() {  # repo_root cf_project cf_log sha remote branch push_pid
+  local repo_root="$1" cf_project="$2" cf_log="$3" sha="$4" remote="$5" branch="$6" push_pid="$7"
+  local landed wt rc
+  timeout 900 tail --pid="$push_pid" -f /dev/null 2>/dev/null
+  landed=$(git -C "$repo_root" ls-remote "$remote" "refs/heads/$branch" 2>/dev/null | cut -f1)
+  if [ "$landed" != "$sha" ]; then
+    echo "the push did not land ($remote $branch is ${landed:-unreadable}, pushed $sha): nothing deployed"
+    return 0
+  fi
+  wt=$(mktemp -d) || return 1
+  git -C "$repo_root" worktree add -q --detach "$wt" "$sha" || { rm -rf -- "$wt"; return 1; }
+  # The build reads the gitignored env files (VITE_* and the like), which a worktree does not
+  # have; the working-folder build always had them.
+  local e
+  for e in .env .env.production .env.local .env.production.local .dev.vars; do
+    [ -f "$repo_root/$e" ] && cp -p "$repo_root/$e" "$wt/$e"
+  done
+  # The installed dependencies serve when the pushed manifests match the working folder's.
+  if [ -d "$repo_root/node_modules" ] &&
+     git -C "$repo_root" diff --quiet "$sha" -- package.json package-lock.json pnpm-lock.yaml 2>/dev/null; then
+    ln -s "$repo_root/node_modules" "$wt/node_modules"
+  else
+    (cd "$wt" && if [ -f pnpm-lock.yaml ]; then pnpm install --frozen-lockfile --prefer-offline
+      elif [ -f package-lock.json ]; then npm ci --prefer-offline --no-audit --no-fund
+      else npm install --no-audit --no-fund; fi) ||
+      { git -C "$repo_root" worktree remove --force "$wt"; return 1; }
+  fi
+  echo "deploying $sha from a clean worktree"
+  cf_autodeploy_pipeline "$wt" "$cf_project" "$cf_log"; rc=$?
+  git -C "$repo_root" worktree remove --force "$wt" 2>/dev/null || rm -rf -- "$wt"
+  return "$rc"
+}

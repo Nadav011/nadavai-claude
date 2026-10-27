@@ -160,9 +160,9 @@ else bad "no GitHub remote" "$GHN reads, tc=$TC"; fi
 GH_MODE=pass run "$NEW_HOOK" "$d" "$base" "$head" "$URL"
 line=$(cat "$t/home/.cache/nadavai/pre-push.log")
 IFS=$'\t' read -r -a f <<<"$line"
-if [ ${#f[@]} = 10 ] && [ "${f[1]}" = Nadav011/synth ] && [ "${f[2]}" = main ] && [ "${f[3]}" = "${head:0:7}" ] &&
+if [ ${#f[@]} = 11 ] && [ "${f[1]}" = Nadav011/synth ] && [ "${f[2]}" = main ] && [ "${f[3]}" = "${head:0:7}" ] &&
    [[ ${f[0]} == 20* ]] && [[ ${f[5]} == typecheck=- ]] && [[ ${f[7]} =~ ^trivy=[0-9]+$ ]] &&
-   [[ ${f[8]} =~ ^total=[0-9]+\.[0-9]$ ]] && [[ ${f[9]} =~ ^gh=[0-9]+\.[0-9]$ ]]; then
+   [[ ${f[8]} =~ ^total=[0-9]+\.[0-9]$ ]] && [[ ${f[9]} =~ ^gh=[0-9]+\.[0-9]$ ]] && [[ ${f[10]} =~ ^scan=(ok|block|fail|skip|missing|-)$ ]]; then
   ok "the log line: $line"
 else
   bad "log line" "$line"
