@@ -31,6 +31,16 @@ if [ "$ALL" = 1 ]; then claude plugin marketplace update; else claude plugin mar
 
 step "Plugin"
 claude plugin update nadavai@nadavai
+# A project-scope install (the home folder has one) is not touched by the user-scope update
+# above: on 2026-10-27 /home/nadavcohen still ran 3d8e4df while the user scope had cbea8d4.
+while IFS= read -r proj; do
+  (cd "$proj" && claude plugin update nadavai@nadavai --scope project) || warn "could not update nadavai for $proj"
+done < <(python3 -I -c '
+import json, os
+d = json.load(open(os.path.expanduser("~/.claude/plugins/installed_plugins.json")))
+for e in d.get("plugins", {}).get("nadavai@nadavai", []):
+    if e.get("scope") == "project" and os.path.isdir(e.get("projectPath", "")):
+        print(e["projectPath"])' 2>/dev/null)
 if [ "$ALL" = 1 ]; then
   while read -r dep; do
     claude plugin update "$dep" || warn "could not update $dep"
