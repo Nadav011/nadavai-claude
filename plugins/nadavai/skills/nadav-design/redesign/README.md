@@ -277,7 +277,7 @@ Chat in plain Hebrew, short lines, the why before the what; code, files and comm
   confirm against a snapshot (on 2.10.2026 full reviews after an APPROVE kept breeding new findings for 10 rounds).
   Fix by simplifying, never by adding machinery.
 - Second model: `omc ask codex` on the config default (gpt-6.1-sol at xhigh; never pass `-m` or an effort flag);
-  when Codex cannot run, `omc ask grok`; when neither runs, a fresh Opus with a clean context. Never skipped, never the
+  when Codex cannot run, `omc ask antigravity` (Gemini 4 Argon, Medium); when neither runs, a fresh Opus with a clean context. Never skipped, never the
   author's own review. Its findings are fixed and diff-confirmed. Approval by any reviewer means APPROVE with nothing
   HIGH or MEDIUM left, whatever the verdict word.
 - Every edit after an APPROVE (LOW polish, the second model's fixes, START-BUILD itself) is followed by a diff-only
