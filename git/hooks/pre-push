@@ -378,6 +378,22 @@ ci_full_pass() {  # sha [nested]
   CI_PASS="$desc; ${base:0:7}: $CI_PASS"
 }
 
+# A head nadavai-ci never saw (a record commit pushed straight to main on top of a batch head
+# that passed in full) skips the checks when every commit between it and its nearest
+# first-parent ancestor with a full pass is documentation only, by classify_push's own rule.
+# Prints that ancestor. At most 10 commits up; one status read per commit tried (v4
+# coordinator, 2026-10-27: a STATUS.md commit on a green head ran 275 s of local checks).
+docs_on_full_pass() {  # head
+  local c=$1 p i
+  for ((i = 0; i < 10; i++)); do
+    p=$(git rev-parse -q --verify "$c^1" 2>/dev/null) || return 1
+    [ "$(PUSH_REMOTE_SHA=$p PUSH_LOCAL_SHA=$1; DOCS_ONLY=0; RELATED_FILES=(); classify_push >/dev/null 2>&1; echo "$DOCS_ONLY")" = 1 ] || return 1
+    if ci_full_pass "$p"; then echo "$p"; return 0; fi
+    c=$p
+  done
+  return 1
+}
+
 run_typecheck() { "$PM" run typecheck; }
 run_tests() {
   # timeout: the related run is meant to cost seconds, so if it ever costs five
@@ -406,6 +422,10 @@ if [ "$IS_MAIN" = 1 ] && [ -f "package.json" ]; then
     elif GH_T0=${EPOCHREALTIME//[!0-9]/}; ci_full_pass "$PUSH_LOCAL_SHA"; then
       GH_SEC=$(since "$GH_T0")
       DECISION=ci-pass-skip
+    elif anc=$(docs_on_full_pass "$PUSH_LOCAL_SHA"); then
+      GH_SEC=$(since "$GH_T0")
+      DECISION=ci-pass-skip
+      CI_PASS="documentation only since ${anc:0:7}, which passed in full ($CI_PASS)"
     else
       [ -n "$GH_REPO" ] && GH_SEC=$(since "$GH_T0")
       DECISION=$TEST_MODE; [ "$TEST_MODE" = full ] && DECISION="full:$TEST_REASON"

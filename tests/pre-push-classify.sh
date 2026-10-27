@@ -52,6 +52,8 @@ case $GH_MODE:$mine in
   nested:0) s=success d="same tree as ccccccc, which passed; not rebuilt" ;;
   docs-since-full:1) s=success d="documentation only since bbbbbbb, which passed; not rebuilt" ;;
   docs-since-full:0) s=success d=$full ;;
+  parent-pass:1) body='{"statuses":[]}'; if [ -n "$q" ]; then jq -r "$q" <<<"$body"; else echo "$body"; fi; exit 0 ;;
+  parent-pass:0) s=success d=$full ;;
   fail:*) s=failure d="failed on NadavAI in 4m: test" ;;
   pending:*) s=pending d="running on NadavAI" ;;
   garbage:*) echo "<html>rate limited</html>"; exit 0 ;;
@@ -154,6 +156,19 @@ expect docs-since-full   ci-pass-skip no  none    2
 expect nested            related      yes related 2
 expect fail              related      yes related 1
 expect pending           related      yes related 1
+# A record commit R (STATUS.md) on top of a head H that passed in full, pushed straight to main:
+# R has no status of its own; its first parent H does (v4 coordinator, 2026-10-27).
+hsha=$head
+commit "$d" STATUS.md 'batch 11b recorded'; rsha=$(git -C "$d" rev-parse HEAD)
+GH_MODE=parent-pass run "$NEW_HOOK" "$d" "$base" "$rsha" "$URL"
+if [ "$DEC" = ci-pass-skip ] && [ "$TC/$TESTS" = no/none ] && [ "$GHN" -le 2 ] && grep -q "documentation only since ${hsha:0:7}" "$t/out"; then
+  ok "a docs commit on a fully passed head skips the checks ($GHN reads)"
+else bad "docs commit on a passed head" "got $DEC tc=$TC tests=$TESTS ($GHN reads): $(tail -2 "$t/out")"; fi
+commit "$d" src/b.ts 'export const b = 1'; csha=$(git -C "$d" rev-parse HEAD)
+GH_MODE=parent-pass run "$NEW_HOOK" "$d" "$base" "$csha" "$URL"
+if [ "$DEC" != ci-pass-skip ] && [ "$TC" = yes ]; then ok "a code commit on top of it still runs the checks"
+else bad "code commit on a passed head" "got $DEC tc=$TC"; fi
+git -C "$d" reset -q --hard "$hsha"
 GH_MODE=pass run "$NEW_HOOK" "$d" "$base" "$head" ""
 if [ "$GHN" = 0 ] && [ "$TC" = yes ]; then ok "no GitHub remote: no read, checks as before"
 else bad "no GitHub remote" "$GHN reads, tc=$TC"; fi
