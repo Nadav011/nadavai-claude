@@ -2,7 +2,7 @@
 name: action-safety
 description: Define and assess safe business actions, truthful completion states, and understandable recovery across existing apps, new apps, and feature changes. Use for an action-safety audit, new action requirements, or a targeted safety preflight and verification alongside an implementation request. Default audit is report-only for application source and runtime.
 metadata:
-  version: "1.0.7"
+  version: "1.0.8"
 ---
 
 # Action safety
@@ -99,6 +99,9 @@ Treat customers as nontechnical by default. Where correction is supported, provi
 - When an existing static source guard flags a change that is safe by construction (for example a dialog whose draft now lives in its parent), prove the safety with a behavior test that turns red on the real failure, then record a counted, named exemption that requires that test to exist. Do not encode the current source shape into the guard: a matcher of one file's exact text breaks on the next refactor without saying why, and proves less than the behavior test.
 - Check applicable authoritative paths, concurrency/replay, partial/unknown outcomes, authorized repair/return, deferred obligations and finalized correction. Include failures of late detection/reconciliation and owner escalation, not only the happy path.
 - For user-facing changes, collect browser evidence and console results under project rules; verify mobile/RTL where applicable. For long forms, trigger pending and failure states from the actual submit position and verify that the explanation and recovery controls are visible in the viewport, with appropriate focus or status announcement. DOM text presence alone is not visibility evidence; preserve predictable focus without stealing it for ordinary background updates. Reuse documented accessible patterns only within their tested limits. Record required manual keyboard, screen-reader and nontechnical observations honestly when unavailable.
+- A server-side safeguard is live only when the running service runs it. Where server code deploys separately from the web app (edge functions, workers), compare the live file's hash with the merged revision before claiming protection; a merged guard that was never deployed protects nothing.
+- Before applying a migration that changes an action's atomicity or permissions, run it against production's own schema when a mock schema is all the harness has: a schema-only dump (no rows) restored into a disposable database, with any missing platform helper replaced by an equivalent shim, so real triggers, RLS and constraints take part. Include a two-session race for locks and idempotent repeats. Then verify once on production inside a transaction that rolls back, with synthetic rows, and confirm nothing is left behind.
+- Migrations written in parallel need distinct versions; two files with the same timestamp prefix collide in tools that key on the version.
 - Run relevant regression, lint/type/build checks through the existing workflow. A docs-only audit needs document/link/claim checks, not an unrelated full application build. Local tests do not prove deployment parity or external provider guarantees.
 - Report scope, changed artifacts, evidence with revision/environment, uncovered paths, blockers and next safe slice. Only mark a claim `verified` when its applicable behavioral and recovery evidence passes; clearly distinguish partial progress from completion. Keep known unsafe findings visible.
 
