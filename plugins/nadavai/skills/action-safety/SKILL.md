@@ -2,7 +2,7 @@
 name: action-safety
 description: Define and assess safe business actions, truthful completion states, and understandable recovery across existing apps, new apps, and feature changes. Use for an action-safety audit, new action requirements, or a targeted safety preflight and verification alongside an implementation request. Default audit is report-only for application source and runtime.
 metadata:
-  version: "1.0.8"
+  version: "1.0.9"
 ---
 
 # Action safety
@@ -67,6 +67,7 @@ Treat customers as nontechnical by default. Where correction is supported, provi
 2. Group findings by business action and its entry points, roles and products. Rank by demonstrated harm/exposure: money/issued documents, sensitive data, external sends, destructive operations and core flows as applicable. Preserve intentionally permissive existing rules pending product/domain decisions.
 3. Inspect existing safeguards and tests; record exact code references and what they do and do not prove. Run bounded isolated synthetic checks when authorized and available. Separate observed failures from hypotheses and unavailable evidence.
 4. Produce the coverage inventory, selected contracts, prioritized gaps and bounded implementation slices with required approvals. Report the actual denominator: verified pairs out of inventoried pairs, roles/products and exclusions. If discovery or testing sampled selected actions, say so; do not claim whole-app coverage.
+   When the requested result is the whole application (audit plus implementation), the work is complete only when every inventoried action/entry-point pair is `verified` or carries an explicit exclusion with reason, owner and the decision or approval it waits for. Keep the remaining pairs in the project's status record and continue slice by slice; never report done while an inventoried pair is silently uncovered.
 5. Stop at the report unless implementation was requested. Surface observed incident-level risks immediately in the response with the existing escalation route. Filing tickets, contacting people or performing production intervention needs its own authorization; a severity label never supplies it.
 
 ## `new`: new app or action
@@ -78,10 +79,11 @@ Treat customers as nontechnical by default. Where correction is supported, provi
 
 ## `change`: feature or behavior change
 
-1. Anchor scope to the request and actual diff. Identify affected actions, rule sources, channels and shared validators/components/providers; trace their impacted callers. Do not launch an unsolicited whole-project audit.
+1. Anchor scope to the request and actual diff. Identify affected actions, rule sources, channels and shared validators/components/providers; trace their impacted callers. Do not launch an unsolicited whole-project audit; the sibling sweep in step 3 is not one.
    If the diff changes no action preconditions, effects, completion/status reporting, recovery, or reads gating them, report `no action-safety impact` with a reason and return to the active workflow.
 2. Update only affected contract claims. Review pending/in-flight operations, drafts, historical/finalized records, backwards-compatible callers and dependent reads. Preserve historical truth; never invent missing values or silently hide incompatible records.
 3. Reproduce a relevant existing bug with a synthetic regression where feasible, then make the smallest authorized change using the existing workflow. Broader uncovered risks remain explicit follow-ups unless needed for the requested result or immediate incident triage.
+   Sibling sweep: when a defect class is found or fixed in one action, search the whole application for the same class (every product and app built from the source, every entry point of the same action, sibling screens, server functions, jobs and bots) and fix each instance within the change's approvals, or list it with file, reason and owner. The shape of the defect, not the input that exposed it, defines the search. A fix that closes only the place it was seen is reported as partial. Why: the same lost-answer, zero-row and stale-write defects recurred across dozens of screens of one app after each was fixed in a single place (2026-10).
 4. Invalidate affected prior evidence, run focused checks and record fresh results. List impacted shared-dependency consumers as tested or unverified; do not infer safety from an unchanged screen alone.
 
 ## Verification and completion
