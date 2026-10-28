@@ -162,6 +162,81 @@ strict "#4 grep supabase start (arg)"    allow "$(bashc 'grep -rn "supabase star
 strict "#4 echo supabase start"          allow "$(bashc 'echo supabase start')"
 strict "#5 postgres-exporter"            allow "$(bashc 'docker run -d --name pe quay.io/prometheuscommunity/postgres-exporter')"
 strict "#5 wrouesnel postgres_exporter"  allow "$(bashc 'docker run -d wrouesnel/postgres_exporter:latest')"
+# gh pr merge (always on), against a stub gh: nothing reaches GitHub. pr view answers $PRVIEW
+# ("down" fails), the statuses read $STATUSES, compare main...<sha> behind_by $BEHIND; every call
+# is logged to $GHLOG.
+mkdir -p "$tmp/bin" "$tmp/tf" "$tmp/other"
+cat >"$tmp/bin/gh" <<'GH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$GHLOG"
+case $* in
+  'pr view'*) [ "$PRVIEW" = down ] && { echo "error connecting to api.github.com" >&2; exit 1; }; echo "$PRVIEW" ;;
+  *commits/*/statuses*) echo "$STATUSES" ;;
+  *compare/main...*) echo "{\"behind_by\": $BEHIND}" ;;
+  *) exit 1 ;;
+esac
+GH
+chmod +x "$tmp/bin/gh"
+git -C "$tmp/tf" init -q -b fix-x && git -C "$tmp/tf" remote add origin git@github.com:Nadav011/therapy-flow-v2.git
+git -C "$tmp/other" init -q -b fix-x && git -C "$tmp/other" remote add origin https://github.com/Nadav011/kfir-bar-site.git
+H=1111111111111111111111111111111111111111
+code_pr=$(jq -cn --arg h "$H" '{headRefOid:$h,headRefName:"fix-x",baseRefName:"main",changedFiles:2,files:[{path:"src/a.ts"},{path:"README.md"}]}')
+pr_files() { jq -cn --arg h "$H" '{headRefOid:$h,headRefName:"fix-x",baseRefName:"main",changedFiles:($ARGS.positional | length),files:[$ARGS.positional[] | {path:.}]}' --args "$@"; }
+docs_pr=$(pr_files README.md docs/guide.md supabase/README.md supabase/migrations/NOTES.md)
+main_pass='[{"context":"nadavai-ci","state":"success","description":"passed on NadavAI in 11m"},{"context":"nadavai-ci","state":"pending","description":"running on NadavAI at main tier (landing request) [claim omarchy:6aeef628@0]"}]'
+branch_pass='[{"context":"nadavai-ci","state":"success","description":"passed on NadavAI in 9m"},{"context":"nadavai-ci","state":"pending","description":"running on NadavAI"}]'
+# Newest first: a branch-tier round after an older, failed main-tier round.
+old_round='[{"context":"nadavai-ci","state":"success","description":"passed on NadavAI in 5m (affected tests vs abc1234)"},{"context":"nadavai-ci","state":"pending","description":"running on NadavAI"},{"context":"nadavai-ci","state":"failure","description":"failed on NadavAI in 7m"},{"context":"nadavai-ci","state":"pending","description":"running on NadavAI at main tier (landing request) [claim omarchy:6aeef628@0]"}]'
+affected_main='[{"context":"nadavai-ci","state":"success","description":"passed on NadavAI in 5m (affected tests vs abc1234)"},{"context":"nadavai-ci","state":"pending","description":"running on NadavAI at main tier (landing request)"}]'
+msi_pass='[{"context":"nadavai-ci","state":"success","description":"passed on MSI in 14m [msi:0a1b2c3d]"},{"context":"nadavai-ci","state":"pending","description":"running on MSI at main tier (landing request)"},{"context":"nadavai-ci","state":"failure","description":"failed on MSI in 3m"}]'
+rerun='[{"context":"nadavai-ci","state":"pending","description":"running on NadavAI"},{"context":"nadavai-ci","state":"success","description":"passed on NadavAI in 11m"},{"context":"nadavai-ci","state":"pending","description":"running on NadavAI at main tier (landing request)"}]'
+merge() { # name want prview statuses behind json
+  : >"$tmp/ghlog"
+  PATH=$tmp/bin:$PATH GHLOG=$tmp/ghlog PRVIEW=$3 STATUSES=$4 BEHIND=$5 check "merge: $1" "$2" "$6"
+}
+merge "no main-tier pass"                deny  "$code_pr" "$branch_pass" 0 "$(bashcwd 'gh pr merge 12 --merge' "$tmp/tf")"
+merge "main-tier pass, contains main"    allow "$code_pr" "$main_pass" 0 "$(bashcwd 'gh pr merge 12 --merge' "$tmp/tf")"
+merge "main-tier pass, main moved"       deny  "$code_pr" "$main_pass" 3 "$(bashcwd 'gh pr merge 12 --merge' "$tmp/tf")"
+merge "documentation only"               allow "$docs_pr" "$branch_pass" 0 "$(bashcwd 'gh pr merge 12 --merge' "$tmp/tf")"
+merge "# land-urgent:"                   allow "$code_pr" "$branch_pass" 0 "$(bashcwd 'gh pr merge 12 --merge # land-urgent: prod login down' "$tmp/tf")"
+merge "repo not on NadavAI CI"           allow "$code_pr" "$branch_pass" 0 "$(bashcwd 'gh pr merge 12 --merge' "$tmp/other")"
+[ -s "$tmp/ghlog" ] && { echo "FAIL: merge: repo not on NadavAI CI called gh"; FAIL=$((FAIL+1)); }
+merge "gh down"                          allow down "$branch_pass" 0 "$(bashcwd 'gh pr merge 12 --merge' "$tmp/tf")"
+merge "statuses unreadable"              allow "$code_pr" 'not json' 0 "$(bashcwd 'gh pr merge 12 --merge' "$tmp/tf")"
+merge "echo \"gh pr merge\""             allow "$code_pr" "$branch_pass" 0 "$(bashcwd 'echo "gh pr merge 12"' "$tmp/tf")"
+merge "in a heredoc body, not run"       allow "$code_pr" "$branch_pass" 0 "$(bashcwd $'cat > notes.md <<\'EOF\'\ngh pr merge 12 --squash\nEOF' "$tmp/tf")"
+merge "cd x && gh pr merge --squash"     deny  "$code_pr" "$branch_pass" 0 "$(bashcwd 'cd tf && gh pr merge --squash' "$tmp")"
+grep -q '^pr view fix-x -R Nadav011/therapy-flow-v2 ' "$tmp/ghlog" || { echo "FAIL: merge: cd x did not resolve the branch and repo"; FAIL=$((FAIL+1)); }
+merge "-R, base not main"                allow "${code_pr/\"main\"/\"release\"}" "$branch_pass" 0 "$(bashc 'gh pr merge 12 -s -R Nadav011/therapy-flow-v2')"
+merge "--repo= in bash -c, timeout"      deny  "$code_pr" "$branch_pass" 0 "$(bashc "bash -c 'timeout 60 gh pr merge 12 --repo=Nadav011/sportchat-web --squash -d'")"
+merge "PR url, background"               deny  "$code_pr" "$branch_pass" 0 "$(bashc 'gh pr merge https://github.com/Nadav011/cash-next-app/pull/7 --auto' true)"
+merge "gh pr view (not a merge)"         allow "$code_pr" "$branch_pass" 0 "$(bashcwd 'gh pr view 12 --json title' "$tmp/tf")"
+PATH=$tmp/bin:$PATH GHLOG=$tmp/ghlog PRVIEW=$code_pr STATUSES=$branch_pass BEHIND=0 strict "merge: no pass, strict on" deny "$(bashcwd 'gh pr merge 12 --merge' "$tmp/tf")"
+merge "agy: no pass"                     deny  "$code_pr" "$branch_pass" 0 "$(agy_cmd 'gh pr merge 12 -R Nadav011/snooker-smart --merge')"
+merge "agy: main-tier pass"              allow "$code_pr" "$main_pass" 0 "$(agy_cmd 'gh pr merge 12 -R Nadav011/snooker-smart --merge')"
+# Review fixes: only the newest round counts; the runner's docs rule; redirects; where the repo comes from.
+merge "F1 main tier only in an older round" deny "$code_pr" "$old_round" 0 "$(bashcwd 'gh pr merge 12 --merge' "$tmp/tf")"
+merge "F1 full pass, main tier older round" deny "$code_pr" "${old_round/ (affected tests vs abc1234)/}" 0 "$(bashcwd 'gh pr merge 12 --merge' "$tmp/tf")"
+merge "F1 affected-tests pass, main tier"  deny  "$code_pr" "$affected_main" 0 "$(bashcwd 'gh pr merge 12 --merge' "$tmp/tf")"
+merge "F1 MSI full pass, main tier"        allow "$code_pr" "$msi_pass" 0 "$(bashcwd 'gh pr merge 12 --merge' "$tmp/tf")"
+merge "F1 newest round still pending"      deny  "$code_pr" "$rerun" 0 "$(bashcwd 'gh pr merge 12 --merge' "$tmp/tf")"
+merge "F1 no nadavai-ci status at all"     deny  "$code_pr" '[]' 0 "$(bashcwd 'gh pr merge 12 --merge' "$tmp/tf")"
+grep -q 'statuses?per_page=100$' "$tmp/ghlog" || { echo "FAIL: merge: statuses read without per_page=100"; FAIL=$((FAIL+1)); }
+merge "F2 docs/a.ts is code"               deny  "$(pr_files docs/a.ts README.md)" "$branch_pass" 0 "$(bashcwd 'gh pr merge 12 --merge' "$tmp/tf")"
+merge "F2 src/README.md is code"           deny  "$(pr_files src/README.md)" "$branch_pass" 0 "$(bashcwd 'gh pr merge 12 --merge' "$tmp/tf")"
+merge "F2 messages/he.md is code"          deny  "$(pr_files messages/he.md CHANGELOG.md)" "$branch_pass" 0 "$(bashcwd 'gh pr merge 12 --merge' "$tmp/tf")"
+merge "F2 supabase/seed.sql is code"       deny  "$(pr_files supabase/seed.sql supabase/README.md)" "$branch_pass" 0 "$(bashcwd 'gh pr merge 12 --merge' "$tmp/tf")"
+merge "F3 2>&1 | tail, current branch"     deny  "$code_pr" "$branch_pass" 0 "$(bashcwd 'gh pr merge --squash --delete-branch 2>&1 | tail -3' "$tmp/tf")"
+grep -q '^pr view fix-x ' "$tmp/ghlog" || { echo "FAIL: merge: F3 did not resolve the current branch"; FAIL=$((FAIL+1)); }
+merge "F3 > out.txt 12"                    deny  "$code_pr" "$branch_pass" 0 "$(bashcwd 'gh pr merge > out.txt 12 --squash' "$tmp/tf")"
+grep -q '^pr view 12 ' "$tmp/ghlog" || { echo "FAIL: merge: F3 read the redirect target as the PR"; FAIL=$((FAIL+1)); }
+merge "repo name in capitals"              deny  "$code_pr" "$branch_pass" 0 "$(bashc 'gh pr merge 12 -R Nadav011/Therapy-Flow-V2')"
+merge "-R between pr and merge"            deny  "$code_pr" "$branch_pass" 0 "$(bashc 'gh pr -R Nadav011/therapy-flow-v2 merge 12 --squash')"
+merge "--repo between pr and view"         allow "$code_pr" "$branch_pass" 0 "$(bashc 'gh pr --repo Nadav011/therapy-flow-v2 view 12')"
+merge "GH_REPO= before gh"                 deny  "$code_pr" "$branch_pass" 0 "$(bashc 'GH_REPO=Nadav011/sportchat-web gh pr merge 12 --squash')"
+merge "GH_REPO= of a repo off CI"          allow "$code_pr" "$branch_pass" 0 "$(bashcwd 'GH_REPO=Nadav011/kfir-bar-site gh pr merge 12' "$tmp/tf")"
+merge "statuses down, behind main"         deny  "$code_pr" 'not json' 2 "$(bashcwd 'gh pr merge 12 --merge' "$tmp/tf")"
+
 check "strict off: supabase start"     allow "$(bashc 'supabase start')"
 check "strict off: until gh polling"   allow "$(bashc 'until gh pr checks 12 | grep -qv pending; do sleep 30; done')"
 check "strict off: docker postgres"    allow "$(bashc 'docker run -d -e POSTGRES_PASSWORD=x postgres:17')"

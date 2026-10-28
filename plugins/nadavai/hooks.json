@@ -19,7 +19,7 @@
           {
             "type": "command",
             "command": "~/nadavai/plugins/nadavai/scripts/agent-guard.sh",
-            "timeout": 5
+            "timeout": 35
           }
         ]
       }
