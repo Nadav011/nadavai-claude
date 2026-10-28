@@ -57,6 +57,11 @@ Decide which resource is the bottleneck before touching anything: CPU (0% idle, 
 above the thread count), memory (memory PSI, earlyoom kills in the journal), or disk (I/O PSI,
 D-state tasks in `jbd2_log_wait_commit` / `folio_wait_bit_common` / `rq_qos_wait`).
 
+If Nadav says the disk grew since a date ("a week ago we were at 67%"), the inventory audit must
+answer it: list directories created since then (`find -maxdepth 3 -newermt`) and measure real
+bytes per inode set, not `du` per tree. On 2026-10-28 this found 48 new SportChat v4 worktrees,
+each with its own `npm ci` (about 2.5 GB, link count 1): 89% became 61% with one `hardlink` pass.
+
 If Nadav reports freezes, run `python3 -I scripts/freeze-watch.py 600` in the background. It
 separates "Orca's main thread blocked on disk" from "the whole machine stalled"; on 2026-10-20
 it showed 44 Orca stalls and 0 system stalls in 10 minutes, which moved the work from CPU to disk.
@@ -74,11 +79,12 @@ cache is not running.
 
 | Item | How |
 |---|---|
-| Codex `~/.codex/.tmp/marketplaces/.staging/*` older than 1 h, `~/.cache/codex-update-manager/{workspaces,packages}` not in use | `rm -rf` by literal name; MSI has `codex-leftovers-clean.timer` for this |
+| Codex `~/.codex/.tmp/marketplaces/.staging/*` older than 1 h, `~/.cache/codex-update-manager/{workspaces,packages}` not in use | `rm -rf` by literal name; MSI has `codex-leftovers-clean.timer` for this (workspaces older than 90 minutes, `.deb` older than a day). Marketplace clones of plugins whose `config.toml` entry is `source_type=local` are orphans |
 | npm `_cacache`, deno, trivy, pip, pnpm metadata, uv, go-build caches, `go clean -modcache` | only when the tool is not running |
-| `node_modules`, `.next`, `.turbo`, `.expo`, `.vite` in worktrees idle 2+ days | skip anything `git ls-files` tracks and anything other worktrees symlink into |
+| `node_modules`, `.next`, `.turbo`, `.expo`, `.vite` in worktrees idle 2+ days | skip anything `git ls-files` tracks and anything other worktrees symlink into. File mtimes are not an idleness signal (mass checkouts refresh them): use dirty/unpushed/merged, a process cwd, and the owner's skip list |
 | Anonymous Docker volumes with no container | list `docker volume ls -qf dangling=true`, inspect each (`CreatedAt`, size, a `PG_VERSION` file means a database); remove by name only the ones older than 2 days whose creating stack is gone; never `docker volume prune`, never named volumes (the Green Room `supabase_*_jfqwucrzhzojelrptqxb` volumes look reclaimable and are not) |
 | Installer downloads whose installed version is newer, old plugin cache versions no live session started from, unused Playwright browsers, apt cache | `apt-get clean`; vacuum the journal (`--vacuum-time=14d`) only after a freeze investigation is closed, the journal is its evidence |
+| Firmware for hardware the machine does not have (`/usr/lib/firmware` qcom, netronome, mellanox, amdgpu, mrvl, mediatek, ath1xk, qed: 1.1 GB on the MSI) | `path-exclude` lines in `/etc/dpkg/dpkg.cfg.d/90-firmware-exclude` so upgrades do not bring them back, then `rm -rf` the trees by literal path. Check `lspci`/`lsusb` first; do not rebuild the initramfs |
 
 Then dedupe instead of deleting anything still in use. Hardlinked files share one inode, so an
 in-place write in one worktree (Node `fs.writeFile`, Python `write_bytes`) silently changes every
@@ -89,9 +95,18 @@ read-only (`find <dirs> -type f -links +1 -exec chmod a-w {} +`) so an in-place 
 instead. `git checkout` and `git pull` still work: git replaces files rather than writing into them.
 
 ```bash
-hardlink -n -t -s 4k <all node_modules dirs>     # dry run, prints "Saved"
-hardlink -t -s 4k <same dirs>                     # real: 23 GB on 2026-10-24, nothing deleted
+hardlink -n -t -s 4k -x '/\.(vite|cache)(/|$)' <all node_modules dirs>   # dry run, prints "Saved"
+flock ~/.cache/machine-checkup.heavy.lock ionice -c2 -n7 nice -n 10 \
+  hardlink -t -s 4k -x '/\.(vite|cache)(/|$)' <same dirs>   # real: 23 GB on 2026-10-24, 87 GB on 2026-10-28
 ```
+
+`hardlink` prints no progress and is idempotent: if a restart cuts a run, rerun the same command
+(on 2026-10-28 it took 35 minutes for 6.4 million files). Build the directory list fresh on every
+run, and drop worktrees that are a lane base or train, have a process cwd/fd/exe inside, or
+changed in the last two hours; take the owner session's skip list first (rule 5), because a
+linked tree that is rewritten in place changes every other tree. Afterwards check a sample:
+link counts above 1, `require('next')` loads, `git status` clean. Worktrees skipped as busy get a
+later pass.
 
 Identical asset folders copied into every worktree (SportChat `public/images/chat-backgrounds/teams`
 saved 13.7 GB) go the same way, after Nadav says yes.
@@ -114,6 +129,8 @@ the MSI and stalls writes meanwhile).
   and prints `OK` or `CHANGED`. Delete only `OK` lines, with literal-path `rm`; archive `CHANGED`
   ones again under a new name. Leave a `MOVED-TO-NADAVAI.txt` stub where other tools may look.
   `NOTE absolute symlink` lines in the run log point outside the copy: check them first.
+  Wait for it with `tail --pid=<archive.sh PID> -f /dev/null` in a background command; a
+  `pgrep -f` waiter matches itself or the wrong process.
 - **ASK-NADAV**: AskUserQuestion batches, largest first. Typical questions: unused apps (with
   last-use date), toolchains, old project copies, swapfile size, kernel fallback, firewall
   exposure, background services that duplicate each other.
@@ -129,7 +146,9 @@ on 2026-10-23 the same config measured 157 ms and 280 ms p50 a few minutes apart
 
 ### 6. Verify and record
 
-- `df -h /`, `freeze-watch.py` again, `systemctl --failed`, `systemctl --user --failed`.
+- `df -h /`, `freeze-watch.py` again, `systemctl --failed`, `systemctl --user --failed`. Read `df`
+  last, after the deletions: running agents add 3-10 GB an hour, so the figure from the middle of
+  the round is already stale (61% became 64% during the 2026-10-28 archive).
 - Append the round to `disk-cleanup-keep-list.md` (sizes, what was archived where, new lessons)
   and tuning results to the thermal/RAM memories.
 - Tell Nadav in Hebrew: before and after numbers, what was archived and where, what is left and
