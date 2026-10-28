@@ -18,6 +18,13 @@ each approved host; session keys and the private `~/.local/state/wacli` archive
 stay there. Updates do not enable this service on other machines, and capture
 does not automatically reply or require a browser.
 
+`bin/worktree-clean` removes git worktrees nobody needs any more (clean and idle, or idle a week
+after snapshotting their unsaved work under `refs/worktree-clean/` and `~/Archive/worktree-clean/`).
+Its weekly run is opt-in per machine, on the machine where agents create worktrees: symlink
+[`systemd/user/worktree-clean.service`](systemd/user/worktree-clean.service) and `.timer` into
+`~/.config/systemd/user/` and `systemctl --user enable --now worktree-clean.timer`. Tests:
+`tests/worktree-clean.sh`.
+
 ## What is inside
 
 | Part | Where | Delivered by |

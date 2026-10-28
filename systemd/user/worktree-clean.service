@@ -1,0 +1,11 @@
+[Unit]
+Description=Remove unneeded git worktrees without losing work (worktree-clean)
+ConditionFileIsExecutable=%h/.local/bin/worktree-clean
+
+[Service]
+Type=oneshot
+Nice=19
+IOSchedulingClass=idle
+# PATH without ~/.config/orca shims: the script calls orca-ide, never the bare orca screen reader.
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/.local/bin/worktree-clean
