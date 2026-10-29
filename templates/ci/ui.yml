@@ -28,7 +28,7 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm lint:ui
+      - run: echo y | pnpm lint:ui
       - uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
@@ -61,7 +61,7 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm lint:ui
+      - run: echo y | pnpm lint:ui
       - run: node e2e/dod/routes.mjs --check
 
   lighthouse:
