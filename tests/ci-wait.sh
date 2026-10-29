@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Tests for bin/ci-wait against a stub gh and ssh: nothing reaches GitHub or NadavAI. Not under
 # bin/, which setup links into ~/.local/bin file by file. Covers its superseded answers, the
-# shared poller, the parent check, --require full and --land.
+# shared poller, the parent check, --require full, --land and the on-demand build request.
 #   tests/ci-wait.sh [path to ci-wait, default ../bin/ci-wait]
 set -u
 cw=$(realpath "${1:-$(dirname "$0")/../bin/ci-wait}")
@@ -119,6 +119,39 @@ CISTATE=success check "--land on main: refused"                                 
 mkdir -p "$t/down"; printf '#!/bin/sh\nexit 255\n' >"$t/down/ssh"; chmod +x "$t/down/ssh"
 PATH=$t/down:$PATH CISTATE=success check "--land, the request not written: exit 3"        3 "$full" feat/x "$A" "$B" --land
 unset SSHLOG SECSTATE
+
+# On-demand builds (2026-10-29): a wait on a branch head writes a build request on NadavAI first.
+# This ssh runs the remote command for real under a scratch HOME (NadavAI's ~), and answers the
+# heartbeat from a loop.pid that is alive.
+nh=$t/nadavai; mkdir -p "$t/run" "$nh/ci/state"; echo $$ >"$nh/ci/state/loop.pid"
+printf '#!/bin/sh
+for a; do c=$a; done
+HOME=%s exec bash -c "$c"
+' "$nh" >"$t/run/ssh"; chmod +x "$t/run/ssh"
+wantf() { cat "$nh/ci/state/want/$1" 2>/dev/null; }
+export SECSTATE=success CISTATE=success
+PATH=$t/run:$PATH check "a wait on a branch head goes on as before" 0 "$full" fix "$A" "$B"
+w=$(wantf therapy-flow-v2__fix); l=$(tail -1 "$nh/ci/state/want.log" 2>/dev/null)
+if [[ $w =~ ^$A\ [0-9]+$ ]] && [[ $l =~ ^therapy-flow-v2\ fix\ $A\ [0-9]+\ [A-Za-z0-9._-]+$ ]]; then
+  ok "it wrote \"<sha> <epoch>\" to state/want/<repo>__<branch> and a line to want.log"
+else bad "want request" "file: $w | log: $l"; fi
+PATH=$t/run:$PATH check "a second wait on the same head" 0 "$full" fix "$A" "$B"
+[ "$(wantf therapy-flow-v2__fix | grep -c "^$A ")" = 1 ] && ok "... keeps one line for that sha" || bad "want dedupe" "$(wantf therapy-flow-v2__fix)"
+check_b() { local out rc; fresh_cache
+  out=$(CIDESC=$full WHERE=fix HEAD_fix=$B HEAD_main=$A PATH=$t/run:$PATH timeout 60 bash "$cw" therapy-flow-v2 "$B" --timeout 0 2>&1); rc=$?
+  [ "$rc" = 2 ] || [ "$rc" = 0 ] || bad "wait on B" "exit $rc: $(tail -1 <<<"$out")"; }
+check_b
+[ "$(wantf therapy-flow-v2__fix | cut -d' ' -f1 | sort | tr '\n' ' ')" = "$A $B " ] &&
+  ok "a wait on another head of the branch keeps the first one's request" || bad "two heads" "$(wantf therapy-flow-v2__fix)"
+PATH=$t/run:$PATH check "a wait on a branch with a slash" 0 "$full" feat/x "$A" "$B"
+[ -n "$(wantf therapy-flow-v2__feat__x)" ] && ok "... is named <repo>__feat__x" || bad "slash name" "$(ls "$nh/ci/state/want")"
+rm -rf "$nh/ci/state/want"
+PATH=$t/run:$PATH check "a wait on main (deploy and gate pending: times out)" 2 "$full" main "$A" "$A"
+[ ! -e "$nh/ci/state/want" ] && ok "... writes no build request" || bad "main request" "$(ls "$nh/ci/state/want")"
+PATH=$t/run:$PATH CIUPDATED=2099-01-01T00:00:00Z check "a --land wait" 0 "$full" feat/x "$A" "$B" --land
+[ ! -e "$nh/ci/state/want" ] && [ -s "$nh/ci/state/land/therapy-flow-v2__feat__x" ] &&
+  ok "... writes its landing request and no build request" || bad "land request" "$(ls -R "$nh/ci/state")"
+unset SECSTATE CISTATE
 
 # The waits below run on: A is pending until $DONE exists.
 export CISTATE=success CIDESC=$full SECSTATE=success WHERE=fix HEAD_fix=$A HEAD_main=$B
