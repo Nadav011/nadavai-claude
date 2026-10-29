@@ -469,15 +469,26 @@ case "$tool" in
     deny 'A fork inherits your model and your whole context (median ~290K tokens per request). Use a named subagent_type with only the context it needs. If a fork is really what you want, put [fork] in the description.'
     ;;
   Bash|run_terminal_command)
-    cmd=$(jq -r '.tool_input.command // .toolInput.command // empty' <<<"$input")
-    cwd=$(jq -r '.cwd // empty' <<<"$input")
+    cmd=$(jq -r '.tool_input.command // .toolInput.command // empty' <<<"$input" 2>/dev/null)
+    cwd=$(jq -r '.cwd // empty' <<<"$input" 2>/dev/null)
     strict_guard "$cmd" "$cwd"
     merge_guard "$cmd" "$cwd"
-    # Grok runs a command in the background when block_until_ms is 0.
-    [ "$(jq -r '.tool_input.run_in_background == true or .toolInput.block_until_ms == 0' <<<"$input")" = true ] && allow
+    if [ "$tool" = run_terminal_command ]; then
+      # Grok moves a command to the background after block_until_ms (0: at once; 30000 when
+      # omitted), so a sleep blocks for the shorter of the two.
+      block=$(jq -r '.toolInput.block_until_ms // 30000' <<<"$input" 2>/dev/null)
+      [[ $block =~ ^[0-9]+$ ]] || block=30000
+      [ "$block" -ge 120000 ] || allow
+      bg='block_until_ms: 0'
+    else
+      [ "$(jq -r '.tool_input.run_in_background // false' <<<"$input")" = true ] && allow
+      bg='run_in_background: true'
+    fi
     found=$(printf '%s\n' "$cmd" | check_sleep)
     if [ -n "$found" ]; then
-      deny "${found#*$'\t'} blocks you for ${found%%$'\t'*} s. Run the long command with run_in_background: true and continue when the completion notice arrives; for NadavAI CI use ci-wait <repo> <sha|branch> in the background."
+      secs=${found%%$'\t'*}
+      [ "$tool" = run_terminal_command ] && [ $((block / 1000)) -lt "$secs" ] && secs=$((block / 1000))
+      deny "${found#*$'\t'} blocks you for $secs s. Run the long command with $bg and continue when the completion notice arrives; for NadavAI CI use ci-wait <repo> <sha|branch> in the background."
     fi
     ;;
 esac

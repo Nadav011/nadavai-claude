@@ -392,10 +392,18 @@ mirror_guard_to_grok() {
   # repo, so agent-guard gets its own file pointing at the live script. "Bash" also matches
   # Grok's run_terminal_command.
   [ -d "$HOME/.grok" ] || { log "no ~/.grok; skipping Grok guard hook"; return; }
+  command -v jq >/dev/null 2>&1 || { warn "jq missing; Grok guard hook not written"; return 0; }
+  local out="$HOME/.grok/hooks/nadavai-guard.json" tmp
   mkdir -p "$HOME/.grok/hooks"
-  printf '{\n  "hooks": {\n    "PreToolUse": [\n      {\n        "matcher": "Bash",\n        "hooks": [\n          { "type": "command", "command": "%s", "timeout": 45 }\n        ]\n      }\n    ]\n  }\n}\n' \
-    "$REPO/plugins/nadavai/scripts/agent-guard.sh" > "$HOME/.grok/hooks/nadavai-guard.json"
-  log "$HOME/.grok/hooks/nadavai-guard.json refreshed"
+  tmp=$(mktemp "$out.XXXXXX")
+  # Written whole and renamed, so a Grok session that reloads hooks never reads half a file.
+  if jq -n --arg c "$REPO/plugins/nadavai/scripts/agent-guard.sh" \
+       '{hooks: {PreToolUse: [{matcher: "Bash", hooks: [{type: "command", command: $c, timeout: 45}]}]}}' >"$tmp" &&
+     mv "$tmp" "$out"; then
+    log "$out refreshed"
+  else
+    rm -f "$tmp"; warn "could not write $out"
+  fi
 }
 
 mirror_to_antigravity() {

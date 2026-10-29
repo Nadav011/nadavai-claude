@@ -69,12 +69,21 @@ check "agy: normal command"         allow "$(agy_cmd 'pnpm test')"
 check "agy: fork without tag"       deny  "$(agy_sub fork 'Review')"
 check "agy: fork with [fork] tag"   allow "$(agy_sub fork '[fork] Review')"
 check "agy: research subagent"      allow "$(agy_sub research 'Search')"
-check "grok: sleep 120"             deny  "$(grok_cmd 'sleep 120')"
+check "grok: sleep 120, block omitted (30 s)" allow "$(grok_cmd 'sleep 120')"
+check "grok: sleep 120, block 180000" deny  "$(grok_cmd 'sleep 120' 180000)"
+check "grok: sleep 300, block 15000" allow "$(grok_cmd 'sleep 300' 15000)"
+check "grok: sleep 100, block 600000" allow "$(grok_cmd 'sleep 100' 600000)"
 check "grok: sleep 300 background"  allow "$(grok_cmd 'sleep 300' 0)"
 check "grok: sleep 300, block 600000" deny "$(grok_cmd 'sleep 300' 600000)"
 check "grok: normal command"        allow "$(grok_cmd 'pnpm test')"
 check "grok: other tool"            allow "$(jq -cn '{toolName:"read_file",toolInput:{path:"/tmp/sleep 300"}}')"
 check "codex: sleep 120"            deny  "$(codex_cmd 'sleep 120')"
+out=$(grok_cmd 'sleep 300' 600000 | bash "$GUARD" | jq -r .hookSpecificOutput.permissionDecisionReason)
+case $out in *'block_until_ms: 0'*) echo "PASS: grok: deny names block_until_ms: 0"; PASS=$((PASS+1)) ;;
+  *) echo "FAIL: grok: deny text: $out"; FAIL=$((FAIL+1)) ;; esac
+out=$(grok_cmd 'sleep 600' 150000 | bash "$GUARD" | jq -r .hookSpecificOutput.permissionDecisionReason)
+case $out in *'blocks you for 150 s'*) echo "PASS: grok: deny counts the shorter block"; PASS=$((PASS+1)) ;;
+  *) echo "FAIL: grok: deny text: $out"; FAIL=$((FAIL+1)) ;; esac
 check "codex: normal command"       allow "$(codex_cmd 'pnpm test')"
 
 # Strict mode. Hand-written edges first, then the table of real commands (agent transcripts,
