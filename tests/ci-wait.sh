@@ -145,6 +145,8 @@ check_b
   ok "a wait on another head of the branch keeps the first one's request" || bad "two heads" "$(wantf therapy-flow-v2__fix)"
 PATH=$t/run:$PATH check "a wait on a branch with a slash" 0 "$full" feat/x "$A" "$B"
 [ -n "$(wantf therapy-flow-v2__feat__x)" ] && ok "... is named <repo>__feat__x" || bad "slash name" "$(ls "$nh/ci/state/want")"
+PATH=$t/run:$PATH check "a wait on a sha GitHub links to no branch yet" 0 "$full" "" "$A" "$B"
+[[ $(wantf therapy-flow-v2) =~ ^$A\ [0-9]+$ ]] && ok "... asks by sha alone in state/want/<repo>" || bad "sha-only request" "$(ls "$nh/ci/state/want")"
 rm -rf "$nh/ci/state/want"
 PATH=$t/run:$PATH check "a wait on main (deploy and gate pending: times out)" 2 "$full" main "$A" "$A"
 [ ! -e "$nh/ci/state/want" ] && ok "... writes no build request" || bad "main request" "$(ls "$nh/ci/state/want")"

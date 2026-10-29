@@ -249,18 +249,20 @@ fi
 # Written whatever the flag says, so the switch needs no new ci-wait. A sha that is no branch's
 # head asks nothing (the poller builds branch heads only). Not written: a warning, and the wait
 # goes on; the heartbeat right after tells a NadavAI that is down.
-if [ -z "$land" ] && [ "$mode" = branch ] && [ -n "$branch" ]; then
-  if [[ $branch =~ ^[A-Za-z0-9._/-]+$ ]]; then
+# GitHub may not link a just-pushed sha to its branch yet; such a wait asks by sha alone
+# (~/ci/state/want/<repo>), and NadavAI builds it on whichever branch has it as head.
+if [ -z "$land" ] && [ "$mode" = branch ]; then
+  if [ -z "$branch" ] || [[ $branch =~ ^[A-Za-z0-9._/-]+$ ]]; then
     printf -v want_epoch '%(%s)T' -1
     want_host=$(hostname -s 2>/dev/null); [[ $want_host =~ ^[A-Za-z0-9._-]+$ ]] || want_host=unknown
-    want_name="${repo}__${branch//\//__}"
+    want_name=$repo; [ -n "$branch" ] && want_name="${repo}__${branch//\//__}"
     # shellcheck disable=SC2029  # expanded here on purpose: every value was checked above
     if ssh -o ConnectTimeout=5 -o BatchMode=yes "$HOST" \
       "mkdir -p ~/ci/state/want && cd ~/ci/state/want && exec 3>>$want_name.lock && flock 3 &&
        { grep -v '^$sha ' $want_name 2>/dev/null | tail -n 4; printf '%s %s\\n' $sha $want_epoch; } >$want_name.tmp.\$\$ &&
        mv $want_name.tmp.\$\$ $want_name &&
-       printf '%s %s %s %s %s\\n' $repo $branch $sha $want_epoch $want_host >>~/ci/state/want.log" 9>&-; then
-      echo "ci-wait: asked $HOST to build ${sha:0:7} of $branch (~/ci/state/want/$want_name)"
+       printf '%s %s %s %s %s\\n' $repo ${branch:--} $sha $want_epoch $want_host >>~/ci/state/want.log" 9>&-; then
+      echo "ci-wait: asked $HOST to build ${sha:0:7} of ${branch:-whichever branch has it} (~/ci/state/want/$want_name)"
     else
       echo "ci-wait: could not write the build request of ${sha:0:7} on $HOST; with on-demand builds on, it is not built until one is written" >&2
     fi
