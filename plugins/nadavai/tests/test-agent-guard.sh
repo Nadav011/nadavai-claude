@@ -162,15 +162,15 @@ strict "#4 grep supabase start (arg)"    allow "$(bashc 'grep -rn "supabase star
 strict "#4 echo supabase start"          allow "$(bashc 'echo supabase start')"
 strict "#5 postgres-exporter"            allow "$(bashc 'docker run -d --name pe quay.io/prometheuscommunity/postgres-exporter')"
 strict "#5 wrouesnel postgres_exporter"  allow "$(bashc 'docker run -d wrouesnel/postgres_exporter:latest')"
-# gh pr merge (always on), against a stub gh: nothing reaches GitHub. pr view answers $PRVIEW
-# ("down" fails), the statuses read $STATUSES, compare main...<sha> behind_by $BEHIND; every call
-# is logged to $GHLOG.
+# gh pr merge (always on), against a stub gh: nothing reaches GitHub. pr view <n> answers
+# $PRVIEW_<n> when set, else $PRVIEW ("down" fails), the statuses read $STATUSES, compare
+# main...<sha> behind_by $BEHIND; every call is logged to $GHLOG.
 mkdir -p "$tmp/bin" "$tmp/tf" "$tmp/other"
 cat >"$tmp/bin/gh" <<'GH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >>"$GHLOG"
 case $* in
-  'pr view'*) [ "$PRVIEW" = down ] && { echo "error connecting to api.github.com" >&2; exit 1; }; echo "$PRVIEW" ;;
+  'pr view'*) v=PRVIEW_${3//[^A-Za-z0-9_]/_}; [ -n "${!v:-}" ] && PRVIEW=${!v}; [ "$PRVIEW" = down ] && { echo "error connecting to api.github.com" >&2; exit 1; }; echo "$PRVIEW" ;;
   *commits/*/statuses*) echo "$STATUSES" ;;
   *compare/main...*) echo "{\"behind_by\": $BEHIND}" ;;
   *) exit 1 ;;
@@ -190,6 +190,12 @@ old_round='[{"context":"nadavai-ci","state":"success","description":"passed on N
 affected_main='[{"context":"nadavai-ci","state":"success","description":"passed on NadavAI in 5m (affected tests vs abc1234)"},{"context":"nadavai-ci","state":"pending","description":"running on NadavAI at main tier (landing request)"}]'
 msi_pass='[{"context":"nadavai-ci","state":"success","description":"passed on MSI in 14m [msi:0a1b2c3d]"},{"context":"nadavai-ci","state":"pending","description":"running on MSI at main tier (landing request)"},{"context":"nadavai-ci","state":"failure","description":"failed on MSI in 3m"}]'
 rerun='[{"context":"nadavai-ci","state":"pending","description":"running on NadavAI"},{"context":"nadavai-ci","state":"success","description":"passed on NadavAI in 11m"},{"context":"nadavai-ci","state":"pending","description":"running on NadavAI at main tier (landing request)"}]'
+# GitHub numbers statuses by id; the guard sorts by it, so every fixture gets ids, newest highest.
+ids() { jq -c 'to_entries | map(.value + {id: (100 - .key)})' <<<"$1"; }
+main_pass=$(ids "$main_pass") branch_pass=$(ids "$branch_pass") old_round=$(ids "$old_round")
+affected_main=$(ids "$affected_main") msi_pass=$(ids "$msi_pass") rerun=$(ids "$rerun")
+# The same main-tier round as $main_pass, but listed out of id order: by id a branch-tier round came last.
+shuffled='[{"id":4,"context":"nadavai-ci","state":"success","description":"passed on NadavAI in 11m"},{"id":1,"context":"nadavai-ci","state":"pending","description":"running on NadavAI at main tier (landing request)"},{"id":3,"context":"nadavai-ci","state":"pending","description":"running on NadavAI"},{"id":2,"context":"nadavai-ci","state":"failure","description":"failed on NadavAI in 7m"}]'
 merge() { # name want prview statuses behind json
   : >"$tmp/ghlog"
   PATH=$tmp/bin:$PATH GHLOG=$tmp/ghlog PRVIEW=$3 STATUSES=$4 BEHIND=$5 check "merge: $1" "$2" "$6"
@@ -236,6 +242,23 @@ merge "--repo between pr and view"         allow "$code_pr" "$branch_pass" 0 "$(
 merge "GH_REPO= before gh"                 deny  "$code_pr" "$branch_pass" 0 "$(bashc 'GH_REPO=Nadav011/sportchat-web gh pr merge 12 --squash')"
 merge "GH_REPO= of a repo off CI"          allow "$code_pr" "$branch_pass" 0 "$(bashcwd 'GH_REPO=Nadav011/kfir-bar-site gh pr merge 12' "$tmp/tf")"
 merge "statuses down, behind main"         deny  "$code_pr" 'not json' 2 "$(bashcwd 'gh pr merge 12 --merge' "$tmp/tf")"
+# Second review: PRs named through the shell, every merge in a command, statuses by id, xargs, a gh path.
+merge "PR from a variable"                 deny  "$code_pr" "$main_pass" 0 "$(bashcwd 'PR=12; gh pr merge "$PR" --squash' "$tmp/tf")"
+merge "PR from \$(gh pr list)"             deny  "$code_pr" "$main_pass" 0 "$(bashcwd 'gh pr merge "$(gh pr list --json number -q ".[0].number")" --squash' "$tmp/tf")"
+merge "PR from unquoted \$(...)"           deny  "$code_pr" "$main_pass" 0 "$(bashcwd 'gh pr merge $(cat pr.txt) --squash' "$tmp/tf")"
+merge "PR from a backtick"                 deny  "$code_pr" "$main_pass" 0 "$(bashcwd 'gh pr merge `cat pr.txt` --squash' "$tmp/tf")"
+merge "PR from a for loop"                 deny  "$code_pr" "$main_pass" 0 "$(bashcwd 'for p in 12 13; do gh pr merge $p --squash; done' "$tmp/tf")"
+merge "PR from xargs"                      deny  "$code_pr" "$main_pass" 0 "$(bashcwd 'gh pr list -q ".[].number" --json number | xargs -n1 gh pr merge --squash' "$tmp/tf")"
+merge "xargs -I {}"                        deny  "$code_pr" "$main_pass" 0 "$(bashcwd 'cat prs | xargs -I {} gh pr merge {} --squash' "$tmp/tf")"
+merge "PR variable, repo off CI"           allow "$code_pr" "$branch_pass" 0 "$(bashcwd 'gh pr merge "$PR" --squash' "$tmp/other")"
+merge "PR variable, # land-urgent:"        allow "$code_pr" "$branch_pass" 0 "$(bashcwd 'gh pr merge "$PR" # land-urgent: prod down' "$tmp/tf")"
+merge "off-CI merge, then a CI merge"      deny  "$code_pr" "$branch_pass" 0 "$(bashcwd 'gh pr merge 5 -R Nadav011/kfir-bar-site --squash && gh pr merge 12 --squash' "$tmp/tf")"
+PRVIEW_5=$docs_pr merge "docs-only merge, then code" deny "$code_pr" "$branch_pass" 0 "$(bashcwd 'gh pr merge 5 --squash && gh pr merge 12 --squash' "$tmp/tf")"
+grep -q '^pr view 12 ' "$tmp/ghlog" || { echo "FAIL: merge: the second merge was not looked up"; FAIL=$((FAIL+1)); }
+merge "two merges, both main-tier passes"  allow "$code_pr" "$main_pass" 0 "$(bashcwd 'gh pr merge 5 --squash; gh pr merge 12 --squash' "$tmp/tf")"
+[ "$(grep -c '^pr view' "$tmp/ghlog")" = 2 ] || { echo "FAIL: merge: two merges did not make two lookups"; FAIL=$((FAIL+1)); }
+merge "statuses out of id order"           deny  "$code_pr" "$shuffled" 0 "$(bashcwd 'gh pr merge 12 --merge' "$tmp/tf")"
+merge "/usr/bin/gh pr merge"               deny  "$code_pr" "$branch_pass" 0 "$(bashcwd '/usr/bin/gh pr merge 12 --merge' "$tmp/tf")"
 
 check "strict off: supabase start"     allow "$(bashc 'supabase start')"
 check "strict off: until gh polling"   allow "$(bashc 'until gh pr checks 12 | grep -qv pending; do sleep 30; done')"

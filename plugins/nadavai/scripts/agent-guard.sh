@@ -100,8 +100,9 @@ check_sleep() {
 # Loops in heredoc bodies are never read. gh counts as polling only when it reads a status
 # (run view/watch, pr checks, commits/<sha>/status(es), check-runs). `docker compose up -d`
 # counts when the compose file (-f, or the default names in the cwd) has a postgres image.
-# With merge 1 it reports an executed `gh pr merge` instead (rule merge), its detail being the
-# -R value, the PR argument and the last `cd` directory before it, separated by \037.
+# With merge 1 it reports every executed `gh pr merge` instead, one line each (rule merge), its
+# detail being the -R value, the PR argument and the last `cd` directory before it, separated by
+# \037. A PR that comes from a backtick or from xargs reads as "`" or "$xargs".
 # check_strict <loops 0|1> <pg 0|1> <cwd> [merge 0|1]
 check_strict() {
   awk -v loops="${1:-1}" -v pg="${2:-1}" -v cwd="${3:-$PWD}" -v merge="${4:-0}" '
@@ -111,7 +112,7 @@ check_strict() {
     function pgimage(s) { return s !~ /exporter|postgres-meta/ && s ~ /postgres([^t]|$)|postgis|pgvector|timescale/ }
     # skipwrap <i> <m>: the index of the command a wrapper runs: timeout [opts] N, nohup, time, command,
     # env [opts] [VAR=..], sudo [opts], nice [-n N], stdbuf [opts], npx/pnpx/bunx [opts],
-    # pnpm|yarn|npm|bun [opts] [dlx|exec|x] [opts], and VAR=.. assignments.
+    # pnpm|yarn|npm|bun [opts] [dlx|exec|x] [opts], xargs [opts], and VAR=.. assignments.
     function skipwrap(j, m,   a, vf, ch) {
       for (ch = 1; ch && j <= m; ) {
         ch = 0; a = w[j]
@@ -126,6 +127,7 @@ check_strict() {
         else if (a == "sudo") vf = " -u -g -h -p -C -U -r -t -D --user --group --host --prompt --chdir "
         else if (a == "nice") vf = " -n --adjustment "
         else if (a == "stdbuf") vf = " -i -o -e "
+        else if (a == "xargs") vf = " -a -d -E -I -L -n -P -s --arg-file --delimiter --eof --max-lines --max-args --max-procs --max-chars "
         else if (a == "npx" || a == "pnpx" || a == "bunx") vf = " -p --package -c --call "
         else if (a == "pnpm" || a == "yarn" || a == "npm" || a == "bun") vf = " --filter -F -C --dir --prefix --cwd --workspace "
         if (vf == "") break
@@ -155,7 +157,7 @@ check_strict() {
     function isnum(x) { return x ~ /^[0-9]*\.?[0-9]+s?$/ }
     function found(rule, detail) { printf "%s\t%s\n", rule, detail; done_ = 1 }
     # analyze <source> <mode: all|pg>: queues the scripts of nested `sh -c` calls.
-    function analyze(src, mode,   n, raw, i, m, d, e, c, k, depth, body, minsl, v, hasgh, a, det, ep, img, nxt, vn, inner, pre, rp, pr, cdd, off) {
+    function analyze(src, mode,   n, raw, i, m, d, e, c, k, depth, body, minsl, v, hasgh, a, det, ep, img, nxt, vn, inner, pre, rp, pr, cdd, off, lastj) {
       while (match(src, /\x27[^\x27]*\x27|"([^"\\]|\\.)*"/)) {
         q[++nq] = substr(src, RSTART, RLENGTH); pre = substr(src, 1, RSTART - 1)
         if (pre ~ /(^|[^A-Za-z0-9_.\/-])(ba|z|da)?sh[ \t]+(-[A-Za-z]+[ \t]+)*-[A-Za-z]*c[ \t]+$/) {
@@ -170,7 +172,9 @@ check_strict() {
         v = substr(src, RSTART + 2, RLENGTH - 3); sub(/[^A-Za-z0-9_].*$/, "", v)
         src = substr(src, 1, RSTART - 1) "$" v substr(src, RSTART + RLENGTH)
       }
-      gsub(/\n/, " ; ", src); gsub(/[;&|(){}`]/, " ; ", src)
+      # A backtick also leaves itself as a word, so that `gh pr merge `...`` shows where its PR comes from.
+      # So does the {} of xargs and find (as __BRACES__), so that it is not read as a group.
+      gsub(/\n/, " ; ", src); gsub(/`/, " ; ` ; ", src); gsub(/\{\}/, "__BRACES__", src); gsub(/[;&|(){}]/, " ; ", src)
       n = split(src, raw, /[ \t]+/); m = 0
       delete w; delete cp
       for (i = 1; i <= n; i++) if (raw[i] != "") w[++m] = raw[i]
@@ -181,9 +185,14 @@ check_strict() {
       # other word is the PR. The repo is -R/--repo (also between pr and merge), else GH_REPO= before gh.
       for (i = 1; merge && i <= m; i++) {
         if (cp[i] && w[i] == "cd") { cdd = (w[i + 1] == ";" || i == m) ? "~" : expand(w[i + 1]); gsub(/["\x27]/, "", cdd) }
-        if (!cp[i] || w[j = skipwrap(i, m)] != "gh" || w[j + 1] != "pr") continue
+        # A VAR= prefix is at command position too; the gh it leads to is read once.
+        if (!cp[i] || w[j = skipwrap(i, m)] !~ /(^|\/)gh$/ || w[j + 1] != "pr" || j <= lastj) continue
+        lastj = j
         rp = ""; pr = ""; off = 0
-        for (k = i; k < j; k++) if (w[k] ~ /^GH_REPO=/) { rp = expand(substr(w[k], 9)); gsub(/["\x27]/, "", rp) }
+        for (k = i; k < j; k++) {
+          if (w[k] ~ /^GH_REPO=/) { rp = expand(substr(w[k], 9)); gsub(/["\x27]/, "", rp) }
+          if (w[k] == "xargs") pr = "$xargs"
+        }
         for (k = j + 2; k <= m && w[k] != ";" && w[k] != "merge"; k++) {
           a = expand(w[k]); gsub(/["\x27]/, "", a)
           if (a == "-R" || a == "--repo") { rp = expand(w[++k]); gsub(/["\x27]/, "", rp) }
@@ -193,7 +202,7 @@ check_strict() {
         }
         if (w[k] != "merge") continue
         for (k++; k <= m && w[k] != ";"; k++) {
-          a = expand(w[k]); gsub(/["\x27]/, "", a)
+          a = expand(w[k]); gsub(/["\x27]/, "", a); if (a == "__BRACES__") a = "{}"
           # A redirect (>out, 2>/dev/null; 2>&1 arrives as `2>` before a `;`); a bare one takes the next word.
           if (w[k] ~ /^[0-9]*[<>]/) { if (w[k] ~ /^[0-9]*[<>]+$/ && w[k + 1] != ";") k++; continue }
           if (a == "-R" || a == "--repo") { rp = expand(w[++k]); gsub(/["\x27]/, "", rp); continue }
@@ -203,7 +212,9 @@ check_strict() {
           if (a ~ /^(-[AbFt]|--(author-email|body|body-file|subject|match-head-commit))$/) { k++; continue }
           if (a !~ /^-/ && pr == "") pr = a
         }
-        if (!off) { found("merge", rp "\037" pr "\037" cdd); return }
+        if (pr == "" && w[k] == ";" && w[k + 1] == "`") pr = "`"
+        # One line per merge, and no done_: every merge in the command is checked.
+        if (!off) printf "merge\t%s\037%s\037%s\n", rp, pr, cdd
       }
       for (i = 1; loops && mode == "all" && i <= m; i++) {
         if (!cp[i] || (w[i] != "while" && w[i] != "until")) continue
@@ -345,7 +356,7 @@ check_strict() {
         if (nqueue > before) qi = nqueue + 1
       }
     }
-  ' | head -1
+  ' | if [ "${4:-0}" = 1 ]; then cat; else head -1; fi
 }
 
 strict_guard() { # strict_guard <command>: denies, or returns
@@ -363,50 +374,59 @@ strict_guard() { # strict_guard <command>: denies, or returns
   esac
 }
 
-merge_guard() { # merge_guard <command> <cwd>: denies, or returns
-  local found rp pr dir o n pv head ref base kind passed behind
+merge_guard() { # merge_guard <command> <cwd>: denies on the first failing merge, or returns
+  local found lines line rp pr dir o n pv head ref base kind passed behind
   case "$1" in *gh*pr*merge*) ;; *) return 0 ;; esac
   case "$1" in *'# land-urgent:'*) return 0 ;; esac
   found=$(printf '%s\n' "$1" | check_strict 0 0 "${2:-$PWD}" 1)
-  [ "${found%%$'\t'*}" = merge ] || return 0
-  IFS=$'\037' read -r rp pr dir <<<"${found#*$'\t'}"
-  # shellcheck disable=SC2088  # a literal ~ from the command's cd
-  case "$dir" in
-    '') dir=${2:-$PWD} ;;
-    '~'|'~/'*) dir=$HOME${dir#\~} ;;
-    /*) ;;
-    *) dir=${2:-$PWD}/$dir ;;
-  esac
-  case "$pr" in *github.com/*/pull/*) rp=${pr#*github.com/}; rp=${rp%%/pull/*}; pr=${pr##*/pull/}; pr=${pr%%[/?#]*} ;; esac
-  [ -n "$rp" ] || rp=$(git -C "$dir" remote get-url origin 2>/dev/null)
-  rp=${rp%/}; rp=${rp%.git}
-  case "$rp" in */*) ;; *) return 0 ;; esac
-  n=${rp##*/}; o=${rp%/*}; o=${o##*[/:]}
-  [ "${o,,}" = nadav011 ] || return 0
-  case "${n,,}" in therapy-flow-v2|sportchat-web|cash-next-app|snooker-smart) ;; *) return 0 ;; esac
-  [ -n "$pr" ] || pr=$(git -C "$dir" branch --show-current 2>/dev/null)
-  [ -n "$pr" ] || return 0
-  # Documentation only as the runner's docs_since_green reads it (every file *.md, none under a code
-  # directory, supabase/*.md excepted): it answers that without a full run.
-  pv=$(timeout 10 gh pr view "$pr" -R "$o/$n" --json headRefOid,headRefName,baseRefName,changedFiles,files 2>/dev/null) || return 0
-  IFS=$'\t' read -r head ref base kind < <(jq -r '[.headRefOid, .headRefName, .baseRefName,
-    (if .changedFiles > 0 and .changedFiles == (.files | length)
-        and ([.files[].path | select((test("\\.md$") and (test("^(src|app|pages|public|content|messages|supabase|e2e|apps|mobile)/") | not)
-          or test("^supabase/.*\\.md$")) | not)] | length) == 0
-     then "docs" else "code" end)] | @tsv' <<<"$pv" 2>/dev/null)
-  [ -n "$head" ] && [ "$base" = main ] && [ "$kind" = code ] || return 0
-  # Only the newest round counts: the newest nadavai-ci status is a full pass (ci-wait's
-  # FULL_PASS_RE), and a main-tier pending sits between it and the previous final status.
-  passed=$(timeout 10 gh api "repos/$o/$n/commits/$head/statuses?per_page=100" 2>/dev/null | jq -r 'if type == "array" then
-    [.[] | select(.context == "nadavai-ci")] as $s | ($s | map(.state != "pending") | index(true)) as $f
-    | if $f != 0 then false else ($s[1:] | map(.state != "pending") | index(true) // length) as $g
-      | $s[0].state == "success" and (($s[0].description // "") | test("^passed on (NadavAI|MSI) in [0-9]+m( \\[msi:[0-9a-f]{8}\\])?$"))
-        and any($s[1:][:$g][]; (.description // "") | contains("at main tier (landing request)")) end
-    else empty end' 2>/dev/null)
-  [ "$passed" = false ] || behind=$(timeout 10 gh api "repos/$o/$n/compare/main...$head" 2>/dev/null | jq -r '.behind_by // empty' 2>/dev/null)
-  if [ "$passed" = false ] || [[ ${behind:-} =~ ^[1-9][0-9]*$ ]]; then
-    deny "Merging PR $pr would make main run the full suite again: its head ${head:0:7} $([ "$passed" = false ] && echo "has no main-tier landing pass" || echo "is $behind commits behind main"). Rebase $ref on main, push it, run ci-wait $n $ref --land in run_in_background, and merge after it is green (main then answers by tree). If ci-wait --land answered \"same tree as\" or \"documentation only since\", the landing did not run at main tier: push a code commit. For an urgent fix, add '# land-urgent: <reason>' to the command."
-  fi
+  mapfile -t lines <<<"$found"
+  for line in "${lines[@]}"; do
+    [ "${line%%$'\t'*}" = merge ] || continue
+    IFS=$'\037' read -r rp pr dir <<<"${line#*$'\t'}"
+    behind=""
+    # shellcheck disable=SC2088  # a literal ~ from the command's cd
+    case "$dir" in
+      '') dir=${2:-$PWD} ;;
+      '~'|'~/'*) dir=$HOME${dir#\~} ;;
+      /*) ;;
+      *) dir=${2:-$PWD}/$dir ;;
+    esac
+    case "$pr" in *github.com/*/pull/*) rp=${pr#*github.com/}; rp=${rp%%/pull/*}; pr=${pr##*/pull/}; pr=${pr%%[/?#]*} ;; esac
+    [ -n "$rp" ] || rp=$(git -C "$dir" remote get-url origin 2>/dev/null)
+    rp=${rp%/}; rp=${rp%.git}
+    case "$rp" in */*) ;; *) continue ;; esac
+    n=${rp##*/}; o=${rp%/*}; o=${o##*[/:]}
+    [ "${o,,}" = nadav011 ] || continue
+    case "${n,,}" in therapy-flow-v2|sportchat-web|cash-next-app|snooker-smart) ;; *) continue ;; esac
+    # A PR from a variable, a command substitution, a loop or xargs cannot be looked up before it runs.
+    if [ -n "$pr" ] && ! [[ $pr =~ ^[A-Za-z0-9._/-]+$ ]]; then
+      deny "gh pr merge $pr on $n names its PR through the shell, so the guard cannot check its landing pass before it runs. Merge one PR per command with its literal number (gh pr merge 12 ...). For an urgent fix, add '# land-urgent: <reason>' to the command."
+    fi
+    [ -n "$pr" ] || pr=$(git -C "$dir" branch --show-current 2>/dev/null)
+    [ -n "$pr" ] || continue
+    # Documentation only as the runner's docs_since_green reads it (every file *.md, none under a code
+    # directory, supabase/*.md excepted): it answers that without a full run.
+    pv=$(timeout 10 gh pr view "$pr" -R "$o/$n" --json headRefOid,headRefName,baseRefName,changedFiles,files 2>/dev/null) || continue
+    IFS=$'\t' read -r head ref base kind < <(jq -r '[.headRefOid, .headRefName, .baseRefName,
+      (if .changedFiles > 0 and .changedFiles == (.files | length)
+          and ([.files[].path | select((test("\\.md$") and (test("^(src|app|pages|public|content|messages|supabase|e2e|apps|mobile)/") | not)
+            or test("^supabase/.*\\.md$")) | not)] | length) == 0
+       then "docs" else "code" end)] | @tsv' <<<"$pv" 2>/dev/null)
+    [ -n "$head" ] && [ "$base" = main ] && [ "$kind" = code ] || continue
+    # Only the newest round counts (newest by id, as the runner sorts them): the newest nadavai-ci status
+    # is a full pass (ci-wait's FULL_PASS_RE), and a main-tier pending sits between it and the previous
+    # final status.
+    passed=$(timeout 10 gh api "repos/$o/$n/commits/$head/statuses?per_page=100" 2>/dev/null | jq -r 'if type == "array" then
+      [sort_by(.id) | reverse | .[] | select(.context == "nadavai-ci")] as $s | ($s | map(.state != "pending") | index(true)) as $f
+      | if $f != 0 then false else ($s[1:] | map(.state != "pending") | index(true) // length) as $g
+        | $s[0].state == "success" and (($s[0].description // "") | test("^passed on (NadavAI|MSI) in [0-9]+m( \\[msi:[0-9a-f]{8}\\])?$"))
+          and any($s[1:][:$g][]; (.description // "") | contains("at main tier (landing request)")) end
+      else empty end' 2>/dev/null)
+    [ "$passed" = false ] || behind=$(timeout 10 gh api "repos/$o/$n/compare/main...$head" 2>/dev/null | jq -r '.behind_by // empty' 2>/dev/null)
+    if [ "$passed" = false ] || [[ $behind =~ ^[1-9][0-9]*$ ]]; then
+      deny "Merging PR $pr would make main run the full suite again: its head ${head:0:7} $([ "$passed" = false ] && echo "has no main-tier landing pass" || echo "is $behind commits behind main"). Rebase $ref on main, push it, run ci-wait $n $ref --land in run_in_background, and merge after it is green (main then answers by tree). If ci-wait --land answered \"documentation only since\", the landing did not run at main tier: push a code commit. If it answered \"same tree as X\" and X passed at main tier, add '# land-urgent: same tree passed at main tier' to the command. For an urgent fix, add '# land-urgent: <reason>' to the command."
+    fi
+  done
 }
 
 if [ "$is_agy" = 1 ]; then
