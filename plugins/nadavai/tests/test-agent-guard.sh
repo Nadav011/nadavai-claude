@@ -163,14 +163,16 @@ strict "#4 echo supabase start"          allow "$(bashc 'echo supabase start')"
 strict "#5 postgres-exporter"            allow "$(bashc 'docker run -d --name pe quay.io/prometheuscommunity/postgres-exporter')"
 strict "#5 wrouesnel postgres_exporter"  allow "$(bashc 'docker run -d wrouesnel/postgres_exporter:latest')"
 # gh pr merge (always on), against a stub gh: nothing reaches GitHub. pr view <n> answers
-# $PRVIEW_<n> when set, else $PRVIEW ("down" fails), the statuses read $STATUSES, compare
-# main...<sha> behind_by $BEHIND; every call is logged to $GHLOG.
+# $PRVIEW_<n> when set, else $PRVIEW ("down" fails), main's statuses $MAIN_STATUSES (default [],
+# "down" fails), the head's statuses $STATUSES, compare main...<sha> behind_by $BEHIND; every call
+# is logged to $GHLOG.
 mkdir -p "$tmp/bin" "$tmp/tf" "$tmp/other"
 cat >"$tmp/bin/gh" <<'GH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >>"$GHLOG"
 case $* in
   'pr view'*) v=PRVIEW_${3//[^A-Za-z0-9_]/_}; [ -n "${!v:-}" ] && PRVIEW=${!v}; [ "$PRVIEW" = down ] && { echo "error connecting to api.github.com" >&2; exit 1; }; echo "$PRVIEW" ;;
+  *commits/main/statuses*) [ "${MAIN_STATUSES:-[]}" = down ] && exit 1; echo "${MAIN_STATUSES:-[]}" ;;
   *commits/*/statuses*) echo "$STATUSES" ;;
   *compare/main...*) echo "{\"behind_by\": $BEHIND}" ;;
   *) exit 1 ;;
@@ -205,8 +207,9 @@ merge "main-tier pass, contains main"    allow "$code_pr" "$main_pass" 0 "$(bash
 merge "main-tier pass, main moved"       deny  "$code_pr" "$main_pass" 3 "$(bashcwd 'gh pr merge 12 --merge' "$tmp/tf")"
 merge "documentation only"               allow "$docs_pr" "$branch_pass" 0 "$(bashcwd 'gh pr merge 12 --merge' "$tmp/tf")"
 merge "# land-urgent:"                   allow "$code_pr" "$branch_pass" 0 "$(bashcwd 'gh pr merge 12 --merge # land-urgent: prod login down' "$tmp/tf")"
+MAIN_STATUSES='[{"id":7,"context":"vercel","state":"success"}]' \
 merge "repo not on NadavAI CI"           allow "$code_pr" "$branch_pass" 0 "$(bashcwd 'gh pr merge 12 --merge' "$tmp/other")"
-[ -s "$tmp/ghlog" ] && { echo "FAIL: merge: repo not on NadavAI CI called gh"; FAIL=$((FAIL+1)); }
+[ "$(cat "$tmp/ghlog")" = 'api repos/Nadav011/kfir-bar-site/commits/main/statuses?per_page=30' ] || { echo "FAIL: merge: repo not on NadavAI CI made more than the main statuses call"; FAIL=$((FAIL+1)); }
 merge "gh down"                          allow down "$branch_pass" 0 "$(bashcwd 'gh pr merge 12 --merge' "$tmp/tf")"
 merge "statuses unreadable"              allow "$code_pr" 'not json' 0 "$(bashcwd 'gh pr merge 12 --merge' "$tmp/tf")"
 merge "echo \"gh pr merge\""             allow "$code_pr" "$branch_pass" 0 "$(bashcwd 'echo "gh pr merge 12"' "$tmp/tf")"
@@ -259,6 +262,15 @@ merge "two merges, both main-tier passes"  allow "$code_pr" "$main_pass" 0 "$(ba
 [ "$(grep -c '^pr view' "$tmp/ghlog")" = 2 ] || { echo "FAIL: merge: two merges did not make two lookups"; FAIL=$((FAIL+1)); }
 merge "statuses out of id order"           deny  "$code_pr" "$shuffled" 0 "$(bashcwd 'gh pr merge 12 --merge' "$tmp/tf")"
 merge "/usr/bin/gh pr merge"               deny  "$code_pr" "$branch_pass" 0 "$(bashcwd '/usr/bin/gh pr merge 12 --merge' "$tmp/tf")"
+# A repo off the four names is on NadavAI CI when main's head carries a nadavai-ci status.
+ci_main='[{"id":9,"context":"vercel","state":"success"},{"id":8,"context":"nadavai-ci","state":"success","description":"passed on NadavAI in 9m"}]'
+MAIN_STATUSES=$ci_main merge "new CI repo, no main-tier pass"   deny  "$code_pr" "$branch_pass" 0 "$(bashcwd 'gh pr merge 12 --merge' "$tmp/other")"
+grep -q '^pr view 12 -R Nadav011/kfir-bar-site ' "$tmp/ghlog" || { echo "FAIL: merge: new CI repo was not looked up"; FAIL=$((FAIL+1)); }
+MAIN_STATUSES=$ci_main merge "new CI repo, main-tier pass"      allow "$code_pr" "$main_pass" 0 "$(bashcwd 'gh pr merge 12 --merge' "$tmp/other")"
+MAIN_STATUSES=down merge "main statuses lookup fails"            allow "$code_pr" "$branch_pass" 0 "$(bashcwd 'gh pr merge 12 --merge' "$tmp/other")"
+grep -q '^pr view' "$tmp/ghlog" && { echo "FAIL: merge: a failed main statuses lookup went on to pr view"; FAIL=$((FAIL+1)); }
+MAIN_STATUSES=$ci_main merge "another owner"                     allow "$code_pr" "$branch_pass" 0 "$(bashc 'gh pr merge 12 -R someone/therapy-flow-v2 --merge')"
+[ -s "$tmp/ghlog" ] && { echo "FAIL: merge: another owner called gh"; FAIL=$((FAIL+1)); }
 
 check "strict off: supabase start"     allow "$(bashc 'supabase start')"
 check "strict off: until gh polling"   allow "$(bashc 'until gh pr checks 12 | grep -qv pending; do sleep 30; done')"

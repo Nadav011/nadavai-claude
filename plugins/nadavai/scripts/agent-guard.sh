@@ -6,7 +6,8 @@
 #   Bash:  a sleep of 120 s or more in the foreground. It blocks the agent; long local
 #          commands go to run_in_background, CI waits to ci-wait.
 #   Bash:  `gh pr merge` into main of a NadavAI CI repo (therapy-flow-v2, sportchat-web,
-#          cash-next-app, snooker-smart) whose head's newest nadavai-ci round is not a full pass
+#          cash-next-app, snooker-smart, or any other Nadav011 repo whose main head carries a
+#          nadavai-ci status, one more gh call) whose head's newest nadavai-ci round is not a full pass
 #          at main tier (landing request) or that is behind main, unless the PR is documentation
 #          only by the runner's rule or the command carries `# land-urgent: <reason>`. The merge
 #          commit is a new sha, and main reruns the full suite on anything that did not land
@@ -397,7 +398,12 @@ merge_guard() { # merge_guard <command> <cwd>: denies on the first failing merge
     case "$rp" in */*) ;; *) continue ;; esac
     n=${rp##*/}; o=${rp%/*}; o=${o##*[/:]}
     [ "${o,,}" = nadav011 ] || continue
-    case "${n,,}" in therapy-flow-v2|sportchat-web|cash-next-app|snooker-smart) ;; *) continue ;; esac
+    # Any other repo is on NadavAI CI when main's head carries a nadavai-ci status (repos added later too).
+    case "${n,,}" in
+      therapy-flow-v2|sportchat-web|cash-next-app|snooker-smart) ;;
+      *) timeout 10 gh api "repos/$o/$n/commits/main/statuses?per_page=30" 2>/dev/null \
+           | jq -e 'type == "array" and any(.[]; .context == "nadavai-ci")' >/dev/null 2>&1 || continue ;;
+    esac
     # A PR from a variable, a command substitution, a loop or xargs cannot be looked up before it runs.
     if [ -n "$pr" ] && ! [[ $pr =~ ^[A-Za-z0-9._/-]+$ ]]; then
       deny "gh pr merge $pr on $n names its PR through the shell, so the guard cannot check its landing pass before it runs. Merge one PR per command with its literal number (gh pr merge 12 ...). For an urgent fix, add '# land-urgent: <reason>' to the command."
