@@ -4,10 +4,11 @@ name: CI
 # on npm drop the pnpm/action-setup steps, set `cache: npm`, and use `npm ci` / `npx` in place
 # of `pnpm install --frozen-lockfile` / `pnpm exec`.
 #
-# Run by nadavai-ci on NadavAI for every pushed branch head (act, on the host), not by GitHub
-# Actions: the account's Actions are blocked by billing. The `on:` block is what GitHub Actions
-# would use if it comes back. `nadavai-ci check-repo <repo>` checks this file's hooks before the
-# repo is enabled (rules/ci-policy.md, "New repos").
+# Run by nadavai-ci on NadavAI (act, on the host) for main, landing heads and the branch heads an
+# agent waits on with ci-wait, not by GitHub Actions: the account's Actions are blocked by billing.
+# The `on:` block is what GitHub Actions would use if it comes back. `nadavai-ci check-repo <repo>`
+# checks this file's hooks before the repo is enabled (rules/ci-policy.md, "New and existing
+# projects").
 #
 # What runs where (rules/ci-policy.md): on an intermediate branch head nadavai-ci sets
 # NADAVAI_TESTS=changed, so only what a diff can scope runs (typecheck, the unit tests the diff
@@ -24,9 +25,10 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
-# Every job names its own pnpm `dest`: pnpm/action-setup's default ~/setup-pnpm is shared by every
-# job of the act run on this host, and two installs into it at once fail ("self-installer exits
-# with code 1", cash-next-app 2026-09-29).
+# Every job names its own pnpm `dest` (exactly `~/setup-pnpm-${{ github.job }}`, the line nadavai-ci
+# check-repo and the runner look for before they run jobs side by side): pnpm/action-setup's
+# default ~/setup-pnpm is shared by every job of the act run, and two installs into it at once
+# fail ("self-installer exits with code 1", cash-next-app 2026-09-29).
 jobs:
   quality:
     runs-on: [self-hosted, nadavai]
@@ -35,7 +37,7 @@ jobs:
       - uses: pnpm/action-setup@v4
         with:
           version: 10
-          dest: ~/setup-pnpm-quality
+          dest: ~/setup-pnpm-${{ github.job }}
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -54,7 +56,8 @@ jobs:
           NADAVAI_CHANGED: ${{ vars.NADAVAI_TESTS == 'changed' && vars.NADAVAI_TESTS_BASE || '' }}
 
   # Type-aware ESLint reads the whole program, so a diff cannot scope it, and its cache misses
-  # cross-file type changes. The pre-commit hook lints the staged files on every commit.
+  # cross-file type changes. In a repo with a `lint:ui` script, the global pre-commit hook lints the
+  # staged files on every commit; without one, intermediate heads get no lint at all.
   lint:
     runs-on: [self-hosted, nadavai]
     if: vars.NADAVAI_TESTS != 'changed'
@@ -63,7 +66,7 @@ jobs:
       - uses: pnpm/action-setup@v4
         with:
           version: 10
-          dest: ~/setup-pnpm-lint
+          dest: ~/setup-pnpm-${{ github.job }}
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -81,7 +84,7 @@ jobs:
       - uses: pnpm/action-setup@v4
         with:
           version: 10
-          dest: ~/setup-pnpm-e2e
+          dest: ~/setup-pnpm-${{ github.job }}
       - uses: actions/setup-node@v4
         with:
           node-version: 24
