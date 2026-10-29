@@ -30,8 +30,8 @@ case $* in
       [ "${BASESTATE:-}" = down ] && { echo "error connecting to api.github.com" >&2; exit 1; }
       s=${BASESTATE:-} d=${BASEDESC:-}
     fi
-    body=$(jq -cn --arg s "$s" --arg d "$d" --arg sec "${SECSTATE:-}" --arg u "${CIUPDATED:-}" '{statuses: ([{context: "nadavai-ci", state: $s, description: $d}
-        + (if $u == "" then {} else {updated_at: $u} end)]
+    body=$(jq -cn --arg s "$s" --arg d "$d" --arg sec "${SECSTATE:-}" --arg u "${CIUPDATED:-}" '{statuses: ((if $s == "none" then [] else [{context: "nadavai-ci", state: $s, description: $d}
+        + (if $u == "" then {} else {updated_at: $u} end)] end)
       + (if $sec == "" then [] else [{context: "nadavai-security", state: $sec, description: "clean"}] end))}')
     if [ -n "$q" ]; then jq -r "$q" <<<"$body"; else echo "$body"; fi ;;
   *branches-where-head*) echo "$WHERE" ;;
@@ -147,6 +147,17 @@ PATH=$t/run:$PATH check "a wait on a branch with a slash" 0 "$full" feat/x "$A" 
 [ -n "$(wantf therapy-flow-v2__feat__x)" ] && ok "... is named <repo>__feat__x" || bad "slash name" "$(ls "$nh/ci/state/want")"
 PATH=$t/run:$PATH check "a wait on a sha GitHub links to no branch yet" 0 "$full" "" "$A" "$B"
 [[ $(wantf therapy-flow-v2) =~ ^$A\ [0-9]+$ ]] && ok "... asks by sha alone in state/want/<repo>" || bad "sha-only request" "$(ls "$nh/ci/state/want")"
+rm -rf "$nh/ci/state/want"
+out=$(CISTATE=none CIDESC='' WHERE='' HEAD_fix=$B HEAD_main=$B PATH=$t/run:$PATH CI_WAIT_CACHE=$t/cache-nb timeout 60 bash "$cw" therapy-flow-v2 "$A" --timeout 5 2>&1); rc=$?
+[ "$rc" = 0 ] && grep -q "is no branch's head" <<<"$out" && ok "a sha no branch has as head, unbuilt: not measured after three looks" ||
+  bad "no-branch sha" "exit $rc: $(tail -1 <<<"$out")"
+PATH=$t/run:$PATH check "a branch name outside [A-Za-z0-9._/-]" 0 "$full" 'fix+x' "$A" "$B"
+[[ $(wantf therapy-flow-v2) =~ ^$A\ [0-9]+$ ]] && ok "... asks by sha alone" || bad "odd-name request" "$(ls "$nh/ci/state/want")"
+rm -rf "$nh/ci/state/want"
+mkdir -p "$t/flaky"; printf '#!/bin/sh\nn=$(cat %s/flaky/n 2>/dev/null || echo 0); echo $((n + 1)) >%s/flaky/n\ncase $* in *ci/state/want*) [ "$n" = 0 ] && exit 255 ;; esac\nfor a; do c=$a; done\nHOME=%s exec bash -c "$c"\n' "$t" "$t" "$nh" >"$t/flaky/ssh"; chmod +x "$t/flaky/ssh"
+out=$(CISTATE=none CIDESC='' WHERE=fix HEAD_fix=$A HEAD_main=$B CI_WAIT_HEARTBEAT_EVERY=1 PATH=$t/flaky:$PATH CI_WAIT_CACHE=$t/cache-fl timeout 60 bash "$cw" therapy-flow-v2 "$A" --timeout 1 2>&1)
+grep -q "written on retry" <<<"$out" && [ -n "$(wantf therapy-flow-v2__fix)" ] && ok "a request that failed to write is written on a later heartbeat" ||
+  bad "request retry" "$(tail -3 <<<"$out")"
 rm -rf "$nh/ci/state/want"
 PATH=$t/run:$PATH check "a wait on main (deploy and gate pending: times out)" 2 "$full" main "$A" "$A"
 [ ! -e "$nh/ci/state/want" ] && ok "... writes no build request" || bad "main request" "$(ls "$nh/ci/state/want")"
