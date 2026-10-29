@@ -60,7 +60,7 @@ esac
                 overrides = ''.join(f'\n{name}() {{ printf \"{name}\\n\" >> \"$COMMANDS\"; }}\n'
                     for name in ('ensure_continues', 'apply_model_policy', 'link_rules', 'link_git',
                                  'link_shell', 'link_shortcuts', 'retire_duplicate_skills',
-                                 'mirror_rules_to_codex', 'mirror_to_antigravity'))
+                                 'mirror_rules_to_codex', 'mirror_to_antigravity', 'mirror_guard_to_grok'))
                 (root / 'lib/common.sh').write_text((REPO / 'lib/common.sh').read_text() + overrides)
                 (root / 'update.sh').write_text((REPO / 'update.sh').read_text())
                 for name in ('git', 'claude'):

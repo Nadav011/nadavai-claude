@@ -143,6 +143,12 @@ refresh_codex_plugin() {
     return 1
   }
   log "Codex nadavai plugin refreshed"
+  # Codex runs a plugin hook only after it was reviewed in /hooks; until then agent-guard
+  # (forks, long sleeps, gh pr merge without a main-tier landing) is skipped without a word.
+  local cfg="${CODEX_HOME:-$HOME/.codex}/config.toml"
+  if [ -f "$cfg" ] && [[ $(<"$cfg") != *'"nadavai@nadavai:hooks/hooks.json:pre_tool_use:0:0"'* ]]; then
+    warn "Codex has not trusted nadavai's PreToolUse hook (agent-guard): open codex, run /hooks and approve it"
+  fi
 }
 
 link_rules() { link_dir "$REPO/rules" "$CFG/rules"; }
@@ -378,6 +384,18 @@ mirror_rules_to_codex() {
   fi
   rm -f "$body"
   log "$target rules block refreshed"
+}
+
+mirror_guard_to_grok() {
+  # Grok reads user hooks from ~/.grok/hooks/*.json ([compat.claude] hooks = false keeps it off
+  # ~/.claude/settings.json), and its installed nadavai plugin is a copy that does not follow this
+  # repo, so agent-guard gets its own file pointing at the live script. "Bash" also matches
+  # Grok's run_terminal_command.
+  [ -d "$HOME/.grok" ] || { log "no ~/.grok; skipping Grok guard hook"; return; }
+  mkdir -p "$HOME/.grok/hooks"
+  printf '{\n  "hooks": {\n    "PreToolUse": [\n      {\n        "matcher": "Bash",\n        "hooks": [\n          { "type": "command", "command": "%s", "timeout": 45 }\n        ]\n      }\n    ]\n  }\n}\n' \
+    "$REPO/plugins/nadavai/scripts/agent-guard.sh" > "$HOME/.grok/hooks/nadavai-guard.json"
+  log "$HOME/.grok/hooks/nadavai-guard.json refreshed"
 }
 
 mirror_to_antigravity() {

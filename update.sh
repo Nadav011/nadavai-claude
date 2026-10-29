@@ -71,6 +71,7 @@ link_shortcuts
 retire_duplicate_skills
 mirror_rules_to_codex
 mirror_to_antigravity
+mirror_guard_to_grok
 
 if [ "$CODEX_REFRESH_FAILED" = 1 ]; then
   die "Other installer steps completed, but Codex nadavai plugin refresh failed; resolve the error above and rerun."

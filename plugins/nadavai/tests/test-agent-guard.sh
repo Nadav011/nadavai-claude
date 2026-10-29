@@ -31,6 +31,9 @@ agent() { jq -cn --arg t "$1" --arg d "$2" '{hook_event_name:"PreToolUse",tool_n
 bashc() { jq -cn --arg c "$1" --argjson bg "${2:-false}" '{hook_event_name:"PreToolUse",tool_name:"Bash",tool_input:{command:$c,run_in_background:$bg}}'; }
 agy_cmd() { jq -cn --arg c "$1" --argjson d "${2:-false}" '{toolCall:{name:"run_command",args:{CommandLine:$c,IsDaemon:$d}}}'; }
 agy_sub() { jq -cn --arg t "$1" --arg r "$2" '{toolCall:{name:"invoke_subagent",args:{Subagents:[{TypeName:$t,Role:$r,Prompt:"p"}]}}}'; }
+# Grok (docs/user-guide/10-hooks.md "Input") and Codex (OMX's codex-native-hook reads tool_name "Bash").
+grok_cmd() { jq -cn --arg c "$1" --arg w "${3:-/tmp}" --argjson b "${2:-null}" '{hookEventName:"pre_tool_use",hook_event_name:"PreToolUse",sessionId:"s",cwd:$w,workspaceRoot:$w,toolName:"run_terminal_command",toolInput:({command:$c} + (if $b == null then {} else {block_until_ms:$b} end)),toolUseId:"t",toolInputTruncated:false}'; }
+codex_cmd() { jq -cn --arg c "$1" --arg w "${2:-/tmp}" '{session_id:"s",turn_id:"t",cwd:$w,hook_event_name:"PreToolUse",model:"gpt-6.1-sol",tool_name:"Bash",tool_use_id:"u",tool_input:{command:$c}}'; }
 
 check "fork without tag"            deny  "$(agent fork 'Review the plan')"
 check "fork with [fork] tag"        allow "$(agent fork '[fork] Review the plan')"
@@ -66,6 +69,13 @@ check "agy: normal command"         allow "$(agy_cmd 'pnpm test')"
 check "agy: fork without tag"       deny  "$(agy_sub fork 'Review')"
 check "agy: fork with [fork] tag"   allow "$(agy_sub fork '[fork] Review')"
 check "agy: research subagent"      allow "$(agy_sub research 'Search')"
+check "grok: sleep 120"             deny  "$(grok_cmd 'sleep 120')"
+check "grok: sleep 300 background"  allow "$(grok_cmd 'sleep 300' 0)"
+check "grok: sleep 300, block 600000" deny "$(grok_cmd 'sleep 300' 600000)"
+check "grok: normal command"        allow "$(grok_cmd 'pnpm test')"
+check "grok: other tool"            allow "$(jq -cn '{toolName:"read_file",toolInput:{path:"/tmp/sleep 300"}}')"
+check "codex: sleep 120"            deny  "$(codex_cmd 'sleep 120')"
+check "codex: normal command"       allow "$(codex_cmd 'pnpm test')"
 
 # Strict mode. Hand-written edges first, then the table of real commands (agent transcripts,
 # 19-26.10.2026): every row with strict on as marked, and every row allowed with strict off.
@@ -223,6 +233,10 @@ merge "gh pr view (not a merge)"         allow "$code_pr" "$branch_pass" 0 "$(ba
 PATH=$tmp/bin:$PATH GHLOG=$tmp/ghlog PRVIEW=$code_pr STATUSES=$branch_pass BEHIND=0 strict "merge: no pass, strict on" deny "$(bashcwd 'gh pr merge 12 --merge' "$tmp/tf")"
 merge "agy: no pass"                     deny  "$code_pr" "$branch_pass" 0 "$(agy_cmd 'gh pr merge 12 -R Nadav011/snooker-smart --merge')"
 merge "agy: main-tier pass"              allow "$code_pr" "$main_pass" 0 "$(agy_cmd 'gh pr merge 12 -R Nadav011/snooker-smart --merge')"
+merge "grok: no pass, cwd"                deny  "$code_pr" "$branch_pass" 0 "$(grok_cmd 'gh pr merge 12 --squash' null "$tmp/tf")"
+merge "grok: main-tier pass, background"  allow "$code_pr" "$main_pass" 0 "$(grok_cmd 'gh pr merge 12 --squash' 0 "$tmp/tf")"
+merge "codex: no pass, cwd"               deny  "$code_pr" "$branch_pass" 0 "$(codex_cmd 'gh pr merge 12 --squash' "$tmp/tf")"
+merge "codex: main-tier pass"             allow "$code_pr" "$main_pass" 0 "$(codex_cmd 'gh pr merge 12 --squash' "$tmp/tf")"
 # Review fixes: only the newest round counts; the runner's docs rule; redirects; where the repo comes from.
 merge "F1 main tier only in an older round" deny "$code_pr" "$old_round" 0 "$(bashcwd 'gh pr merge 12 --merge' "$tmp/tf")"
 merge "F1 full pass, main tier older round" deny "$code_pr" "${old_round/ (affected tests vs abc1234)/}" 0 "$(bashcwd 'gh pr merge 12 --merge' "$tmp/tf")"

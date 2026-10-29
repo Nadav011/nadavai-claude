@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # PreToolUse hook (Agent, Bash): two opt-in guards. Deny only, never updatedInput
-# (it replaces the whole tool input).
+# (it replaces the whole tool input). The same script serves Claude Code and Codex (the
+# plugin's hooks/hooks.json; Codex sends tool_name "Bash" and reads the same deny), Antigravity
+# (hooks.json, a toolCall payload) and Grok (~/.grok/hooks/nadavai-guard.json written by
+# update.sh; toolName run_terminal_command, toolInput, and it honors permissionDecision).
 #   Agent: subagent_type "fork" unless the description carries [fork]. A fork inherits
 #          the parent's model and its full context (median ~290K tokens per request).
 #   Bash:  a sleep of 120 s or more in the foreground. It blocks the agent; long local
@@ -458,19 +461,20 @@ if [ "$is_agy" = 1 ]; then
   allow
 fi
 
-tool=$(jq -r '.tool_name // empty' <<<"$input" 2>/dev/null)
+tool=$(jq -r '.tool_name // .toolName // empty' <<<"$input" 2>/dev/null)
 case "$tool" in
   Agent)
     [ "$(jq -r '.tool_input.subagent_type // empty' <<<"$input")" = fork ] || allow
     [[ $(jq -r '.tool_input.description // empty' <<<"$input") == *"[fork]"* ]] && allow
     deny 'A fork inherits your model and your whole context (median ~290K tokens per request). Use a named subagent_type with only the context it needs. If a fork is really what you want, put [fork] in the description.'
     ;;
-  Bash)
-    cmd=$(jq -r '.tool_input.command // empty' <<<"$input")
+  Bash|run_terminal_command)
+    cmd=$(jq -r '.tool_input.command // .toolInput.command // empty' <<<"$input")
     cwd=$(jq -r '.cwd // empty' <<<"$input")
     strict_guard "$cmd" "$cwd"
     merge_guard "$cmd" "$cwd"
-    [ "$(jq -r '.tool_input.run_in_background // false' <<<"$input")" = true ] && allow
+    # Grok runs a command in the background when block_until_ms is 0.
+    [ "$(jq -r '.tool_input.run_in_background == true or .toolInput.block_until_ms == 0' <<<"$input")" = true ] && allow
     found=$(printf '%s\n' "$cmd" | check_sleep)
     if [ -n "$found" ]; then
       deny "${found#*$'\t'} blocks you for ${found%%$'\t'*} s. Run the long command with run_in_background: true and continue when the completion notice arrives; for NadavAI CI use ci-wait <repo> <sha|branch> in the background."
