@@ -1,0 +1,103 @@
+name: CI
+
+# The per-commit gate for a web repo, installed as .github/workflows/ci.yml. Written for pnpm 10;
+# on npm drop the pnpm/action-setup steps, set `cache: npm`, and use `npm ci` / `npx` in place
+# of `pnpm install --frozen-lockfile` / `pnpm exec`.
+#
+# Run by nadavai-ci on NadavAI for every pushed branch head (act, on the host), not by GitHub
+# Actions: the account's Actions are blocked by billing. The `on:` block is what GitHub Actions
+# would use if it comes back. `nadavai-ci check-repo <repo>` checks this file's hooks before the
+# repo is enabled (rules/ci-policy.md, "New repos").
+#
+# What runs where (rules/ci-policy.md): on an intermediate branch head nadavai-ci sets
+# NADAVAI_TESTS=changed, so only what a diff can scope runs (typecheck, the unit tests the diff
+# reaches, path-bound jobs whose paths changed). Whole-app checks carry
+# `if: vars.NADAVAI_TESTS != 'changed'` and run at landing, on main, and in any run without the
+# variable (GitHub, a manual act, the nightly).
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# Every job names its own pnpm `dest`: pnpm/action-setup's default ~/setup-pnpm is shared by every
+# job of the act run on this host, and two installs into it at once fail ("self-installer exits
+# with code 1", cash-next-app 2026-09-29).
+jobs:
+  quality:
+    runs-on: [self-hosted, nadavai]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+          dest: ~/setup-pnpm-quality
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      # On an intermediate head NADAVAI_TESTS_BASE is the commit the checkout has as origin/main:
+      # only the unit tests the diff from it reaches run (vitest --changed). That is safe only when
+      # vitest.config's `forceRerunTriggers` lists every input a diff cannot trace to a test:
+      # the lockfile, the vitest/vite/tsconfig configs, the setup files, the fixtures, and
+      # .github/**; a change to any of them then runs every test. Landing heads, main, and any run
+      # without the variable run every unit test. The base reaches the shell through env, never
+      # inside the command line.
+      - run: pnpm exec vitest run ${NADAVAI_CHANGED:+--changed "$NADAVAI_CHANGED" --passWithNoTests}
+        env:
+          NADAVAI_CHANGED: ${{ vars.NADAVAI_TESTS == 'changed' && vars.NADAVAI_TESTS_BASE || '' }}
+
+  # Type-aware ESLint reads the whole program, so a diff cannot scope it, and its cache misses
+  # cross-file type changes. The pre-commit hook lints the staged files on every commit.
+  lint:
+    runs-on: [self-hosted, nadavai]
+    if: vars.NADAVAI_TESTS != 'changed'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+          dest: ~/setup-pnpm-lint
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+
+  # The production build and the specs that need it (e2e against the built app). Whole-app: it
+  # runs at landing and on main, never on an intermediate head.
+  e2e:
+    runs-on: [self-hosted, nadavai]
+    if: vars.NADAVAI_TESTS != 'changed'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+          dest: ~/setup-pnpm-e2e
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm exec playwright install chromium
+      - run: pnpm test:e2e
+
+  # A job bound to a set of paths (SQL harnesses, edge functions, a native app) carries a scope:
+  # nadavai-ci sets NADAVAI_SCOPE_<NAME>=off on a branch head whose diff misses the paths listed
+  # for it in SCOPES (nadavai-ci). Landing and main force every scope on. Uncomment and rename:
+  #
+  # db:
+  #   runs-on: [self-hosted, nadavai]
+  #   if: vars.NADAVAI_SCOPE_DB != 'off'
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - run: bash scripts/test-sql.sh

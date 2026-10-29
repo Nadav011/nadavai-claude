@@ -1,5 +1,10 @@
 name: UI gate
 
+# nadavai-ui runs `quick` and `lighthouse` on a main head only where the repo opts in (UI_FAST in
+# nadavai-ci; the default is none, so Lighthouse and the DoD walk are measured by the nightly).
+# `ui`, the DoD walk, runs nightly. Each job names its own pnpm `dest`: jobs of one act run share
+# ~/setup-pnpm otherwise, and two installs into it at once fail.
+
 on:
   pull_request:
   push:
@@ -17,6 +22,7 @@ jobs:
       - uses: pnpm/action-setup@v4
         with:
           version: 10
+          dest: ~/setup-pnpm-ui
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -40,6 +46,24 @@ jobs:
           name: dod-report
           path: reports/dod
 
+  # The fast half of `ui`, without the DoD walk. The same steps stay in `ui`, so the nightly
+  # still covers them. No `needs:`: the runner picks the job by its id.
+  quick:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+          dest: ~/setup-pnpm-quick
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint:ui
+      - run: node e2e/dod/routes.mjs --check
+
   lighthouse:
     runs-on: ubuntu-latest
     steps:
@@ -47,12 +71,27 @@ jobs:
       - uses: pnpm/action-setup@v4
         with:
           version: 10
+          dest: ~/setup-pnpm-lighthouse
       - uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm build
+      # Where nadavai-ci binds the deploy's build of this commit at /tmp/nadavai-prebuilt (SHA and
+      # dist/: a Vite app deployed by the runner), Lighthouse measures what production serves
+      # without building it again. SHA is read again after the copy: a deploy replacing the
+      # snapshot removes it first, so a match means a whole copy. Anywhere else it builds.
+      - name: build, or take the deploy's build of this commit
+        run: |
+          p=/tmp/nadavai-prebuilt
+          rm -rf dist
+          if [ "$(cat "$p/SHA" 2>/dev/null)" = "$GITHUB_SHA" ] && cp -r --no-preserve=mode "$p/dist" dist &&
+             [ "$(cat "$p/SHA" 2>/dev/null)" = "$GITHUB_SHA" ]; then
+            echo "pnpm build skipped: measuring the deploy's build of $GITHUB_SHA"
+          else
+            rm -rf dist
+            pnpm build
+          fi
       - run: pnpm exec lhci autorun
       - uses: actions/upload-artifact@v4
         if: always()
