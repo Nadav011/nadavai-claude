@@ -42,6 +42,7 @@
 
 ## Learning
 - When verified work produced a repeatable workflow, capture it as a project-scoped skill under .omc/skills/ (skillify). Run skill-creator evals only when a skill misfires. Nothing global (skills, rules, CLAUDE.md) without asking.
+- Before proposing a tool or asking Nadav something again, search every project's memory: `grep -ril '<term>' ~/.claude/projects/*/memory/`. Why: memory loads per project and only in Claude; on 2026-10-31 claude-mem was installed although a memory in that same folder recorded it as decided NO in September, and nobody opened it.
 
 ## Vague requests
 - A new feature idea with no anchor (file, screen, acceptance criteria): one question if that settles it, otherwise /deep-interview. A clear task gets no questions. Never ask a question already answered; put answers in the spec.
