@@ -295,6 +295,13 @@ land "documentation only on top of a main head with no answer is refused" refuse
 land "GitHub unreadable midway (the base's read) lets the push through" ok "$c2" "$d2" LAND_DOWN_AFTER=1
 commit "$ld" 'docs/סיכום.md' 'hebrew'; d3=$(git -C "$ld" rev-parse HEAD)
 land "a Hebrew documentation path is documentation" ok "$c2" "$d3" LAND_FULL="$c2"
+# forceRerunTriggers from a function call (sportchat-web's forceRerunTriggersAt): classify_push cannot
+# read it, yet a documentation push on top of a main-tier landing runs no local checks.
+commit "$ld" vitest.config.ts 'export default { test: { forceRerunTriggers: forceRerunTriggersAt(process.cwd()) } }'; c4=$(git -C "$ld" rev-parse HEAD)
+commit "$ld" STATUS.md 'train record'; d4=$(git -C "$ld" rev-parse HEAD)
+land "a docs push on a landing with unreadable forceRerunTriggers goes" ok "$c4" "$d4" LAND_MAIN="$c4"
+if ! grep -q '^typecheck' "$t/rec" && ! grep -qE '^vitest (run|related)' "$t/rec"; then ok "landing: ... and runs no local typecheck or tests"
+else bad "landing: docs local checks" "$(grep -E '^typecheck|^vitest' "$t/rec" | head -2)"; fi
 
 echo "----"
 [ "$fail" = 0 ] && echo "all passed"

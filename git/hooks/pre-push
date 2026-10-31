@@ -569,6 +569,13 @@ if [ "$IS_MAIN" = 1 ] && [ -f "package.json" ]; then
     classify_push
     if [ "$DOCS_ONLY" = 1 ]; then
       DECISION="docs-only"
+    elif [[ ${LANDED:-} == "documentation only since "* ]]; then
+      # The landing check found only documentation since a commit at main tier (the runner's rule:
+      # every file *.md outside code directories), so nadavai-ci answers "documentation only since"
+      # with no run, and the local checks would add nothing. Here even when classify_push could not
+      # read a config's forceRerunTriggers (a function call: sportchat-web's forceRerunTriggersAt,
+      # 2026-10-31, which ran the whole suite for 301 s on a STATUS.md push).
+      DECISION=ci-pass-skip; CI_PASS="$LANDED (the landing check)"
     elif GH_T0=${EPOCHREALTIME//[!0-9]/}; ci_full_pass "$PUSH_LOCAL_SHA"; then
       GH_SEC=$(since "$GH_T0")
       DECISION=ci-pass-skip
