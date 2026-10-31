@@ -79,7 +79,8 @@ run() { # hook dir base head url
   grep -q '^vitest run' "$t/rec" && TESTS=full
   grep -q '^vitest related' "$t/rec" && TESTS=related
   DEC=$(cut -f5 "$t/home/.cache/nadavai/pre-push.log" 2>/dev/null)
-  GHN=$(grep -c '^gh ' "$t/rec")
+  # The landing check's "is this repo on NadavAI CI" read (main's statuses) is not a CI-pass read.
+  GHN=$(grep '^gh ' "$t/rec" | grep -vc 'commits/main/statuses')
 }
 
 echo "=== replay: origin/main moves of the last $DAYS days, old hook ($OLD_REV) vs new ==="
@@ -175,9 +176,10 @@ else bad "no GitHub remote" "$GHN reads, tc=$TC"; fi
 GH_MODE=pass run "$NEW_HOOK" "$d" "$base" "$head" "$URL"
 line=$(cat "$t/home/.cache/nadavai/pre-push.log")
 IFS=$'\t' read -r -a f <<<"$line"
-if [ ${#f[@]} = 11 ] && [ "${f[1]}" = Nadav011/synth ] && [ "${f[2]}" = main ] && [ "${f[3]}" = "${head:0:7}" ] &&
+if [ ${#f[@]} = 12 ] && [ "${f[1]}" = Nadav011/synth ] && [ "${f[2]}" = main ] && [ "${f[3]}" = "${head:0:7}" ] &&
    [[ ${f[0]} == 20* ]] && [[ ${f[5]} == typecheck=- ]] && [[ ${f[7]} =~ ^trivy=[0-9]+$ ]] &&
-   [[ ${f[8]} =~ ^total=[0-9]+\.[0-9]$ ]] && [[ ${f[9]} =~ ^gh=[0-9]+\.[0-9]$ ]] && [[ ${f[10]} =~ ^scan=(ok|block|fail|skip|missing|-)$ ]]; then
+   [[ ${f[8]} =~ ^total=[0-9]+\.[0-9]$ ]] && [[ ${f[9]} =~ ^gh=[0-9]+\.[0-9]$ ]] && [[ ${f[10]} =~ ^scan=(ok|block|fail|skip|missing|-)$ ]] &&
+   [[ ${f[11]} =~ ^landing=(-|ok|refused|unreadable|skipped|urgent:.*)$ ]]; then
   ok "the log line: $line"
 else
   bad "log line" "$line"
@@ -222,6 +224,77 @@ for spec in \
   IFS='|' read -r name cfg file want <<<"$spec"
   docs_case "$name" "$(printf '%b' "$cfg")" "$file" "$want"
 done
+
+echo "=== landing: a push to main of a repo on NadavAI CI needs a main-tier landing pass ==="
+# This gh answers commits/<sha>/statuses with a list, by sha: $LAND_MAIN a main-tier landing round
+# (a "running on NadavAI at main tier (landing request)" pending, then the pass), $LAND_FULL a full
+# pass with no landing pending (main's own run), $LAND_BRANCH a branch-tier pass, $LAND_TREE
+# "<sha>:<x>" pairs answered "same tree as <x>", $LAND_LIVE a live nadavai-deploy; nothing else.
+# LAND_GH=down fails every read, LAND_DOWN_AFTER=n every read after the n-th. Other reads
+# (ci_full_pass) answer nothing, so the typecheck runs, as with no CI pass.
+mkdir -p "$t/lbin"; cp "$t/bin/npm" "$t/bin/npx" "$t/bin/trivy" "$t/lbin/"
+cat >"$t/lbin/gh" <<'GH'
+#!/usr/bin/env bash
+echo "gh $*" >>"$REC"
+[ "${LAND_GH:-}" = down ] && { echo "error connecting to api.github.com" >&2; exit 1; }
+if [ -n "${LAND_DOWN_AFTER:-}" ]; then
+  n=$(grep -c '/statuses' "$REC"); [ "$n" -gt "$LAND_DOWN_AFTER" ] && { echo "error connecting" >&2; exit 1; }
+fi
+all="$*"; case $all in *"/statuses"*) ;; *) exit 0 ;; esac
+ref=${all#*commits/}; ref=${ref%%/*}
+st() { printf '{"id":%s,"context":"%s","state":"%s","description":"%s"}' "$@"; }
+out=()
+case " ${LAND_LIVE:-} " in *" $ref "*) out+=("$(st 9 nadavai-deploy success 'live, health check passed (3m)')") ;; esac
+case " ${LAND_MAIN:-} " in *" $ref "*) out+=("$(st 1 nadavai-ci pending 'running on NadavAI at main tier (landing request)')" "$(st 2 nadavai-ci success 'passed on NadavAI in 9m')") ;; esac
+case " ${LAND_FULL:-} " in *" $ref "*) out+=("$(st 1 nadavai-ci pending 'running on NadavAI')" "$(st 2 nadavai-ci success 'passed on NadavAI in 9m')") ;; esac
+case " ${LAND_BRANCH:-} " in *" $ref "*) out+=("$(st 1 nadavai-ci pending 'running on NadavAI')" "$(st 2 nadavai-ci success 'passed on NadavAI in 9m')") ;; esac
+for pr in ${LAND_TREE:-}; do [ "${pr%%:*}" = "$ref" ] && out+=("$(st 2 nadavai-ci success "same tree as ${pr#*:}, which passed; not rebuilt")"); done
+(IFS=,; echo "[${out[*]}]")
+GH
+chmod +x "$t/lbin/gh"
+LURL=git@github.com:Nadav011/sportchat-web.git
+land() { # name want(ok|refused) base head [env...]; LREFS: extra ref lines pushed after main
+  local name=$1 want=$2 base=$3 head=$4 rc; shift 4
+  : >"$t/rec"; rm -f "$t/home/.cache/nadavai/pre-push.log"
+  (cd "$ld" && { printf 'refs/heads/main %s refs/heads/main %s\n' "$head" "$base"; [ -n "${LREFS:-}" ] && printf '%s\n' "$LREFS"; } |
+    env HOME="$t/home" PATH="$t/lbin:$PATH" REC="$t/rec" "$@" bash "$NEW_HOOK" origin "$LURL" >"$t/out" 2>&1); rc=$?
+  if { [ "$want" = ok ] && [ "$rc" = 0 ]; } || { [ "$want" = refused ] && [ "$rc" = 1 ] && grep -q 'pre-push \[landing\]: .* no main-tier landing pass' "$t/out"; }; then
+    ok "landing: $name"
+  else bad "landing: $name" "exit $rc: $(grep 'landing' "$t/out" | head -2)"; fi
+}
+ld=$t/land; synth "$ld"; m0=$(git -C "$ld" rev-parse HEAD)
+commit "$ld" src/a.ts 'export const a = 3'; c1=$(git -C "$ld" rev-parse HEAD)
+land "a code head with no CI answer is refused" refused "$m0" "$c1"
+grep -q 'landing=refused' "$t/home/.cache/nadavai/pre-push.log" && ok "landing: ... and the log says landing=refused" || bad "landing: log" "$(cat "$t/home/.cache/nadavai/pre-push.log")"
+land "a code head that passed only at branch tier is refused" refused "$m0" "$c1" LAND_BRANCH="$c1"
+land "a code head that passed a main-tier landing goes" ok "$m0" "$c1" LAND_MAIN="$c1"
+grep -q "passed at main tier" "$t/out" && ok "landing: ... and says why" || bad "landing: why" "$(grep landing "$t/out")"
+LREFS="refs/tags/v1 $c1 refs/tags/v1 0000000000000000000000000000000000000000" \
+  land "main pushed with a tag after it is still checked" refused "$m0" "$c1"
+commit "$ld" STATUS.md 'record'; d1=$(git -C "$ld" rev-parse HEAD)
+land "a record commit on a main-tier landing head goes (sportchat-web deploys by hand)" ok "$m0" "$d1" LAND_MAIN="$c1"
+land "a record commit on a branch-tier pass is refused" refused "$m0" "$d1" LAND_BRANCH="$c1"
+LURL=git@github.com:Nadav011/therapy-flow-v2.git
+land "an auto-deploy repo: a record commit on a landing head that is not live is refused" refused "$m0" "$d1" LAND_MAIN="$c1"
+land "an auto-deploy repo: ... once it is live it goes" ok "$m0" "$d1" LAND_MAIN="$c1" LAND_LIVE="$c1"
+LURL=git@github.com:Nadav011/sportchat-web.git
+commit "$ld" src/b.ts 'export const b = 1'; c2=$(git -C "$ld" rev-parse HEAD)
+land "a code commit on a main-tier landing head is refused" refused "$m0" "$c2" LAND_MAIN="$c1"
+mt=$(git -C "$ld" commit-tree "$c1^{tree}" -p "$m0" -p "$c1" -m "merge $c1")
+land "a merge with the tree of its main-tier parent goes" ok "$m0" "$mt" LAND_MAIN="$c1"
+am=$(git -C "$ld" commit-tree "$c1^{tree}" -p "$m0" -m "reworded $c1")
+land "a reworded landing head whose landing answered same tree as a main-tier pass goes" ok "$m0" "$am" LAND_TREE="$am:${c1:0:7}" LAND_MAIN="$c1"
+rv=$(git -C "$ld" commit-tree "$m0^{tree}" -p "$c2" -m "revert to m0")
+land "a revert to the tree of a commit main passed goes" ok "$c2" "$rv" LAND_FULL="$m0"
+land "NADAVAI_LAND_URGENT lets a fix through" ok "$m0" "$c2" NADAVAI_LAND_URGENT="prod down"
+grep -q 'landing=urgent:prod down' "$t/home/.cache/nadavai/pre-push.log" && ok "landing: ... and the log keeps the reason" || bad "landing: urgent log" "$(cat "$t/home/.cache/nadavai/pre-push.log")"
+land "GitHub unreadable lets the push through" ok "$m0" "$c2" LAND_GH=down
+commit "$ld" docs/notes.md 'notes'; d2=$(git -C "$ld" rev-parse HEAD)
+land "documentation only on top of a main head main passed goes" ok "$c2" "$d2" LAND_FULL="$c2"
+land "documentation only on top of a main head with no answer is refused" refused "$c2" "$d2"
+land "GitHub unreadable midway (the base's read) lets the push through" ok "$c2" "$d2" LAND_DOWN_AFTER=1
+commit "$ld" 'docs/סיכום.md' 'hebrew'; d3=$(git -C "$ld" rev-parse HEAD)
+land "a Hebrew documentation path is documentation" ok "$c2" "$d3" LAND_FULL="$c2"
 
 echo "----"
 [ "$fail" = 0 ] && echo "all passed"

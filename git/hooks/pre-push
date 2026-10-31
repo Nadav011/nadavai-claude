@@ -38,12 +38,16 @@ PUSH_TARGET_BRANCH=""
 PUSH_LOCAL_SHA=""
 PUSH_REMOTE_SHA=""
 PUSH_LOCALS=() PUSH_REMOTES=()   # every ref of the push, for the trivy layer
+MAIN_LOCAL_SHA="" MAIN_REMOTE_SHA=""
 PUSH_REMOTE_NAME=${1:-origin} PUSH_REMOTE_URL=${2:-}
 while read -r local_ref local_sha remote_ref remote_sha; do
   PUSH_TARGET_BRANCH=$(echo "$remote_ref" | sed 's|refs/heads/||')
   PUSH_LOCAL_SHA="$local_sha"
   PUSH_REMOTE_SHA="$remote_sha"
   PUSH_LOCALS+=("$local_sha"); PUSH_REMOTES+=("$remote_sha")
+  # The main line of a push that carries other refs too (main plus a tag, or main and a branch):
+  # the landing check reads it whatever order git hands the refs in.
+  case "$remote_ref" in refs/heads/main|refs/heads/master) MAIN_LOCAL_SHA=$local_sha MAIN_REMOTE_SHA=$remote_sha ;; esac
 done
 
 IS_MAIN=0
@@ -69,10 +73,10 @@ since() {  # microsecond epoch -> seconds since then, to a tenth
 }
 log_push() {  # one tab-separated line per push; a log it cannot write never fails the push
   mkdir -p "${PUSH_LOG%/*}" 2>/dev/null
-  printf '%s\t%s\t%s\t%s\t%s\ttypecheck=%s\ttests=%s\ttrivy=%s\ttotal=%s\tgh=%s\tscan=%s\n' "$(date -Iseconds)" \
+  printf '%s\t%s\t%s\t%s\t%s\ttypecheck=%s\ttests=%s\ttrivy=%s\ttotal=%s\tgh=%s\tscan=%s\tlanding=%s\n' "$(date -Iseconds)" \
     "${GH_REPO:-${REPO_ROOT##*/}}" "${PUSH_TARGET_BRANCH:--}" "${PUSH_LOCAL_SHA:0:7}" "$DECISION" \
     "$(job_sec typecheck)" "$(job_sec tests)" "$(job_sec trivy)" "$(since "$HOOK_T0")" "$GH_SEC" \
-    "$(cat "$JOBS_DIR/trivy.status" 2>/dev/null || { [ "${HAS_TRIVY:-0}" = 1 ] && echo - || echo missing; })" \
+    "$(cat "$JOBS_DIR/trivy.status" 2>/dev/null || { [ "${HAS_TRIVY:-0}" = 1 ] && echo - || echo missing; })" "${LANDING:--}" \
     >>"$PUSH_LOG" 2>/dev/null
 }
 trap 'log_push; rm -rf "$JOBS_DIR"' EXIT
@@ -407,6 +411,152 @@ run_tests() {
     timeout 300 npx vitest related --run --passWithNoTests "${RELATED_FILES[@]}" 2>&1 | tail -20
   fi
 }
+
+# ── Main takes only a landed tree (repos on NadavAI CI) ───────────
+# A push to main goes through only when nadavai-ci will answer it without a second full run (Nadav,
+# 2026-10-31: SportChat's direct pushes of branch-tier train heads made main rerun 12-23 minutes per
+# train). The runner answers a main head without a build when:
+#   - the same tree passed at main tier: a `ci-wait <repo> <branch> --land` run (a landing pending,
+#     then a full pass), main's own full pass of a commit main already has, or "same tree as X" of
+#     such an X: the pushed commit itself, a parent, one of its first five first parents, or main;
+#   - only documentation changed since a commit that vouches for itself (a full pass, "same tree as"
+#     or "documentation only since" a pass, never affected tests only), on an auto-deploy repo only
+#     once that commit is live, at most five first parents up and never past main (docs_since_green).
+# Anything else makes main build the whole tree again: refused. Same rule as agent-guard's for
+# `gh pr merge`. NADAVAI_LAND_URGENT=<reason> lets an urgent fix through; GitHub unreadable lets the
+# push through. Both are logged (landing=). The rules mirror the runner's same_tree_pass and
+# docs_since_green, FULL_PASS_RE above and agent-guard's merge_guard: change them together.
+LANDING=""
+# Documentation as the runner's docs_since_green reads it: every file *.md, none under a code
+# directory, supabase/*.md excepted.
+landing_docs_only() {  # base head
+  local f n=0
+  while IFS= read -r -d '' f; do
+    n=$((n + 1))
+    case "$f" in supabase/*.md) continue ;; src/*|app/*|pages/*|public/*|content/*|messages/*|supabase/*|e2e/*|apps/*|mobile/*) return 1 ;; esac
+    case "$f" in *.md) ;; *) return 1 ;; esac
+  done < <(git -c core.quotePath=false diff -z --name-only --no-renames "$1" "$2" 2>/dev/null)
+  [ "$n" -gt 0 ]
+}
+LAND_UNREAD=0
+# The nadavai-ci round of a commit: "main" (a main-tier landing pass), "full" (any other full pass),
+# "tree <sha7>" / "docs <sha7>" (answered from another commit), "other", or "unread" (GitHub could
+# not be read; LAND_UNREAD counts those), into LAND_R: no subshell, so the count reaches the caller.
+land_round() {  # sha
+  local r
+  r=$(timeout 10 gh api "repos/$GH_REPO/commits/$1/statuses?per_page=100" 2>/dev/null | jq -r --arg re "$FULL_PASS_RE" 'if type == "array" then
+    [sort_by(.id) | reverse | .[] | select(.context == "nadavai-ci")] as $s | ($s | map(.state != "pending") | index(true)) as $f
+    | if $f != 0 or ($s[0].state != "success") then "other" else ($s[0].description // "") as $d
+      | ($s[1:] | map(.state != "pending") | index(true) // length) as $g
+      | if ($d | test($re)) then (if any($s[1:][:$g][]; (.description // "") | contains("at main tier (landing request)")) then "main" else "full" end)
+        elif ($d | test("^same tree as [0-9a-f]{7,40}, which passed")) then "tree " + ($d | capture("^same tree as (?<x>[0-9a-f]{7,40})").x)
+        elif ($d | test("^documentation only since [0-9a-f]{7,40}, which passed")) then "docs " + ($d | capture("since (?<x>[0-9a-f]{7,40})").x)
+        else "other" end end
+    else "unread" end' 2>/dev/null)
+  [ -n "$r" ] || r=unread
+  [ "$r" = unread ] && LAND_UNREAD=$((LAND_UNREAD + 1))
+  LAND_R=$r
+}
+# 0 when nadavai-ci has the commit's tree at main tier: a landing pass, main's own full pass of a
+# commit main already has, or "same tree as X" of either (one level).
+tree_at_main_tier() {  # sha [nested]
+  local r x
+  land_round "$1"; r=$LAND_R
+  case "$r" in
+    main) return 0 ;;
+    full) [ -n "$MAIN_REMOTE" ] && git merge-base --is-ancestor "$1" "$MAIN_REMOTE" 2>/dev/null ;;
+    "tree "*) [ -z "${2:-}" ] || return 1; x=$(git rev-parse -q --verify "${r#tree }^{commit}" 2>/dev/null) || x=${r#tree }
+              tree_at_main_tier "$x" nested ;;
+    *) return 1 ;;
+  esac
+}
+# 0 when a commit vouches for a documentation commit on top of it: a pass at main tier (a landing,
+# or main's own answer of a commit main has), and on an auto-deploy repo a live deploy.
+docs_base_ok() {  # sha
+  local r
+  land_round "$1"; r=$LAND_R
+  case "$r" in
+    main) ;;
+    # Main's own answers vouch only for commits main already has; a branch-tier pass never does.
+    full|"docs "*) [ -n "$MAIN_REMOTE" ] && git merge-base --is-ancestor "$1" "$MAIN_REMOTE" 2>/dev/null || return 1 ;;
+    "tree "*) tree_at_main_tier "$1" || return 1 ;;
+    *) return 1 ;;
+  esac
+  [ -z "$LAND_DEPLOY" ] && return 0
+  r=$(timeout 10 gh api "repos/$GH_REPO/commits/$1/statuses?per_page=100" 2>/dev/null | jq -r '
+    if type == "array" then [sort_by(.id) | reverse | .[] | select(.context == "nadavai-deploy")][0] // {} | ((.state == "success") and ((.description // "") | startswith("live"))) else "unread" end' 2>/dev/null)
+  [ "$r" = true ] && return 0
+  case "$r" in true|false) ;; *) LAND_UNREAD=$((LAND_UNREAD + 1)) ;; esac
+  return 1
+}
+landed_on_main() {  # 0 when the push to main is a landed tree (LANDED says why), 2 when unsure
+  local h=$MAIN_LOCAL_SHA c p i tree cands=()
+  tree=$(git rev-parse -q --verify "$h^{tree}" 2>/dev/null) || return 2
+  # The tree: the commit itself, its parents, five first parents, and main.
+  cands=("$h")
+  for p in $(git rev-parse -q --verify "$h^1" 2>/dev/null) $(git rev-parse -q --verify "$h^2" 2>/dev/null); do cands+=("$p"); done
+  c=$h; for ((i = 0; i < 5; i++)); do c=$(git rev-parse -q --verify "$c^1" 2>/dev/null) || break; cands+=("$c"); done
+  [ -n "$MAIN_REMOTE" ] && cands+=("$MAIN_REMOTE")
+  for p in $(printf '%s\n' "${cands[@]}" | awk '!seen[$0]++'); do
+    [ "$(git rev-parse -q --verify "$p^{tree}" 2>/dev/null)" = "$tree" ] || continue
+    tree_at_main_tier "$p" && { LANDED="the tree of ${p:0:7} passed at main tier"; return 0; }
+  done
+  # Documentation only since a commit that vouches for it, five first parents up, never past main.
+  c=$h
+  for ((i = 0; i < 5; i++)); do
+    p=$(git rev-parse -q --verify "$c^1" 2>/dev/null) || break
+    landing_docs_only "$p" "$h" || break
+    if docs_base_ok "$p"; then LANDED="documentation only since ${p:0:7}"; return 0; fi
+    [ "$p" = "$MAIN_REMOTE" ] && break
+    c=$p
+  done
+  [ "$LAND_UNREAD" -gt 0 ] && return 2
+  return 1
+}
+if [ -n "$MAIN_LOCAL_SHA" ] && [ "${MAIN_LOCAL_SHA//0/}" != "" ]; then
+  if [ -z "$GH_REPO" ] || ! command -v gh >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1; then
+    [ -n "$GH_REPO" ] && echo "⚠️  pre-push [landing]: gh or jq missing; main pushed without the landing check"
+    LANDING=skipped
+  else
+    gh_owner=${GH_REPO%%/*} gh_name=${GH_REPO##*/} on_ci=""
+    if [ "${gh_owner,,}" = nadav011 ]; then
+      case "${gh_name,,}" in
+        therapy-flow-v2|sportchat-web|cash-next-app|snooker-smart) on_ci=1 ;;
+        *) timeout 10 gh api "repos/$GH_REPO/commits/main/statuses?per_page=30" 2>/dev/null |
+             jq -e 'type == "array" and any(.[]; .context == "nadavai-ci")' >/dev/null 2>&1 && on_ci=1 ;;
+      esac
+    fi
+    if [ -n "$on_ci" ]; then
+      # The repos whose main deploys itself (DEPLOY auto in nadavai-ci): a documentation commit on
+      # top of a commit that is not live yet still makes main deploy, a full run.
+      LAND_DEPLOY=""; case "${gh_name,,}" in therapy-flow-v2|snooker-smart|cash-next-app) LAND_DEPLOY=1 ;; esac
+      MAIN_REMOTE=""; case "$MAIN_REMOTE_SHA" in *[!0]*) git cat-file -e "$MAIN_REMOTE_SHA^{commit}" 2>/dev/null && MAIN_REMOTE=$MAIN_REMOTE_SHA ;; esac
+      LANDED=""
+      if [ -n "${NADAVAI_LAND_URGENT:-}" ]; then
+        echo "⚠️  pre-push [landing]: NADAVAI_LAND_URGENT ($NADAVAI_LAND_URGENT): main runs the full CI on ${MAIN_LOCAL_SHA:0:7}"
+        LANDING="urgent:${NADAVAI_LAND_URGENT//[$'\t\n']/ }"
+      else
+        landed_on_main; rc=$?
+        if [ "$rc" = 0 ]; then
+          echo "✅ pre-push [landing]: $LANDED"; LANDING="ok"
+        elif [ "$rc" = 2 ]; then
+          echo "⚠️  pre-push [landing]: GitHub unreadable; main pushed without the landing check"; LANDING=unreadable
+        else
+          echo ""
+          echo "🚫 pre-push [landing]: ${MAIN_LOCAL_SHA:0:7} has no main-tier landing pass, so main would run the full CI on it again."
+          echo "   Push the branch, rebase it on main, run ci-wait ${GH_REPO##*/} <branch> --land in the background,"
+          echo "   and push or merge it to main after it is green; main then answers by tree. Documentation commits"
+          echo "   go on the branch before the landing$([ -n "$LAND_DEPLOY" ] && echo ", or on main once its head is live")."
+          echo "   If the landing answered \"same tree as X\", push X's commit. Urgent fix:"
+          echo "   NADAVAI_LAND_URGENT='<reason>' git push ...   Emergency: git push --no-verify"
+          DECISION=landing-refused LANDING=refused
+          kill $(jobs -p) 2>/dev/null; wait 2>/dev/null
+          exit 1
+        fi
+      fi
+    fi
+  fi
+fi
 
 RUN_TYPECHECK=0; RUN_TESTS=0
 if [ "$IS_MAIN" = 1 ]; then DECISION=none; fi
