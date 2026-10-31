@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# PreToolUse hook (Agent, Bash): two opt-in guards. Deny only, never updatedInput
+# PreToolUse hook (Agent, Bash): opt-in guards. Deny only, never updatedInput
 # (it replaces the whole tool input). The same script serves Claude Code and Codex (the
 # plugin's hooks/hooks.json; Codex sends tool_name "Bash" and reads the same deny), Antigravity
 # (hooks.json, a toolCall payload) and Grok (~/.grok/hooks/nadavai-guard.json written by
@@ -17,6 +17,12 @@
 #          through ci-wait --land (18 times on 2026-10-28). An unknown repo or a failed gh call
 #          (10 s each) allows, except that a behind_by above 0 denies even when the statuses
 #          read failed.
+#   Bash:  `find` or `bfs` that walks / or a home directory (a path, or . when the working directory is
+#          one of them) without -maxdepth of 4 or less, unless the command carries
+#          `# full-scan: <reason>`. On 2026-10-31 one such search held the disk at 99% for 5 minutes,
+#          and all 7 Orca stalls of a 10-minute sample fell inside it. Applies in the background too.
+#          Quoted strings with spaces (ssh host 'find /', bash -c '...'), heredoc bodies and commands over
+#          20000 characters are not read.
 # Strict mode, off unless ${XDG_CONFIG_HOME:-~/.config}/nadavai/guard-strict exists (touch it to
 # switch on, remove it to switch off; the next call reads it). Both rules apply in the
 # background too (rules/ci-policy.md, rules 4 and 7):
@@ -56,7 +62,7 @@ deny() {
 
 # Fast path: most calls carry neither word, and this runs before every Bash/run_command call.
 case "$input" in
-  *'"fork"'*|*sleep*|*gh*merge*) ;;
+  *'"fork"'*|*sleep*|*gh*merge*|*find*|*bfs*) ;;
   *while*|*until*|*docker*|*podman*|*supabase*) [ "$strict" = 1 ] || allow ;;
   *) allow ;;
 esac
@@ -363,6 +369,100 @@ check_strict() {
   ' | if [ "${4:-0}" = 1 ]; then cat; else head -1; fi
 }
 
+# check_disk_search <wide 0|1>: prints the first find/bfs at command position that walks / or a home
+# directory, nothing otherwise. wide 1: the working directory is one of them, so . and no path count too,
+# until a cd or pushd says otherwise. Heredoc bodies, comments and quoted strings with a space or shell
+# operator are set aside; a shorter quoted word keeps its content (find "$HOME").
+check_disk_search() {
+  awk -v wide="${1:-0}" '
+    function whole(p) {
+      return p ~ /^(\/|\/\.|\/\*|\/root\/?|\/home(\/\*?)?|\/home\/[^\/]+(\/(\.|\*)?)?|~(\/(\.|\*)?)?|\$HOME(\/(\.|\*)?)?)$/
+    }
+    function here(p) { return p ~ /^(\.\/?|\$PWD\/?)$/ }
+    hd != "" { t = $0; sub(/^\t+/, "", t); if (t == hd) hd = ""; next }
+    {
+      line = $0
+      gsub(/<<</, " ", line)
+      if (match(line, /<<-?[ \t]*[\\"\x27]?[A-Za-z_][A-Za-z0-9_]*/)) {
+        hd = substr(line, RSTART, RLENGTH); sub(/^<<-?[ \t]*[\\"\x27]?/, "", hd)
+      }
+      all = all line "\n"
+    }
+    END {
+      gsub(/\$\{HOME\}/, "$HOME", all); gsub(/\$\{PWD\}/, "$PWD", all)
+      # Leftmost first, so a # inside quotes stays quoted and an apostrophe in a comment opens nothing.
+      out = ""
+      while (match(all, /\x27[^\x27]*\x27|"([^"\\]|\\.)*"|(^|[ \t\n])#[^\n]*/)) {
+        m = substr(all, RSTART, RLENGTH); c = substr(m, 1, 1)
+        if (c == "\x27" || c == "\"") {
+          q = substr(m, 2, length(m) - 2)
+          if (q == "" || q ~ /[ \t\n;&|(){}`]/) q = "_"
+        } else q = " "
+        out = out substr(all, 1, RSTART - 1) q
+        all = substr(all, RSTART + RLENGTH)
+      }
+      all = out all
+      gsub(/\\\n/, " ", all); gsub(/\n/, " ; ", all)
+      gsub(/\\[();]/, " ", all); gsub(/\{\}/, "__BRACES__", all)
+      gsub(/[0-9]*[<>]&[0-9-]*/, " ", all); gsub(/&>>?/, " > ", all)
+      gsub(/[A-Za-z_][A-Za-z0-9_-]*\(\)/, "_fn ", all)
+      gsub(/\)/, " ) ", all); gsub(/[;&|({}`]/, " ; ", all)
+      n = split(all, w, /[ \t]+/)
+      cmdpos = 1
+      for (i = 1; i <= n; i++) {
+        if (w[i] == "") continue
+        if (w[i] == ";") { cmdpos = 1; continue }
+        if (w[i] == ")") { cmdpos = 0; continue }
+        if (!cmdpos) continue
+        if (w[i] ~ /^(do|then|else|!|if|elif|while|until)$/ || w[i] ~ /^[A-Za-z_][A-Za-z0-9_]*=/) continue
+        if (w[i] == "command" && w[i + 1] ~ /^-[vV]$/) { cmdpos = 0; continue }
+        if (w[i] ~ /^(sudo|nice|ionice|timeout|nohup|command|exec|env|stdbuf|time|heavy-slot|xargs)$/) {
+          while (w[i + 1] ~ /^-/ || w[i + 1] ~ /^[0-9.]+[smhd]?$/ || w[i + 1] ~ /^[A-Za-z_][A-Za-z0-9_]*=/) {
+            i++
+            if (w[i - 1] == "sudo" && w[i] ~ /^-[ug]$/) i++
+          }
+          continue
+        }
+        if (w[i] == "cd" || w[i] == "pushd") {
+          wide = (i == n || w[i + 1] == ";" || w[i + 1] == ")" || whole(w[i + 1]))
+          cmdpos = 0; continue
+        }
+        cw = w[i]; sub(/^\\/, "", cw)
+        if (cw ~ /(^|\/)(find|bfs)$/) {
+          start = 1; npaths = 0; bad = 0; depth = -1; info = 0; txt = cw
+          for (j = i + 1; j <= n && w[j] != ";" && w[j] != ")"; j++) {
+            if (w[j] == "") continue
+            txt = txt " " w[j]
+            if (w[j] ~ /^--?(version|help)$/) info = 1
+            if (start) {
+              if (w[j] ~ /^-(H|L|P|O[0-9]*)$/) continue
+              if (w[j] == "-D" || w[j] == "-S") { j++; continue }
+              if (w[j] ~ /^[-!]/) start = 0
+              else { npaths++; if (whole(w[j]) || (wide && here(w[j]))) bad = 1 }
+            }
+            if (w[j] == "-maxdepth" && w[j + 1] ~ /^[0-9]+$/) depth = w[j + 1] + 0
+          }
+          if (npaths == 0 && wide) bad = 1
+          if (bad && !info && (depth < 0 || depth > 4)) { print substr(txt, 1, 80); exit }
+          i = j - 1; cmdpos = 0; continue
+        }
+        cmdpos = 0
+      }
+    }'
+}
+
+disk_search_guard() { # disk_search_guard <command> <cwd>: denies a walk of the whole disk or home, or returns
+  local found wide=0
+  case "$1" in *find*|*bfs*) ;; *) return 0 ;; esac
+  case "$1" in *'# full-scan:'*) return 0 ;; esac
+  # A command this long is a script being written, and the quote scan is quadratic in its length.
+  [ "${#1}" -le 20000 ] || return 0
+  case "${2:-$PWD}" in /|"$HOME"|"$HOME"/|/home|/home/) wide=1 ;; esac
+  found=$(printf '%s\n' "$1" | check_disk_search "$wide")
+  [ -n "$found" ] || return 0
+  deny "'$found' walks the whole disk or home (16 million files; on 2026-10-31 one such search held the disk at 99% for 5 minutes and froze Orca). To find a file by name use plocate <name> (rebuilt nightly, skips node_modules and .git). Otherwise search under the project directory, or add -maxdepth of 4 or less. If a full walk is really needed, add '# full-scan: <reason>' to the command."
+}
+
 strict_guard() { # strict_guard <command>: denies, or returns
   local found loops=1 pg=1
   [ "$strict" = 1 ] || return 0
@@ -449,6 +549,7 @@ if [ "$is_agy" = 1 ]; then
       ;;
     run_command)
       cmd=$(jq -r '.toolCall.args.CommandLine // empty' <<<"$input")
+      disk_search_guard "$cmd" "$(jq -r '.toolCall.args.Cwd // empty' <<<"$input")"
       strict_guard "$cmd"
       merge_guard "$cmd" "$(jq -r '.toolCall.args.Cwd // empty' <<<"$input")"
       [ "$(jq -r '.toolCall.args.IsDaemon // false' <<<"$input")" = true ] && allow
@@ -471,6 +572,7 @@ case "$tool" in
   Bash|run_terminal_command)
     cmd=$(jq -r '.tool_input.command // .toolInput.command // empty' <<<"$input" 2>/dev/null)
     cwd=$(jq -r '.cwd // empty' <<<"$input" 2>/dev/null)
+    disk_search_guard "$cmd" "$cwd"
     strict_guard "$cmd" "$cwd"
     merge_guard "$cmd" "$cwd"
     if [ "$tool" = run_terminal_command ]; then
