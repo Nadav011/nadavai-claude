@@ -2,7 +2,7 @@
 name: action-safety
 description: Define and assess safe business actions, truthful completion states, and understandable recovery across existing apps, new apps, and feature changes. Use for an action-safety audit, new action requirements, or a targeted safety preflight and verification alongside an implementation request. Default audit is report-only for application source and runtime.
 metadata:
-  version: "1.0.9"
+  version: "1.0.10"
 ---
 
 # Action safety
@@ -68,6 +68,7 @@ Treat customers as nontechnical by default. Where correction is supported, provi
 3. Inspect existing safeguards and tests; record exact code references and what they do and do not prove. Run bounded isolated synthetic checks when authorized and available. Separate observed failures from hypotheses and unavailable evidence.
 4. Produce the coverage inventory, selected contracts, prioritized gaps and bounded implementation slices with required approvals. Report the actual denominator: verified pairs out of inventoried pairs, roles/products and exclusions. If discovery or testing sampled selected actions, say so; do not claim whole-app coverage.
    When the requested result is the whole application (audit plus implementation), the work is complete only when every inventoried action/entry-point pair is `verified` or carries an explicit exclusion with reason, owner and the decision or approval it waits for. Keep the remaining pairs in the project's status record and continue slice by slice; never report done while an inventoried pair is silently uncovered.
+   The inventory is itself a claim. Before saying "the whole application" rather than "every inventoried pair", run one pass by someone who did not write the inventory, walking every reachable screen as its user, and record at each one: what a save writes beyond what the screen shows (another record's field included); what a form opened on existing data shows and then saves; what reload, Back and Forward rebuild from the URL or state after the action ended; what a control does on an empty or default value; what a failed load leaves on screen with Save still enabled; and what a read returns past the server's row cap. A finding absent from the inventory is an inventory defect: add its class, run the sibling sweep for it, and drop the whole-application claim until that is done. Why: after every inventoried pair of one app was verified, a screen-by-screen pass found 12 severe live defects the inventory never listed, among them clinical text overwritten on every save, a blank form wiping a health declaration and a double charge after reload (2026-10-31).
 5. Stop at the report unless implementation was requested. Surface observed incident-level risks immediately in the response with the existing escalation route. Filing tickets, contacting people or performing production intervention needs its own authorization; a severity label never supplies it.
 
 ## `new`: new app or action
