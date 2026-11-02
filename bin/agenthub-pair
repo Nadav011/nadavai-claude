@@ -2,8 +2,10 @@
 set -euo pipefail
 
 TOKEN_FILE="${AGENT_HUB_TOKEN_FILE:-$HOME/.config/agent-hub/token}"
-PAIRING_URL="${AGENT_HUB_PAIRING_URL:-https://msi.tailda1373.ts.net:9443}"
-QR_VIEWER="${AGENT_HUB_QR_VIEWER:-eog}"
+# Default: this machine's own Tailscale HTTPS name (agenthub runs on whichever machine is the main one).
+TS_HOST="$(tailscale status --json 2>/dev/null | python3 -I -c 'import json,sys; print(json.load(sys.stdin)["Self"]["DNSName"].rstrip("."))' 2>/dev/null || true)"
+PAIRING_URL="${AGENT_HUB_PAIRING_URL:-https://${TS_HOST:-msi.tailda1373.ts.net}:9443}"
+QR_VIEWER="${AGENT_HUB_QR_VIEWER:-xdg-open}"
 RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp}"
 
 fail() {
@@ -55,4 +57,7 @@ PY
 unset AGENT_HUB_PAIRING_TOKEN
 
 printf 'קוד הצימוד פתוח. סרוק אותו באייפון וסגור את החלון בסיום.\n'
-"$QR_VIEWER" --new-instance "$QR_PATH"
+case "$(basename "$QR_VIEWER")" in
+  eog) "$QR_VIEWER" --new-instance "$QR_PATH" ;;
+  *) "$QR_VIEWER" "$QR_PATH" ;;
+esac
