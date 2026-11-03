@@ -528,7 +528,7 @@ if [ -n "$MAIN_LOCAL_SHA" ] && [ "${MAIN_LOCAL_SHA//0/}" != "" ]; then
     fi
     # CI v2: a repo cut over to Woodpecker (lib/woodpecker-repos.txt) lands through a PR. A direct
     # push to main passes when the pushed commit (or a commit with the same tree: itself, a parent,
-    # five first parents) has a green ci/woodpecker/pr/landing status, or only documentation
+    # five first parents) has every ci/woodpecker/pr/* status green, or only documentation
     # changed since main. Same rule family as agent-guard's wp_merge_check.
     if [ "${gh_owner,,}" = nadav011 ] && grep -qixF "$gh_name" <(sed 's/[[:space:]]*#.*//; /^$/d' "${NADAVAI_HOME:-$HOME/nadavai}/lib/woodpecker-repos.txt" 2>/dev/null); then
       on_ci=""
@@ -545,7 +545,11 @@ if [ -n "$MAIN_LOCAL_SHA" ] && [ "${MAIN_LOCAL_SHA//0/}" != "" ]; then
         for ((i = 0; i < 5; i++)); do wp_c=$(git rev-parse -q --verify "$wp_c^1" 2>/dev/null) || break; wp_cands+=("$wp_c"); done
         for p in "${wp_cands[@]}"; do
           [ "$(git rev-parse -q --verify "$p^{tree}" 2>/dev/null)" = "$wp_tree" ] || continue
-          r=$(timeout 10 gh api "repos/$GH_REPO/commits/$p/statuses?per_page=100" 2>/dev/null | jq -r 'if type == "array" then ([sort_by(.id) | reverse | .[] | select(.context == "ci/woodpecker/pr/landing")][0].state // "none") else "unread" end' 2>/dev/null)
+          # Every ci/woodpecker/pr/* context's newest status green (one repo has landing, another web + backend).
+          r=$(timeout 10 gh api "repos/$GH_REPO/commits/$p/statuses?per_page=100" 2>/dev/null | jq -r 'if type == "array" then
+              ([.[] | select(.context | startswith("ci/woodpecker/pr/"))] | group_by(.context) | map(sort_by(.id) | last | .state)) as $s
+              | if ($s | length) == 0 then "none" elif all($s[]; . == "success") then "success" else "red" end
+            else "unread" end' 2>/dev/null)
           [ -n "$r" ] || r=unread
           [ "$r" = unread ] && wp_unread=1
           [ "$r" = success ] && { echo "✅ pre-push [landing]: the tree of ${p:0:7} passed its Woodpecker landing"; LANDING="ok"; wp_ok=1; break; }
@@ -556,7 +560,7 @@ if [ -n "$MAIN_LOCAL_SHA" ] && [ "${MAIN_LOCAL_SHA//0/}" != "" ]; then
       fi
       if [ -z "$wp_ok" ]; then
         echo ""
-        echo "🚫 pre-push [landing]: ${MAIN_LOCAL_SHA:0:7} has no green Woodpecker landing (ci/woodpecker/pr/landing)."
+        echo "🚫 pre-push [landing]: ${MAIN_LOCAL_SHA:0:7} has no green Woodpecker landing (every ci/woodpecker/pr/* status green)."
         echo "   $gh_name lands through a non-draft PR into main: push the branch, run"
         echo "   ci-wait $gh_name <branch> --land in the background, and merge the PR after it is green."
         echo "   Urgent fix: NADAVAI_LAND_URGENT='<reason>' git push ...   Emergency: git push --no-verify"
