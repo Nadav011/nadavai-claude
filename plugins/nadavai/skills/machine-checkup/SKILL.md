@@ -6,8 +6,9 @@ description: "Full checkup of one of Nadav's Linux machines: why it freezes or i
 
 One round takes a few hours, most of it background scans and copies. Nadav runs it regularly.
 State of the previous round lives in memory: `disk-cleanup-keep-list.md` (what never to touch,
-per-round logs and lessons), `msi-thermal-diagnosis-2026-10.md` and
-`ram-pressure-chrome-kills-2026-09-29.md` (tuning history). Read all three first.
+per-round logs and lessons), `msi-thermal-diagnosis-2026-10.md`,
+`ram-pressure-chrome-kills-2026-09-29.md` (tuning history) and, on the LENOVO,
+`lenovo-performance-tuning-2026-11.md`. Read them first.
 
 ## Hard rules
 
@@ -165,6 +166,20 @@ OC Lock off in the hidden BIOS menu; NVMe `bfq`, `nr_requests 64`, `wbt_lat_usec
 `iostats 1` in `/etc/udev/rules.d/60-nvme-scheduler.rules`; fstrim weekly Sun 03:30;
 `agent-nice.timer` (Claude trees at nice 10); `docker-wifi-block.service`; logind lid ignore;
 SSH via Tailscale only. The GPU stays pinned at its highest state: Nadav's choice.
+
+**LENOVO** (Legion Pro 5 16IAX10H, Core Ultra 9 275HX 24 cores, 62 GB, RTX 5070 Ti, CachyOS,
+BIOS Q6CN79WW = latest per `download.lenovo.com/catalog/83LU_Win11.xml`; the main machine since
+2026-11-03). On Linux the firmware leaves `intel-rapl-mmio:0` at 30/30 W, so check that first:
+`legion-power-limits.timer` (script `/usr/local/bin/legion-power-limits`, every 15 s, plus udev on
+ADP0 and a system-sleep hook) sets PL1 110 W / PL2 125 W / tau 28 s in `performance` on AC
+(measured: 4-6x the work of 30 W, 85-87 C sustained, 0 throttle events; PL2 160 gained 6% on bursts
+at 104 C). `platform_profile` rejects `custom` and lenovo-wmi-other `ppt_*` writes return EBUSY, so
+the script owns the limit. Undervolt is locked (MSR 0x194 bit 20). BIOS options are readable without
+a reboot from efivars (`Setup-a04a27f4`, `CpuSetup-b08f97ff`, `SaSetup-72c5e28c`, 4-byte header;
+offsets from the IFR of the official image) but writes are refused (EACCES), so BIOS changes are made
+in F2. Read the dGPU's sleep state from `runtime_status`, never `nvidia-smi` (it wakes the card).
+rasdaemon needs `DISABLE="signal:signal_generate"` or it logs every SIGCHLD. Details:
+memory `lenovo-performance-tuning-2026-11.md`.
 
 **Omarchy / NadavAI** (`ssh omarchy`, no sudo, runs CI for every repo; the MSI also builds
 therapy-flow-v2 branch heads through `nadavai-slot.service`). Archive target:
