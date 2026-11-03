@@ -79,3 +79,4 @@ desktop-entries org.gnome.seahorse.Application.desktop  # launcher of a desktop 
 desktop-entries org.kde.foreground-booster.desktop  # launcher of a desktop app left out
 desktop-entries qemu.desktop  # qemu GUI launcher from a LENOVO-only package
 desktop-entries solaar.desktop  # launcher of a desktop app left out
+desktop-entries openwhispr-url-handler.desktop  # OpenWhispr writes it at its first run; the app is left out here
