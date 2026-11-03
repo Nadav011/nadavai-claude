@@ -58,13 +58,12 @@ every `ci-wait`, and the old runner (3,445 lines on one 8-core box) queued agent
     Oracle VM is live; then a green main deploys and health-checks itself.
 
 ## Repos
-- Cut over to Woodpecker: the repos listed in `~/nadavai/lib/woodpecker-repos.txt` (snooker-smart,
-  cash-next-app, sportchat-web). Each has its workflows in `.woodpecker/` (one `landing.yml`, or
-  several, like therapy-flow-v2's `web.yml` + `backend.yml`, which two agents run in parallel).
-  sportchat-web has no Lighthouse per landing for now (Nadav).
-- Not yet cut over (therapy-flow-v2): until it appears in that list, it keeps the old flow on the
-  temporary host on the LENOVO: `ci-wait therapy-flow-v2 <branch> --land`, and merge after a
-  main-tier landing pass. Its Woodpecker runs are shadow runs only.
+- On Woodpecker: every repo listed in `~/nadavai/lib/woodpecker-repos.txt` (snooker-smart,
+  cash-next-app, sportchat-web, therapy-flow-v2). Each has its workflows in `.woodpecker/` (one
+  `landing.yml`, or several, like therapy-flow-v2's `web.yml` + `backend.yml`, which two agents
+  run in parallel). sportchat-web has no Lighthouse per landing for now (Nadav).
+- The old nadavai-ci runner is retired: the temporary host on the LENOVO was stopped on
+  2026-11-03 when therapy-flow-v2 moved. A `nadavai-ci` status on an old commit is history only.
 - A new repo: copy a `.woodpecker/landing.yml` from a cut-over repo, activate the repo on
   ci.nadavc.ai, land it once green, then add it to the list.
 - A project's CLAUDE.md, AGENTS.md, runbook or `.claude/rules` never restates these rules, and
