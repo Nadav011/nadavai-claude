@@ -39,7 +39,12 @@
 set -uo pipefail
 
 OWNER=Nadav011
-HOST=${CI_WAIT_HOST:-omarchy}
+# The CI host: the first word of ~/.config/nadavai/ci-host, else CI_WAIT_HOST, else omarchy. A
+# file, so moving CI to another host (the LENOVO, 2026-11-03, while omarchy was rebuilt) reaches
+# every new wait in every session at once, with no session restarted.
+HOST=''
+read -r HOST _ 2>/dev/null <"${XDG_CONFIG_HOME:-$HOME/.config}/nadavai/ci-host"
+[[ $HOST =~ ^[A-Za-z0-9][A-Za-z0-9._@-]*$ ]] || HOST=${CI_WAIT_HOST:-omarchy}
 POLL=${CI_WAIT_POLL:-30}
 HEARTBEAT_EVERY=${CI_WAIT_HEARTBEAT_EVERY:-300}
 CACHE=${CI_WAIT_CACHE:-$HOME/.cache/ci-wait}
@@ -341,6 +346,7 @@ while :; do
         success)
           case "$d" in
             "not deployed: main moved on"*) notes+=("$c: not deployed, main moved on") ;;
+            "not deployed: deploys are off"*) notes+=("$c: not deployed, deploys are off on the CI host") ;;
             "documentation only"*|"live as "*"(documentation only"*) notes+=("$c: documentation only") ;;
             "not measured"*) notes+=("$c: not measured, superseded") ;;
             "no CI workflow"*) notes+=("$c: no CI workflow on this commit") ;;
