@@ -27,6 +27,29 @@ setup can be rebuilt after a reformat. No secrets live here: they are in the vau
 - omarchy also runs the nightly local-backend agent (`~/nightly`) and secscan (`~/secscan`); their
   own READMEs live there.
 
+## npm cache (omarchy, msi)
+- `agent/npm-cache/{compose.yml,nginx.conf}` -> `/opt/npm-cache/` on each agent host (`sudo install`,
+  `cache/` owned by uid 101, `docker compose up -d`). nginx 1.30 (unprivileged image, tag plus
+  digest), `restart: always`, published on `172.17.0.1:4873` (docker0) only, so the LAN, Wi-Fi and
+  Tailscale cannot reach it. It is a read-through HTTP cache of registry.npmjs.org: GET and HEAD
+  only, no credentials forwarded, TLS to npmjs verified. It holds only what npmjs returned; pnpm
+  and npm still check every tarball against the lockfile's integrity hash, and the lockfiles are
+  untouched. Metadata is kept 5 minutes (npmjs's own max-age), tarballs 1 day and then revalidated
+  by ETag; an expired entry is served once while it refreshes, and also when npmjs errors. Size cap
+  10 GB, entries unused for 30 days go, so no prune timer. The agent prune timer does not touch it.
+- Why not Verdaccio: tried first (6.11.1) and measured on the MSI. pnpm 11 checks the whole
+  lockfile against supply-chain policies at install and fetches full metadata for every entry;
+  Verdaccio sat at 200% CPU parsing and rewriting it and took 26-34 s, warm, for an install that
+  takes 11-15 s straight from npmjs. With nginx the same warm install takes 8-14 s.
+- The repos' install steps (`.woodpecker/*.yml`) ping `http://172.17.0.1:4873/-/ping` for 2 s,
+  install through the cache when it answers (`npm_config_registry` for npm and pnpm 10,
+  `pnpm_config_registry` for pnpm 11, `--fetch-retries=0`, `timeout 300`), and install from npmjs
+  when it does not answer or the install through it fails. `extra_hosts: ["npm-cache:host-gateway"]`
+  is not used: Woodpecker's linter rejects it unless the repo is trusted for network, and that
+  trust would also allow `network_mode: host` in any PR.
+- Check: `curl -sI http://172.17.0.1:4873/typescript | grep X-Cache-Status`; the access log
+  (`docker logs npm-cache`) has the cache status in field 6. Fallback test: `docker stop npm-cache`.
+
 ## Per repo (Woodpecker API, admin token)
 - Activate: `POST /api/repos?forge_remote_id=<github repo id>` (retry: the first call can fail with
   "could not create webhook" on a GitHub EOF).

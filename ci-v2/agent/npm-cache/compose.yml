@@ -1,0 +1,34 @@
+# npm registry cache for the Woodpecker step containers on this agent host (omarchy, msi).
+# nginx 1.30 (unprivileged image), pinned by tag and digest. Install steps reach it at
+# http://172.17.0.1:4873, the docker0 address (`extra_hosts: ["npm-cache:host-gateway"]` is not used:
+# Woodpecker's linter rejects it unless the repo is trusted for network). The port is published on
+# that address only, so the LAN, Wi-Fi and Tailscale cannot reach it. See nginx.conf.
+# The install steps in the repos' .woodpecker/*.yml install from npmjs directly when this is down.
+services:
+  npm-cache:
+    image: nginxinc/nginx-unprivileged:1.30.6-alpine3.24@sha256:f5116ed4606f3eb015dd4a8e28cb9b351476dc0ad4bc6e9f93b19cec130cdf03
+    container_name: npm-cache
+    restart: always
+    ports:
+      - "172.17.0.1:4873:4873"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./cache:/var/cache/npm
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 512m
+    pids_limit: 128
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:4873/-/ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
