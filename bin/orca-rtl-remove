@@ -12,6 +12,8 @@ did=0
 if [ -d "$BDIR" ]; then
   (cd "$BDIR" && find . -type f) | while read -r rel; do sudo install -m 644 "$BDIR/$rel" "$RES/app.asar.unpacked/$rel"; done
   echo "[orca-rtl] restored in-place files from $BDIR"
+  # The header must carry the restored sizes again, or Orca reads cut-off files.
+  node "$(dirname "$(readlink -f "$0")")/../lib/orca-rtl/sync-header.mjs" "$ASAR"
   did=1
 fi
 if [ ! -d "$RES/app.asar.unpacked/out/renderer/assets" ] && [ -f "$BACKUP" ]; then

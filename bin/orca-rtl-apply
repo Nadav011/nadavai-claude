@@ -38,3 +38,12 @@ if ! patched; then
   patched || { echo "[orca-rtl] FAILED: live asar still unpatched"; exit 1; }
 fi
 echo "[orca-rtl] verified: live Orca carries the patch."
+
+# Unpacked layout: Electron reads those files by the size in app.asar's header, so a
+# patched file that grew is cut off and Orca opens a white window (1.4.246, 2026-11-03).
+# Record the new sizes; if that cannot be done safely, put the originals back.
+if [ -d "$CSSDIR" ] && ! node "$DIR/sync-header.mjs" "$ASAR"; then
+  echo "[orca-rtl] FAILED to update the asar header; restoring the original files"
+  "$(dirname "$(readlink -f "$0")")/orca-rtl-remove"
+  exit 1
+fi
