@@ -215,7 +215,9 @@ CachyOS ananicy puts node/bun/rsync AND sshd/sshd-session in BG_CPUIO (SCHED_IDL
 run over ssh inherited idle priority. `/etc/ananicy.d/00-0-agents.rules` overrides both (as `zz-*` it
 was ignored on this machine), and `agent-nice.timer` then puts Claude trees at nice 10 (proven:
 0 -> 10 on all threads). The dGPU runtime-suspends with nothing on HDMI, so the old P0 pin was not
-restored. 2026-11-03 15:54:18 the dGPU went to NV_ERR_RESET_REQUIRED ("Failed to get GCx pre-requisite" every 5 s, then CUDA_ERROR_NO_DEVICE): no CPU test ran then and the CI containers had no GPU access; cause unproven, a reboot clears it. If it recurs, try `NVreg_DynamicPowerManagement=0x02` (what Pop!_OS had), at the cost of the dGPU staying powered while kwin holds it. Drive wear: 59% used, 89.9 TB written, 0 media errors (watch it). The Pop!_OS files are
+restored. With a screen on the HDMI port (wired to the dGPU, which then idles at P8 ~12 W on the
+shared heat pipes) the final config (-40 mV, 40/45 W, boost) measured 2.9 GHz, 87 C avg, 92 C max,
+1,468 throttle events per 150 s, clock not lower than without the screen; kept. 2026-11-03 15:54:18 the dGPU went to NV_ERR_RESET_REQUIRED ("Failed to get GCx pre-requisite" every 5 s, then CUDA_ERROR_NO_DEVICE): no CPU test ran then and the CI containers had no GPU access; cause unproven, a reboot clears it. If it recurs, try `NVreg_DynamicPowerManagement=0x02` (what Pop!_OS had), at the cost of the dGPU staying powered while kwin holds it. Drive wear: 59% used, 89.9 TB written, 0 media errors (watch it). The Pop!_OS files are
 in the LENOVO's `~/Archive/msi-20261103/system/`. The old tuning, measured on Pop!_OS: msi-ec (DKMS, BeardOverflow) `shift_mode=turbo` via
 `msi-turbo.service`; `intel-undervolt` -50 mV core/cache (-85 mV crashed), PL1 40 W / PL2 45 W;
 `cpu-maxfreq.service` 4.2 GHz (same clock as 4.6 under the 40 W cap, 5-7 C cooler); HWP on and
