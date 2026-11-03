@@ -1,0 +1,12 @@
+[Unit]
+Description=CPU package power limits PL1 40 W / PL2 45 W in both RAPL zones (MSR + MMIO; the lower one wins). A/B 2026-11-03: above ~45 W the cooler is the limit
+After=intel-undervolt.service msi-turbo.service
+
+[Service]
+Type=oneshot
+# Waits up to 20 s for both zones (intel_rapl_msr / intel_rapl_mmio load asynchronously at boot), then
+# writes whichever exist. Re-run every minute by msi-power-limits.timer in case firmware resets them.
+ExecStart=/bin/sh -c 'for i in $(seq 20); do [ -d /sys/class/powercap/intel-rapl:0 ] && [ -d /sys/class/powercap/intel-rapl-mmio:0 ] && break; sleep 1; done; for z in intel-rapl:0 intel-rapl-mmio:0; do d=/sys/class/powercap/$z; [ -d $d ] || { echo "$z missing" >&2; continue; }; echo 40000000 > $d/constraint_0_power_limit_uw; echo 28000000 > $d/constraint_0_time_window_us; echo 45000000 > $d/constraint_1_power_limit_uw; done'
+
+[Install]
+WantedBy=multi-user.target

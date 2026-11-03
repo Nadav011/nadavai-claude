@@ -1,0 +1,9 @@
+[Unit]
+Description=Cap CPU peak clock at 4.2 GHz (2026-10-24 A/B: same average clock under the 40 W limit, 5-7C cooler than 4.6 GHz)
+After=msi-turbo.service power-profiles-daemon.service
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/sh -c 'for f in /sys/devices/system/cpu/cpu*/cpufreq/scaling_max_freq; do echo 4200000 > $f; done'
+[Install]
+WantedBy=multi-user.target

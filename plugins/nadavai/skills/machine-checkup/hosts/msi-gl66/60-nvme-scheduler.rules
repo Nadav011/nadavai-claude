@@ -1,0 +1,5 @@
+# MSI NVMe (Kingston OM8PCP3512F): bfq beat CachyOS kyber on fsync latency in every round of the
+# 2026-11-03 A/B (disk-bench.sh, 3 interleaved rounds): probe p50 123-659 ms vs 369-1397 ms, small
+# fsync writer 2-7x faster; kyber had 8-15 s stalls. Cost: bulk sequential write ~25% lower.
+# Sorts after /usr/lib/udev/rules.d/60-ioschedulers.rules, so it wins. wbt is off under bfq anyway.
+ACTION=="add|change", SUBSYSTEM=="block", KERNEL=="nvme[0-9]*n[0-9]*", ENV{DEVTYPE}=="disk", ATTR{queue/scheduler}="bfq", ATTR{queue/read_ahead_kb}="256", ATTR{queue/nr_requests}="64", ATTR{queue/nomerges}="0", ATTR{queue/add_random}="0", ATTR{queue/rq_affinity}="2", ATTR{queue/iostats}="1"

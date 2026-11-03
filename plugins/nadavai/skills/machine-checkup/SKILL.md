@@ -192,9 +192,30 @@ nvidia-container-toolkit + CDI for Docker GPU access.
 on 2026-11-03 as CachyOS + KDE (user `nadavmsi`, fish shell, `ssh msi` = Tailscale `msi-1`),
 provisioned from the LENOVO with tools only (memory `msi-reinstall-2026-11.md`). BIOS
 E1581IMS.313 is the newest on download.msi.com; msi-ec now comes from AUR `msi-ec-dkms-git`
-(EC 1581EMS1.107). Restored the same afternoon on CachyOS: `msi-turbo.service` (shift_mode turbo),
-`intel-undervolt` -50 mV with PL1 40 / PL2 45 W, `cpu-maxfreq.service` 4.2 GHz, the logind lid
-drop-in. Not back: the NVMe udev rule (CachyOS runs kyber), `agent-nice.timer`. The Pop!_OS files are
+(EC 1581EMS1.107). It also runs a Woodpecker CI agent (owned by the CI session). The whole tuning
+lives in `hosts/msi-gl66/`: after a reinstall run `hosts/msi-gl66/install.sh` (refuses any other
+model or as root, idempotent), and `msi-tuning-check` shows each layer (ok/BAD per line, exit 1 on any BAD).
+Also installs the lid-ignore drop-in (CI host), pins `bootctl set-default`, and sets rasdaemon's
+`DISABLE="signal:signal_generate"`.
+Measured on CachyOS on 2026-11-03: stock (EC mode unknown 192) ran 3.4 GHz at 51-59 W and 92-94 C,
+on the throttle line. With Turbo + -50 mV core + 4.2 GHz cap, a 3 min matrixprod A/B with
+`cooler_boost` on gave 40 W 2.8 GHz 85 C 0 throttles, 43 W +3% 89 C 2,604, 45 W +10% 92 C 7,124;
+with the fans on auto, 40 W ran 88 C with 3,692 throttles. Kept 40/45 W (the 2026-10-27 MCE came at
+89-93 C, and heat shrinks the undervolt margin) and `msi-fan-boost.service` (boost at >= 80 C, off at
+<= 65 C, quiet at idle). Power limits live in `msi-power-limits.service` (+ a 1-minute timer) for both the MSR and MMIO
+RAPL zones (intel-undervolt only writes the MSR and warned "MSR and memory values are not equal").
+Undervolt: the effective core VID at a fixed 2.6 GHz (MSR 0x198 bits 47:32) was 819 mV at 0/0 and
+774 mV at both -50/0 and -50/-50, so the cache plane follows the core: the 2026-10-27 "cache to 0"
+fix changed nothing. Now -40 mV core (Nadav's choice, 10 mV under the crash). 10 min stress at -50: 0 MCE. NVMe: `disk-bench.sh`, 3 interleaved rounds: bfq probe p50 123-659 ms
+against kyber's 369-1397 ms, and the small fsync writer 2-7x faster. kyber stalled 8-15 s; the cost
+of bfq is ~25% less bulk write. Rounds 2-3 overlapped the CI agent's start, but every pair pointed the
+same way. APST is off (PS4 exit latency 25 ms) live and in the boot entries plus `/etc/sdboot-manage.conf`.
+The EFI default named the deleted Pop_OS entry, so it is now pinned with `bootctl set-default linux-cachyos.conf`.
+CachyOS ananicy puts node/bun/rsync AND sshd/sshd-session in BG_CPUIO (SCHED_IDLE), so every command
+run over ssh inherited idle priority. `/etc/ananicy.d/00-0-agents.rules` overrides both (as `zz-*` it
+was ignored on this machine), and `agent-nice.timer` then puts Claude trees at nice 10 (proven:
+0 -> 10 on all threads). The dGPU runtime-suspends with nothing on HDMI, so the old P0 pin was not
+restored. 2026-11-03 15:54:18 the dGPU went to NV_ERR_RESET_REQUIRED ("Failed to get GCx pre-requisite" every 5 s, then CUDA_ERROR_NO_DEVICE): no CPU test ran then and the CI containers had no GPU access; cause unproven, a reboot clears it. If it recurs, try `NVreg_DynamicPowerManagement=0x02` (what Pop!_OS had), at the cost of the dGPU staying powered while kwin holds it. Drive wear: 59% used, 89.9 TB written, 0 media errors (watch it). The Pop!_OS files are
 in the LENOVO's `~/Archive/msi-20261103/system/`. The old tuning, measured on Pop!_OS: msi-ec (DKMS, BeardOverflow) `shift_mode=turbo` via
 `msi-turbo.service`; `intel-undervolt` -50 mV core/cache (-85 mV crashed), PL1 40 W / PL2 45 W;
 `cpu-maxfreq.service` 4.2 GHz (same clock as 4.6 under the 40 W cap, 5-7 C cooler); HWP on and

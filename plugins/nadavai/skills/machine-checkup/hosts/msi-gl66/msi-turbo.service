@@ -1,0 +1,10 @@
+[Unit]
+Description=MSI EC shift mode turbo (power limits: msi-power-limits.service)
+After=systemd-modules-load.service
+Before=intel-undervolt.service
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/sh -c 'for i in 1 2 3 4 5 6 7 8 9 10; do [ -w /sys/devices/platform/msi-ec/shift_mode ] && break; sleep 1; done; echo turbo > /sys/devices/platform/msi-ec/shift_mode'
+[Install]
+WantedBy=multi-user.target

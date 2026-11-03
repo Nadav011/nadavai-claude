@@ -1,0 +1,11 @@
+#!/bin/bash
+# MSI only: move every Claude session tree to nice 10 so the desktop and Orca's window
+# win the CPU, while agents still get all the CPU the screen does not need.
+# Covers Orca agent sessions (spawned by orca-ide, not a shell), which ~/.bashrc misses.
+desc() { echo "$1"; for c in $(pgrep -P "$1"); do desc "$c"; done; }
+for root in $(pgrep -x claude); do
+  [ "$(ps -o ni= -p "$root" | tr -d ' ')" -lt 10 ] 2>/dev/null || continue
+  for p in $(desc "$root"); do
+    for t in /proc/"$p"/task/*; do renice -n 10 -p "${t##*/}" >/dev/null 2>&1; done
+  done
+done

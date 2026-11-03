@@ -1,0 +1,42 @@
+#!/bin/bash
+# Read-only: shows every layer of the MSI tuning and says ok/BAD per line. Exit 1 if any line is BAD.
+# Installed by hosts/msi-gl66/install.sh (nadavai machine-checkup skill).
+bad=0
+chk() { if eval "$2"; then printf '  ok   %s\n' "$1"; else printf '  BAD  %s\n' "$1"; bad=1; fi; }
+E=/sys/devices/platform/msi-ec; Q=/sys/block/nvme0n1/queue; UV=$(grep -E "^undervolt 0 'CPU'" /etc/intel-undervolt.conf | awk '{print $NF}')
+sudo modprobe msr 2>/dev/null
+echo "== BIOS"
+chk "Speed Shift (HWP) on"                 "grep -qw hwp /proc/cpuinfo"
+chk "Overclocking Lock off (MSR 0x194)"    "(( ! ((0x\$(sudo rdmsr -p0 0x194) >> 20) & 1) ))"
+echo "== CPU"
+chk "EC shift_mode turbo ($(cat $E/shift_mode 2>/dev/null))"   "[ \"\$(cat $E/shift_mode 2>/dev/null)\" = turbo ]"
+chk "undervolt core ${UV} mV applied, cache 0" "r=\$(sudo intel-undervolt read 2>/dev/null); echo \"\$r\" | awk -v w=${UV} '/^CPU \(0\)/{v=\$3+0; d=v-w; ok=(d<1 && d>-1)} END{exit !ok}' && echo \"\$r\" | grep -qE 'CPU Cache \(2\): -?0\.00'"
+for z in intel-rapl:0 intel-rapl-mmio:0; do
+  d=/sys/class/powercap/$z
+  chk "$z PL1 40 W / PL2 45 W"             "[ \"\$(sudo cat $d/constraint_0_power_limit_uw)\" = 40000000 ] && [ \"\$(sudo cat $d/constraint_1_power_limit_uw)\" = 45000000 ]"
+done
+chk "msi-power-limits.timer active"        "systemctl is-active -q msi-power-limits.timer"
+chk "max clock 4.2 GHz"                    "[ \"\$(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq)\" = 4200000 ]"
+chk "msi-fan-boost running (boost now: $(cat $E/cooler_boost 2>/dev/null))" "systemctl is-active -q msi-fan-boost"
+echo "== Disk"
+chk "scheduler bfq, nr_requests 64"        "grep -q '\[bfq\]' $Q/scheduler && [ \"\$(cat $Q/nr_requests)\" = 64 ]"
+chk "APST off now"                         "sudo nvme get-feature /dev/nvme0 -f 0x0c -H 2>/dev/null | grep -q 'APSTE).*Disabled'"
+chk "APST off at boot (cmdline or entry)"  "grep -q 'nvme_core.default_ps_max_latency_us=0' /proc/cmdline || sudo grep -q nvme_core.default_ps_max_latency_us=0 /boot/loader/entries/linux-cachyos.conf"
+chk "APST kept by sdboot-manage regen"     "[ ! -f /etc/sdboot-manage.conf ] || grep -q nvme_core.default_ps_max_latency_us=0 /etc/sdboot-manage.conf"
+echo "== Scheduling"
+chk "agent-nice.timer active"              "systemctl --user is-active -q agent-nice.timer"
+P=$(command -v node || ls -d "$HOME"/.local/share/fnm/aliases/default/bin/node 2>/dev/null)
+if [ -n "$P" ]; then
+  systemctl --user reset-failed msi-tuning-probe 2>/dev/null
+  systemd-run --user --quiet --collect --unit=msi-tuning-probe "$(readlink -f "$P")" -e 'setTimeout(()=>{},8000)' 2>/dev/null; sleep 4
+  pid=$(systemctl --user show -p MainPID --value msi-tuning-probe 2>/dev/null)
+  chk "node runs nice 10 TS, not SCHED_IDLE ($(ps -o ni=,cls= -p "$pid" 2>/dev/null | xargs))" "ps -o ni=,cls= -p $pid 2>/dev/null | grep -qE '^ *10 +TS'"
+  systemctl --user stop msi-tuning-probe 2>/dev/null
+fi
+S=$(pgrep -xn sshd-session || pgrep -xo sshd)
+chk "ssh sessions not SCHED_IDLE"          "! ps -o cls= -p $S | grep -q IDL"
+chk "docker-wifi-block rule present"       "! systemctl is-active -q docker || sudo iptables -C DOCKER-USER -i wlan0 -m conntrack --ctstate NEW -j DROP 2>/dev/null"
+chk "lid close ignored"                    "[ -f /etc/systemd/logind.conf.d/50-lid-ignore.conf ]"
+echo "== Errors"
+chk "no machine-check errors this boot"    "! sudo journalctl -k -b | grep -qiE 'machine check|hardware error'"
+exit $bad

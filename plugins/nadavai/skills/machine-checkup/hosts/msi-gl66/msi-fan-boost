@@ -1,0 +1,16 @@
+#!/bin/bash
+# cooler_boost on at >= ON C, off at <= OFF C (EC CPU temperature). A/B 2026-11-03: boost = -4 C and ~0
+# thermal throttles at the same power. Compares against the EC's actual state every tick, so a boost the
+# EC dropped (resume, EC reset) comes back; a failed read keeps the last decision and retries.
+ON=${ON:-80} OFF=${OFF:-65}
+B=/sys/devices/platform/msi-ec/cooler_boost T=/sys/devices/platform/msi-ec/cpu/realtime_temperature
+want=off
+trap 'echo off > "$B"; exit 0' TERM INT
+while :; do
+  if read -r t < "$T" 2>/dev/null; then
+    if [ "$t" -ge "$ON" ]; then want=on; elif [ "$t" -le "$OFF" ]; then want=off; fi
+  fi
+  read -r cur < "$B" 2>/dev/null || cur=
+  [ "$cur" = "$want" ] || echo "$want" > "$B" 2>/dev/null
+  sleep 3
+done

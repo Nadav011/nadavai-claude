@@ -1,0 +1,6 @@
+[Unit]
+Description=Lower Claude agent priority to nice 10 (desktop stays responsive)
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/agent-nice

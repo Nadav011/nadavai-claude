@@ -1,0 +1,10 @@
+[Unit]
+Description=Re-apply the MSI power limits every minute (firmware or EC mode changes can reset them)
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=60s
+AccuracySec=5s
+
+[Install]
+WantedBy=timers.target

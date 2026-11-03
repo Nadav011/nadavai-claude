@@ -1,0 +1,11 @@
+[Unit]
+Description=Block new Wi-Fi connections into Docker containers (published ports bypass ufw)
+After=docker.service
+Requires=docker.service
+PartOf=docker.service
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/sh -c 'iptables -C DOCKER-USER -i wlan0 -m conntrack --ctstate NEW -j DROP 2>/dev/null || iptables -I DOCKER-USER -i wlan0 -m conntrack --ctstate NEW -j DROP'
+[Install]
+WantedBy=multi-user.target docker.service
