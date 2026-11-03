@@ -34,7 +34,8 @@ every `ci-wait`, and the old runner (3,445 lines on one 8-core box) queued agent
    a loop. Exit 0 green, 1 red (failed steps and log tail printed), 2 timeout, 3 CI unreachable,
    4 parent gone, 5 nothing to wait on (no landing PR, a draft), 6 superseded by a newer push.
 6. Merge only when every `ci/woodpecker/pr/*` status and `nadavai-security` on the PR head are
-   green, with `gh pr merge <N> --match-head-commit <sha>` (a push after the check then cannot slip
+   green, with `gh pr merge <N> --match-head-commit <sha>` (required: agent-guard denies a merge
+   without it or with another sha, so a push after the check cannot slip
    in). `nadavai-security` comes from secscan on omarchy, outside Woodpecker (new secrets in the
    PR's commits, new high/critical advisories when a dependency file changed; every main nightly);
    a missing one passes only for 10 minutes after the head's first status. Why: a PR controls its

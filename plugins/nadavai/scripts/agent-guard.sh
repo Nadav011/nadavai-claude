@@ -617,13 +617,21 @@ strict_guard() { # strict_guard <command>: denies, or returns
 # the PR is pushed); later it is a denial that says where the service runs.
 WP_SHARED_RE='(^|/)(package\.json|pnpm-lock\.yaml|package-lock\.json|pnpm-workspace\.yaml|deno\.jsonc?|deno\.lock|tsconfig[^/]*\.json)$|(^|/)[^/]*\.config\.[cm]?[jt]s$|^\.woodpecker/|(^|/)migrations/'
 WP_SEC_GRACE_S=600
-wp_merge_check() { # owner name pr-or-branch dir
-  local o=$1 n=$2 pr=$3 dir=$4 pv head ref num raw st sec sdesc first age cmp ahead nmain mainfiles prfiles hit
+wp_merge_check() { # owner name pr-or-branch dir command
+  local o=$1 n=$2 pr=$3 dir=$4 cmd=${5:-} pv head ref num raw st sec sdesc first age cmp ahead nmain mainfiles prfiles hit mh
   [ -n "$pr" ] || pr=$(git -C "$dir" branch --show-current 2>/dev/null)
   [ -n "$pr" ] || return 0
   pv=$(timeout 10 gh pr view "$pr" -R "$o/$n" --json number,headRefOid,headRefName,baseRefName 2>/dev/null) || return 0
   head=$(jq -r .headRefOid <<<"$pv"); ref=$(jq -r .headRefName <<<"$pv"); num=$(jq -r .number <<<"$pv")
   [ "$(jq -r .baseRefName <<<"$pv")" = main ] || return 0
+  # The merge must name the head it was checked on (Nadav, 2026-11-03): a push between this check and
+  # the merge then makes GitHub refuse instead of merging an untested commit.
+  mh=$(grep -oE -- '--match-head-commit[= ]+[0-9a-f]{7,40}' <<<"$cmd" | head -1 | grep -oE '[0-9a-f]{7,40}$')
+  if [ -z "$mh" ]; then
+    deny "gh pr merge on $n must carry --match-head-commit, so a push after the CI check cannot slip into main untested: gh pr merge $num -R $o/$n --squash --delete-branch --match-head-commit $head"
+  elif [ "${head#"$mh"}" = "$head" ]; then
+    deny "PR $num on $n moved: its head is now ${head:0:7}, not ${mh:0:7} as the command says. Wait for the landing of the new head (ci-wait $n pr:$num in run_in_background), then merge with --match-head-commit $head."
+  fi
   raw=$(timeout 10 gh api "repos/$o/$n/commits/$head/statuses?per_page=100" 2>/dev/null) || return 0
   # Every Woodpecker PR context's newest status must be success ("none" when there is none at all).
   st=$(jq -r 'if type == "array" then
@@ -699,7 +707,7 @@ merge_guard() { # merge_guard <command> <cwd>: denies on the first failing merge
       if [ -n "$pr" ] && ! [[ $pr =~ ^[A-Za-z0-9._/-]+$ ]]; then
         deny "gh pr merge $pr on $n names its PR through the shell, so the guard cannot check its landing run before it runs. Merge one PR per command with its literal number (gh pr merge 12 ...). For an urgent fix, add '# land-urgent: <reason>' to the command."
       fi
-      wp_merge_check "$o" "$n" "$pr" "$dir"
+      wp_merge_check "$o" "$n" "$pr" "$dir" "$1"
       continue
     fi
     # Any other repo is on NadavAI CI when main's head carries a nadavai-ci status (repos added later too).
