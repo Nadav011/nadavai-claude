@@ -1,0 +1,4 @@
+#!/bin/sh
+# Print the newest grok-bot version in the official apt repo, and its sha256 on the second line.
+curl -s -m 30 https://downloads.cursor.com/aptrepo/dists/grok-bot/main/binary-amd64/Packages |
+  awk '/^Version:/{v=$2} /^SHA256:/{s=$2} END{print v; print s}'

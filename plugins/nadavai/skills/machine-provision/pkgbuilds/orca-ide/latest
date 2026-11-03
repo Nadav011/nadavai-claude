@@ -1,0 +1,4 @@
+#!/bin/sh
+# Print the newest Orca release version, and the sha256 of its amd64 .deb on the second line.
+gh api repos/stablyai/orca/releases/latest --jq '.tag_name, (.assets[] | select(.name|test("amd64.deb$")) | .digest)' 2>/dev/null |
+  sed -e '1s/^v//' -e '2s/^sha256://'

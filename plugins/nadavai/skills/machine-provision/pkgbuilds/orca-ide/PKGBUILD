@@ -1,0 +1,22 @@
+# Local repack of the official Orca .deb (github.com/stablyai/orca releases), same /opt/Orca layout
+# so Orca state, the orca CLI and orca-rtl-apply keep working.
+# Update: bump pkgver and the sha256 (GitHub asset digest), then `makepkg -si`.
+pkgname=orca-ide
+pkgver=1.4.247
+pkgrel=1
+pkgdesc="Orca IDE (official .deb repackaged)"
+arch=('x86_64')
+url="https://github.com/stablyai/orca"
+license=('LicenseRef-Proprietary')
+depends=('gtk3' 'libnotify' 'nss' 'libxss' 'libxtst' 'xdg-utils' 'at-spi2-core' 'util-linux-libs' 'libsecret' 'alsa-lib' 'mesa')
+options=('!strip' '!debug')
+source=("https://github.com/stablyai/orca/releases/download/v${pkgver}/orca-ide_${pkgver}_amd64.deb")
+sha256sums=('7e2c0c879beadd225c48b8d55774cef48b65f9b29ea46c9066db8d204e93e7d1')
+noextract=("orca-ide_${pkgver}_amd64.deb")
+package() {
+  bsdtar -xf "orca-ide_${pkgver}_amd64.deb"
+  bsdtar -xf data.tar.* -C "$pkgdir"
+  chmod 4755 "$pkgdir/opt/Orca/chrome-sandbox" 2>/dev/null || true
+  install -d "$pkgdir/usr/local/bin"
+  [ -e "$pkgdir/usr/local/bin/orca" ] || ln -s /opt/Orca/resources/bin/orca-ide "$pkgdir/usr/local/bin/orca"
+}

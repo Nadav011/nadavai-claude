@@ -1,6 +1,6 @@
 ---
 name: machine-checkup
-description: "Full checkup of one of Nadav's Linux machines: why it freezes or is slow, a complete inventory of the disk, deleting and archiving everything that is not needed without losing anything, retiring dead services and conflicting tuning, and verifying the result with measurements. The in-place alternative to reinstalling the OS. Use when Nadav types /machine-checkup or says the computer is stuck, slow, freezing, Orca freezes, the disk is full, clean the computer, scan everything, \"תנקה את המחשב\", \"למה המחשב נתקע\", \"המחשב איטי\", \"הדיסק מלא\", \"לעשות פרמוט\", or asks to get the machine to 100% known."
+description: "Full checkup of one of Nadav's Linux machines: why it freezes or is slow, a complete inventory of the disk, deleting and archiving everything that is not needed without losing anything, retiring dead services and conflicting tuning, every update source and driver brought current (packages, AUR, npm/pnpm/bun/pipx/uv, Node, firmware, BIOS against the vendor, microcode, vendor drivers), and verifying the result with measurements. The in-place alternative to reinstalling the OS. Use when Nadav types /machine-checkup or says the computer is stuck, slow, freezing, Orca freezes, the disk is full, clean the computer, scan everything, update everything, all drivers, \"תנקה את המחשב\", \"למה המחשב נתקע\", \"המחשב איטי\", \"הדיסק מלא\", \"לעשות פרמוט\", \"הכל מעודכן?\", \"תעדכן את כל הדרייברים\", or asks to get the machine to 100% known. Setting up a second machine like this one is machine-provision."
 ---
 # machine-checkup
 
@@ -145,9 +145,39 @@ Verify the persistent settings are live (host notes below). For disk changes use
 by the probe's p95/p99 and ">1 s" count against the writers' MB/s. Never trust a single round:
 on 2026-10-23 the same config measured 157 ms and 280 ms p50 a few minutes apart.
 
-### 6. Verify and record
+### 6. Updates and drivers, end to end
 
-- `df -h /`, `freeze-watch.py` again, `systemctl --failed`, `systemctl --user --failed`. Read `df`
+`scripts/update-audit.sh` (read-only; over ssh: `ssh host bash -s < scripts/update-audit.sh`)
+reports every source with `ok`, `PENDING` (fix it now), `REBOOT` (finishes only with a reboot or
+an app restart), `UNKNOWN` (the check failed, nothing proven) or `info`, and ends with a `RESULT:`
+line (exit 0 current, 1 pending, 2 not verified, 3 reboot only; no `RESULT:` line = it did not
+finish). It covers: repos, AUR,
+the local .deb repacks in `~/.local/share/pkgbuilds/*/latest`, Node within its major, npm, pnpm
+(including globals an older pnpm layout hid), pipx, uv, Rust, the self-updating CLIs, fwupd,
+microcode against `intel-ucode`, BIOS against the vendor (Lenovo catalog, MSI download server),
+devices whose driver exists but is not bound, firmware load failures, DKMS, the NVIDIA module
+against `nvidia-utils`, ELF files with missing libraries, old binaries in `~/.local/bin` that
+shadow the pacman ones, the running kernel, and failed units. Fix each PENDING line, then run it
+again until it prints `everything current`. REBOOT lines are never acted on here (hard rule 1):
+list them for Nadav. UNKNOWN lines are rerun or checked by hand, never reported as current. Only
+then say "everything is up to date"; on 2026-11-03 that sentence was wrong three times before
+this script existed.
+
+Fixes it usually leads to: `pacman -Syu`; `paru -Sua`; bump `pkgver` + `sha256sums` from the
+`latest` script and `makepkg -si`; `fnm install <newest>`, reinstall the globals under it
+(`--allow-scripts`), `fnm default`; `npm update -g`; `pnpm self-update` and `pnpm update -g
+--latest`; `pipx upgrade-all`; `uv tool upgrade --all` and `uv python upgrade`; `uv self update`,
+`deno upgrade`, `bun upgrade`, `grok update`, `agy update`, `sdkmanager --update`. Firmware, BIOS
+and EC flashes only with Nadav's yes and AC power (`fwupdmgr update --no-reboot-check`, never `-y`;
+Secure Boot state first). Vendor drivers the hardware calls for, checked by
+`lsusb`/`lspci`: msi-ec on MSI, openrazer for Razer, logiops for Logitech MX, intel-npu-driver
+only where `/dev/accel*` exists, intel-compute-runtime for Intel GPU compute,
+nvidia-container-toolkit + CDI for Docker GPU access.
+
+### 7. Verify and record
+
+- `df -h /`, `freeze-watch.py` again, `systemctl --failed`, `systemctl --user --failed`,
+  `update-audit.sh`. Read `df`
   last, after the deletions: running agents add 3-10 GB an hour, so the figure from the middle of
   the round is already stale (61% became 64% during the 2026-10-28 archive).
 - Append the round to `disk-cleanup-keep-list.md` (sizes, what was archived where, new lessons)
@@ -158,14 +188,19 @@ on 2026-10-23 the same config measured 157 ms and 280 ms p50 a few minutes apart
 
 ## Host notes
 
-**MSI** (Pulse GL66, i7-11800H, 64 GB, Kingston OM8PCP3512F NVMe, passwordless sudo). Settings
-that must stay live, all measured: msi-ec (DKMS, BeardOverflow) `shift_mode=turbo` via
+**MSI** (Pulse GL66, i7-11800H, 64 GB, Kingston OM8PCP3512F NVMe, passwordless sudo). Reinstalled
+on 2026-11-03 as CachyOS + KDE (user `nadavmsi`, fish shell, `ssh msi` = Tailscale `msi-1`),
+provisioned from the LENOVO with tools only (memory `msi-reinstall-2026-11.md`). BIOS
+E1581IMS.313 is the newest on download.msi.com; msi-ec now comes from AUR `msi-ec-dkms-git`
+(EC 1581EMS1.107) with nothing set. None of the tuning below is active since the reinstall; the
+Pop!_OS files are in the LENOVO's `~/Archive/msi-20261103/system/` and come back only with an
+A/B (step 5). The old tuning, measured on Pop!_OS: msi-ec (DKMS, BeardOverflow) `shift_mode=turbo` via
 `msi-turbo.service`; `intel-undervolt` -50 mV core/cache (-85 mV crashed), PL1 40 W / PL2 45 W;
 `cpu-maxfreq.service` 4.2 GHz (same clock as 4.6 under the 40 W cap, 5-7 C cooler); HWP on and
 OC Lock off in the hidden BIOS menu; NVMe `bfq`, `nr_requests 64`, `wbt_lat_usec 2000`,
 `iostats 1` in `/etc/udev/rules.d/60-nvme-scheduler.rules`; fstrim weekly Sun 03:30;
 `agent-nice.timer` (Claude trees at nice 10); `docker-wifi-block.service`; logind lid ignore;
-SSH via Tailscale only. The GPU stays pinned at its highest state: Nadav's choice.
+SSH via Tailscale only. The GPU was pinned at its highest state: Nadav's choice then.
 
 **LENOVO** (Legion Pro 5 16IAX10H, Core Ultra 9 275HX 24 cores, 62 GB, RTX 5070 Ti, CachyOS,
 BIOS Q6CN79WW = latest per `download.lenovo.com/catalog/83LU_Win11.xml`; the main machine since

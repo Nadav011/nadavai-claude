@@ -1,0 +1,23 @@
+# Local repack of the official Grok Bot .deb (downloads.cursor.com aptrepo, suite grok-bot).
+# Update: bump pkgver and sha256sums from
+#   https://downloads.cursor.com/aptrepo/dists/grok-bot/main/binary-amd64/Packages
+# then `makepkg -si`.
+pkgname=grok-bot
+pkgver=0.78.1
+pkgrel=1
+pkgdesc="Grok Bot desktop agent (official .deb repackaged)"
+arch=('x86_64')
+url="https://downloads.cursor.com/aptrepo"
+license=('LicenseRef-Proprietary')
+depends=('gtk3' 'libnotify' 'nss' 'libxss' 'libxtst' 'xdg-utils' 'at-spi2-core' 'util-linux-libs' 'libsecret' 'alsa-lib' 'mesa' 'libxkbcommon' 'libdrm')
+options=('!strip' '!debug')
+source=("https://downloads.cursor.com/aptrepo/pool/grok-bot/g/gr/grok-bot_${pkgver}_amd64.deb")
+sha256sums=('55d2a34cfff762342251ffa9b1321a70f08b603f227f886e18b2c1c5e73ded1d')
+noextract=("grok-bot_${pkgver}_amd64.deb")
+package() {
+  bsdtar -xf "grok-bot_${pkgver}_amd64.deb" data.tar.xz 2>/dev/null || bsdtar -xf "grok-bot_${pkgver}_amd64.deb"
+  bsdtar -xf data.tar.* -C "$pkgdir"
+  install -d "$pkgdir/usr/bin"
+  ln -s "/opt/Grok Bot/grok-bot" "$pkgdir/usr/bin/grok-bot"
+  chmod 4755 "$pkgdir/opt/Grok Bot/chrome-sandbox"
+}

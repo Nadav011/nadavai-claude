@@ -1,0 +1,18 @@
+# Intended differences for compare.py --ignore, LENOVO -> MSI, 2026-11-03 ("tools only").
+# Format: "<section> <item>" or "<section> *". Keep a reason on every line.
+pkg-explicit-native intel-npu-driver        # Tiger Lake has no NPU
+system-units-enabled legion-power-limits.timer   # LENOVO power-limit fix, host-specific
+system-units-enabled migration-leftovers-clean.service   # one-shot cleanup on the LENOVO
+cargo-installed parry-guard                 # copied as a binary: every version fails to build (ort-sys 403)
+user-scripts *                              # nadavai bin and personal scripts: environment, excluded
+user-units-enabled *                        # agent-nice, pw-clean, wacli-sync...: environment, excluded
+desktop-entries claude-pet-quickchat.desktop  # environment
+desktop-entries claude-rtl.desktop          # environment
+desktop-entries hf-chat.desktop             # personal tool in ~/tools
+opt Grok Bot.msi-copy-2026-11-03            # backup deleted at the LENOVO's next boot
+opt Orca.pre-pkg-1.4.246                    # same
+docker-images *                             # test databases come from pg-pool on demand
+playwright-browsers b                       # stray dir in ~/.cache/ms-playwright
+user-binaries rustup                        # target uses pacman rust (rustup conflicts with it)
+user-binaries cargo-miri
+user-binaries rls
