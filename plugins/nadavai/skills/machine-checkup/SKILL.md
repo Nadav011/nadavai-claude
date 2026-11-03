@@ -201,8 +201,9 @@ Measured on CachyOS on 2026-11-03: stock (EC mode unknown 192) ran 3.4 GHz at 51
 on the throttle line. With Turbo + -50 mV core + 4.2 GHz cap, a 3 min matrixprod A/B with
 `cooler_boost` on gave 40 W 2.8 GHz 85 C 0 throttles, 43 W +3% 89 C 2,604, 45 W +10% 92 C 7,124;
 with the fans on auto, 40 W ran 88 C with 3,692 throttles. Kept 40/45 W (the 2026-10-27 MCE came at
-89-93 C, and heat shrinks the undervolt margin) and `msi-fan-boost.service` (boost at >= 80 C, off at
-<= 65 C, quiet at idle). Power limits live in `msi-power-limits.service` (+ a 1-minute timer) for both the MSR and MMIO
+89-93 C, and heat shrinks the undervolt margin) and `msi-fan-boost.service` (boost after >= 85 C for 9 s,
+off after <= 65 C for 90 s, quiet at idle; a plain 80/65 C switch toggled the fans every ~30 s under
+bursty CI load, which Nadav heard). Power limits live in `msi-power-limits.service` (+ a 1-minute timer) for both the MSR and MMIO
 RAPL zones (intel-undervolt only writes the MSR and warned "MSR and memory values are not equal").
 Undervolt: the effective core VID at a fixed 2.6 GHz (MSR 0x198 bits 47:32) was 819 mV at 0/0 and
 774 mV at both -50/0 and -50/-50, so the cache plane follows the core: the 2026-10-27 "cache to 0"

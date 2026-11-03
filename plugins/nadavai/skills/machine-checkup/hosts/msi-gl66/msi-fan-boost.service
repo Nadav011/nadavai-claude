@@ -1,5 +1,5 @@
 [Unit]
-Description=MSI cooler boost under load only (on >= 80 C, off <= 65 C)
+Description=MSI cooler boost for sustained load only (on: >= 85 C for 9 s, off: <= 65 C for 90 s)
 After=msi-turbo.service
 
 [Service]

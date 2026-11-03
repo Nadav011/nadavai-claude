@@ -1,16 +1,22 @@
 #!/bin/bash
-# cooler_boost on at >= ON C, off at <= OFF C (EC CPU temperature). A/B 2026-11-03: boost = -4 C and ~0
-# thermal throttles at the same power. Compares against the EC's actual state every tick, so a boost the
-# EC dropped (resume, EC reset) comes back; a failed read keeps the last decision and retries.
-ON=${ON:-80} OFF=${OFF:-65}
+# cooler_boost for sustained load only. On: EC CPU temp >= ON C for ON_S seconds in a row. Off: <= OFF C
+# for OFF_S seconds in a row. A/B 2026-11-03: boost = -4 C and ~0 thermal throttles at the same power.
+# The holds exist because CI load comes in bursts (48 -> 90 C in seconds): a plain 80/65 C switch
+# toggled the fans to max and back about every 30 s (Nadav noticed the noise the same day).
+# Compares against the EC's actual state every tick, so a boost the EC dropped comes back; a failed
+# read keeps the last decision and retries.
+ON=${ON:-85} OFF=${OFF:-65} ON_S=${ON_S:-9} OFF_S=${OFF_S:-90} TICK=3
 B=/sys/devices/platform/msi-ec/cooler_boost T=/sys/devices/platform/msi-ec/cpu/realtime_temperature
-want=off
+want=off; hot=0; cool=0
 trap 'echo off > "$B"; exit 0' TERM INT
 while :; do
   if read -r t < "$T" 2>/dev/null; then
-    if [ "$t" -ge "$ON" ]; then want=on; elif [ "$t" -le "$OFF" ]; then want=off; fi
+    if [ "$t" -ge "$ON" ]; then hot=$((hot + TICK)); else hot=0; fi
+    if [ "$t" -le "$OFF" ]; then cool=$((cool + TICK)); else cool=0; fi
+    if [ "$want" = off ] && [ "$hot" -ge "$ON_S" ]; then want=on; fi
+    if [ "$want" = on ] && [ "$cool" -ge "$OFF_S" ]; then want=off; fi
   fi
   read -r cur < "$B" 2>/dev/null || cur=
   [ "$cur" = "$want" ] || echo "$want" > "$B" 2>/dev/null
-  sleep 3
+  sleep "$TICK"
 done
