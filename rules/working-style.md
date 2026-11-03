@@ -12,8 +12,7 @@
 ## Verification
 - A UI change is done only with browser evidence: a Playwright snapshot or screenshot AND a clean console. Check RTL and mobile width on every user-facing screen.
 - Before a public web app goes live: a one-time SEO pass with the claude-seo plugin enabled for that project (`/seo audit`, `/seo geo`), fix what it measured, then disable the plugin again. Day-to-day dev keeps it off.
-- Where each check runs, when to push, how to wait on CI and how workflows verify: `ci-policy.md`. Waiting for NadavAI CI is `ci-wait <repo> <sha|branch>` with `run_in_background: true`; it exits 0 green, 1 red, 2 timeout, 3 NadavAI down, 4 when the task that started it is gone.
-- Run full CI only where it adds information: on heads that change code and on the combined head that will land. Never run it a second time on a SHA or identical tree that already passed, and never force a docs-only change into a full build (it keeps the "documentation only since <sha>, which passed" answer). Why: a SporChat unit's code passed the full CI three times (unit branch, batch head, the same SHA again on main) and each pass queued every other agent behind it (Nadav, 2026-10-24: CI only where it is really needed, in every project).
+- Where each check runs, when CI runs (only a non-draft PR into main, and the night), how to wait on it (`ci-wait` in `run_in_background`) and how workflows verify: `ci-policy.md` is the only home; follow it over any older wording elsewhere.
 - Long local commands run with `run_in_background: true` and you continue when the completion notice arrives; never `sleep` + grep a log in a loop. Why: in the week to 2026-10-14, 825 sleeps (38.8 agent-hours) waited on local logs, and every wake-up is one more full-context request.
 
 ## Browser routing (one tool per job)
