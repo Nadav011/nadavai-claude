@@ -1,0 +1,10 @@
+[Unit]
+Description=Keep the desktop session unlocked (always-on box, Nadav 2026-11-03)
+
+[Service]
+ExecStart=%h/.local/bin/msi-keep-unlocked
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

@@ -50,6 +50,16 @@ install -D -m 644 "$here/agent-nice.service" "$HOME/.config/systemd/user/agent-n
 install -D -m 644 "$here/agent-nice.timer" "$HOME/.config/systemd/user/agent-nice.timer"
 install -D -m 755 "$here/msi-tuning-check" "$HOME/.local/bin/msi-tuning-check"
 
+# Never locked (Nadav, 2026-11-03): no auto-lock, no Meta+L, and a listener that opens any lock that still happens
+# (the screen locked twice in the first hour with Autolock already off, so the cause is unknown).
+install -D -m 755 "$here/msi-keep-unlocked" "$HOME/.local/bin/msi-keep-unlocked"
+install -D -m 644 "$here/msi-keep-unlocked.service" "$HOME/.config/systemd/user/msi-keep-unlocked.service"
+if command -v kwriteconfig6 >/dev/null; then
+  kwriteconfig6 --file kscreenlockerrc --group Daemon --key Autolock false
+  kwriteconfig6 --file kscreenlockerrc --group Daemon --key LockOnResume false
+  kwriteconfig6 --file kglobalshortcutsrc --group ksmserver --key 'Lock Session' $'none,Screensaver\tMeta+L,Lock Session'
+fi
+
 sudo sysctl -q -p /etc/sysctl.d/99-dev-limits.conf
 sudo udevadm control --reload && sudo udevadm trigger -s block --sysname-match='nvme*' -c change
 sudo systemctl daemon-reload
@@ -66,6 +76,6 @@ if pacman -Q rasdaemon >/dev/null 2>&1; then
 else
   echo "rasdaemon not installed: paru -S rasdaemon, then rerun"
 fi
-systemctl --user daemon-reload && systemctl --user enable --now agent-nice.timer
+systemctl --user daemon-reload && systemctl --user enable --now agent-nice.timer msi-keep-unlocked.service
 echo "APST off in the boot entries takes effect at the next reboot (live already). The lid drop-in needs a logind restart or reboot."
 "$HOME/.local/bin/msi-tuning-check"

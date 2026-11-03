@@ -1,0 +1,33 @@
+#!/bin/bash
+# Keeps the desktop session unlocked on this always-on box (Nadav, 2026-11-03: the MSI must never lock).
+# kscreenlockerrc already has Autolock=false and LockOnResume=false, yet the screen locked twice within
+# an hour of the first login with no timer involved (16:46 and 17:12). This covers whatever locks it
+# (Meta+L, a tool calling org.freedesktop.ScreenSaver, anything unknown).
+# Event driven, no polling: it blocks reading dbus-monitor and acts only on ActiveChanged(true).
+# Every lock request is logged with its D-Bus sender (journalctl --user -t msi-keep-unlocked), to find the cause.
+set -u
+
+unlock() {
+  local sid
+  sid=$(loginctl show-user "$USER" -p Display --value 2>/dev/null)
+  [ -n "$sid" ] || return 0
+  sudo -n loginctl unlock-session "$sid" && logger -t msi-keep-unlocked "unlocked session $sid"
+}
+
+# A lock that happened before this service started.
+[ "$(loginctl show-session "$(loginctl show-user "$USER" -p Display --value)" -p LockedHint --value 2>/dev/null)" = yes ] && unlock
+
+expect=0
+dbus-monitor --session \
+  "type='signal',interface='org.freedesktop.ScreenSaver',member='ActiveChanged'" \
+  "type='method_call',interface='org.freedesktop.ScreenSaver',member='Lock'" \
+  "type='method_call',interface='org.freedesktop.ScreenSaver',member='SetActive'" \
+  "type='method_call',interface='org.kde.screensaver',member='Lock'" |
+while IFS= read -r line; do
+  case $line in
+    *member=ActiveChanged*) expect=1 ;;
+    *"boolean true"*) if [ "$expect" = 1 ]; then unlock; fi; expect=0 ;;
+    *member=Lock*|*member=SetActive*) logger -t msi-keep-unlocked "lock requested: $line"; expect=0 ;;
+    *member=*) expect=0 ;;
+  esac
+done
