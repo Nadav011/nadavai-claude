@@ -24,7 +24,13 @@
 # the process list, the changed files and HEAD are checked again. When Orca is not reachable it does nothing.
 # Archive and JSON log: ~/Archive/worktree-clean/<date>/ (README there says how to restore).
 # One run at a time (flock on ~/.cache/worktree-clean.lock).
-import argparse, datetime, fcntl, hashlib, json, os, re, subprocess, sys, tempfile, time
+# Owner never-touch lists: config/worktree-clean.json next to bin/, plus ~/.config/nadavai/worktree-clean.json,
+# which can only add. A listed repo, path or worktree is never removed or pruned, and neither is a worktree whose
+# Claude, Codex or Grok transcript changed in the last sessionActiveDays (mtimes only, no file is grepped).
+# Without the shipped list it does nothing. Every worktree is printed with its result and reason.
+# --dry-run writes nothing: no lock, no archive, no object or ref in any repo (git status runs without
+# optional locks, and the snapshot is skipped, so changes a snapshot would not capture show as would-archive).
+import argparse, datetime, fcntl, fnmatch, glob, hashlib, json, os, re, subprocess, sys, tempfile, time, urllib.parse
 
 BUILD = {'node_modules', '.next', 'dist', 'build', '.turbo', 'coverage', '.vercel', 'test-results',
          'playwright-report', '.cache', 'out', '.expo', 'storybook-static', '.vite', 'blob-report', '.eslintcache'}
@@ -33,10 +39,12 @@ SECRET = re.compile(r'(^\.env|\.pem$|\.key$|\.p12$|secret|credential)', re.I)
 HOME = os.path.expanduser('~')
 # Outside Orca's own terminals a bare `orca` is the GNOME screen reader (/usr/bin/orca), which would start speaking.
 ORCA = os.environ.get('ORCA_CLI_COMMAND') or 'orca-ide'
+CONFIG = os.path.join(os.path.dirname(os.path.realpath(__file__)), '..', 'config', 'worktree-clean.json')
 
 
 def git(path, *args, env=None, check=True, strip=True):
-    p = subprocess.run(['git', '-C', path, *args], capture_output=True, text=True, timeout=600, env=env)
+    # No optional locks: `git status` would otherwise rewrite the worktree's index while we only look.
+    p = subprocess.run(['git', '--no-optional-locks', '-C', path, *args], capture_output=True, text=True, timeout=600, env=env)
     if check and p.returncode:
         raise RuntimeError(f'git {args[0]} in {path}: {p.stderr.strip()[:300]}')
     return p.stdout.strip() if strip else p.stdout
@@ -143,6 +151,100 @@ def in_use(path, cwds):
     return any(c == path or c.startswith(path + '/') for c in cwds)
 
 
+def load_config():
+    """The shipped owner lists plus the user's own file, which can only add to them."""
+    user = os.path.join(os.environ.get('XDG_CONFIG_HOME') or os.path.join(HOME, '.config'), 'nadavai', 'worktree-clean.json')
+    cfg = {'sessionActiveDays': 0, 'neverTouchPaths': [], 'repos': []}
+    for p in [CONFIG] + ([user] if os.path.exists(user) else []):
+        with open(p) as fh:
+            d = json.load(fh)
+        cfg['sessionActiveDays'] = max(cfg['sessionActiveDays'], d.get('sessionActiveDays', 0))
+        cfg['neverTouchPaths'] += d.get('neverTouchPaths', [])
+        cfg['repos'] += list(d.get('repos', {}).items())
+    return cfg
+
+
+def repo_rules(repo, cfg):
+    """(key, rule) of every owner entry for this repo: its main checkout's folder name or origin's repository name."""
+    url = git(repo, 'config', '--get', 'remote.origin.url', check=False)
+    names = {os.path.basename(repo), re.sub(r'\.git$', '', re.split(r'[/:]', url.rstrip('/'))[-1])}
+    return [(k, r) for k, r in cfg['repos'] if k in names]
+
+
+def never_touch(path, branch, rules, paths):
+    """The owner rule that forbids touching this worktree, or None."""
+    for pat in paths:
+        p = os.path.expanduser(pat)
+        if any(fnmatch.fnmatchcase(q, p) or fnmatch.fnmatchcase(q, p + '/*') for q in {path, os.path.realpath(path)}):
+            return pat
+    names = [branch] + path.split('/')  # a name pattern matches the branch or any folder on the path
+    hit = lambda pats: next((p for p in pats if any(fnmatch.fnmatchcase(n, p) for n in names)), None)
+    for key, r in rules:
+        p = hit(r.get('neverTouch', []))
+        if p:
+            return f'{key}: {p}'
+        p = hit(r.get('neverTouchUnlessInOriginMain', []))
+        # A missing origin/main counts as not contained.
+        if p and subprocess.run(['git', '-C', path, 'merge-base', '--is-ancestor', 'HEAD', 'refs/remotes/origin/main'],
+                                capture_output=True).returncode:
+            return f'{key}: {p} with HEAD not in origin/main'
+    return None
+
+
+def newest_mtime(d, depth):
+    """Newest mtime of d and of the entries up to depth levels below it; no file is opened."""
+    try:
+        t = os.lstat(d).st_mtime
+        if depth and os.path.isdir(d) and not os.path.islink(d):
+            with os.scandir(d) as it:
+                for e in it:
+                    t = max(t, newest_mtime(e.path, depth - 1))
+        return t
+    except OSError:
+        return 0
+
+
+def session_index(days):
+    """Where Claude, Codex and Grok keep transcripts, read once per run. Only Codex rollouts written since the
+    cutoff are opened, and only their first line (session_meta, which names the cwd)."""
+    cutoff = time.time() - days * 86400
+    claude = sorted({os.path.realpath(d) for d in [os.path.join(HOME, '.claude', 'projects')] +
+                     glob.glob(os.path.join(HOME, '.config', 'orca', 'claude-profiles', '*', 'home', 'projects'))
+                     if os.path.isdir(d)})
+    codex = {}  # cwd -> newest rollout mtime
+    for root, _, files in os.walk(os.path.join(os.environ.get('CODEX_HOME') or os.path.join(HOME, '.codex'), 'sessions')):
+        for f in files:
+            try:
+                t = os.stat(os.path.join(root, f)).st_mtime
+                if t < cutoff or not f.endswith('.jsonl'):
+                    continue
+                with open(os.path.join(root, f), 'rb') as fh:
+                    m = re.search(rb'"cwd":\s*"((?:[^"\\]|\\.)*)"', fh.readline(1 << 20))
+                if m:
+                    cwd = json.loads(b'"' + m.group(1) + b'"')
+                    codex[cwd] = max(codex.get(cwd, 0), t)
+            except (OSError, ValueError):
+                continue
+    gdir = os.path.join(HOME, '.grok', 'sessions')  # one folder per cwd, URL-encoded
+    grok = {urllib.parse.unquote(n): os.path.join(gdir, n) for n in (os.listdir(gdir) if os.path.isdir(gdir) else [])}
+    return cutoff, claude, codex, grok
+
+
+def session_activity(path, sessions):
+    """'<agent> transcript <time>' when a transcript for this worktree changed since the cutoff, else None."""
+    cutoff, claude, codex, grok = sessions
+    name = re.sub(r'[^A-Za-z0-9]', '-', path)  # Claude's project folder name; past 200 chars it gets a hash suffix
+    hits = []
+    for root in claude:
+        dirs = [os.path.join(root, name)] if len(name) <= 200 else glob.glob(os.path.join(root, glob.escape(name[:200]) + '-*'))
+        hits += [('claude', newest_mtime(d, 1)) for d in dirs]
+    under = lambda p: p == path or p.startswith(path + '/')
+    hits += [('codex', t) for cwd, t in codex.items() if under(cwd)]
+    hits += [('grok', newest_mtime(d, 2)) for p, d in grok.items() if under(p)]
+    agent, t = max(hits, key=lambda h: h[1], default=(None, 0))
+    return f'{agent} transcript {time.strftime("%Y-%m-%d %H:%M", time.localtime(t))}' if t >= cutoff else None
+
+
 def clean_one(repo, wt, orca_by_path, args, arch, stamp, cwds, mains):
     path, branch = wt['path'], wt['branch']
     res = {'repo': repo, 'path': path, 'branch': branch}
@@ -165,11 +267,11 @@ def clean_one(repo, wt, orca_by_path, args, arch, stamp, cwds, mains):
     # No dots ('..' breaks ref names); the hash keeps a/b, a_b and a.b apart.
     name = (os.path.basename(repo) + '__' + re.sub(r'[^A-Za-z0-9_-]+', '_', rel) + '-' +
             hashlib.sha1(path.encode()).hexdigest()[:8])
+    if args.dry_run:  # before the snapshot, which writes objects into the repo
+        return dict(res, result='would-remove' if safe else 'would-archive+remove')
     snap = None if safe else snapshot(path, head, f'{path} (branch {branch or "detached"}), {stamp}')
     if entries and snap == head:
         return dict(res, result='keep:snapshot-captured-nothing')
-    if args.dry_run:
-        return dict(res, result='would-remove' if safe else 'would-archive+remove')
     os.makedirs(arch, mode=0o700, exist_ok=True)
     in_main = any(subprocess.run(['git', '-C', repo, 'merge-base', '--is-ancestor', head, m]).returncode == 0 for m in mains)
     if not in_main:
@@ -246,13 +348,19 @@ def main():
     ap.add_argument('--archive-root', default=os.path.join(HOME, 'Archive', 'worktree-clean'))
     args = ap.parse_args()
 
-    os.makedirs(os.path.join(HOME, '.cache'), exist_ok=True)
-    lock = open(os.path.join(HOME, '.cache', 'worktree-clean.lock'), 'w')
     try:
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
-        print('worktree-clean: another run holds the lock', file=sys.stderr)
-        return 0
+        cfg = load_config()
+    except (OSError, ValueError) as e:  # without the owner lists it could remove what owners still use
+        print(f'worktree-clean: cannot read the owner lists ({e}); nothing done', file=sys.stderr)
+        return 1
+    if not args.dry_run:  # a dry run writes nothing, not even the lock
+        os.makedirs(os.path.join(HOME, '.cache'), exist_ok=True)
+        lock = open(os.path.join(HOME, '.cache', 'worktree-clean.lock'), 'w')
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            print('worktree-clean: another run holds the lock', file=sys.stderr)
+            return 0
 
     orca = orca_worktrees()
     if orca is None:
@@ -267,15 +375,21 @@ def main():
     stamp = datetime.date.today().isoformat()
     arch = os.path.join(args.archive_root, stamp)
     cwds = process_cwds()
+    sessions = session_index(cfg['sessionActiveDays'])
     log = []
     for repo in repos:
         if git(repo, 'rev-parse', '--is-inside-work-tree', check=False) != 'true':
             continue
-        pruned = git(repo, 'worktree', 'prune', '--dry-run', '-v', check=False)
-        if pruned:
-            log.append({'repo': repo, 'result': 'pruned' if not args.dry_run else 'would-prune', 'detail': pruned})
-            if not args.dry_run:
-                git(repo, 'worktree', 'prune')
+        rules = repo_rules(repo, cfg)
+        excluded = next((f'{k}: whole repo, no remove or prune' for k, r in rules if r.get('exclude')), None)
+        if not excluded:
+            p = subprocess.run(['git', '-C', repo, 'worktree', 'prune', '--dry-run', '-v'], capture_output=True, text=True, timeout=600)
+            pruned = (p.stdout + p.stderr).strip() if p.returncode == 0 else ''  # git prints -v on stderr
+            if pruned:
+                log.append({'repo': repo, 'result': 'pruned' if not args.dry_run else 'would-prune', 'detail': pruned})
+                print(log[-1]['result'], repo + ':', pruned.replace('\n', '; '), flush=True)
+                if not args.dry_run:
+                    git(repo, 'worktree', 'prune')
         mains = main_refs(repo)
         for block in git(repo, 'worktree', 'list', '--porcelain').split('\n\n'):
             f = dict((l.split(' ', 1) + [''])[:2] for l in block.splitlines())
@@ -284,12 +398,17 @@ def main():
                 continue
             wt = {'path': path, 'branch': f.get('branch', '').replace('refs/heads/', ''), 'locked': 'locked' in f}
             try:
-                res = clean_one(repo, wt, orca_by_path, args, arch, stamp, cwds, mains)
+                why = excluded or never_touch(path, wt['branch'], rules, cfg['neverTouchPaths'])
+                active = None if why else session_activity(path, sessions)
+                if why or active:
+                    res = {'repo': repo, 'path': path, 'branch': wt['branch'],
+                           'result': f'keep:owner-list ({why})' if why else f'keep:session-active ({active})'}
+                else:
+                    res = clean_one(repo, wt, orca_by_path, args, arch, stamp, cwds, mains)
             except Exception as e:  # one bad worktree must not stop the rest
                 res = {'repo': repo, 'path': path, 'result': 'error: ' + str(e)[:300]}
             log.append(res)
-            if not res['result'].startswith('keep'):
-                print(res['result'], path, flush=True)
+            print(res['result'], path, flush=True)
     if not args.dry_run and any(r['result'] == 'removed' for r in log):
         os.makedirs(arch, mode=0o700, exist_ok=True)
         with open(os.path.join(arch, 'README.md'), 'w') as fh:
@@ -301,7 +420,7 @@ def main():
             fh.write('\n')
     counts = {}
     for r in log:
-        k = r['result'].split(':')[0]
+        k = re.match(r'[\w+-]+(:[\w+-]+)?', r['result']).group()  # keep:<reason>, would-remove, error, ...
         counts[k] = counts.get(k, 0) + 1
     print('worktree-clean:', json.dumps(counts))
     return 1 if any(r['result'].startswith(('error', 'remove-failed')) for r in log) else 0

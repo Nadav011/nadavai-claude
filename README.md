@@ -29,7 +29,9 @@ the patch is inert. To re-apply after every Orca update, opt in per machine: sym
 
 `bin/worktree-clean` removes git worktrees nobody needs any more (clean and idle, or idle a week
 after snapshotting their unsaved work under `refs/worktree-clean/` and `~/Archive/worktree-clean/`).
-Its weekly run is opt-in per machine, on the machine where agents create worktrees: symlink
+It never touches what an owner listed in [`config/worktree-clean.json`](config/worktree-clean.json)
+(`~/.config/nadavai/worktree-clean.json` can add more) or a worktree whose Claude, Codex or Grok
+transcript changed in the last 3 days, and `--dry-run` writes nothing. Its weekly run is opt-in per machine, on the machine where agents create worktrees: symlink
 [`systemd/user/worktree-clean.service`](systemd/user/worktree-clean.service) and `.timer` into
 `~/.config/systemd/user/` and `systemctl --user enable --now worktree-clean.timer`. Tests:
 `tests/worktree-clean.sh`.
