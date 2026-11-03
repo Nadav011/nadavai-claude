@@ -18,6 +18,7 @@
 
 ## Browser routing (one tool per job)
 - Regression: the project's Playwright suite via Bash.
+- WebKit (Safari) tests run in the official Playwright image, with the tag matching the project's Playwright version: `docker run --rm --ipc=host --init -v "$PWD":/work -w /work mcr.microsoft.com/playwright:v$(npx playwright --version | awk '{print $2}')-noble npx playwright test --project=webkit`. Chromium and Firefox run natively. Why: Playwright's WebKit links Ubuntu-only libraries (libicu 74, flite) and cannot start on these Arch machines; the image ran WebKit 27.2 on the LENOVO and the MSI on 2026-11-03.
 - Exploration or repeatable flows: Playwright MCP inside a subagent.
 - Debugging (console, network, performance, Lighthouse): Chrome DevTools MCP, preferring the chrome-devtools-cli skill.
 - Nadav's logged-in sessions (reading, clicking): Claude in Chrome.
