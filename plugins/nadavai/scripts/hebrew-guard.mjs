@@ -18,7 +18,15 @@ if (typeof input.last_assistant_message === "string") texts.push(input.last_assi
 
 // Text blocks shown earlier in the same turn (between tool calls).
 try {
-  const lines = fs.readFileSync(input.transcript_path, "utf8").trim().split("\n");
+  // Only the tail: the turn that just ended sits at the end, and transcripts reach 140 MB.
+  const TAIL = 2 * 1024 * 1024;
+  const fd = fs.openSync(input.transcript_path, "r");
+  const size = fs.fstatSync(fd).size;
+  const buf = Buffer.alloc(Math.min(size, TAIL));
+  fs.readSync(fd, buf, 0, buf.length, size - buf.length);
+  fs.closeSync(fd);
+  const lines = buf.toString("utf8").trim().split("\n");
+  if (size > TAIL) lines.shift(); // first line is cut mid-record
   const turn = [];
   for (let i = lines.length - 1; i >= 0; i--) {
     let e;
