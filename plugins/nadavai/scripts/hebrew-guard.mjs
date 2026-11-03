@@ -8,7 +8,7 @@
 //    (2026-11-03: the SSH and Sunshine questions reached him in English).
 // Code, paths, URLs and identifiers are stripped before counting, so a Hebrew reply or
 // dialog full of code passes.
-import fs from "node:fs";
+import { readTurn, firstTime } from "./guard-turn.mjs";
 
 let raw = "";
 for await (const chunk of process.stdin) raw += chunk;
@@ -58,42 +58,12 @@ if (input.hook_event_name === "PreToolUse") {
   process.exit(0);
 }
 
-// Stop: second stop after a block, never loop.
-if (input.stop_hook_active) process.exit(0);
+if (input.hook_event_name && input.hook_event_name !== "Stop") process.exit(0);
 
-const texts = [];
-if (typeof input.last_assistant_message === "string") texts.push(input.last_assistant_message);
-
-// Text blocks shown earlier in the same turn (between tool calls).
-try {
-  // Only the tail: the turn that just ended sits at the end, and transcripts reach 140 MB.
-  const TAIL = 2 * 1024 * 1024;
-  const fd = fs.openSync(input.transcript_path, "r");
-  const size = fs.fstatSync(fd).size;
-  const buf = Buffer.alloc(Math.min(size, TAIL));
-  fs.readSync(fd, buf, 0, buf.length, size - buf.length);
-  fs.closeSync(fd);
-  const lines = buf.toString("utf8").trim().split("\n");
-  if (size > TAIL) lines.shift(); // first line is cut mid-record
-  const turn = [];
-  for (let i = lines.length - 1; i >= 0; i--) {
-    let e;
-    try { e = JSON.parse(lines[i]); } catch { continue; }
-    if (e.isSidechain) continue;
-    const c = e.message?.content;
-    if (e.type === "user") {
-      const isPrompt = typeof c === "string" || (Array.isArray(c) && c.some((b) => b.type === "text"));
-      if (isPrompt && !e.isMeta) break;
-      continue;
-    }
-    if (e.type === "assistant" && Array.isArray(c)) {
-      for (const b of c) if (b.type === "text" && b.text) turn.push(b.text);
-    }
-  }
-  texts.push(...turn);
-} catch { /* no transcript: check last_assistant_message only */ }
-
-const bad = texts.find((t) => isEnglish(t));
+// Stop: each English block is blocked once per turn (guard-turn.mjs explains why not
+// stop_hook_active); earlier blocks already blocked are skipped, so a Hebrew rewrite passes.
+const { texts, promptId } = readTurn(input);
+const bad = texts.find((t) => isEnglish(t) && firstTime(input, "hebrew", promptId, t.trim().slice(0, 400)));
 if (!bad) process.exit(0);
 
 process.stdout.write(JSON.stringify({
