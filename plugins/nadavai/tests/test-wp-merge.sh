@@ -29,4 +29,13 @@ run deny  success 3 "" "$D_CMD" FAKE_NMAIN=300
 run deny  success 251 "src/c.ts"
 run deny  success 0 "" 'gh pr merge "$PR" -R Nadav011/snooker-smart --squash'
 run allow failure 0 "" "gh pr merge 141 -R Nadav011/snooker-smart --squash # land-urgent: test"
+# nadavai-security (secscan on omarchy): red, error or still running blocks; none passes only in the grace.
+run deny  success 0 "" "$D_CMD" FAKE_SEC=failure
+run deny  success 0 "" "$D_CMD" FAKE_SEC=error
+run deny  success 0 "" "$D_CMD" FAKE_SEC=pending
+run allow success 0 "" "$D_CMD" FAKE_SEC=none FAKE_AGE=3
+run deny  success 0 "" "$D_CMD" FAKE_SEC=none FAKE_AGE=30
+run deny  success 3 "src/c.ts" "$D_CMD" FAKE_SEC=failure
+run allow success 0 "" "gh pr merge 141 -R Nadav011/snooker-smart --squash # land-urgent: test" FAKE_SEC=failure
+run allow success 0 "" "$D_CMD" FAKE_STATUS_FAIL=1
 exit $fail

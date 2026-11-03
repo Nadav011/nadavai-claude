@@ -611,25 +611,47 @@ strict_guard() { # strict_guard <command>: denies, or returns
 # branched, main's new commits touch none of the PR's files and no shared file (lockfile, package
 # manifest, tsconfig, *.config.*, .woodpecker/, migrations). Otherwise: rebase and land again.
 # GitHub unreadable lets the merge through, like the old rule.
+# The head's newest nadavai-security status (secscan on omarchy, outside Woodpecker, so a PR cannot
+# edit its own allow list) must be success too. None at all passes only while the service may not
+# have seen the head yet: WP_SEC_GRACE_S after the head's first status (Woodpecker posts that when
+# the PR is pushed); later it is a denial that says where the service runs.
 WP_SHARED_RE='(^|/)(package\.json|pnpm-lock\.yaml|package-lock\.json|pnpm-workspace\.yaml|deno\.jsonc?|deno\.lock|tsconfig[^/]*\.json)$|(^|/)[^/]*\.config\.[cm]?[jt]s$|^\.woodpecker/|(^|/)migrations/'
+WP_SEC_GRACE_S=600
 wp_merge_check() { # owner name pr-or-branch dir
-  local o=$1 n=$2 pr=$3 dir=$4 pv head ref num st cmp ahead nmain mainfiles prfiles hit
+  local o=$1 n=$2 pr=$3 dir=$4 pv head ref num raw st sec sdesc first age cmp ahead nmain mainfiles prfiles hit
   [ -n "$pr" ] || pr=$(git -C "$dir" branch --show-current 2>/dev/null)
   [ -n "$pr" ] || return 0
   pv=$(timeout 10 gh pr view "$pr" -R "$o/$n" --json number,headRefOid,headRefName,baseRefName 2>/dev/null) || return 0
   head=$(jq -r .headRefOid <<<"$pv"); ref=$(jq -r .headRefName <<<"$pv"); num=$(jq -r .number <<<"$pv")
   [ "$(jq -r .baseRefName <<<"$pv")" = main ] || return 0
+  raw=$(timeout 10 gh api "repos/$o/$n/commits/$head/statuses?per_page=100" 2>/dev/null) || return 0
   # Every Woodpecker PR context's newest status must be success ("none" when there is none at all).
-  st=$(timeout 10 gh api "repos/$o/$n/commits/$head/statuses?per_page=100" 2>/dev/null \
-    | jq -r 'if type == "array" then
+  st=$(jq -r 'if type == "array" then
         ([.[] | select(.context | startswith("ci/woodpecker/pr/"))] | group_by(.context)
          | map(sort_by(.id) | last | .state)) as $s
         | if ($s | length) == 0 then "none" elif all($s[]; . == "success") then "success" else ($s | map(select(. != "success")) | first) end
-      else empty end' 2>/dev/null)
+      else empty end' <<<"$raw" 2>/dev/null)
   [ -n "$st" ] || return 0
   if [ "$st" != success ]; then
     deny "PR $num on $n has no green Woodpecker landing run on its head ${head:0:7} (ci/woodpecker/pr: $st). The landing runs on a non-draft PR into main: run ci-wait $n pr:$num in run_in_background (or ci-wait $n $ref --land) and merge after it is green, with gh pr merge $num --match-head-commit $head. For an urgent fix, add '# land-urgent: <reason>' to the command."
   fi
+  # nadavai-security: its newest state and description, and the head's first status time.
+  IFS=$'\t' read -r sec first sdesc < <(jq -r '[([.[] | select(.context == "nadavai-security")] | sort_by(.id) | last | .state // "none"),
+      ([.[] | .created_at // empty | fromdateiso8601] | min // 0),
+      ([.[] | select(.context == "nadavai-security")] | sort_by(.id) | last | .description // "" | gsub("[\t\n]"; " "))] | @tsv' <<<"$raw" 2>/dev/null)
+  [ -n "$sec" ] || return 0
+  case $sec in
+    success) ;;
+    none)
+      age=$(( $(date +%s) - ${first:-0} ))
+      if [ "${first:-0}" -gt 0 ] && [ "$age" -le "$WP_SEC_GRACE_S" ]; then :; else
+        deny "PR $num on $n has no security scan on its head ${head:0:7} (no nadavai-security status $((age / 60)) minutes after its first status). The scan runs on omarchy outside Woodpecker (secscan-poll.timer, every 2 minutes): check it with ssh omarchy 'systemctl --user status secscan-poll.service; tail ~/secscan/logs/secscan.log', and merge once the status is green. For an urgent fix, add '# land-urgent: <reason>' to the command."
+      fi ;;
+    pending)
+      deny "PR $num on $n: the security scan (nadavai-security) of its head ${head:0:7} is queued or running. It usually takes a few minutes; merge once it is green. If it stays pending, check the service on omarchy: ssh omarchy 'systemctl --user status secscan-poll.service; tail ~/secscan/logs/secscan.log'." ;;
+    *)
+      deny "PR $num on $n: the security scan (nadavai-security) of its head ${head:0:7} is $sec: ${sdesc:-no description}. New secrets or high/critical dependency advisories block the merge: remove the secret (and rotate it) or bump the dependency, push, and merge once the new head scans green. The report is on omarchy (ssh omarchy cat ~/secscan/logs/$n-${head:0:7}-security.txt); a false positive goes to Nadav for the baseline. For an urgent fix, add '# land-urgent: <reason>' to the command." ;;
+  esac
   cmp=$(timeout 15 gh api "repos/$o/$n/compare/$head...main" 2>/dev/null) || return 0
   ahead=$(jq -r '.ahead_by // 0' <<<"$cmp")
   [ "$ahead" -gt 0 ] 2>/dev/null || return 0

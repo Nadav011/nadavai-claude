@@ -2,14 +2,22 @@
 # Fake gh for agent-guard's wp_merge_check tests (tests/test-wp-merge.sh).
 # FAKE_STATE success|failure|none, FAKE_SECOND (state of a second workflow context, optional),
 # FAKE_AHEAD n, FAKE_MAIN_FILES space list, FAKE_NMAIN (fake file count, optional).
+# FAKE_SEC success|failure|error|pending|none (nadavai-security, default success),
+# FAKE_AGE minutes since the head's first status (default 60), FAKE_STATUS_FAIL=1 (statuses unreadable).
 case "$*" in
   "pr view"*) echo '{"number":141,"headRefOid":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","headRefName":"feat/x","baseRefName":"main"}' ;;
   "api --paginate repos/"*"/pulls/"*"/files"*) printf 'src/a.ts\nsrc/b.ts\n' ;;
   "api repos/"*"/statuses"*)
+    [ -n "${FAKE_STATUS_FAIL:-}" ] && exit 1
+    t1=$(date -u -d "-${FAKE_AGE:-60} min" +%Y-%m-%dT%H:%M:%SZ); t2=$(date -u +%Y-%m-%dT%H:%M:%SZ)
     case "$FAKE_STATE" in
       none) echo '[]' ;;
-      *) s=$(printf '{"id":2,"context":"ci/woodpecker/pr/landing","state":"%s"},{"id":1,"context":"ci/woodpecker/pr/landing","state":"pending"}' "$FAKE_STATE")
-         [ -n "${FAKE_SECOND:-}" ] && s="$s,$(printf '{"id":3,"context":"ci/woodpecker/pr/extra","state":"%s"}' "$FAKE_SECOND")"
+      *) s=$(printf '{"id":2,"context":"ci/woodpecker/pr/landing","state":"%s","created_at":"%s"},{"id":1,"context":"ci/woodpecker/pr/landing","state":"pending","created_at":"%s"}' "$FAKE_STATE" "$t2" "$t1")
+         [ -n "${FAKE_SECOND:-}" ] && s="$s,$(printf '{"id":3,"context":"ci/woodpecker/pr/extra","state":"%s","created_at":"%s"}' "$FAKE_SECOND" "$t2")"
+         case "${FAKE_SEC:-success}" in
+           none) ;;
+           *) s="$s,$(printf '{"id":5,"context":"nadavai-security","state":"%s","description":"fake scan","created_at":"%s"},{"id":4,"context":"nadavai-security","state":"pending","created_at":"%s"}' "${FAKE_SEC:-success}" "$t2" "$t1")" ;;
+         esac
          echo "[$s]" ;;
     esac ;;
   "api repos/"*"/compare/"*)

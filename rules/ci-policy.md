@@ -10,7 +10,9 @@ every `ci-wait`, and the old runner (3,445 lines on one 8-core box) queued agent
   https://ci.nadavc.ai (dashboard: log in with GitHub). Runs no repo code. Why: it is always on and
   holds the tokens; it is ARM, and TF's SQL harness is x86 only.
 - **omarchy and MSI**: the Woodpecker agents (Docker, 3 workflows each). Every landing goes to
-  whichever is free. Never start other heavy jobs there.
+  whichever is free. Never start other heavy jobs there. omarchy also runs secscan (user timers
+  `secscan-poll` every 2 minutes and `secscan-nightly` at 04:20; code, baselines and logs in
+  `~/secscan`), which posts `nadavai-security`.
 - **LENOVO**: Nadav's work machine. Agents' scoped checks only; no CI.
 
 ## The rules
@@ -31,8 +33,12 @@ every `ci-wait`, and the old runner (3,445 lines on one 8-core box) queued agent
    Woodpecker repos); `--land` opens the PR (or marks a draft ready). Never poll `gh` or a status in
    a loop. Exit 0 green, 1 red (failed steps and log tail printed), 2 timeout, 3 CI unreachable,
    4 parent gone, 5 nothing to wait on (no landing PR, a draft), 6 superseded by a newer push.
-6. Merge only when every `ci/woodpecker/pr/*` status on the PR head is green, with
-   `gh pr merge <N> --match-head-commit <sha>` (a push after the check then cannot slip in). If main
+6. Merge only when every `ci/woodpecker/pr/*` status and `nadavai-security` on the PR head are
+   green, with `gh pr merge <N> --match-head-commit <sha>` (a push after the check then cannot slip
+   in). `nadavai-security` comes from secscan on omarchy, outside Woodpecker (new secrets in the
+   PR's commits, new high/critical advisories when a dependency file changed; every main nightly);
+   a missing one passes only for 10 minutes after the head's first status. Why: a PR controls its
+   own Woodpecker config, so the scan and its baselines live where no PR can edit them. If main
    moved since the PR branched, re-run (rebase and push) only when main's new commits touch a file
    the PR changes or a shared file (lockfile, manifest, tsconfig, `*.config.*`, `.woodpecker/`,
    migrations); otherwise merge. agent-guard enforces this for `gh pr merge`. A direct push to main
