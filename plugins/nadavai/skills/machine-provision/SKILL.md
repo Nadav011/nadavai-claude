@@ -171,8 +171,23 @@ not see configs, and that diff is what found the missing Codex config on 2026-11
 A list proves nothing works. On the target: `docker run --rm --device nvidia.com/gpu=all ubuntu:24.04
 nvidia-smi -L` (the docker group applies only to a new login: use `sudo` for the proof); a Playwright
 Chromium launch that renders Hebrew; `google-chrome-stable --headless=new --user-data-dir=<tmp>
---dump-dom`; `gh api user`; and `--version` for the rest. Playwright WebKit cannot run on Arch (it
-links Ubuntu's libicu 74, flite, libjxl 0.8): the same on every machine, so not a provisioning gap.
+--dump-dom`; `gh api user`; and `--version` for the rest. Playwright WebKit cannot run natively on Arch (it
+links Ubuntu's libicu 74, flite, libjxl 0.8); it runs in the official image, pulled on the LENOVO
+and the MSI (3.6 GB, tag = the global `@playwright/test` version):
+`docker run --rm --ipc=host --init -v "$PWD":/work -w /work mcr.microsoft.com/playwright:v<ver>-noble npx playwright test --project=webkit`,
+or as a browser server for the host's tests (`npx -y playwright@<ver> run-server --port 3000 --host 0.0.0.0`
+in the container with `-p 3000:3000`, then `PW_TEST_CONNECT_WS_ENDPOINT=ws://127.0.0.1:3000/` on the
+host). Proven 2026-11-03: WebKit 27.2 rendered Hebrew on both. Bump the tag with every Playwright update.
+
+Android emulator: `sdkmanager --install emulator "system-images;android-36;google_apis;x86_64"`, then
+`avdmanager create avd -n pixel-36 -k "system-images;android-36;google_apis;x86_64" -d pixel_8`;
+`emulator -accel-check` must say `accel`, and a headless boot (`-no-window -gpu swiftshader_indirect`)
+reaches `sys.boot_completed=1` in 20-30 s on the LENOVO and the MSI. On omarchy the CI session owns it.
+
+parry-guard: the default `onnx-fetch` feature downloads ONNX Runtime from a CDN that answers 403.
+Build against the system library instead: `pacman -S onnxruntime-cpu`, then
+`ORT_LIB_LOCATION=/usr/lib ORT_PREFER_DYNAMIC_LINK=1 cargo install parry-guard --locked --no-default-features --features onnx --force`.
+The binary dlopens `libonnxruntime.so`, so every machine that gets a copy needs `onnxruntime-cpu`.
 
 ### 8. Prove and report
 - `compare.py` again until only ignore-file lines remain, `update-audit.sh` on both machines,
