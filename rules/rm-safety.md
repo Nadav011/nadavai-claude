@@ -1,0 +1,7 @@
+# rm targets: literal or guarded
+
+- Every `rm` target is a literal path, or starts with a guarded variable: `rm -rf "${T:?}"/*`, `rm -rf "${W:?}/$d/.vite"`. Never `rm -rf $T/*`, `"$W/$d"`, `"$HOME/$rel"` or `"$(cat file)"`, even when the variable was set two lines earlier. Why: Claude Code's built-in removal check ignores bypass and auto mode, and the auto-mode classifier cannot approve it either. When it cannot prove a target safe, it holds the session for a person's answer, then denies after a timeout. That happened 154 times from 2026-10-15 to 2026-11-03, and Nadav answered 61 of them by hand. A guarded or literal target was held once in 3,810 commands.
+- Under `$HOME` or `~`, write a literal path or guard the part after it: `"$HOME/${rel:?}"`. A guard on `$HOME` itself does not count, because HOME is always set.
+- After `cd`, a glob that empties a directory (`rm -f ./*`, `rm -rf out/*`) uses the absolute path. Why: the check reads it against the session's own directory, not the one `cd` moved to.
+- In a command that also runs `sh -c` / `bash -c`, guard bare variable targets too (`rm -f "${f:?}"`), and keep `rm` out of the `-c` script when you can. Why: the check gives up on such commands.
+- Enforced for Claude Code by `agent-guard.sh` (nadavai plugin), which denies the old forms at once and says how to rewrite them. `# rm-checked: <reason>` skips the guard only when its parse is wrong, and the built-in check still runs after it.

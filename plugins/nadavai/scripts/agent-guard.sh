@@ -23,6 +23,17 @@
 #          and all 7 Orca stalls of a 10-minute sample fell inside it. Applies in the background too.
 #          Quoted strings with spaces (ssh host 'find /', bash -c '...'), heredoc bodies and commands over
 #          20000 characters are not read.
+#   Bash (Claude Code only): an rm target that Claude Code's built-in removal check may not resolve,
+#          unless the command carries `# rm-checked: <reason>`. That check ignores bypass and auto
+#          mode, and its classifier cannot approve it: it holds the session for a person's answer and
+#          denies after a timeout (154 such stops from 2026-10-15 to 2026-11-03, 61 answered by Nadav
+#          by hand). Every target must be a literal path, start with ${NAME:?}, or start with a
+#          literal absolute path, ~/ or $HOME/ plus a fixed name before the first variable. Denied:
+#          a variable as a path root ($T/*, $W/$d/.vite, "$HOME/$rel"), $(...), /, ~ or /home/<user>
+#          and their top level, a relative glob ending in a bare * after cd, and, in a command that
+#          also runs sh -c, a bare variable target. Measured on that history: 138 of the 154 stops
+#          caught; 1257 of 7571 rm commands the check passed would be denied (one rewrite each).
+#          rm behind xargs or find -exec, heredoc bodies and commands over 20000 characters are not read.
 # Strict mode, off unless ${XDG_CONFIG_HOME:-~/.config}/nadavai/guard-strict exists (touch it to
 # switch on, remove it to switch off; the next call reads it). Both rules apply in the
 # background too (rules/ci-policy.md, rules 4 and 7):
@@ -62,7 +73,8 @@ deny() {
 
 # Fast path: most calls carry neither word, and this runs before every Bash/run_command call.
 case "$input" in
-  *'"fork"'*|*sleep*|*gh*merge*|*find*|*bfs*) ;;
+  # rm after a blank, an operator, a quote, a slash (/bin/rm) or JSON's \n / \t escapes
+  *'"fork"'*|*sleep*|*gh*merge*|*find*|*bfs*|*[[:space:]\;\&\|\(\`\"\'/nt]'rm '*) ;;
   *while*|*until*|*docker*|*podman*|*supabase*) [ "$strict" = 1 ] || allow ;;
   *) allow ;;
 esac
@@ -463,6 +475,122 @@ disk_search_guard() { # disk_search_guard <command> <cwd>: denies a walk of the 
   deny "'$found' walks the whole disk or home (16 million files; on 2026-10-31 one such search held the disk at 99% for 5 minutes and froze Orca). To find a file by name use plocate <name> (rebuilt nightly, skips node_modules and .git). Otherwise search under the project directory, or add -maxdepth of 4 or less. If a full walk is really needed, add '# full-scan: <reason>' to the command."
 }
 
+# check_rm: prints "<kind>\t<target>" for the first rm target at command position that Claude Code's
+# built-in removal check may stop on, nothing otherwise (rules in the header). kind: var, wide or
+# cdglob. The script of sh -c / bash -c is read too; heredoc bodies and comments are not.
+check_rm() {
+  awk '
+    function lead_ok(t,   p) {
+      # t: the target with quotes removed. A guarded ${NAME:?} or ${1:?} counts as a fixed name,
+      # except ${HOME:?}: HOME is always set, so its guard stops nothing.
+      gsub(/\$\{HOME:\?[^}]*\}/, "$HOME", t)
+      gsub(/\$\{([A-Za-z_][A-Za-z0-9_]*|[0-9]+):\?[^}]*\}/, "G", t)
+      if (t !~ /\$|__CS__/) return 1
+      if (t ~ /^__CS__/) return 0
+      # A variable that is not a path root ($tmp, "$f.log") empties into a relative name or nothing,
+      # which the check passes, except in a command that also runs sh -c.
+      if (!shc && t ~ /^\$(\{[A-Za-z_][A-Za-z0-9_]*\}|[A-Za-z_][A-Za-z0-9_]*|[0-9])[^\/]*$/) return 1
+      p = t
+      if (p ~ /^(~|\$HOME|\$\{HOME\})\//) sub(/^(~|\$HOME|\$\{HOME\})/, home, p)
+      if (p !~ /\$|__CS__/) return 1
+      if (p !~ /^\//) return (p !~ /^\$/)
+      p = substr(p, 1, index(p, "$") - 1); if (p == "") return 0
+      # two fixed path components at least, not the home directory itself, no glob
+      sub(/\/+$/, "", p)
+      return (p ~ /^\/[^\/]+\/[^\/]+/ && p != home && p !~ /[*?]/)
+    }
+    function wide(t) {
+      gsub(/\$\{HOME:\?[^}]*\}/, "$HOME", t)
+      if (t ~ /^\/+$/) return 1
+      sub(/\/+$/, "", t)
+      return (t ~ /^\/\*$/ || t ~ /^(~|\$HOME|\$\{HOME\})(\/\*)?$/ || t ~ /^\/home(\/\*|\/[^\/]+(\/\*)?)?$/)
+    }
+    function scan(src,   out, m, c, pre, q, n, w, i, j, a, t, cmdpos, cd, opts, cw) {
+      # Quoted strings, leftmost first: the script of sh -c is queued and read on its own; any other
+      # quoted string keeps its content with blanks closed up; comments are dropped.
+      out = ""
+      while (match(src, /\x27[^\x27]*\x27|"([^"\\]|\\.)*"|(^|[ \t\n;&|])#[^\n]*/)) {
+        m = substr(src, RSTART, RLENGTH); c = substr(m, 1, 1); pre = substr(src, 1, RSTART - 1)
+        if ((c == "\x27" || c == "\"") && pre ~ /(^|[^A-Za-z0-9_.\/-])(ba|z|da)?sh([ \t]+-[A-Za-z]+)*[ \t]+-[A-Za-z]*c[ \t]+$/) {
+          q = substr(m, 2, length(m) - 2)
+          if (c == "\"") { gsub(/\\"/, "\"", q); gsub(/\\\$/, "$", q); gsub(/\\`/, "`", q) }
+          queue[++nq] = q; q = "__SH__"; shc = 1
+        } else if (c == "\x27") { q = substr(m, 2, length(m) - 2); gsub(/[ \t\n;&|()<>]/, "_", q); q = "__SQ__" q "__SQ__" }
+        else if (c == "\"") { q = substr(m, 2, length(m) - 2); gsub(/\$\(\(/, "__AR__", q); gsub(/\$\(|`/, "__CS__", q); gsub(/[ \t\n;&|()<>]/, "_", q); q = "__DQ__" q "__DQ__" }
+        else q = (c == "#" ? "" : c)
+        out = out pre q
+        src = substr(src, RSTART + RLENGTH)
+      }
+      src = out src
+      # A command that runs sh -c (read outside quotes and comments) makes bare targets count too.
+      if (src ~ /(^|[^A-Za-z0-9_.\/-])(ba|z|da)?sh([ \t]+-[A-Za-z]+)*[ \t]+-[A-Za-z]*c[ \t]/) shc = 1
+      gsub(/\$\(\(/, "__AR__", src); gsub(/\$\(|`/, " __CS__ ; ", src)
+      gsub(/[0-9]*[<>]&[0-9-]*/, " ", src); gsub(/&>>?/, " > ", src)
+      # ${...} keeps its braces through the split below
+      while (match(src, /\$\{[^{}]*\}/)) src = substr(src, 1, RSTART - 1) "$__LB__" substr(src, RSTART + 2, RLENGTH - 3) "__RB__" substr(src, RSTART + RLENGTH)
+      gsub(/\n/, " ; ", src); gsub(/[;&|(){}]/, " ; ", src)
+      gsub(/\$__LB__/, "${", src); gsub(/__RB__/, "}", src)
+      n = split(src, w, /[ \t]+/)
+      cmdpos = 1; cd = 0
+      for (i = 1; i <= n; i++) {
+        if (w[i] == "") continue
+        if (w[i] == ";") { cmdpos = 1; continue }
+        if (!cmdpos) continue
+        if (w[i] ~ /^(do|then|else|!|if|elif|while|until|time)$/ || w[i] ~ /^[A-Za-z_][A-Za-z0-9_]*=/) continue
+        if (w[i] == "cd" || w[i] == "pushd") { cd = 1; cmdpos = 0; continue }
+        if (w[i] ~ /^(sudo|nice|ionice|timeout|nohup|command|exec|env|stdbuf|heavy-slot)$/) {
+          while (w[i + 1] ~ /^-/ || w[i + 1] ~ /^[0-9.]+[smhd]?$/ || w[i + 1] ~ /^[A-Za-z_][A-Za-z0-9_]*=/) i++
+          continue
+        }
+        cw = w[i]; sub(/^\\/, "", cw)
+        if (cw !~ /^(\/usr)?(\/bin\/)?rm$/) { cmdpos = 0; continue }
+        opts = 1
+        for (j = i + 1; j <= n && w[j] != ";"; j++) {
+          a = w[j]
+          if (a ~ /^[0-9]*[<>]/) { if (a ~ /^[0-9]*[<>]+$/) j++; continue }
+          if (opts && a == "--") { opts = 0; continue }
+          if (opts && a ~ /^-/) continue
+          if (a == "__CS__") { print "var\t$(...)"; return 1 }
+          t = a; gsub(/__SQ__[^ ]*__SQ__/, "_", t); gsub(/__DQ__/, "", t)
+          if (wide(t)) { print "wide\t" t; return 1 }
+          if (!lead_ok(t)) { gsub(/__CS__/, "$(...)", t); print "var\t" t; return 1 }
+          if (cd && t !~ /^(\/|~|\$)/ && t ~ /(^|\/)\*$/) { print "cdglob\t" t; return 1 }
+        }
+        i = j - 1; cmdpos = 0
+      }
+      return 0
+    }
+    hd != "" { t = $0; sub(/^\t+/, "", t); if (t == hd) hd = ""; next }
+    {
+      line = $0
+      if (match(line, /<<-?[ \t]*[\\"\x27]?[A-Za-z_][A-Za-z0-9_]*/) && substr(line, RSTART - 1, 1) != "<") {
+        hd = substr(line, RSTART, RLENGTH); sub(/^<<-?[ \t]*[\\"\x27]?/, "", hd)
+      }
+      if (sub(/\\$/, "", line)) all = all line " "; else all = all line "\n"
+    }
+    END {
+      home = ENVIRON["HOME"]; sub(/\/+$/, "", home); if (home == "") home = "/nonexistent-home"
+      queue[nq = 1] = all
+      for (k = 1; k <= nq && k <= 20; k++) if (scan(queue[k])) exit
+    }'
+}
+
+rm_guard() { # rm_guard <command>: denies an rm the built-in removal check may hold for a person, or returns
+  local found kind t
+  case "$1" in *rm*) ;; *) return 0 ;; esac
+  case "$1" in *'# rm-checked:'*) return 0 ;; esac
+  [ "${#1}" -le 20000 ] || return 0
+  found=$(printf '%s\n' "$1" | check_rm)
+  [ -n "$found" ] || return 0
+  kind=${found%%$'\t'*}; t=${found#*$'\t'}
+  local why="Claude Code's built-in removal check ignores bypass and auto mode and would hold this session until Nadav answers, then deny it (154 such stops in the three weeks to 2026-11-03)."
+  case "$kind" in
+    wide) deny "rm '$t' removes /, a home directory or their top level. $why Name the exact directory to remove." ;;
+    cdglob) deny "rm '$t' after a cd: the check reads a relative glob against the session's own directory, not the one cd moved to. $why Write the absolute path instead (rm -f /tmp/work/out/*)." ;;
+    *) deny "rm '$t' builds its path from a variable the check cannot resolve before the command runs. $why Start the target with a guarded variable, rm -rf \"\${T:?}\"/* or rm -rf \"\${W:?}/\$d/.vite\" (the shell stops instead of removing / when T is empty), or with a literal absolute path (rm -rf /tmp/work/x). Under \$HOME, guard the part after it: \"\$HOME/\${rel:?}\". In a command that also runs sh -c, guard bare targets too: rm -f \"\${f:?}\". If the guard is wrong here, add '# rm-checked: <reason>' to the command." ;;
+  esac
+}
+
 strict_guard() { # strict_guard <command>: denies, or returns
   local found loops=1 pg=1
   [ "$strict" = 1 ] || return 0
@@ -573,6 +701,10 @@ case "$tool" in
     cmd=$(jq -r '.tool_input.command // .toolInput.command // empty' <<<"$input" 2>/dev/null)
     cwd=$(jq -r '.cwd // empty' <<<"$input" 2>/dev/null)
     disk_search_guard "$cmd" "$cwd"
+    # Claude Code only: Codex (turn_id) and Grok (run_terminal_command) have no such removal check.
+    if [ "$tool" = Bash ] && [ -z "$(jq -r '.turn_id // empty' <<<"$input" 2>/dev/null)" ]; then
+      rm_guard "$cmd"
+    fi
     strict_guard "$cmd" "$cwd"
     merge_guard "$cmd" "$cwd"
     if [ "$tool" = run_terminal_command ]; then
