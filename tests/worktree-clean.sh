@@ -6,7 +6,7 @@ set -u
 wc_bin=$(realpath "${1:-$(dirname "$0")/../bin/worktree-clean}")
 t=$(mktemp -d) || exit 1
 sleeper=
-trap '[ -n "$sleeper" ] && kill "$sleeper" 2>/dev/null; rm -rf -- "$t"' EXIT
+trap '[ -n "$sleeper" ] && kill "$sleeper" 2>/dev/null; chmod -R u+rwx -- "$t" 2>/dev/null; rm -rf -- "$t"' EXIT
 export HOME=$t/home GIT_CONFIG_GLOBAL=$t/gitconfig GIT_CONFIG_NOSYSTEM=1
 mkdir -p "$HOME" "$t/fakebin"
 printf '#!/bin/sh\necho "{\\"result\\":{\\"worktrees\\":[]}}"\n' >"$t/fakebin/orca-ide"; chmod +x "$t/fakebin/orca-ide"
@@ -43,22 +43,35 @@ git -C "$t/therapy-flow-v2" worktree add -q --detach "$t/tfwt/gone" origin/main 
 git clone -q "$t/remote.git" "$t/sportchat-web" 2>/dev/null
 for n in v4-system v4-lane v4-done; do git -C "$t/sportchat-web" worktree add -q --detach "$t/scwt/$n" origin/main 2>/dev/null; done
 (cd "$t/scwt/v4-lane" && echo l >l.txt && git add l.txt && git commit -qm lane && git push -q origin HEAD:refs/heads/v4-lane 2>/dev/null && git fetch -q origin)
+# matched on the branch: v4/<job> with a local commit in a folder not named v4-*, and a branch part naming a listed lane
+git -C "$t/sportchat-web" worktree add -q -b v4/quick-job "$t/scwt/wt-quick" origin/main 2>/dev/null
+(cd "$t/scwt/wt-quick" && echo q >q.txt && git add q.txt && git commit -qm quick)
+git -C "$t/sportchat-web" worktree add -q -b lane/v4-system "$t/scwt/lane-sys" origin/main 2>/dev/null
 git worktree add -q -b tf513 "$HOME/Desktop/tf-513-x" main 2>/dev/null
 mkdir -p "$HOME/.config/nadavai"; echo '{"repos": {"main": {"neverTouch": ["keepme"]}}}' >"$HOME/.config/nadavai/worktree-clean.json"
 wt keepme
-# a Claude (Orca profile), Codex (session in a subfolder) or Grok transcript of the path changed lately; an old one does not count
-for n in talk-claude talk-codex talk-grok stale; do wt "$n"; done
+# a Claude (Orca profile, or a session in a subfolder), Codex (in a subfolder) or Grok transcript of the path changed
+# lately, or a transcript folder that cannot be read; an old one does not count
+for n in talk-claude talk-codex talk-grok talk-sub talk-locked stale; do wt "$n"; done
 top() { git -C "$t/wt/$1" rev-parse --show-toplevel; }
 enc() { printf '%s' "$1" | tr -c 'A-Za-z0-9' '-'; }
 d=$HOME/.config/orca/claude-profiles/p1/home/projects/$(enc "$(top talk-claude)"); mkdir -p "$d"; echo '{}' >"$d/s.jsonl"
 mkdir -p "$HOME/.codex/sessions/2026/11/03"; printf '{"type":"session_meta","payload":{"cwd":"%s/sub"}}\n{}\n' "$(top talk-codex)" >"$HOME/.codex/sessions/2026/11/03/rollout-t.jsonl"
 d=$HOME/.grok/sessions/$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$(top talk-grok)")/s1; mkdir -p "$d"; echo '{}' >"$d/updates.jsonl"
 d=$HOME/.claude/projects/$(enc "$(top stale)"); mkdir -p "$d"; echo '{}' >"$d/s.jsonl"; touch -d '10 days ago' "$d/s.jsonl" "$d"
+d=$HOME/.claude/projects/$(enc "$(top talk-sub)/apps/web"); mkdir -p "$d"; echo '{}' >"$d/s.jsonl"
+d=$HOME/.claude/projects/$(enc "$(top talk-locked)"); mkdir -p "$d"; echo '{}' >"$d/s.jsonl"; touch -d '10 days ago' "$d/s.jsonl" "$d"; chmod 000 "$d"
 sleep 0.3
 
 mkdir -p "$t/noorca"; printf '#!/bin/sh\nexit 1\n' >"$t/noorca/orca-ide"; chmod +x "$t/noorca/orca-ide"
 out=$(PATH=$t/noorca:$PATH "$wc_bin" --repo "$t/main" --safe-days 0 --unsaved-days 0 2>&1); rc=$?
 [ "$rc" = 0 ] && [ -d "$t/wt/clean" ] && echo "$out" | grep -q 'nothing done' && ok "Orca unreachable: nothing done, even with --repo" || bad "without Orca: rc=$rc $out"
+
+echo '{"repos": {"main": {"neverTouch": "keepme"}}}' >"$HOME/.config/nadavai/worktree-clean.json"
+out=$("$wc_bin" --repo "$t/main" --safe-days 0 --unsaved-days 0 2>&1); rc=$?
+[ "$rc" = 1 ] && [ -d "$t/wt/keepme" ] && [ -d "$t/wt/clean" ] && echo "$out" | grep -q 'owner lists.*nothing done' \
+  && ok "malformed owner list (a string where a list belongs): nothing done" || bad "malformed config: rc=$rc $out"
+echo '{"repos": {"main": {"neverTouch": ["keepme"]}}}' >"$HOME/.config/nadavai/worktree-clean.json"
 
 out=$("$wc_bin" --repo "$t/main" 2>&1)
 [ -d "$t/wt/clean" ] && [ -d "$t/wt/dirty" ] && [ -d "$t/wt/unpushed" ] && ok "default thresholds keep worktrees active today" || bad "a fresh worktree was removed: $out"
@@ -86,11 +99,14 @@ out=$("$wc_bin" "${repos[@]}" --safe-days 0 --unsaved-days 0 2>&1); rc=$?
 [ -d "$t/scwt/v4-system" ] && [ ! -d "$t/scwt/v4-done" ] && ok "owner list: sportchat v4-system kept by name, a landed v4 lane removed" || bad "sportchat name rule: $out"
 [ -d "$t/scwt/v4-lane" ] && echo "$out" | grep -q "^keep:owner-list (sportchat-web: v4-\* with HEAD not in origin/main) $t/scwt/v4-lane$" \
   && ok "owner list: sportchat v4 lane whose HEAD is not in origin/main kept" || bad "unlanded v4 lane: $out"
+[ -d "$t/scwt/lane-sys" ] && [ -d "$t/scwt/wt-quick" ] && echo "$out" | grep -q "^keep:owner-list (sportchat-web: v4/\* with HEAD not in origin/main) $t/scwt/wt-quick$" \
+  && ok "owner list: matched on a v4/<job> branch and on a part of the branch name" || bad "branch match: $out"
 [ -d "$HOME/Desktop/tf-513-x" ] && [ -d "$t/wt/keepme" ] && ok "owner list: ~/Desktop/tf-513-* path and the user's own list kept" || bad "path or user list: $out"
 [ -d "$t/wt/talk-claude" ] && [ -d "$t/wt/talk-codex" ] && [ -d "$t/wt/talk-grok" ] && [ ! -d "$t/wt/stale" ] \
   && ok "recent Claude/Codex/Grok transcript keeps a worktree, a 10-day-old one does not" || bad "transcript activity: $out"
-[ ! -e "$t/main/.git/worktrees/gone2" ] && grep -q 'Removing worktrees/gone2' "$HOME/Archive/worktree-clean/$(date +%F)/log.json" \
-  && ok "prune ran and its output is in the log" || bad "prune not logged"
+[ -d "$t/wt/talk-sub" ] && [ -d "$t/wt/talk-locked" ] && ok "a Claude session in a subfolder, or an unreadable transcript folder, keeps a worktree" || bad "subfolder or unreadable transcript: $out"
+[ -e "$t/main/.git/worktrees/gone2" ] && grep -q 'Removing worktrees/gone2' "$HOME/Archive/worktree-clean/$(date +%F)/log.json" \
+  && ok "prune only reported in the log, never run (it would drop HEAD and reflog)" || bad "prune ran or was not logged"
 
 stamp=$(date +%F)
 ref=$(git -C "$t/main" for-each-ref --format='%(refname)' "refs/worktree-clean/$stamp/" | grep -v /heads/ | grep dirty)
@@ -106,4 +122,11 @@ tar --zstd -tf "$arch"/*dirty*.ignored.tar.zst 2>/dev/null | grep -qx dist/.env.
 [ "$(stat -c %a "$arch"/*dirty*.ignored.tar.zst)" = 600 ] && ok "archive is chmod 600" || bad "archive mode is not 600"
 ls "$arch"/*unpushed*.bundle >/dev/null 2>&1 && git -C "$t/main" bundle verify -q "$arch"/*unpushed*.bundle 2>/dev/null && ok "bundle of the local-only commit verifies" || bad "no valid bundle for the unpushed worktree"
 [ -f "$arch/README.md" ] && [ -f "$arch/log.json" ] && ok "README and log written" || bad "README or log missing"
+
+# a repo whose `git worktree list` fails is logged as an error, and the next repo still runs
+mkdir -p "$t/gitwrap"; printf '#!/bin/sh\ncase "$*" in *broken*"worktree list"*) exit 128;; esac\nexec %s "$@"\n' "$(command -v git)" >"$t/gitwrap/git"
+chmod +x "$t/gitwrap/git"; git init -q "$t/broken"; wt late
+out=$(PATH=$t/gitwrap:$PATH "$wc_bin" --repo "$t/broken" --repo "$t/main" --safe-days 0 --unsaved-days 0 2>&1); rc=$?
+[ "$rc" = 1 ] && [ ! -d "$t/wt/late" ] && grep -q "error: git worktree in $t/broken" "$arch/log.json" \
+  && ok "a failing repo is logged as an error and the next one still runs" || bad "per-repo failure: rc=$rc $out"
 exit $fail

@@ -1,5 +1,5 @@
 {
-  "why": "Owner never-touch lists for bin/worktree-clean. A repo key matches the main checkout's folder name or origin's repository name. A name pattern matches the branch or any folder on the worktree's path. ~/.config/nadavai/worktree-clean.json can add to these lists, never remove from them. On 2026-11-01 the tool removed 38 ~/Desktop/tf-513-* worktrees from the TherapyFlow owner's list.",
+  "why": "Owner never-touch lists for bin/worktree-clean. A repo key matches the main checkout's folder name or origin's repository name. A name pattern matches the branch, any '/'-separated part of it, or any folder on the worktree's path. ~/.config/nadavai/worktree-clean.json can add to these lists, never remove from them. On 2026-11-01 the tool removed 38 ~/Desktop/tf-513-* worktrees from the TherapyFlow owner's list.",
   "sessionActiveDays": 3,
   "neverTouchPaths": [
     "~/Desktop/tf-513-*",
@@ -11,13 +11,13 @@
       "why": "TherapyFlow owner (dagon, 2026-10-28): never git worktree prune/remove on therapy-flow-v2; a live ITA process and workflows write there."
     },
     "sportchat-web": {
-      "neverTouch": ["v4-system", "v4-merge", "v4-merge-*", "v4-batch-*", "v4-deploy", "v4-owner"],
-      "neverTouchUnlessInOriginMain": ["v4-*"],
-      "why": "SportChat owner (2026-10-27): lane base, merge train, deploy and owner worktrees, and every v4 lane whose HEAD has not landed in origin/main."
+      "neverTouch": ["v4-system", "v4-merge", "v4-merge-*", "v4-batch-*", "v4-deploy", "v4-owner", "v4-bk-0-live", "v4-data-1-first20", "audit-4f962617"],
+      "neverTouchUnlessInOriginMain": ["v4-*", "v4/*"],
+      "why": "SportChat owner (2026-10-27): lane base, merge train, deploy and owner worktrees, and every v4 lane (folder v4-*, or branch v4/*, e.g. ~/sporchat-v4-tmp/wt-ui-quick) whose HEAD has not landed in origin/main. v4-bk-0-live, v4-data-1-first20 and audit-4f962617 added 2026-11-03: in origin/main but named by the owner session during the 2026-11-03 production train; remove them from this list only on the SportChat owner's word."
     },
     "nadavai-ci-slot": {
       "exclude": true,
-      "why": "Nadav (2026-11-03): do not touch CI / nadavai-slot, he is redoing it."
+      "why": "CI infrastructure (nadavai-slot.service builds branch heads in these worktrees); its worktrees are managed by the CI tooling, not by this cleaner."
     }
   }
 }
