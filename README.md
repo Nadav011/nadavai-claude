@@ -31,7 +31,9 @@ the patch is inert. To re-apply after every Orca update, opt in per machine: sym
 after snapshotting their unsaved work under `refs/worktree-clean/` and `~/Archive/worktree-clean/`).
 It never touches what an owner listed in [`config/worktree-clean.json`](config/worktree-clean.json)
 (`~/.config/nadavai/worktree-clean.json` can add more) or a worktree whose Claude, Codex or Grok
-transcript changed in the last 3 days. Stale `git worktree` entries are only reported, never pruned, and
+transcript changed in the last 3 days, nor a worktree with another one registered inside it. It never
+prunes stale `git worktree` entries itself, only reports them; Orca's own removal may prune them, so right
+before it the tool locks every stale entry an owner rule protects, and Orca may prune the unprotected rest.
 `--dry-run` writes nothing. Its weekly run is opt-in per machine, on the machine where agents create worktrees: symlink
 [`systemd/user/worktree-clean.service`](systemd/user/worktree-clean.service) and `.timer` into
 `~/.config/systemd/user/` and `systemctl --user enable --now worktree-clean.timer`. Tests:

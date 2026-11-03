@@ -15,23 +15,30 @@
 # Idle = newest reflog entry of the worktree's HEAD or newest mtime of a changed file; never the
 # index mtime, which any `git status` touches.
 # Before any removal: HEAD is pinned under refs/worktree-clean/<date>/heads/<name> unless it is
-# on main, because Orca deletes the local branch and a later `fetch --prune` can drop the remote
-# one. Git-ignored files other than build output are packed into the archive (chmod 600, they
+# on main, because the local branch may go after removal (older Orca hosts delete it, and so may an
+# agent) and a later `fetch --prune` can drop the remote one. Refs and archive files are create-only:
+# a same-day rerun that would overwrite one keeps the worktree and logs an error.
+# Git-ignored files other than build output are packed into the archive (chmod 600, they
 # may hold .env secrets). Only ignored build dirs (node_modules, .next, ...) are deleted by hand,
 # at idle IO priority, so Orca does not stall on the disk.
 # A clean worktree is never force-removed; if plain removal fails it is kept and logged. Changes a
-# snapshot cannot hold (inside a submodule or a nested repo) keep the worktree. Right before deleting,
-# the process list, the changed files and HEAD are checked again. When Orca is not reachable it does nothing.
-# Archive and JSON log: ~/Archive/worktree-clean/<date>/ (README there says how to restore).
-# One run at a time (flock on ~/.cache/worktree-clean.lock).
+# snapshot cannot hold (inside a submodule or a nested repo) keep the worktree, and so does another
+# registered worktree (or main checkout) anywhere beneath it. After the build dirs are gone and right
+# before the removal, the process list, the changed files, HEAD and the session transcripts are checked
+# again. A main checkout is never a candidate, and a --repo that is not one stops the run.
+# When Orca is not reachable it does nothing and exits 1.
+# Archive and log (log.jsonl, one JSON object per worktree): ~/Archive/worktree-clean/<date>/ (README there
+# says how to restore). One run at a time (flock on ~/.cache/worktree-clean.lock).
 # Owner never-touch lists: config/worktree-clean.json next to bin/, plus ~/.config/nadavai/worktree-clean.json,
-# which can only add. A listed repo, path or worktree (pattern on the branch, a part of it, or a folder on the path)
-# is never removed, and neither is a worktree whose Claude, Codex or Grok transcript (also of a subfolder) changed
-# in the last sessionActiveDays (mtimes only, no file is grepped; an unreadable one counts as active).
+# which can only add. A listed repo, path or worktree (pattern on the branch, a part of it, or a folder on the
+# path; for a detached HEAD also the branch a rebase or bisect started from) is never removed, and neither is a
+# worktree whose Claude, Codex or Grok transcript (also of a subfolder) changed in the last sessionActiveDays
+# (mtimes only, no file is grepped; an unreadable one counts as active).
 # Without a valid shipped list, or when a transcript folder cannot be read, it does nothing.
-# `git worktree prune` never runs: stale entries are only reported as would-prune, since pruning drops the
-# worktree's HEAD and reflog. Every worktree is printed with its result and reason; log.json is written even
-# when a run fails midway.
+# `git worktree prune` never runs here: stale entries are only reported as would-prune, since pruning drops the
+# worktree's HEAD and reflog. Orca's own removal may prune, so right before it every stale entry of that repo an
+# owner rule protects gets a `locked` file, which prune respects. Every worktree is printed with its result and
+# reason; the log is written even when a run fails midway.
 # --dry-run writes nothing: no lock, no archive, no object or ref in any repo (git status runs without
 # optional locks, and the snapshot is skipped, so changes a snapshot would not capture show as would-archive).
 import argparse, datetime, fcntl, fnmatch, glob, hashlib, json, os, re, subprocess, sys, tempfile, time, urllib.parse
@@ -155,28 +162,36 @@ def in_use(path, cwds):
     return any(c == path or c.startswith(path + '/') for c in cwds)
 
 
+def is_main_checkout(path):
+    d = git(path, 'rev-parse', '--path-format=absolute', '--git-dir', '--git-common-dir', check=False).splitlines()
+    return len(d) == 2 and os.path.realpath(d[0]) == os.path.realpath(d[1])
+
+
 def load_config():
     """The shipped owner lists plus the user's own file, which can only add to them."""
     user = os.path.join(os.environ.get('XDG_CONFIG_HOME') or os.path.join(HOME, '.config'), 'nadavai', 'worktree-clean.json')
     cfg = {'sessionActiveDays': 0, 'neverTouchPaths': [], 'repos': []}
     strs = lambda v: isinstance(v, list) and all(isinstance(s, str) for s in v)
-    for p in [CONFIG] + ([user] if os.path.exists(user) else []):
+    # lexists: a dangling symlink in place of the user's file fails on open instead of being skipped.
+    for p in [CONFIG] + ([user] if os.path.lexists(user) else []):
         with open(p) as fh:
             d = json.load(fh)
         # A typo or a string where a list belongs would silently drop protection, so anything unexpected stops the run.
         if not isinstance(d, dict):
             raise ValueError(f'{p} is not a JSON object')
-        repos, days = d.get('repos', {}), d.get('sessionActiveDays', 0)
+        repos, days, pats = d.get('repos', {}), d.get('sessionActiveDays', 0), d.get('neverTouchPaths', [])
+        pats = [os.path.normpath(s) for s in pats] if strs(pats) else None  # '~/x/' would never match '~/x'
         if not (set(d) <= {'why', 'sessionActiveDays', 'neverTouchPaths', 'repos'}
                 and isinstance(days, (int, float)) and not isinstance(days, bool) and days >= 0
-                and strs(d.get('neverTouchPaths', [])) and isinstance(repos, dict) and (repos or p != CONFIG)
+                and (p != CONFIG or ('sessionActiveDays' in d and days >= 1 and repos))
+                and pats is not None and all(s.startswith(('/', '~')) for s in pats) and isinstance(repos, dict)
                 and all(isinstance(r, dict) and set(r) <= {'why', 'exclude', 'neverTouch', 'neverTouchUnlessInOriginMain'}
                         and isinstance(r.get('exclude', False), bool) and strs(r.get('neverTouch', []))
                         and strs(r.get('neverTouchUnlessInOriginMain', [])) for r in repos.values())):
             raise ValueError(f'{p} does not match the expected schema')
-        cfg['sessionActiveDays'] = max(cfg['sessionActiveDays'], d.get('sessionActiveDays', 0))
-        cfg['neverTouchPaths'] += d.get('neverTouchPaths', [])
-        cfg['repos'] += list(d.get('repos', {}).items())
+        cfg['sessionActiveDays'] = max(cfg['sessionActiveDays'], days)
+        cfg['neverTouchPaths'] += pats
+        cfg['repos'] += list(repos.items())
     return cfg
 
 
@@ -187,24 +202,62 @@ def repo_rules(repo, cfg):
     return [(k, r) for k, r in cfg['repos'] if k in names]
 
 
-def never_touch(path, branch, rules, paths):
+def never_touch(repo, path, head, branches, rules, paths):
     """The owner rule that forbids touching this worktree, or None."""
     for pat in paths:
         p = os.path.expanduser(pat)
         if any(fnmatch.fnmatchcase(q, p) or fnmatch.fnmatchcase(q, p + '/*') for q in {path, os.path.realpath(path)}):
             return pat
-    names = [branch, *branch.split('/')] + path.split('/')  # the branch, each part of it, or any folder on the path
+    # Each branch, each part of it, or any folder on the path.
+    names = [n for b in branches if b for n in (b, *b.split('/'))] + path.split('/')
     hit = lambda pats: next((p for p in pats if any(fnmatch.fnmatchcase(n, p) for n in names)), None)
     for key, r in rules:
         p = hit(r.get('neverTouch', []))
         if p:
             return f'{key}: {p}'
         p = hit(r.get('neverTouchUnlessInOriginMain', []))
-        # A missing origin/main counts as not contained.
-        if p and subprocess.run(['git', '-C', path, 'merge-base', '--is-ancestor', 'HEAD', 'refs/remotes/origin/main'],
-                                capture_output=True).returncode:
+        # A missing origin/main, or a HEAD that cannot be read, counts as not contained.
+        if p and (not head or subprocess.run(['git', '-C', repo, 'merge-base', '--is-ancestor', head, 'refs/remotes/origin/main'],
+                                             capture_output=True).returncode):
             return f'{key}: {p} with HEAD not in origin/main'
     return None
+
+
+def head_names(files):
+    """Branch names in a worktree's rebase-merge/head-name, rebase-apply/head-name and BISECT_START: the branch
+    a rebase or bisect started from while HEAD is detached."""
+    out = []
+    for f in files:
+        try:
+            with open(f) as fh:
+                out.append(fh.read().strip().removeprefix('refs/heads/'))
+        except FileNotFoundError:
+            pass
+    return out
+
+
+def stale_entries(repo):
+    """(git's line, admin dir, worktree path, HEAD, branches) of every entry `git worktree prune` would remove."""
+    p = subprocess.run(['git', '-C', repo, 'worktree', 'prune', '--dry-run', '-v'], capture_output=True, text=True, timeout=600)
+    if p.returncode:
+        raise RuntimeError('git worktree prune --dry-run: ' + p.stderr.strip()[:300])
+    common = git(repo, 'rev-parse', '--path-format=absolute', '--git-common-dir')
+    out = []
+    for m in re.finditer(r'^Removing (worktrees/[^:\n]+):.*$', p.stdout + p.stderr, re.M):  # git prints them on stderr
+        admin = os.path.join(common, m.group(1))
+
+        def read(f):
+            try:
+                with open(os.path.join(admin, f)) as fh:
+                    return fh.read().strip()
+            except FileNotFoundError:
+                return ''
+        ref = read('HEAD')
+        branch = ref[len('ref: refs/heads/'):] if ref.startswith('ref: refs/heads/') else ''
+        head = git(repo, 'rev-parse', '--verify', '-q', 'refs/heads/' + branch, check=False) if branch else ref
+        files = [os.path.join(admin, f) for f in ('rebase-merge/head-name', 'rebase-apply/head-name', 'BISECT_START')]
+        out.append((m.group(0), admin, os.path.dirname(read('gitdir')) or admin, head, [branch] + head_names(files)))
+    return out
 
 
 def newest_mtime(d, depth):
@@ -263,7 +316,7 @@ def session_activity(path, sessions):
     hits = []
     for root in claude:
         dirs = ([os.path.join(root, name)] if len(name) <= 200 else []) + glob.glob(os.path.join(root, glob.escape(name[:200]) + '-*'))
-        hits += [('claude', newest_mtime(d, 1)) for d in dirs]
+        hits += [('claude', newest_mtime(d, 3)) for d in dirs]  # <session>.jsonl and <session>/subagents/*.jsonl
     under = lambda p: p == path or p.startswith(path + '/')
     hits += [('codex', t) for cwd, t in codex.items() if under(cwd)]
     hits += [('grok', newest_mtime(d, 2)) for p, d in grok.items() if under(p)]
@@ -271,7 +324,8 @@ def session_activity(path, sessions):
     return f'{agent} transcript {time.strftime("%Y-%m-%d %H:%M", time.localtime(t))}' if t >= cutoff else None
 
 
-def clean_one(repo, wt, orca_by_path, args, arch, stamp, cwds, mains):
+def clean_one(repo, wt, orca_by_path, args, arch, stamp, cwds, mains, days, protect):
+    """protect: (admin dir, why) of the repo's stale entries an owner rule protects, locked before Orca removes."""
     path, branch = wt['path'], wt['branch']
     res = {'repo': repo, 'path': path, 'branch': branch}
     if in_use(path, cwds):
@@ -299,15 +353,19 @@ def clean_one(repo, wt, orca_by_path, args, arch, stamp, cwds, mains):
     if entries and snap == head:
         return dict(res, result='keep:snapshot-captured-nothing')
     os.makedirs(arch, mode=0o700, exist_ok=True)
-    in_main = any(subprocess.run(['git', '-C', repo, 'merge-base', '--is-ancestor', head, m]).returncode == 0 for m in mains)
+    in_main = any(subprocess.run(['git', '-C', repo, 'merge-base', '--is-ancestor', head, m], capture_output=True).returncode == 0
+                  for m in mains)
+    # Create-only (old value all zeros): a same-day rerun never overwrites what an earlier removal saved.
     if not in_main:
-        git(repo, 'update-ref', f'refs/worktree-clean/{stamp}/heads/{name}', head)
+        git(repo, 'update-ref', f'refs/worktree-clean/{stamp}/heads/{name}', head, '0' * 40)
         res['pinned'] = f'refs/worktree-clean/{stamp}/heads/{name}'
     if snap:
         ref = f'refs/worktree-clean/{stamp}/{name}'
-        git(repo, 'update-ref', ref, snap)
+        git(repo, 'update-ref', ref, snap, '0' * 40)
         res.update(ref=ref, snapshot=snap)
         bundle = os.path.join(arch, name + '.bundle')
+        if os.path.lexists(bundle):
+            raise RuntimeError(f'{bundle} already exists')
         p = subprocess.run(['git', '-C', repo, 'bundle', 'create', bundle, ref, '--not', *mains], capture_output=True, text=True)
         if p.returncode and 'empty bundle' not in p.stderr:
             raise RuntimeError('bundle: ' + p.stderr[:300])
@@ -324,6 +382,8 @@ def clean_one(repo, wt, orca_by_path, args, arch, stamp, cwds, mains):
                 keep += [os.path.relpath(os.path.join(root, f), path) for f in files if SECRET.search(f)]
     if keep:
         tarf = os.path.join(arch, name + '.ignored.tar.zst')
+        if os.path.lexists(tarf):
+            raise RuntimeError(f'{tarf} already exists')
         p = subprocess.run(['tar', '--zstd', '-cf', tarf, '-C', path, '--', *keep], capture_output=True, text=True)
         if p.returncode:
             raise RuntimeError('tar: ' + p.stderr[:300])
@@ -333,14 +393,21 @@ def clean_one(repo, wt, orca_by_path, args, arch, stamp, cwds, mains):
     real = os.path.realpath(path)
     heavy = [os.path.join(path, e) for e in ignored if e.split('/')[-1] in BUILD
              and os.path.realpath(os.path.join(path, e)).startswith(real + '/')]
-    # Last look before anything is deleted: a process moved in, or the files or HEAD changed since the check.
-    if (in_use(path, process_cwds()) or git(path, 'rev-parse', 'HEAD') != head
-            or disk_tree(path) != git(path, 'rev-parse', (snap or head) + '^{tree}')):
-        return dict(res, result='keep:changed-during-run')
     if heavy:
         subprocess.run(['ionice', '-c3', 'nice', '-n19', 'rm', '-rf', '--', *heavy])
+    # Last look, after the slow build-dir delete and right before the removal: a process moved in, a session
+    # wrote a transcript, or the files or HEAD changed since the check.
+    if (in_use(path, process_cwds()) or session_activity(path, session_index(days))
+            or git(path, 'rev-parse', 'HEAD') != head
+            or disk_tree(path) != git(path, 'rev-parse', (snap or head) + '^{tree}')):
+        return dict(res, result='keep:changed-during-run')
     force = [] if safe else ['--force']
     if path in orca_by_path:
+        for admin, why in protect:  # Orca's removal may prune stale entries; git never prunes a locked one
+            if not os.path.lexists(os.path.join(admin, 'locked')):
+                with open(os.path.join(admin, 'locked'), 'w') as fh:
+                    fh.write(f'worktree-clean: protected ({why})\n')
+                res.setdefault('lockedStale', []).append(admin)
         p = subprocess.run([ORCA, 'worktree', 'rm', '--worktree', f'id:{orca_by_path[path]["id"]}', *force, '--json'],
                            capture_output=True, text=True, timeout=900)
         ok = bool(re.search(r'"ok":\s*true', p.stdout))
@@ -352,7 +419,7 @@ def clean_one(repo, wt, orca_by_path, args, arch, stamp, cwds, mains):
 
 README = """# worktree-clean archive, {stamp}
 
-Written by ~/.local/bin/worktree-clean. log.json lists every worktree it looked at.
+Written by ~/.local/bin/worktree-clean. log.jsonl lists every worktree it looked at, one JSON object per line.
 
 - Unsaved work: `git -C <main repo> for-each-ref refs/worktree-clean/{stamp}/` ; restore with
   `git -C <main repo> worktree add <path> refs/worktree-clean/{stamp}/<name>`. If the commit subject starts with
@@ -379,6 +446,11 @@ def main():
     except (OSError, ValueError) as e:  # without the owner lists it could remove what owners still use
         print(f'worktree-clean: cannot read the owner lists ({e}); nothing done', file=sys.stderr)
         return 1
+    # A linked worktree given as --repo would list the main checkout as one of its worktrees.
+    not_main = [r for r in args.repo if not is_main_checkout(r)]
+    if not_main:
+        print(f'worktree-clean: not a main checkout: {", ".join(not_main)}; nothing done', file=sys.stderr)
+        return 1
     if not args.dry_run:  # a dry run writes nothing, not even the lock
         os.makedirs(os.path.join(HOME, '.cache'), exist_ok=True)
         lock = open(os.path.join(HOME, '.cache', 'worktree-clean.lock'), 'w')
@@ -392,7 +464,7 @@ def main():
     if orca is None:
         # Removing worktrees behind Orca's back leaves it listing folders that are gone.
         print('worktree-clean: Orca is not reachable; nothing done', file=sys.stderr)
-        return 0
+        return 1  # non-zero, so the systemd unit shows the week it did nothing
     orca_by_path = {w['path']: w for w in orca or []}
     repos = [os.path.realpath(r) for r in args.repo] or sorted({w['path'] for w in orca if w.get('isMainWorktree')})
     if not repos:
@@ -406,23 +478,35 @@ def main():
     except OSError as e:  # an unreadable transcript folder could hide a session that still works in a worktree
         print(f'worktree-clean: cannot read the session transcripts ({e}); nothing done', file=sys.stderr)
         return 1
+    # Every registered worktree and main checkout: removing a worktree deletes whatever is registered beneath it.
+    registered = set(repos) | {w['path'] for w in orca if w.get('path')}
+    for repo in repos:
+        out = git(repo, 'worktree', 'list', '--porcelain', check=False)  # a repo that fails here fails below too
+        registered |= {l[len('worktree '):] for l in out.splitlines() if l.startswith('worktree ')}
+    registered |= {os.path.realpath(p) for p in registered}
     log = []
     try:
         for repo in repos:
             try:
                 if git(repo, 'rev-parse', '--is-inside-work-tree', check=False) != 'true':
                     continue
+                if not is_main_checkout(repo):
+                    raise RuntimeError('not a main checkout')
                 rules = repo_rules(repo, cfg)
                 excluded = next((f'{k}: whole repo, no remove or prune' for k, r in rules if r.get('exclude')), None)
+                protect = []
                 if not excluded:
                     # Report only, never run: a pruned entry loses the worktree's HEAD, index and reflog, so a detached
                     # HEAD with unpushed commits becomes unreachable, and the owner lists cannot be checked per entry.
-                    p = subprocess.run(['git', '-C', repo, 'worktree', 'prune', '--dry-run', '-v'],
-                                       capture_output=True, text=True, timeout=600)
-                    pruned = '\n'.join(l for l in (p.stdout + p.stderr).splitlines() if l.startswith('Removing '))  # on stderr
-                    if pruned and p.returncode == 0:
-                        log.append({'repo': repo, 'result': 'would-prune', 'detail': pruned})
-                        print('would-prune', repo + ':', pruned.replace('\n', '; '), flush=True)
+                    # Entries an owner rule protects are locked before Orca removes anything here (see clean_one).
+                    lines = []
+                    for line, admin, path, head, branches in stale_entries(repo):
+                        why = never_touch(repo, path, head, branches, rules, cfg['neverTouchPaths'])
+                        protect += [(admin, why)] if why else []
+                        lines.append(line + (f' (protected: {why})' if why else ''))
+                    if lines:
+                        log.append({'repo': repo, 'result': 'would-prune', 'detail': '\n'.join(lines)})
+                        print('would-prune', repo + ':', '; '.join(lines), flush=True)
                 mains = main_refs(repo)
                 for block in git(repo, 'worktree', 'list', '--porcelain').split('\n\n'):
                     f = dict((l.split(' ', 1) + [''])[:2] for l in block.splitlines())
@@ -431,13 +515,26 @@ def main():
                         continue
                     wt = {'path': path, 'branch': f.get('branch', '').replace('refs/heads/', ''), 'locked': 'locked' in f}
                     try:
-                        why = excluded or never_touch(path, wt['branch'], rules, cfg['neverTouchPaths'])
+                        info = git(path, 'rev-parse', '--path-format=absolute', '--git-dir', '--git-common-dir',
+                                   '--git-path', 'rebase-merge/head-name', '--git-path', 'rebase-apply/head-name',
+                                   '--git-path', 'BISECT_START').splitlines()
+                        if os.path.realpath(info[0]) == os.path.realpath(info[1]):
+                            continue  # a main checkout is never a candidate
+                        branches = [wt['branch']] + head_names(info[2:])  # a detached HEAD keeps its rebase/bisect branch
+                        why = excluded or never_touch(repo, path, f.get('HEAD', ''), branches, rules, cfg['neverTouchPaths'])
                         active = None if why else session_activity(path, sessions)
-                        if why or active:
-                            res = {'repo': repo, 'path': path, 'branch': wt['branch'],
-                                   'result': f'keep:owner-list ({why})' if why else f'keep:session-active ({active})'}
+                        inner = None if why or active else next(
+                            (p for p in sorted(registered) if p.startswith((path + '/', os.path.realpath(path) + '/'))), None)
+                        res = {'repo': repo, 'path': path, 'branch': wt['branch']}
+                        if why:
+                            res['result'] = f'keep:owner-list ({why})'
+                        elif active:
+                            res['result'] = f'keep:session-active ({active})'
+                        elif inner:
+                            res['result'] = f'keep:contains-worktree ({inner})'
                         else:
-                            res = clean_one(repo, wt, orca_by_path, args, arch, stamp, cwds, mains)
+                            res = clean_one(repo, wt, orca_by_path, args, arch, stamp, cwds, mains,
+                                            cfg['sessionActiveDays'], protect)
                     except Exception as e:  # one bad worktree must not stop the rest
                         res = {'repo': repo, 'path': path, 'result': 'error: ' + str(e)[:300]}
                     log.append(res)
@@ -452,9 +549,8 @@ def main():
                 fh.write(README.format(stamp=stamp))
         if not args.dry_run and any(not r['result'].startswith('keep') for r in log):
             os.makedirs(arch, mode=0o700, exist_ok=True)
-            with open(os.path.join(arch, 'log.json'), 'a') as fh:
-                json.dump(log, fh, indent=1)
-                fh.write('\n')
+            with open(os.path.join(arch, 'log.jsonl'), 'a') as fh:
+                fh.writelines(json.dumps(r) + '\n' for r in log)
     counts = {}
     for r in log:
         k = re.match(r'[\w+-]+(:[\w+-]+)?', r['result']).group()  # keep:<reason>, would-remove, error, ...

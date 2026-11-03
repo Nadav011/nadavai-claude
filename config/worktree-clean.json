@@ -12,8 +12,8 @@
     },
     "sportchat-web": {
       "neverTouch": ["v4-system", "v4-merge", "v4-merge-*", "v4-batch-*", "v4-deploy", "v4-owner", "v4-bk-0-live", "v4-data-1-first20", "audit-4f962617"],
-      "neverTouchUnlessInOriginMain": ["v4-*", "v4/*"],
-      "why": "SportChat owner (2026-10-27): lane base, merge train, deploy and owner worktrees, and every v4 lane (folder v4-*, or branch v4/*, e.g. ~/sporchat-v4-tmp/wt-ui-quick) whose HEAD has not landed in origin/main. v4-bk-0-live, v4-data-1-first20 and audit-4f962617 added 2026-11-03: in origin/main but named by the owner session during the 2026-11-03 production train; remove them from this list only on the SportChat owner's word."
+      "neverTouchUnlessInOriginMain": ["v4-*", "v4/*", "sporchat-v4-tmp"],
+      "why": "SportChat owner (2026-10-27): lane base, merge train, deploy and owner worktrees, and every v4 lane (folder v4-*, branch v4/*, or anything under ~/sporchat-v4-tmp, e.g. wt-ui-quick and data2b-0503-apply-20a-r8/wt) whose HEAD has not landed in origin/main. v4-bk-0-live, v4-data-1-first20 and audit-4f962617 added 2026-11-03: in origin/main but named by the owner session during the 2026-11-03 production train; remove them from this list only on the SportChat owner's word."
     },
     "nadavai-ci-slot": {
       "exclude": true,
