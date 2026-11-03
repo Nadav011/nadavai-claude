@@ -1,0 +1,27 @@
+# Woodpecker CI server for Nadav011 repos (plan: ~/.omc/plans/ci-v2-2026-11-03.md on the LENOVO)
+services:
+  woodpecker-server:
+    image: woodpeckerci/woodpecker-server:v3.20.1
+    restart: always
+    env_file: secrets.env
+    environment:
+      WOODPECKER_HOST: https://ci.nadavc.ai
+      WOODPECKER_OPEN: "false"
+      WOODPECKER_ADMIN: Nadav011
+      WOODPECKER_GITHUB: "true"
+      WOODPECKER_GRPC_ADDR: ":9000"
+      WOODPECKER_LOG_LEVEL: info
+      # The nightly audits (Nadav011/nadavai-nightly) run up to ~3 h per workflow (2026-11-03).
+      WOODPECKER_MAX_PIPELINE_TIMEOUT: "360"
+    volumes:
+      - ./data:/var/lib/woodpecker
+    ports:
+      - "100.99.111.119:9000:9000"   # agents connect over Tailscale only
+  caddy:
+    image: caddy:2.10.2
+    restart: always
+    ports: ["80:80", "443:443"]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./caddy-data:/data
+      - ./caddy-config:/config

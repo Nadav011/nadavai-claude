@@ -1,0 +1,4 @@
+ci.nadavc.ai {
+	encode zstd gzip
+	reverse_proxy woodpecker-server:8000
+}

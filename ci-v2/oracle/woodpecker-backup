@@ -1,0 +1,8 @@
+#!/bin/bash
+# Daily consistent snapshot of the Woodpecker DB, 14 kept. Restore: stop server, copy a snapshot to data/woodpecker.sqlite, chown 1000:1000, start.
+set -euo pipefail
+d=/opt/woodpecker/backup; f="$d/woodpecker-$(date +%F).sqlite"
+sqlite3 /opt/woodpecker/data/woodpecker.sqlite ".backup '$f'"
+sqlite3 "$f" 'PRAGMA integrity_check;' | grep -qx ok
+cp /opt/woodpecker/compose.yml /opt/woodpecker/Caddyfile "$d/"
+find "$d" -name 'woodpecker-*.sqlite' -mtime +14 -delete

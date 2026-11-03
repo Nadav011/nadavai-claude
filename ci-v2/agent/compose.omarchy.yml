@@ -1,0 +1,16 @@
+# Woodpecker agent (omarchy). Server: oracle (ci.nadavc.ai), gRPC over Tailscale.
+services:
+  woodpecker-agent:
+    image: woodpeckerci/woodpecker-agent:v3.20.1
+    restart: always
+    env_file: secrets.env
+    environment:
+      WOODPECKER_SERVER: 100.99.111.119:9000
+      WOODPECKER_HOSTNAME: omarchy
+      WOODPECKER_MAX_WORKFLOWS: "3"
+      WOODPECKER_BACKEND: docker
+      WOODPECKER_AGENT_LABELS: heavy=yes,kvm=yes,browser=full
+      WOODPECKER_HEALTHCHECK: "true"
+    volumes:
+      - ./config:/etc/woodpecker
+      - /var/run/docker.sock:/var/run/docker.sock

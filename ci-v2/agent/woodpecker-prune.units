@@ -1,0 +1,15 @@
+[Unit]
+Description=Prune Woodpecker CI leftovers (stopped containers, unused wp_ volumes, images unused for 7 days)
+[Service]
+Type=oneshot
+Nice=19
+ExecStart=/usr/bin/docker container prune -f --filter until=24h
+ExecStart=/bin/sh -c 'docker volume ls -q --filter dangling=true | grep "^wp_" | xargs -r docker volume rm'
+ExecStart=/usr/bin/docker image prune -af --filter until=168h
+[Unit]
+Description=Daily Woodpecker CI cleanup
+[Timer]
+OnCalendar=*-*-* 05:20
+Persistent=true
+[Install]
+WantedBy=timers.target
