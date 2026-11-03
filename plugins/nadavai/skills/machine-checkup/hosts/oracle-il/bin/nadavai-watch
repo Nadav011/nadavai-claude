@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Run one health check and alert by email only on the 2nd consecutive failure, once per
+# outage, plus one "recovered" email when it passes again.
+#   nadavai-watch <name> <command...>      (the check passes when the command exits 0)
+# Helpers for the common checks:
+#   nadavai-watch listener nadavai-watch-http http://127.0.0.1:3111/health 200 '"registered":true'
+#   nadavai-watch ci       nadavai-watch-http https://ci.nadavc.ai/healthz 204
+# State: ${XDG_STATE_HOME:-~/.local/state}/nadavai-watch/<name>.{fails,down}
+set -uo pipefail
+[ "$#" -ge 2 ] || { echo "usage: nadavai-watch <name> <command...>" >&2; exit 2; }
+name="$1"; shift
+[[ "$name" =~ ^[a-zA-Z0-9._-]+$ ]] || { echo "bad name" >&2; exit 2; }
+dir="${XDG_STATE_HOME:-$HOME/.local/state}/nadavai-watch"; mkdir -p "$dir"
+fails_file="$dir/$name.fails"; down_file="$dir/$name.down"
+out="$("$@" 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ]; then
+  echo 0 > "$fails_file"
+  if [ -e "$down_file" ]; then
+    since="$(cat "$down_file")"
+    nadavai-alert "RECOVERED: $name" "$name passes again at $(date '+%F %T %Z'). It was down since $since." && rm -f "$down_file"
+  fi
+  echo "$name ok"; exit 0
+fi
+fails=$(( $(cat "$fails_file" 2>/dev/null || echo 0) + 1 )); echo "$fails" > "$fails_file"
+echo "$name FAIL ($fails): ${out:0:300}"
+if [ "$fails" -ge 2 ] && [ ! -e "$down_file" ]; then
+  when="$(date '+%F %T %Z')"
+  nadavai-alert "DOWN: $name" "$name failed $fails checks in a row (every 5 minutes), first noticed by $(hostname -s) at $when.
+Check: $*
+Last output: ${out:0:1500}" && echo "$when" > "$down_file"
+fi
+exit 1

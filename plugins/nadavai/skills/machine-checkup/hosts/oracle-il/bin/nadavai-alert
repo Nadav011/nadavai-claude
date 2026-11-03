@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Send one operator alert email through Resend.
+#   nadavai-alert "<subject>" "<body>"
+# Reads /etc/nadavai/alert.env: RESEND_API_KEY, ALERT_TO, ALERT_FROM (default noreply@nadavc.ai).
+# Exit 0 = Resend accepted it. The key goes to curl on stdin, never in argv or output.
+set -euo pipefail
+[ "$#" -ge 2 ] || { echo "usage: nadavai-alert <subject> <body>" >&2; exit 2; }
+ENV_FILE="${NADAVAI_ALERT_ENV:-/etc/nadavai/alert.env}"
+set -a; . "$ENV_FILE"; set +a
+: "${RESEND_API_KEY:?}" "${ALERT_TO:?}"
+from="${ALERT_FROM:-NadavAI alerts <noreply@nadavc.ai>}"
+host="$(hostname -s)"
+payload="$(jq -n --arg f "$from" --arg t "$ALERT_TO" --arg s "[$host] $1" --arg b "$2" \
+  '{from: $f, to: [$t], subject: $s, text: $b}')"
+tmp="$(mktemp)"; trap 'rm -f "$tmp"' EXIT
+code="$(printf 'header = "Authorization: Bearer %s"\n' "$RESEND_API_KEY" | curl -sS --max-time 20 -K - \
+  -o "$tmp" -w '%{http_code}' -H 'Content-Type: application/json' \
+  --data-binary "$payload" "${RESEND_URL:-https://api.resend.com/emails}")" || code=000
+case "$code" in 2??) exit 0 ;; *) echo "nadavai-alert: Resend answered $code: $(head -c 200 "$tmp")" >&2; exit 1 ;; esac

@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# HTTP check for nadavai-watch: exits 0 when the URL answers the expected status and,
+# when given, the body contains the expected text.
+#   nadavai-watch-http <url> <status> [<text the body must contain>]
+set -uo pipefail
+url="$1"; want="$2"; text="${3:-}"
+body="$(curl -sS --max-time 15 -o - -w '\n%{http_code}' "$url" 2>&1)" || { echo "unreachable: ${body:0:200}"; exit 1; }
+code="${body##*$'\n'}"; body="${body%$'\n'*}"
+[ "$code" = "$want" ] || { echo "HTTP $code (want $want): ${body:0:200}"; exit 1; }
+if [ -n "$text" ] && [[ "$body" != *"$text"* ]]; then echo "HTTP $code but body lacks $text: ${body:0:200}"; exit 1; fi
+echo "HTTP $code"
