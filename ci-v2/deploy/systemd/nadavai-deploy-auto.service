@@ -1,0 +1,10 @@
+[Unit]
+Description=nadavai-deploy auto pass (deploys only repos with ~/deploy/state/<repo>.auto)
+
+[Service]
+Type=oneshot
+ExecStart=/home/ubuntu/deploy/bin/nadavai-deploy auto
+TimeoutStartSec=150min
+# on_term stops the upload unit and rolls back (up to two minutes of polling) before it exits.
+TimeoutStopSec=10min
+Nice=5

@@ -1,0 +1,13 @@
+{
+  "name": "nadavai-deploy-tools",
+  "private": true,
+  "description": "CLIs the deploy service runs on the Oracle VM, pinned to exact versions at least two weeks old (installed with npm ci from the lockfile beside this file). tar is overridden to 7.5.22 (CVE-2026-59873 in the 7.5.11 that @vercel/container pins).",
+  "dependencies": {
+    "pnpm": "10.32.1",
+    "vercel": "64.7.0",
+    "wrangler": "4.151.3"
+  },
+  "overrides": {
+    "tar": "7.5.22"
+  }
+}

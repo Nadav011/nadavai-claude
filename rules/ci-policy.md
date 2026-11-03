@@ -54,8 +54,15 @@ every `ci-wait`, and the old runner (3,445 lines on one 8-core box) queued agent
    infrastructure failure, and say so in the report. Why: sessions lost time digging into tests they
    never touched, and a real regression still fails the second time.
 9. A newer push to a PR cancels its older run automatically.
-10. Production deploys are manual (Nadav's call, 2026-11-03) until the deploy service on the
-    Oracle VM is live; then a green main deploys and health-checks itself.
+10. Production deploys are manual (Nadav's call, 2026-11-03) until Nadav switches automatic
+    deploys on per repo. They run on the Oracle VM's deploy service, never from a pipeline:
+    `ssh nadavai-vm nadavai-deploy deploy <repo> <sha> [--dry-run]` deploys a merge commit on main
+    whose PR landing was green (`ci/woodpecker/pr/*` and `nadavai-security`), health-checks it, rolls
+    back on a failed check and posts `nadavai-deploy` ("live: ..." on success); a person runs it.
+    `hold <repo> <reason>` / `release <repo>` stop and restart deploys (a running deploy finishes
+    first), `hold-status <repo>` prints held, off, auto or manual, `pages-live <repo>` the live
+    deployment and commit, `rollback <repo> <deployment id>` returns to an earlier production
+    deployment. Details: `ci-v2/README.md`, "Deploy service".
 
 ## Repos
 - On Woodpecker: every repo listed in `~/nadavai/lib/woodpecker-repos.txt` (snooker-smart,

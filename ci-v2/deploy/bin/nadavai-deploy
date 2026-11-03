@@ -1,0 +1,690 @@
+#!/usr/bin/env bash
+# shellcheck disable=SC1090  # the secrets files are sourced by path
+# nadavai-deploy: production deploys from the Oracle VM (ci-v2, rules/ci-policy.md rule 10).
+# Replaces the deploys of the retired nadavai-ci runner; the hold, rollback and pages-live logic is
+# ported from its feat/deploy-hold branch (9ca934d) and its deploy-therapy-flow-v2 / deploy-vercel.
+#
+#   nadavai-deploy deploy <repo> <sha> [--dry-run]   deploy one commit of main (a person runs it)
+#   nadavai-deploy hold <repo> <reason>              no deploy of the repo starts until release;
+#                                                    returns once a deploy in flight has finished
+#   nadavai-deploy release <repo>                    end the hold
+#   nadavai-deploy hold-status <repo>                one word: held | off | auto | manual
+#   nadavai-deploy pages-live <repo>                 "<deployment id> <commit>" production serves
+#   nadavai-deploy rollback <repo> <deployment id>   back to a production deployment of the project
+#   nadavai-deploy auto                              the timer's pass: deploys main's new head of each
+#                                                    repo with state/<repo>.auto (none by default)
+#   nadavai-deploy repos                             the repos and how each deploys
+#
+# A deploy goes only to a sha that is on main (main's head or behind it) AND is the merge commit of
+# a PR into main whose head has every ci/woodpecker/pr/* status and nadavai-security green (rule 7:
+# main is not tested again, so the PR's landing is the commit's test). It checks out the sha from a
+# clean clone, builds without any token (therapy-flow-v2 builds here, as the unprivileged user
+# nadavai-build in a transient systemd sandbox; Vercel builds remotely), and only the upload step
+# reads the repo's token. Then it health-checks production, rolls back to the deployment that was
+# live before on a failed check, appends a line with "live before deploy" to logs/deploys.log, and
+# posts the nadavai-deploy status on the sha ("live: ..." on success).
+#
+# --dry-run: the same gate, checkout, live read, build and verification, then stops before the
+# upload: nothing is uploaded, nothing is promoted, no status is posted.
+#
+# Exit codes: 0 done (or the dry run passed); 1 the deploy or command failed; 2 usage; 3 refused:
+# held or off; 4 refused: the gate (not on main, no green landing); 73 busy (the auto pass does not
+# wait for a running deploy); 75 not ready yet (the landing's statuses are still pending, or GitHub
+# did not answer).
+set -uo pipefail
+umask 077
+
+OWNER=Nadav011
+ROOT=${NADAVAI_DEPLOY_HOME:-$HOME/deploy}
+STATE=$ROOT/state LOGS=$ROOT/logs SECRETS=$ROOT/secrets MIRROR=$ROOT/mirror
+TOOLS=${NADAVAI_DEPLOY_TOOLS:-/opt/nadavai-deploy/tools}
+WORK=${NADAVAI_DEPLOY_WORK:-/srv/nadavai-deploy/work}
+CACHE=${NADAVAI_DEPLOY_CACHE:-/srv/nadavai-deploy/cache}
+BUILD_USER=nadavai-build UPLOAD_USER=nadavai-upload
+NODE=$TOOLS/node/bin/node
+CLI=$TOOLS/cli/node_modules
+RETRY_SLEEP=${NADAVAI_DEPLOY_RETRY_SLEEP:-3}
+PATH=$TOOLS/gh/bin:$PATH
+GIT=(git -c core.hooksPath=/dev/null -c core.fsmonitor=false -c advice.detachedHead=false)
+
+# The repos and their targets are fixed here on purpose: a commit cannot point a deploy elsewhere.
+declare -A KIND=([therapy-flow-v2]=pages [cash-next-app]=vercel [snooker-smart]=vercel [sportchat-web]=vercel)
+# Repos the auto pass may deploy once state/<repo>.auto exists. sportchat-web deploys only on
+# Nadav's explicit go (its CLAUDE.md), so never automatically.
+declare -A AUTO_OK=([therapy-flow-v2]=1 [cash-next-app]=1 [snooker-smart]=1)
+declare -A PAGES=([therapy-flow-v2]=medizen)
+VERCEL_ORG=team_qlONn2fSQNzkGkzgQLBXrUDD
+declare -A VPROJECT=(
+  [cash-next-app]=prj_hldN7VgrvGVnGqF7LEsozrPQ17lj
+  # Vercel project green-room. Its vercel.json turns Vercel's Git deploys of main off
+  # (git.deploymentEnabled.main=false), so this is its only production path.
+  [snooker-smart]=prj_FIDbDdwAsSfkfqdMcXoA9qLEGZLe
+  [sportchat-web]=prj_kEYOco2uR2mGqH0xVQZDlBgXyZQo
+)
+declare -A HOST=([therapy-flow-v2]=medizen.nadavc.ai [cash-next-app]=cash.nadavc.ai [snooker-smart]=greenroom.nadavc.ai [sportchat-web]=www.sporchat.app)
+declare -A HEALTH_PATH=([cash-next-app]=/login [snooker-smart]=/ [sportchat-web]=/he)
+# "<code> <redirect url>" when one exact answer is the healthy one; otherwise any 2xx or 3xx.
+declare -A HEALTH_WANT=([cash-next-app]="307 https://cash.nadavc.ai/deliveries")
+
+say() { printf '%s\n' "$*"; }
+err() { printf 'nadavai-deploy: %s\n' "$*" >&2; }
+usage() { sed -n '4,16p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2; exit 2; }
+known() { [ -n "${1:-}" ] && [ -n "${KIND[$1]:-}" ]; }
+# A secrets file is used only when it is this user's and mode 600 (the contract for ~/deploy/secrets).
+secret_ok() { [ -f "$1" ] && [ "$(stat -c '%a %u' "$1" 2>/dev/null)" = "600 $(id -u)" ] || { err "$1 is missing, or not mode 600 and owned by $(id -un)"; return 1; }; }
+
+# ---------------------------------------------------------------- GitHub
+# The token is read from secrets/github.env into gh's environment only, never onto a command line.
+ghx() { ( secret_ok "$SECRETS/github.env" || exit 1; set -a; . "$SECRETS/github.env" 2>/dev/null || exit 1; set +a; exec gh "$@" ); }
+ghr() { # gh with three tries: a reset connection must not read as "no such commit"
+  local i out
+  for i in 1 2 3; do
+    out=$(ghx "$@" 2>/dev/null) && { printf '%s\n' "$out"; return 0; }
+    [ "$i" = 3 ] || sleep "$RETRY_SLEEP"
+  done
+  return 1
+}
+status() { # repo sha state description
+  local d=$4 i
+  for i in 1 2 3; do
+    ghx api -X POST "repos/$OWNER/$1/statuses/$2" -f state="$3" -f context=nadavai-deploy \
+      -f description="${d:0:140}" >/dev/null 2>&1 && return 0
+    [ "$i" = 3 ] || sleep "$RETRY_SLEEP"
+  done
+  err "could not post nadavai-deploy=$3 on $1@${2:0:7}"
+  return 1
+}
+
+# ---------------------------------------------------------------- state: hold, off, auto
+lockfile() { printf '%s/%s.lock' "$STATE" "$1"; }
+holdfile() { printf '%s/%s.hold' "$STATE" "$1"; }
+hold_status() { # repo -> held | off | auto | manual
+  if [ -e "$(holdfile "$1")" ]; then say held
+  elif [ -e "$STATE/off" ] || [ -e "$STATE/$1.off" ]; then say off
+  elif [ -e "$STATE/$1.auto" ] && [ -n "${AUTO_OK[$1]:-}" ]; then say auto
+  else say manual
+  fi
+}
+hold_reason() { local r; r=$(head -1 "$(holdfile "$1")" 2>/dev/null); say "${r:-no reason given}"; }
+take_lock() { # repo [nowait]: fd 9 holds the repo's lock until this process exits
+  exec 9>"$(lockfile "$1")" || return 1
+  flock -n 9 && return 0
+  [ "${2:-}" = nowait ] && return 73
+  err "waiting for the $1 deploy lock (a deploy or rollback holds it; it finishes first)"
+  flock 9
+}
+
+# ---------------------------------------------------------------- Cloudflare Pages
+# One call to the repo's Pages project with its token from secrets/<repo>.env, loaded in a
+# subshell. The token reaches curl as a header file on a pipe: on no command line, never printed.
+pages_call() { # repo path-under-the-project [curl args...]
+  (
+    secret_ok "$SECRETS/$1.env" && . "$SECRETS/$1.env" 2>/dev/null || { err "no deploy env for $1"; exit 1; }
+    [ -n "${CLOUDFLARE_API_TOKEN:-}" ] && [ -n "${CLOUDFLARE_ACCOUNT_ID:-}" ] || { err "deploy env of $1 incomplete"; exit 1; }
+    curl -fsS --max-time 30 -H @<(printf 'Authorization: Bearer %s\n' "$CLOUDFLARE_API_TOKEN") "${@:3}" \
+      "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/pages/projects/${PAGES[$1]}$2"
+  )
+}
+# "<id> <commit>" of the deployment production serves (deploys pass --commit-hash, so they carry
+# the commit), or nothing and 1 when either cannot be read.
+pages_live() { # repo
+  pages_call "$1" "" | python3 -I -c '
+import json, sys
+d = (json.load(sys.stdin).get("result") or {}).get("canonical_deployment") or {}
+c = ((d.get("deployment_trigger") or {}).get("metadata") or {}).get("commit_hash") or ""
+if not d.get("id") or not c: sys.exit(1)
+print(d["id"], c)'
+}
+# 0 when id is a production deployment of the repo's Pages project (its own list, every page),
+# 1 when it is not, 2 when the list could not be read.
+pages_has() { # repo id
+  local page=1 out
+  while [ "$page" -le 100 ]; do
+    out=$(pages_call "$1" "/deployments?env=production&per_page=25&page=$page" | python3 -I -c '
+import json, sys
+want, page = sys.argv[1], int(sys.argv[2])
+d = json.load(sys.stdin); r = d.get("result") or []
+total = (d.get("result_info") or {}).get("total_pages")
+if any(x.get("id") == want and x.get("environment") == "production" for x in r): print("found")
+elif len(r) < 25 or (total is not None and total <= page): print("end")
+else: print("more")' "$2" "$page") || return 2
+    case $out in found) return 0 ;; end) return 1 ;; esac
+    page=$((page + 1))
+  done
+  return 1
+}
+pages_rollback() { # repo id: the REST call behind the dashboard's "Rollback to this deployment"
+  local now
+  pages_call "$1" "/deployments/$2/rollback" -X POST >/dev/null || { err "the rollback to $2 was refused"; return 1; }
+  now=$(pages_live "$1") || { err "rolled back to $2, but the live deployment could not be read back"; return 1; }
+  [ "${now%% *}" = "$2" ] || { err "rolled back to $2, but production serves ${now%% *}"; return 1; }
+  say "rolled back: live $now"
+}
+
+# ---------------------------------------------------------------- Vercel
+vercel_call() { # repo api-path(with ?) [curl args...]: the project-scoped token from secrets/<repo>.env
+  (
+    secret_ok "$SECRETS/$1.env" && . "$SECRETS/$1.env" 2>/dev/null || { err "no deploy env for $1"; exit 1; }
+    [ -n "${VERCEL_TOKEN:-}" ] || { err "deploy env of $1 has no VERCEL_TOKEN"; exit 1; }
+    curl -fsS --max-time 30 -H @<(printf 'Authorization: Bearer %s\n' "$VERCEL_TOKEN") "${@:3}" \
+      "https://api.vercel.com$2$(case $2 in *\?*) printf '&' ;; *) printf '?' ;; esac)teamId=$VERCEL_ORG"
+  )
+}
+# "<id> <url> <sha>" of the deployment behind the production host (sha from the nadavai_sha meta
+# deploys set, else the Git meta; "-" when neither), or nothing and 1.
+vercel_serving() { # repo
+  vercel_call "$1" "/v13/deployments/${HOST[$1]}" | python3 -I -c '
+import json, sys
+d = json.load(sys.stdin); m = d.get("meta") or {}
+if not d.get("id") or not d.get("url"): sys.exit(1)
+print(d["id"], d["url"], m.get("nadavai_sha") or m.get("githubCommitSha") or "-")'
+}
+vercel_live() { local id url sha; read -r id url sha < <(vercel_serving "$1") && [ -n "$id" ] && say "$id $sha"; }
+# 0 when id is a READY production deployment of the repo's project, 1 when not, 2 unreadable.
+vercel_has() { # repo id
+  local until='' out page
+  for page in $(seq 1 50); do
+    out=$(vercel_call "$1" "/v6/deployments?projectId=${VPROJECT[$1]}&target=production&state=READY&limit=100${until:+&until=$until}" |
+      python3 -I -c '
+import json, sys
+d = json.load(sys.stdin); r = d.get("deployments") or []
+if any(x.get("uid") == sys.argv[1] for x in r): print("found")
+else:
+    nxt = (d.get("pagination") or {}).get("next")
+    print("more %s" % nxt if nxt and r else "end")' "$2") || return 2
+    case $out in found) return 0 ;; end) return 1 ;; more\ *) until=${out#more } ;; esac
+  done
+  return 1
+}
+vercel_promote() { # repo deployment-id: production domains to that deployment (REST, no CLI)
+  vercel_call "$1" "/v10/projects/${VPROJECT[$1]}/promote/$2" -X POST -o /dev/null
+}
+vercel_health() { # repo -> 0 when the host answers as a healthy one does
+  local h=${HOST[$1]} p=${HEALTH_PATH[$1]:-/} want=${HEALTH_WANT[$1]:-} got
+  got=$(curl -sS -o /dev/null --max-time 20 -H 'cache-control: no-cache' -w '%{http_code} %{redirect_url}' "https://$h$p" 2>/dev/null) || got=000
+  got=${got% }
+  say "  https://$h$p answered $got" >&2
+  if [ -n "$want" ]; then [ "$got" = "$want" ]
+  else [[ ${got%% *} =~ ^[23][0-9][0-9]$ ]]
+  fi
+}
+
+live_of() { # repo -> "<id> <commit>"
+  case ${KIND[$1]} in pages) pages_live "$1" ;; vercel) vercel_live "$1" ;; esac
+}
+
+# ---------------------------------------------------------------- the gate
+# 0 when sha is on main and is the merge commit of a PR into main whose head is green; sets
+# GATE_PR and GATE_HEAD. 4 refused (with the reason on stderr), 75 not ready or GitHub unreadable.
+gate() { # repo sha
+  local repo=$1 sha=$2 cmp pulls mp st
+  cmp=$(ghr api "repos/$OWNER/$repo/compare/$sha...main") || { err "could not compare ${sha:0:7} with main on GitHub"; return 75; }
+  st=$(jq -r '.status // empty' <<<"$cmp")
+  case $st in
+    identical|ahead) ;;
+    *) err "refusing: ${sha:0:7} is not on main (main is ${st:-unknown} of it)"; return 4 ;;
+  esac
+  pulls=$(ghr api "repos/$OWNER/$repo/commits/$sha/pulls") || { err "could not read the PR of ${sha:0:7}"; return 75; }
+  mp=$(jq -r --arg s "$sha" '[.[] | select(.merged_at != null and .base.ref == "main" and .merge_commit_sha == $s)][0] // empty | "\(.number) \(.head.sha)"' <<<"$pulls" 2>/dev/null)
+  read -r GATE_PR GATE_HEAD <<<"$mp"
+  if ! [[ ${GATE_PR:-} =~ ^[0-9]+$ && ${GATE_HEAD:-} =~ ^[0-9a-f]{40}$ ]]; then
+    err "refusing: ${sha:0:7} is not the merge commit of a PR into main, so it has no landing (deploy the merge commit main got from the PR)"
+    return 4
+  fi
+  st=$(ghr api "repos/$OWNER/$repo/commits/$GATE_HEAD/status?per_page=100") || { err "could not read the statuses of PR #$GATE_PR's head"; return 75; }
+  # Prints "<verdict> <detail>": green | red <contexts> | pending <contexts> | none <what is missing>
+  read -r st mp < <(jq -r '
+    [.statuses[]? | {c: .context, s: .state}] as $all
+    | ($all | map(select(.c | startswith("ci/woodpecker/pr/")))) as $wp
+    | ($all | map(select(.c == "nadavai-security"))) as $sec
+    | ($wp + $sec) as $need
+    | if ($wp | length) == 0 then "none ci/woodpecker/pr/*"
+      elif ($sec | length) == 0 then "none nadavai-security"
+      elif ($need | any(.s == "failure" or .s == "error")) then "red " + ([$need[] | select(.s == "failure" or .s == "error") | .c] | join(","))
+      elif ($need | any(.s != "success")) then "pending " + ([$need[] | select(.s != "success") | .c] | join(","))
+      else "green " + ([$need[] | .c] | join(",")) end' <<<"$st" 2>/dev/null)
+  case $st in
+    green) say "gate: ${sha:0:7} is on main, merged from PR #$GATE_PR (head ${GATE_HEAD:0:7}): $mp green" ;;
+    pending) err "not ready: PR #$GATE_PR's head ${GATE_HEAD:0:7} has $mp still pending"; return 75 ;;
+    red) err "refusing: PR #$GATE_PR's landing is red ($mp on ${GATE_HEAD:0:7})"; return 4 ;;
+    *) err "refusing: PR #$GATE_PR's head ${GATE_HEAD:0:7} has no ${mp:-statuses} status"; return 4 ;;
+  esac
+}
+
+# ---------------------------------------------------------------- checkout and sandbox
+gitauth() { # git with GitHub credentials from secrets/github.env (the helper reads the variable)
+  ( set -a; . "$SECRETS/github.env" 2>/dev/null || exit 1; set +a
+    exec timeout -k 10s 5m "${GIT[@]}" -c credential.helper= \
+      -c 'credential.helper=!f() { echo username=x-access-token; echo "password=$GH_TOKEN"; }; f' "$@" )
+}
+mirror_fetch() { # repo sha: the bare mirror holds main and the sha
+  local m=$MIRROR/$1.git
+  if [ ! -d "$m" ]; then
+    mkdir -p "$MIRROR" && "${GIT[@]}" init -q --bare "$m" &&
+      "${GIT[@]}" -C "$m" remote add origin "https://github.com/$OWNER/$1.git" || return 1
+  fi
+  gitauth -C "$m" fetch -q --no-tags --prune origin '+refs/heads/main:refs/heads/main' || return 1
+  "${GIT[@]}" -C "$m" cat-file -e "$2^{commit}" 2>/dev/null ||
+    gitauth -C "$m" fetch -q --no-tags origin "$2" || return 1
+  "${GIT[@]}" -C "$m" merge-base --is-ancestor "$2" refs/heads/main ||
+    { err "${2:0:7} is not an ancestor of main in the fresh fetch"; return 1; }
+}
+new_workdir() { # repo sha -> a fresh directory with src/ checked out at sha (no reuse of any tree)
+  local w
+  mkdir -p "$WORK" 2>/dev/null
+  w=$(mktemp -d "$WORK/$1-${2:0:7}.XXXXXX") || return 1
+  chmod 755 "$w"
+  # umask 022 for the tree (repo content, no secrets): the files a build copies into dist/ keep
+  # their mode, and the upload step, another user, must read them.
+  ( umask 022; "${GIT[@]}" clone -q --no-checkout --no-hardlinks "$MIRROR/$1.git" "$w/src" >&2 &&
+    "${GIT[@]}" -C "$w/src" checkout -q --detach "$2" >&2 ) &&
+    [ "$("${GIT[@]}" -C "$w/src" rev-parse HEAD)" = "$2" ] || { say "$w"; return 1; }
+  say "$w"
+}
+drop_dir() { # a directory under WORK made by this run (the build user may own it)
+  local d=$1
+  case $d in "$WORK"/*) ;; *) return 0 ;; esac
+  [ -d "$d" ] || return 0
+  sudo -n rm -rf -- "${d:?}" 2>/dev/null || rm -rf -- "${d:?}"
+}
+# The hardening every sandboxed step shares: its own user, no /home (so no secrets but the one
+# env file systemd hands it), read-only system, private /tmp, no new privileges, no route to the
+# cloud metadata service, Tailscale, loopback (but DNS) or private networks, other processes
+# invisible, and the local control sockets out of reach.
+HARDEN=(
+  -p UMask=0022 -p ProtectSystem=strict -p ProtectHome=yes -p PrivateTmp=yes -p PrivateDevices=yes
+  -p NoNewPrivileges=yes -p RestrictSUIDSGID=yes -p "CapabilityBoundingSet=" -p ProtectKernelTunables=yes
+  -p ProtectKernelModules=yes -p ProtectControlGroups=yes -p ProtectClock=yes -p LockPersonality=yes
+  -p ProtectProc=invisible -p ProcSubset=pid
+  -p "InaccessiblePaths=-/opt/woodpecker -/run/tailscale -/var/lib/tailscale -/run/docker.sock -/var/run/docker.sock -/run/dbus -/etc/iptables"
+  -p "IPAddressDeny=169.254.0.0/16 100.64.0.0/10 127.0.0.0/8 ::1/128 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 fd00::/8 fe80::/10"
+  -p "IPAddressAllow=127.0.0.53/32"
+  -p CPUWeight=20 -p Nice=10 -p IOSchedulingClass=idle
+)
+# A repo-code step (install, build, the repo's health check) as nadavai-build, with no token.
+sandbox() { # workdir env-file|'' -- cmd...
+  local w=$1 envf=$2; shift 3
+  local props=(
+    -p User=$BUILD_USER -p Group=$BUILD_USER -p "WorkingDirectory=$w/src" "${HARDEN[@]}"
+    -p "ReadWritePaths=$w $CACHE" -p MemoryMax=8G -p RuntimeMaxSec=2700
+    -p "Environment=HOME=$w/home XDG_CACHE_HOME=$w/home/.cache PATH=$TOOLS/node/bin:$TOOLS/bin:/usr/bin:/bin CI=true npm_config_store_dir=$CACHE/pnpm-store NODE_OPTIONS=--max-old-space-size=6144 NEXT_TELEMETRY_DISABLED=1"
+  )
+  [ -n "$envf" ] && props+=(-p "EnvironmentFile=$envf")
+  UNIT_N=$((UNIT_N + 1))
+  sudo -n systemd-run --quiet --wait --pipe --collect --service-type=exec --unit="nadavai-deploy-build-$$-$UNIT_N" "${props[@]}" -- "$@" </dev/null
+}
+# The upload step (wrangler, the Vercel CLI) as nadavai-upload: the same hardening, and the only
+# step that gets a token, from systemd reading secrets/<repo>.env (that repo's file only). The CLIs
+# may run code from the uploaded tree (a vercel.ts, functions/ bundling), so they run where that
+# code reaches neither the other secrets, nor sudo, nor this VM's services.
+upload_sandbox() { # repo dir [cwd] -- cmd...: writes only under dir, runs in cwd (default dir)
+  local r=$1 d=$2 c=$2; shift 2
+  [ "$1" = -- ] || { c=$1; shift; }; shift
+  secret_ok "$SECRETS/$r.env" || return 1
+  UNIT_N=$((UNIT_N + 1))
+  sudo -n systemd-run --quiet --wait --pipe --collect --service-type=exec --unit="nadavai-deploy-upload-$$-$UNIT_N" \
+    -p User=$UPLOAD_USER -p Group=$UPLOAD_USER -p "WorkingDirectory=$c" "${HARDEN[@]}" \
+    -p "ReadWritePaths=$d" -p MemoryMax=2G -p RuntimeMaxSec=1200 -p "EnvironmentFile=$SECRETS/$r.env" \
+    -p "Environment=HOME=$d/home PATH=/usr/bin:/bin WRANGLER_SEND_METRICS=false VERCEL_TELEMETRY_DISABLED=1 VERCEL_ORG_ID=$VERCEL_ORG VERCEL_PROJECT_ID=${VPROJECT[$r]:-none}" \
+    -- "$@" </dev/null
+}
+# src/ was cloned under umask 077; it is opened to 755 so this user can read the dist/ it builds.
+give_to() { sudo -n chown -R "$1:$1" -- "$2" && sudo -n chmod 755 "$2"; }
+new_updir() { # repo -> a fresh upload directory (owned by this user until give_to)
+  local u; u=$(mktemp -d "$WORK/upload-$1.XXXXXX") || return 1; chmod 755 "$u"; mkdir -p "$u/home"; say "$u"
+}
+
+# ---------------------------------------------------------------- per-kind deploy steps
+# Each prints its progress, sets LIVE_AFTER, and returns 0 live (or dry run passed), 1 failed with
+# production unchanged or rolled back (ROLLED says which). PAST_UPLOAD is set from the upload on,
+# so a TERM or INT then rolls back (on_term).
+UNIT_N=0 LIVE_AFTER='' ROLLED='' CUR_WORK='' CUR_UP='' GATE_PR='' GATE_HEAD='' PAST_UPLOAD='' DEPLOY_REPO='' DEPLOY_SHA='' DEPLOY_LIVE=''
+
+pages_sw_has() { # repo sha: production's sw.js carries the tf-shell stamp of this sha
+  local i body stamp sfx
+  for i in $(seq 1 "${NADAVAI_DEPLOY_SW_TRIES:-10}"); do
+    body=$(curl -fsS --max-time 20 -H 'cache-control: no-cache' "https://${HOST[$1]}/sw.js?hc=$(date +%s%N)" 2>/dev/null)
+    stamp=$(grep -o 'tf-shell-[a-z0-9-]*' <<<"$body" | head -1); sfx=${stamp##*-}
+    if [ "${#sfx}" -ge 7 ] && [ "${2:0:${#sfx}}" = "$sfx" ]; then say "  sw.js $stamp (attempt $i)"; return 0; fi
+    say "  sw.js attempt $i: ${stamp:-no tf-shell stamp}"
+    sleep "${NADAVAI_DEPLOY_SW_GAP:-6}"
+  done
+  return 1
+}
+pages_live_retry() { local i out; for i in 1 2 3; do out=$(pages_live "$1") && { say "$out"; return 0; }; sleep "$RETRY_SLEEP"; done; return 1; }
+deploy_pages() { # repo sha workdir dry live_before_id
+  local repo=$1 sha=$2 w=$3 dry=$4 live=$5 benv=$SECRETS/$1.build.env up rc stamp sfx n upload=0
+  secret_ok "$benv" && [ -s "$benv" ] || { err "missing $benv: a build without it takes the site down"; return 1; }
+  give_to "$BUILD_USER" "$w/src" && sudo -n install -d -o "$BUILD_USER" -g "$BUILD_USER" -m 755 "$w/home" ||
+    { err "could not hand the checkout to $BUILD_USER"; return 1; }
+  say "--- build ${sha:0:7} as $BUILD_USER in a sandbox (no token)"
+  (
+    flock 8
+    sandbox "$w" "$benv" -- "$TOOLS/bin/pnpm" install --frozen-lockfile &&
+      sandbox "$w" "$benv" -- "$TOOLS/bin/pnpm" build
+  ) 8>"$STATE/build.lock" || { err "the build failed"; return 1; }
+
+  # The upload directory: wrangler.toml and functions/ from git (the mirror), dist/ as built,
+  # nothing else of the tree. Every check runs on this copy, the one that is uploaded.
+  up=$(new_updir "$repo") || return 1; CUR_UP=$up
+  "${GIT[@]}" -C "$MIRROR/$repo.git" show "$sha:wrangler.toml" >"$up/wrangler.toml" &&
+    { ! "${GIT[@]}" -C "$MIRROR/$repo.git" cat-file -e "$sha:functions" 2>/dev/null ||
+      "${GIT[@]}" -C "$MIRROR/$repo.git" archive "$sha" functions | tar -x -C "$up"; } &&
+    cp -R --no-dereference "$w/src/dist" "$up/dist" || { err "could not prepare the upload directory"; return 1; }
+  say "--- verify the upload directory"
+  [ -f "$up/dist/index.html" ] || { err "dist/index.html is missing"; return 1; }
+  # A symlink would make the upload publish what it points at (wrangler follows links), and a
+  # _worker.js would be bundled; this project uses neither.
+  if [ -n "$(find "$up" -path "$up/home" -prune -o ! -type f ! -type d -print -quit)" ] || [ -e "$up/dist/_worker.js" ]; then
+    err "the upload holds a symlink, a special file or _worker.js; refusing to upload"; return 1
+  fi
+  stamp=$(grep -o 'tf-shell-[a-z0-9-]*' "$up/dist/sw.js" 2>/dev/null | head -1); sfx=${stamp##*-}
+  [ "${#sfx}" -ge 7 ] && [ "${sha:0:${#sfx}}" = "$sfx" ] || { err "dist/sw.js carries '${stamp:-no stamp}', not ${sha:0:7}"; return 1; }
+  n=$(find "$up/dist" -type f | wc -l)
+  say "  dist/: $n files, sw.js $stamp"
+  if [ -n "$dry" ]; then
+    say "dry run: would upload dist/ ($n files) to Pages project ${PAGES[$repo]} for ${sha:0:7} as $UPLOAD_USER, then check https://${HOST[$repo]}/sw.js and .cf-healthcheck.mjs; nothing uploaded"
+    LIVE_AFTER=$live; return 0
+  fi
+
+  say "--- upload to Pages project ${PAGES[$repo]} as $UPLOAD_USER (the only step with the token)"
+  give_to "$UPLOAD_USER" "$up" || { err "could not hand the upload to $UPLOAD_USER"; return 1; }
+  PAST_UPLOAD=1
+  upload_sandbox "$repo" "$up" -- "$NODE" "$CLI/wrangler/bin/wrangler.js" pages deploy dist --project-name="${PAGES[$repo]}" \
+    --branch=main --commit-hash="$sha" --commit-message="nadavai-deploy ${sha:0:7}" --commit-dirty=false || upload=$?
+  # A failed upload may still have created a deployment (a timeout on the response), so the
+  # health check decides either way.
+  [ "$upload" = 0 ] || say "wrangler exited $upload; checking what production serves"
+
+  say "--- health check"
+  rc=0
+  pages_sw_has "$repo" "$sha" || rc=1
+  if [ "$rc" = 0 ] && [ -f "$w/src/.cf-healthcheck.mjs" ]; then
+    sandbox "$w" '' -- "$NODE" .cf-healthcheck.mjs || rc=1
+  fi
+  LIVE_AFTER=$(pages_live_retry "$repo")
+  if [ "$rc" = 0 ] && [ "$upload" = 0 ]; then say "HEALTHCHECK: PASS"; PAST_UPLOAD=''; return 0; fi
+  if [ "${LIVE_AFTER%% *}" = "$live" ]; then
+    say "production still serves $live; nothing to roll back"; PAST_UPLOAD=''; return 1
+  fi
+  say "HEALTHCHECK: FAIL, rolling back to $live"
+  if pages_rollback "$repo" "$live"; then ROLLED=$live; LIVE_AFTER=$(pages_live_retry "$repo")
+  else say "ROLLBACK: FAILED, check https://${HOST[$repo]} now"; ROLLED=failed; fi
+  PAST_UPLOAD=''
+  return 1
+}
+
+vercel_back_to() { # repo id: promote id and wait until the host serves it
+  local i
+  vercel_promote "$1" "$2" || return 1
+  for i in $(seq 1 "${NADAVAI_DEPLOY_VERCEL_TRIES:-12}"); do
+    [ "$(vercel_live "$1" | cut -d' ' -f1)" = "$2" ] && return 0
+    sleep "${NADAVAI_DEPLOY_VERCEL_GAP:-10}"
+  done
+  return 1
+}
+deploy_vercel() { # repo sha workdir dry live_before_id
+  local repo=$1 sha=$2 w=$3 dry=$4 live=$5 out url id i ok='' extra=() sid surl ssha up bad nf
+  case $repo in
+    # A CLI deploy gets no Git system variables; next.config.js bakes VERCEL_GIT_COMMIT_SHA into
+    # the service-worker version its DoD wait reads to tell which commit is live (2026-10-23).
+    snooker-smart) extra=(--build-env "VERCEL_GIT_COMMIT_SHA=$sha") ;;
+    # The app's version busts its persisted cache; Settings shows it.
+    cash-next-app) extra=(--build-env "NEXT_PUBLIC_APP_VERSION=${sha:0:7}") ;;
+  esac
+  say "--- verify the tree and the token"
+  [ -f "$w/src/package.json" ] || { err "the checkout has no package.json"; return 1; }
+  # A vercel.{ts,js,...} is code the CLI runs at upload time; these projects use vercel.json only.
+  bad=$("${GIT[@]}" -C "$MIRROR/$repo.git" ls-tree -r --name-only "$sha" | grep -E '(^|/)vercel\.(ts|mts|cts|js|mjs|cjs)$' | head -1)
+  [ -z "$bad" ] || { err "refusing: $bad is a config file the Vercel CLI would execute"; return 1; }
+  out=$(vercel_call "$repo" "/v9/projects/${VPROJECT[$repo]}" | jq -r '.id // empty') &&
+    [ "$out" = "${VPROJECT[$repo]}" ] || { err "the token cannot read Vercel project ${VPROJECT[$repo]}"; return 1; }
+  say "  the token reads project ${VPROJECT[$repo]}; production serves $live"
+  # The upload copy: the commit's files from git, owned by the upload user (no checkout reuse).
+  up=$(new_updir "$repo") || return 1; CUR_UP=$up
+  mkdir -p "$up/src" "$up/neutral" && "${GIT[@]}" -C "$MIRROR/$repo.git" archive "$sha" | tar -x -C "$up/src" &&
+    nf=$(find "$up/src" -type f | wc -l) && give_to "$UPLOAD_USER" "$up" || { err "could not prepare the upload directory"; return 1; }
+  # The upload tool itself, read-only and sandboxed: the CLI must accept the token.
+  read -r sid surl ssha < <(vercel_serving "$repo" || say "- - -")
+  upload_sandbox "$repo" "$up" "$up/neutral" -- "$NODE" "$CLI/vercel/dist/vc.js" inspect "$surl" --non-interactive >/dev/null 2>&1 ||
+    { err "the Vercel CLI in the upload sandbox refuses the token of $repo (vercel inspect $surl)"; return 1; }
+  say "  the Vercel CLI in the upload sandbox accepts the token (vercel inspect of the live deployment)"
+  vercel_health "$repo" && say "  production answers as a healthy one does" || say "  note: production does not answer as a healthy one does right now"
+  if [ -n "$dry" ]; then
+    say "dry run: would upload ${sha:0:7} ($nf files) to Vercel as $UPLOAD_USER (remote build, --prod --skip-domain), promote it, check ${HOST[$repo]}${HEALTH_PATH[$repo]} serves it, and promote $live back on a failure; nothing uploaded (Vercel builds remotely, so a dry run cannot build)"
+    LIVE_AFTER=$live; return 0
+  fi
+
+  say "--- production build of ${sha:0:7} on Vercel (not live yet; the only step with the token)"
+  PAST_UPLOAD=1
+  out=$(upload_sandbox "$repo" "$up" "$up/neutral" -- "$NODE" "$CLI/vercel/dist/vc.js" deploy "$up/src" --prod --skip-domain --yes \
+    --non-interactive "${extra[@]}" --meta "nadavai_sha=$sha") || { err "vercel deploy failed: ${out:0:300}"; PAST_UPLOAD=''; return 1; }
+  # stdout is the deployment's URL; its id and meta come from the API, which also proves the
+  # deployment belongs to this project and carries this sha. --skip-domain: nothing is live yet.
+  url=$(grep -oE 'https://[a-z0-9.-]+\.vercel\.app' <<<"$out" | tail -1); url=${url#https://}
+  [ -n "$url" ] || { err "no deployment url from vercel deploy: ${out:0:300}"; PAST_UPLOAD=''; return 1; }
+  id=$(vercel_call "$repo" "/v13/deployments/$url" | jq -r --arg p "${VPROJECT[$repo]}" --arg s "$sha" \
+    'select(.projectId == $p and (.meta.nadavai_sha // "") == $s and .readyState == "READY") | .id // empty')
+  [[ $id =~ ^dpl_[A-Za-z0-9]+$ ]] || { err "$url is not a READY deployment of ${VPROJECT[$repo]} carrying ${sha:0:7}"; PAST_UPLOAD=''; return 1; }
+  say "built: $id https://$url"
+
+  say "--- promote $id to ${HOST[$repo]}"
+  vercel_promote "$repo" "$id" || say "promote reported an error; checking what ${HOST[$repo]} serves"
+  for i in $(seq 1 "${NADAVAI_DEPLOY_VERCEL_TRIES:-12}"); do
+    read -r sid surl ssha < <(vercel_serving "$repo" || say "- - -")
+    if [ "$sid" = "$id" ] && [ "$ssha" = "$sha" ] && vercel_health "$repo"; then ok=1; break; fi
+    say "  attempt $i: ${HOST[$repo]} serves ${sid:-?} (${ssha:0:7})"
+    sleep "${NADAVAI_DEPLOY_VERCEL_GAP:-10}"
+  done
+  LIVE_AFTER=$(vercel_live "$repo")
+  [ -n "$ok" ] && { say "HEALTHCHECK: PASS"; PAST_UPLOAD=''; return 0; }
+  say "HEALTHCHECK: FAIL, promoting $live back"
+  if vercel_back_to "$repo" "$live"; then ROLLED=$live; say "ROLLBACK: back on $live"
+  else ROLLED=failed; say "ROLLBACK: FAILED, check ${HOST[$repo]} now"; fi
+  LIVE_AFTER=$(vercel_live "$repo"); PAST_UPLOAD=''
+  return 1
+}
+
+# A TERM or INT after the upload started (a timeout, a person's Ctrl-C) leaves production on an
+# unchecked deployment: roll back to the one live before and say so on the commit.
+on_term() {
+  local ok=1
+  trap - TERM INT
+  # The transient units are system units: a signal to this process does not stop them, so a
+  # running upload would land after the rollback. Stop them first (stop waits until they are gone).
+  sudo -n systemctl stop "nadavai-deploy-*-$$-*.service" 2>/dev/null
+  if [ -n "$PAST_UPLOAD" ] && [ -n "$DEPLOY_LIVE" ]; then
+    err "interrupted after the upload of ${DEPLOY_SHA:0:7}; rolling back to $DEPLOY_LIVE"
+    case ${KIND[$DEPLOY_REPO]} in
+      pages) pages_rollback "$DEPLOY_REPO" "$DEPLOY_LIVE" || ok='' ;;
+      vercel) vercel_back_to "$DEPLOY_REPO" "$DEPLOY_LIVE" || ok='' ;;
+    esac
+    if [ -n "$ok" ]; then
+      status "$DEPLOY_REPO" "$DEPLOY_SHA" error "deploy interrupted after the upload; rolled back to $DEPLOY_LIVE"
+    else
+      status "$DEPLOY_REPO" "$DEPLOY_SHA" error "deploy interrupted after the upload and the rollback failed: check production now"
+    fi
+    printf '%s\t%s\t%s\tinterrupted%s\tlive before deploy: %s\n' "$(date -u +%FT%TZ)" "$DEPLOY_REPO" "$DEPLOY_SHA" "${ok:+, rolled back}${ok:-, rollback failed}" "$DEPLOY_LIVE" >>"$LOGS/deploys.log"
+  fi
+  drop_dir "${CUR_UP:-}"; drop_dir "${CUR_WORK:-}"
+  exit 1
+}
+
+# Runs a command with only the variables already exported by the caller's subshell that are named
+# here, so no other variable of this process reaches the tool, and no token is on argv.
+clean_exec() {
+  local v keep=" HOME PATH CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID WRANGLER_SEND_METRICS VERCEL_TOKEN VERCEL_ORG_ID VERCEL_PROJECT_ID VERCEL_TELEMETRY_DISABLED "
+  for v in $(compgen -e); do case $keep in *" $v "*) ;; *) unset "$v" 2>/dev/null ;; esac; done
+  for v in $(declare -Fx | awk '{print $3}'); do export -fn "$v"; done  # exported functions too
+  exec "$@" 9>&- 8>&-
+}
+
+# ---------------------------------------------------------------- commands
+main_head_of_mirror() { "${GIT[@]}" -C "$MIRROR/$1.git" rev-parse -q --verify refs/heads/main 2>/dev/null; }
+
+cmd_deploy() { # repo sha [--dry-run] [--auto]
+  local repo=${1:-} ref=${2:-} dry='' auto='' a sha w live='' rc t0=$SECONDS log result
+  known "$repo" && [[ $ref =~ ^[0-9a-f]{7,40}$ ]] || usage
+  for a in "${@:3}"; do case $a in --dry-run) dry=1 ;; --auto) auto=1 ;; *) usage ;; esac; done
+  mkdir -p "$STATE" "$LOGS"
+  sha=$(ghr api "repos/$OWNER/$repo/commits/$ref" | jq -r '.sha // empty')
+  [[ $sha =~ ^[0-9a-f]{40}$ ]] || { err "cannot resolve $ref in $OWNER/$repo"; return 75; }
+
+  if [ -z "$dry" ]; then
+    take_lock "$repo" ${auto:+nowait}; rc=$?
+    [ "$rc" = 0 ] || { [ "$rc" = 73 ] && err "a deploy of $repo is running; this pass skips it"; return "$rc"; }
+  fi
+  # The hold is read with the repo's lock held (a real deploy). `hold` writes its file before it
+  # waits for the lock, so every deploy that gets the lock after a hold was asked for refuses.
+  case $(hold_status "$repo") in
+    held) if [ -n "$dry" ]; then say "note: deploys of $repo are held ($(hold_reason "$repo")); a real deploy would refuse"
+          else err "refusing: deploys of $repo are held ($(hold_reason "$repo"))"
+               status "$repo" "$sha" failure "not deployed: deploys are held on nadavai-deploy: $(hold_reason "$repo")"
+               return 3; fi ;;
+    off) if [ -n "$dry" ]; then say "note: deploys of $repo are off; a real deploy would refuse"
+         else err "refusing: deploys of $repo are off ($STATE/off or $STATE/$repo.off)"; return 3; fi ;;
+    manual) if [ -n "$auto" ]; then err "auto: $repo has no .auto flag any more"; return 3; fi ;;
+  esac
+
+  log=$LOGS/$repo-${sha:0:7}-$(date -u +%Y%m%dT%H%M%SZ)${dry:+-dry}.log
+  say "nadavai-deploy ${dry:+(dry run) }$repo ${sha:0:7}; log $log"
+  exec 3>&1 4>&2
+  exec > >(exec 9>&- 8>&-; exec tee -a "$log") 2>&1
+  gate "$repo" "$sha"; rc=$?
+  if [ "$rc" != 0 ]; then exec 1>&3 2>&4; return "$rc"; fi
+  [ -n "$dry" ] || status "$repo" "$sha" pending "deploying from nadavai-deploy (Oracle VM)"
+
+  result=failed
+  CUR_WORK='' CUR_UP='' PAST_UPLOAD='' DEPLOY_REPO=$repo DEPLOY_SHA=$sha DEPLOY_LIVE=''
+  trap 'drop_dir "${CUR_UP:-}"; drop_dir "${CUR_WORK:-}"' EXIT
+  [ -n "$dry" ] || trap on_term TERM INT
+  if ! mirror_fetch "$repo" "$sha"; then err "could not fetch ${sha:0:7} into the mirror"
+  else
+    w=$(new_workdir "$repo" "$sha"); rc=$?; CUR_WORK=$w
+    if [ "$rc" != 0 ]; then err "could not check out ${sha:0:7}"
+    elif ! live=$(live_of "$repo") || [ -z "$live" ]; then
+      err "cannot read the deployment production serves; refusing without a rollback target"
+    else
+      DEPLOY_LIVE=${live%% *}
+      say "live before deploy: $live"
+      LIVE_AFTER='' ROLLED=''
+      if "deploy_${KIND[$repo]}" "$repo" "$sha" "$w" "$dry" "${live%% *}"; then
+        result=${dry:+dry-run}; result=${result:-live}
+      elif [ -n "$ROLLED" ] && [ "$ROLLED" != failed ]; then result=rolled-back
+      elif [ "$ROLLED" = failed ]; then result=rollback-failed
+      fi
+    fi
+  fi
+  trap - TERM INT
+  drop_dir "${CUR_UP:-}"; drop_dir "${CUR_WORK:-}"; CUR_WORK='' CUR_UP=''
+  printf '%s\t%s\t%s\t%s\tlive before deploy: %s\tlive after: %s\tPR #%s\t%ss\n' "$(date -u +%FT%TZ)" "$repo" "$sha" \
+    "$result" "${live:--}" "${LIVE_AFTER:--}" "${GATE_PR:-?}" "$((SECONDS - t0))" >>"$LOGS/deploys.log"
+  say "result: $result (logged in $LOGS/deploys.log)"
+  if [ -z "$dry" ]; then
+    case $result in
+      live) echo "$sha" >"$STATE/$repo.deployed"
+            # A person's deploy of an older commit must not be undone by the auto pass: it acts
+            # only on a main head it has not seen, and this one counts as seen.
+            [ -n "$auto" ] || main_head_of_mirror "$repo" >"$STATE/$repo.auto-seen"
+            status "$repo" "$sha" success "live: ${LIVE_AFTER%% *}, health check passed ($(( (SECONDS - t0 + 59) / 60 ))m)" ;;
+      rolled-back) status "$repo" "$sha" failure "deploy failed the health check; rolled back to ${ROLLED}" ;;
+      rollback-failed) status "$repo" "$sha" error "deploy failed the health check and the rollback failed: check production now" ;;
+      *) status "$repo" "$sha" failure "deploy failed before going live; production unchanged (log on the Oracle VM)" ;;
+    esac
+  fi
+  exec 1>&3 2>&4
+  case $result in live|dry-run) return 0 ;; *) return 1 ;; esac
+}
+
+cmd_hold_release() { # hold|release repo [reason...]
+  local what=$1 repo=${2:-} why f
+  why=${*:3}; why=${why//$'\n'/ }; why=${why//$'\r'/ }
+  if ! known "$repo" || { [ "$what" = hold ] && [ -z "${why// /}" ]; }; then
+    err "usage: nadavai-deploy hold <repo> <reason> | release <repo>"; return 2
+  fi
+  mkdir -p "$STATE"; f=$(holdfile "$repo")
+  if [ "$what" = hold ]; then
+    # The file first, so no deploy that gets the lock from now on starts; then the lock, so hold
+    # returns only after a deploy already in flight has finished.
+    printf '%s\n%s\n' "$why" "set $(date -Is)" >"$f.tmp" && mv -f "$f.tmp" "$f" || { err "hold of $repo failed"; return 1; }
+    ( take_lock "$repo" ) || { err "held, but could not wait for the $repo lock"; return 1; }
+    say "held: no deploy of $repo starts until nadavai-deploy release $repo"
+  else
+    ( take_lock "$repo" && rm -f -- "${f:?}" ) || { err "release of $repo failed"; return 1; }
+    say "released: $repo is $(hold_status "$repo")"
+  fi
+}
+
+cmd_rollback() { # repo id
+  local repo=${1:-} id=${2:-} rc=0 kind before now
+  known "$repo" || { err "usage: nadavai-deploy rollback <repo> <deployment id>"; return 2; }
+  kind=${KIND[$repo]}
+  if [ "$kind" = pages ]; then
+    [[ $id =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] || { err "usage: nadavai-deploy rollback $repo <Pages deployment id (a uuid)>"; return 2; }
+  else
+    [[ $id =~ ^dpl_[A-Za-z0-9]{8,64}$ ]] || { err "usage: nadavai-deploy rollback $repo <Vercel deployment id (dpl_...)>"; return 2; }
+  fi
+  [ -r "$SECRETS/$repo.env" ] || { err "refusing: no deploy env for $repo"; return 1; }
+  mkdir -p "$STATE" "$LOGS"
+  # The repo's lock: a rollback never runs beside a deploy. A hold does not stop it (a rollback is
+  # what a person does under a hold).
+  take_lock "$repo" || return 1
+  "${kind}_has" "$repo" "$id" || rc=$?
+  case $rc in
+    0) ;;
+    1) err "refusing: $id is not a production deployment of $repo's project"; return 1 ;;
+    *) err "refusing: could not read the deployment list of $repo's project"; return 1 ;;
+  esac
+  before=$(live_of "$repo")
+  if [ "$kind" = pages ]; then pages_rollback "$repo" "$id" || return 1
+  else
+    vercel_back_to "$repo" "$id" || { err "promoted $id, but production does not serve it"; return 1; }
+    now=$(vercel_live "$repo"); say "rolled back: live $now"
+  fi
+  printf '%s\t%s\t-\trollback\tlive before deploy: %s\tlive after: %s\n' "$(date -u +%FT%TZ)" "$repo" "${before:--}" "$id" >>"$LOGS/deploys.log"
+}
+
+cmd_auto() {
+  local repo head rc
+  mkdir -p "$STATE" "$LOGS"
+  for repo in $(printf '%s\n' "${!KIND[@]}" | sort); do
+    [ -e "$STATE/$repo.auto" ] || continue
+    [ "$(hold_status "$repo")" = auto ] || continue
+    head=$(ghr api "repos/$OWNER/$repo/commits/main" | jq -r '.sha // empty')
+    [[ $head =~ ^[0-9a-f]{40}$ ]] || { err "auto: could not read main of $repo"; continue; }
+    [ "$head" = "$(cat "$STATE/$repo.deployed" 2>/dev/null)" ] && continue
+    # Each main head once: a failed one is not retried, and one a person handled counts as seen.
+    [ "$head" = "$(cat "$STATE/$repo.auto-seen" 2>/dev/null)" ] && continue
+    say "auto: $repo main moved to ${head:0:7}"
+    rc=0; ( cmd_deploy "$repo" "$head" --auto ) || rc=$?
+    case $rc in
+      3|73|75) ;;   # held, busy or not ready: the next pass looks again
+      *) echo "$head" >"$STATE/$repo.auto-seen"
+         [ "$rc" = 0 ] || err "auto: $repo ${head:0:7} ended $rc; not retried until main moves" ;;
+    esac
+  done
+}
+
+main() {
+  case ${1:-} in
+    deploy) shift; cmd_deploy "$@" ;;
+    hold|release) cmd_hold_release "$@" ;;
+    hold-status)
+      known "${2:-}" || { err "usage: nadavai-deploy hold-status <repo> (one of: ${!KIND[*]})"; return 2; }
+      hold_status "$2" ;;
+    pages-live|live)
+      known "${2:-}" || { err "usage: nadavai-deploy pages-live <repo> (one of: ${!KIND[*]})"; return 2; }
+      live_of "$2" || { err "could not read the live deployment and its commit of $2"; return 1; } ;;
+    rollback) shift; cmd_rollback "$@" ;;
+    auto) cmd_auto ;;
+    repos)
+      local r
+      for r in $(printf '%s\n' "${!KIND[@]}" | sort); do
+        printf '%-16s %-6s %-34s %s\n' "$r" "${KIND[$r]}" "${PAGES[$r]:-${VPROJECT[$r]}}" "$(hold_status "$r")"
+      done ;;
+    -h|--help|help) usage ;;
+    *) usage ;;
+  esac
+}
+
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then main "$@"; exit $?; fi
