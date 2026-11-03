@@ -56,6 +56,9 @@ SERVER=${WOODPECKER_SERVER:-https://ci.nadavc.ai}
 # The token goes to curl through a file descriptor, never on its command line (/proc/*/cmdline).
 api() { curl -sf --max-time 20 -H @<(printf 'Authorization: Bearer %s\n' "$WOODPECKER_TOKEN") "$SERVER/api/$1"; }
 
+# gh with three tries: a reset connection to api.github.com must not read as "no such commit".
+ghr() { local i out; for i in 1 2 3; do out=$(gh "$@" 2>/dev/null) && { printf '%s\n' "$out"; return 0; }; sleep 3; done; return 1; }
+
 parent=$PPID
 parent_alive() { [ "$follow" = 0 ] || kill -0 "$parent" 2>/dev/null; }
 
@@ -67,19 +70,19 @@ sha="" pr=""
 case "$ref" in
   pr:*|'#'*) pr=${ref#pr:}; pr=${pr#\#}
              [[ $pr =~ ^[0-9]+$ ]] || { echo "ci-wait-wp: pr:N takes a PR number" >&2; exit 64; }
-             sha=$(gh pr view "$pr" -R "$OWNER/$repo" --json headRefOid --jq .headRefOid 2>/dev/null) ;;
+             sha=$(ghr pr view "$pr" -R "$OWNER/$repo" --json headRefOid --jq .headRefOid 2>/dev/null) ;;
   *) [[ $ref =~ ^[0-9a-f]{7,40}$ ]] || branch=$ref
-     sha=$(gh api "repos/$OWNER/$repo/commits/$ref" --jq .sha 2>/dev/null) ;;
+     sha=$(ghr api "repos/$OWNER/$repo/commits/$ref" --jq .sha 2>/dev/null) ;;
 esac
 [[ $sha =~ ^[0-9a-f]{40}$ ]] || { echo "ci-wait-wp: cannot resolve $ref in $OWNER/$repo" >&2; exit 64; }
 
 # The open PR whose head is this sha (the landing request).
-prs=$(gh pr list -R "$OWNER/$repo" --state open --base main --json number,isDraft,headRefOid,headRefName --limit 200 2>/dev/null)
+prs=$(ghr pr list -R "$OWNER/$repo" --state open --base main --json number,isDraft,headRefOid,headRefName --limit 200 2>/dev/null)
 prj=$(jq -c --arg s "$sha" '[.[] | select(.headRefOid == $s)][0] // empty' <<<"${prs:-[]}" 2>/dev/null)
 if [ -n "$land" ]; then
   if [ -z "$prj" ]; then
     [ -n "$branch" ] || { echo "ci-wait-wp: --land needs a branch name (or an open PR) for ${sha:0:7}" >&2; exit 5; }
-    title=$(gh api "repos/$OWNER/$repo/commits/$sha" --jq '.commit.message | split("\n")[0]' 2>/dev/null)
+    title=$(ghr api "repos/$OWNER/$repo/commits/$sha" --jq '.commit.message | split("\n")[0]' 2>/dev/null)
     url=$(gh pr create -R "$OWNER/$repo" --base main --head "$branch" --title "${title:-$branch}" \
       --body "Landing request opened by ci-wait --land." 2>/dev/null) \
       || { echo "ci-wait-wp: could not open a PR for $branch (is it pushed, and is its head ${sha:0:7}?)" >&2; exit 5; }
@@ -97,7 +100,7 @@ prnum=""; [ -n "$prj" ] && prnum=$(jq -r '.number // empty' <<<"$prj" 2>/dev/nul
 # A commit on main is not tested again (rule 7): it answers with the landing of the PR it was merged
 # from, so a wait on main after a merge reports that PR's run.
 if [ -z "$prj" ] && [ -z "$land" ]; then
-  mp=$(gh api "repos/$OWNER/$repo/commits/$sha/pulls" 2>/dev/null \
+  mp=$(ghr api "repos/$OWNER/$repo/commits/$sha/pulls" 2>/dev/null \
     | jq -c '[.[] | select(.merged_at != null and .base.ref == "main")][0] // empty | {number, head: .head.sha}' 2>/dev/null)
   if [ -n "$mp" ]; then
     prnum=$(jq -r .number <<<"$mp"); merged_from=${sha:0:7}; sha=$(jq -r .head <<<"$mp"); prj=$mp
@@ -145,21 +148,30 @@ while :; do
       exit 0 ;;
     killed)
       now=""
-      [ -n "$prnum" ] && now=$(gh pr view "$prnum" -R "$OWNER/$repo" --json headRefOid --jq .headRefOid 2>/dev/null)
+      [ -n "$prnum" ] && now=$(ghr pr view "$prnum" -R "$OWNER/$repo" --json headRefOid --jq .headRefOid 2>/dev/null)
       if [ -n "$now" ] && [ "$now" != "$sha" ]; then
         echo "superseded: pipeline $n of ${sha:0:7} was cancelled by a newer push (PR #$prnum head is now ${now:0:7}). Wait on that: ci-wait $repo pr:$prnum"
         exit 6
       fi
-      echo "red: $repo ${sha:0:7} pipeline $n was killed: $SERVER/repos/$rid/pipeline/$n"
-      exit 1 ;;
+      # Woodpecker cancels the other steps when one fails and may call the run killed: report the
+      # failed step like a failure; a kill with no failed step is an infrastructure stop.
+      if ! jq -e '[.workflows[]?.children[]? | select(.state == "failure")] | length > 0' <<<"$d" >/dev/null 2>&1; then
+        echo "red: $repo ${sha:0:7} pipeline $n was killed with no failed step (agent restart or manual cancel; infrastructure): $SERVER/repos/$rid/pipeline/$n"
+        exit 1
+      fi ;&
     failure|error|declined)
       echo "red: $repo ${sha:0:7} pipeline $n is $st: $SERVER/repos/$rid/pipeline/$n"
       jq -r '.workflows[]?.children[]? | select(.state != "success" and .state != "skipped") | "  \(.name): \(.state) (exit \(.exit_code))"' <<<"$d" 2>/dev/null
       sid=$(jq -r '[.workflows[]?.children[]? | select(.state == "failure")][0].id // empty' <<<"$d" 2>/dev/null)
       if [ -n "$sid" ]; then
-        echo "--- last lines of the first failed step:"
-        api "repos/$rid/logs/$n/$sid" | jq -r '.[-40:][] | .data // empty' 2>/dev/null \
-          | while IFS= read -r l; do printf '%s' "$l" | base64 -d 2>/dev/null; echo; done | sed '/^$/d' | tail -40
+        # The failure lines of the first failed step (test runners interleave output, so its last
+        # lines are often passing tests), then its last 15 lines.
+        log=$(api "repos/$rid/logs/$n/$sid" | jq -r '.[] | .data // empty' 2>/dev/null \
+          | while IFS= read -r l; do printf '%s' "$l" | base64 -d 2>/dev/null; echo; done | sed 's/\x1b\[[0-9;]*m//g; /^$/d')
+        echo "--- failures in the first failed step:"
+        grep -E '(^| )(FAIL|×|✗|✘|ERROR|Error:|error:|failed|Test Files|Tests  |exit status)' <<<"$log" | grep -v -E '^ *✓' | tail -25 | cut -c1-300
+        echo "--- its last lines:"
+        tail -15 <<<"$log" | cut -c1-300
       fi
       exit 1 ;;
     blocked|skipped)
