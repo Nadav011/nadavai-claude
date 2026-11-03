@@ -229,8 +229,14 @@ power limits off), so after a reinstall only the OS layer comes back: PL1 140 W 
 `/etc/tmpfiles.d/rapl-pl1.conf` (unlimited reached 93-97 C under CI and throttled),
 `power-profiles-daemon` enabled and set to performance with `sudo`, `/etc/sysctl.d/99-omarchy-restore.conf`
 (the rest of the old sysctl file is already in `70-cachyos-settings.conf`), USB autosuspend off, and
-the `LABEL=data` line in fstab. Measured 2026-11-03: 5 min stress-ng (8 CPU + 2x6 GB VM) held
-4.6-4.7 GHz, max 88 C, 0 throttle events, 0 failures. The 2 TB disk is a 7200 rpm HDD (bfq): archives
+the `LABEL=data` line in fstab, and `intel-undervolt` -70 mV core and cache (`enable yes`,
+service enabled; the MSR is not locked on this board). Measured 2026-11-03 with 5 min stress-ng
+`--verify` (8 CPU + 2x6 GB VM): stock 4.6-4.7 GHz, max 88 C; -50 mV 4.7 GHz, 87 C, 133 W; -80 mV
+4.7 GHz, 84 C, 130 W; all 0 throttle events and 0 failures. -70 keeps a 10 mV margin under the
+tested -80; if CI shows unexplained crashes or rasdaemon logs MCEs, go back to -50 before anything
+else. RAM stays at 2666 (mixed 3200 and 2400 kits, already above the slower kit's rating; any change
+is in the BIOS with a monitor attached, then memtest86+). The GPU power limit (130 of 160 W) is left
+at default: CI barely uses the GPU. The 2 TB disk is a 7200 rpm HDD (bfq): archives
 and CI data only, never tools, because nothing makes it as fast as the NVMe. Archive target:
 `/mnt/data/archive/<host>-<date>/`. Do not move agent work there unless a measurement shows spare
 capacity.
