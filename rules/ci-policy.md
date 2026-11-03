@@ -46,8 +46,12 @@ every `ci-wait`, and the old runner (3,445 lines on one 8-core box) queued agent
    pre-push hook). `# land-urgent: <reason>` / `NADAVAI_LAND_URGENT=<reason>` for an urgent fix.
    Why: D-B, fewer reruns, with the overlap case still re-tested.
 7. Main does not test again: a merge of a green PR is the tested tree.
-8. A red landing is fixed, not rerun. Rerun (Woodpecker UI "restart") only for an infrastructure
-   failure, and say so in the report.
+8. A red landing is fixed, not rerun. `ci-wait` restarts a run once by itself in two cases only, and
+   logs it in `~/.cache/ci-wait/flakes.log`: an infrastructure stop (killed with no failed step), or
+   a suspected flake (only test steps failed, and every failing test file is one the PR did not
+   change). A second red is reported as "failed twice: not a flake". Any other rerun only for an
+   infrastructure failure, and say so in the report. Why: sessions lost time digging into tests they
+   never touched, and a real regression still fails the second time.
 9. A newer push to a PR cancels its older run automatically.
 10. Production deploys are manual (Nadav's call, 2026-11-03) until the deploy service on the
     Oracle VM is live; then a green main deploys and health-checks itself.

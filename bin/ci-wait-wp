@@ -100,16 +100,35 @@ prnum=""; [ -n "$prj" ] && prnum=$(jq -r '.number // empty' <<<"$prj" 2>/dev/nul
 # A commit on main is not tested again (rule 7): it answers with the landing of the PR it was merged
 # from, so a wait on main after a merge reports that PR's run.
 if [ -z "$prj" ] && [ -z "$land" ]; then
-  mp=$(ghr api "repos/$OWNER/$repo/commits/$sha/pulls" 2>/dev/null \
-    | jq -c '[.[] | select(.merged_at != null and .base.ref == "main")][0] // empty | {number, head: .head.sha}' 2>/dev/null)
+  pulls=$(ghr api "repos/$OWNER/$repo/commits/$sha/pulls" 2>/dev/null)
+  mp=$(jq -c --arg s "$sha" '[.[] | select(.merged_at != null and .base.ref == "main" and .merge_commit_sha == $s)][0] // empty | {number, head: .head.sha}' <<<"${pulls:-[]}" 2>/dev/null)
   if [ -n "$mp" ]; then
     prnum=$(jq -r .number <<<"$mp"); merged_from=${sha:0:7}; sha=$(jq -r .head <<<"$mp"); prj=$mp
     echo "ci-wait-wp: $merged_from on main is the merge of PR #$prnum; main is not tested again, so this reports PR #$prnum's landing (head ${sha:0:7})"
+  else
+    # An earlier head of a PR: keep its number for the flake check (which files the PR changed).
+    prnum=$(jq -r '[.[] | select(.base.ref == "main")][0].number // empty' <<<"${pulls:-[]}" 2>/dev/null)
+    [ -n "$prnum" ] && prj=$(jq -cn --arg n "$prnum" '{number: ($n | tonumber), isDraft: false}')
   fi
 fi
 
 # A landing waits on the PR's own pull_request run; with no PR, a cron or manual run of the sha counts.
 if [ -n "$prj" ]; then sel='select(.commit == $s and .event == "pull_request")'; else sel='select(.commit == $s)'; fi
+
+# One automatic restart per wait (rule 8: an infrastructure stop or a suspected flake), logged.
+retried=""
+FLAKE_LOG=${CI_WAIT_FLAKE_LOG:-$HOME/.cache/ci-wait/flakes.log}
+restart_run() { # reason: restart pipeline $n, switch the wait to the new run
+  local new
+  [ -n "${CI_WAIT_DRY_RESTART:-}" ] && { echo "ci-wait-wp: [dry run] would restart pipeline $n once ($1)"; return 1; }
+  new=$(curl -sf --max-time 20 -X POST -H @<(printf 'Authorization: Bearer %s\n' "$WOODPECKER_TOKEN") "$SERVER/api/repos/$rid/pipelines/$n" | jq -r '.number // empty' 2>/dev/null)
+  [ -n "$new" ] || return 1
+  mkdir -p "${FLAKE_LOG%/*}"
+  printf '%s\t%s\t%s\tpipeline %s -> %s\t%s\n' "$(date -Iseconds)" "$repo" "${sha:0:9}" "$n" "$new" "$1" >>"$FLAKE_LOG"
+  echo "ci-wait-wp: restarted pipeline $n as $new once ($1); logged in $FLAKE_LOG"
+  n=$new retried=1
+  sleep "$POLL"
+}
 
 deadline=$(( $(date +%s) + timeout_min * 60 ))
 down=0 warned="" since=$(date +%s) n=""
@@ -125,6 +144,15 @@ while :; do
     n=$(jq -r --arg s "$sha" "[.[] | $sel] | sort_by(.number) | last | .number // empty" <<<"$list" 2>/dev/null)
     if [ -z "$n" ]; then
       waited=$(( $(date +%s) - since ))
+      # Right after a push GitHub can still report the PR's previous head: follow the PR if it moved.
+      if [ -n "$prnum" ] && [ "$waited" -ge 30 ]; then
+        now=$(ghr pr view "$prnum" -R "$OWNER/$repo" --json headRefOid --jq .headRefOid)
+        if [[ $now =~ ^[0-9a-f]{40}$ ]] && [ "$now" != "$sha" ]; then
+          echo "ci-wait-wp: PR #$prnum moved to ${now:0:7}; waiting on that head"
+          sha=$now since=$(date +%s)
+          sleep "$POLL"; continue
+        fi
+      fi
       if [ -z "$prj" ] && [ "$waited" -ge 60 ]; then
         echo "ci-wait-wp: no landing run for ${sha:0:7}: a branch push runs no CI. Open a non-draft PR into main, or run ci-wait $repo <branch> --land."
         exit 5
@@ -156,6 +184,8 @@ while :; do
       # Woodpecker cancels the other steps when one fails and may call the run killed: report the
       # failed step like a failure; a kill with no failed step is an infrastructure stop.
       if ! jq -e '[.workflows[]?.children[]? | select(.state == "failure")] | length > 0' <<<"$d" >/dev/null 2>&1; then
+        # An infrastructure stop (agent restart, cancel of an orphaned run): restart it once.
+        if [ -z "$retried" ] && restart_run "infrastructure stop: killed with no failed step"; then continue; fi
         echo "red: $repo ${sha:0:7} pipeline $n was killed with no failed step (agent restart or manual cancel; infrastructure): $SERVER/repos/$rid/pipeline/$n"
         exit 1
       fi ;&
@@ -168,8 +198,23 @@ while :; do
         # lines are often passing tests), then its last 15 lines.
         log=$(api "repos/$rid/logs/$n/$sid" | jq -r '.[] | .data // empty' 2>/dev/null \
           | while IFS= read -r l; do printf '%s' "$l" | base64 -d 2>/dev/null; echo; done | sed 's/\x1b\[[0-9;]*m//g; /^$/d')
+        fails=$(grep -E '(^| )(FAIL|×|✗|✘|ERROR|Error:|error:|failed|Test Files|Tests  |exit status)' <<<"$log" | grep -v -E '^ *✓' | tail -25 | cut -c1-300)
+        # A suspected flake (rule 8): every failed step is a test step, every failing test file is
+        # one this PR did not change, and this is the first run of the sha. Restart once and log it;
+        # a real regression fails again and is reported red with "failed twice".
+        if [ -z "$retried" ] && [ -n "$prnum" ]; then
+          ftests=$(grep -E '(^| )(FAIL|×|✗|✘|FAILED)' <<<"$log" | grep -oE '[A-Za-z0-9_./-]+\.(test|spec)\.[cm]?[jt]sx?' | sort -u)
+          nontest=$(jq -r '[.workflows[]?.children[]? | select(.state == "failure") | .name | select(test("^(unit|integration|e2e|edge|sql|test)") | not)] | length' <<<"$d" 2>/dev/null)
+          if [ -n "$ftests" ] && [ "${nontest:-1}" = 0 ]; then
+            prf=$(ghr api --paginate "repos/$OWNER/$repo/pulls/$prnum/files?per_page=100" --jq '.[].filename')
+            touched=""
+            while IFS= read -r t; do grep -qF "$t" <<<"$prf" && touched=1; done <<<"$ftests"
+            if [ -z "$touched" ] && restart_run "suspected flake in tests this PR did not change: $(tr '\n' ' ' <<<"$ftests")"; then continue; fi
+          fi
+        fi
+        [ -n "$retried" ] && echo "failed twice (also after the one automatic restart): not a flake"
         echo "--- failures in the first failed step:"
-        grep -E '(^| )(FAIL|×|✗|✘|ERROR|Error:|error:|failed|Test Files|Tests  |exit status)' <<<"$log" | grep -v -E '^ *✓' | tail -25 | cut -c1-300
+        printf '%s\n' "$fails"
         echo "--- its last lines:"
         tail -15 <<<"$log" | cut -c1-300
       fi
