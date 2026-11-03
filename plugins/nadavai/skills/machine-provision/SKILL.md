@@ -163,7 +163,7 @@ path, drop the `[projects.*]` tables, desktop-only entries such as `node_repl` f
 `/opt/codex-desktop` and removed plugins), `hooks.json` (point the omx hook at
 `~/.local/share/fnm/aliases/default`, never a versioned Node; the changed hash means Nadav trusts the
 hooks once in Codex `/hooks`), `AGENTS.md`, `agents`, `prompts`, `skills`, `local-marketplaces`,
-`.omx`, `plugins`. Then `codex plugin marketplace upgrade` (the Git marketplaces live in `~/.codex/.tmp`, which is not copied; without it `update.sh` fails with "marketplace root does not contain a supported manifest") and `./update.sh` again. Check with `tomllib`, `codex mcp list` and `omx doctor` (the same warnings as on
+`.omx`, `plugins`. Then `codex plugin marketplace upgrade` (the Git marketplaces live in `~/.codex/.tmp`, which is not copied; without it `update.sh` fails with "marketplace root does not contain a supported manifest") and `./update.sh` again. The same error names a local marketplace that was not copied: on the MSI on 2026-11-03 these were `local-marketplaces/wondelai-skills`, `local-marketplaces/chrome-devtools` and `plugins/cache/claude-cowork`. Copy every root that `codex plugin marketplace list` prints on the source before the first `update.sh`. Check with `tomllib`, `codex mcp list` and `omx doctor` (the same warnings as on
 the source are parity). Also `~/.config/claude-omc` (OMC tiers, outside nadavai), `.tmux.conf` and
 `.tmux`, `.pnpmrc`, `.bunfig.toml`, `~/.config/act`, and the `pw-clean` timer.
 Then diff the top level of `~` and `~/.config` by name between the two machines: inventory.sh does
