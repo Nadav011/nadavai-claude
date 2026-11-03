@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Physically click the center of an agent-desktop ref with the real mouse.
-# Tier 4 (moves Nadav's cursor): only after his OK for this action.
+# Tier 4 (moves Nadav's cursor): last resort; announce it in one line first (no per-use OK since 2026-11-03).
 # For when the semantic `agent-desktop click <ref>` is refused or has no effect
 # (Wayland pointer-only widgets, Qt combo popups, menus without a press action).
 # Usage: click-ref.sh <ref> <window-id> [left|right|middle|double]

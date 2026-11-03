@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Type text as real keyboard input into the focused window.
-# Tier 4 (keys go to whatever has focus): only after Nadav's OK for this action.
+# Tier 4 (keys go to whatever has focus): last resort; announce it in one line first (no per-use OK since 2026-11-03).
 # Prefer `agent-desktop type <ref> 'text'`: no focus, layout or clipboard involved.
 # Usage: type.sh --window <kdotool-id> 'text' [--allow-newline]
 #   --window: the window that must have focus; checked right before typing, exit 6

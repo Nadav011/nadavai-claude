@@ -141,6 +141,24 @@ if have cargo; then
   grep -v '^UNKNOWN' "$F/cargo" | list_or_ok "cargo install (a crate that fails to build upstream stays here: say so)"
 fi
 
+block "Playwright browsers (the global @playwright/test needs its own revisions)"
+# A Playwright upgrade does not download its browsers; tests then fail with "Executable doesn't
+# exist". Found on the LENOVO 2026-11-03 (1.64.1 installed, browsers from an older release).
+pwj=$(ls "$(npm root -g 2>/dev/null)"/@playwright/test/node_modules/playwright-core/browsers.json \
+  "$(npm root -g 2>/dev/null)"/playwright-core/browsers.json 2>/dev/null | head -1)
+if [ -n "$pwj" ]; then
+  python3 -I - "$pwj" "$HOME/.cache/ms-playwright" <<'PY' | list_or_ok "Playwright browsers (npx playwright@<version> install <names>)"
+import json, os, sys
+cache = sys.argv[2]
+have = os.listdir(cache) if os.path.isdir(cache) else []
+for b in json.load(open(sys.argv[1]))["browsers"]:
+    d = b["name"].replace("-", "_")
+    # only browsers this machine uses at all (some revision present); firefox is not installed here
+    if any(x.startswith(d + "-") for x in have) and f'{d}-{b["revision"]}' not in have:
+        print(f'{b["name"]} {b["revision"]} missing')
+PY
+else info "no global @playwright/test"; fi
+
 block "flatpak, Android SDK"
 if have flatpak; then out=$(flatpak remote-ls --updates --columns=application 2>/dev/null); printf '%s\n' "$out" | list_or_ok "flatpak" $?
 else info "no flatpak"; fi

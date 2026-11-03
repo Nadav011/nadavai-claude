@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Real mouse input through ydotool, in KWin logical coordinates (the numbers
 # `kdotool getmouselocation` and window geometry use; screenshot pixels / scale).
-# Tier 4 (moves Nadav's cursor): only after his OK for this action.
+# Tier 4 (moves Nadav's cursor): last resort; announce it in one line first (no per-use OK since 2026-11-03).
 # Moves go straight from the current position by relative steps (1:1 on the
 # flat-acceleration ydotoold device) and are checked against the real cursor;
 # no corner parking, so no screen-edge action can fire. After click, double,

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Press a key combo as real keyboard input through ydotool.
-# Tier 4 (keys go to whatever has focus): only after Nadav's OK for this action.
+# Tier 4 (keys go to whatever has focus): last resort; announce it in one line first (no per-use OK since 2026-11-03).
 # Usage: key.sh --window <kdotool-id|any> <combo>
 #   key.sh --window "$W" ctrl+shift+t     key.sh --window "$W" Return
 #   --window: the window that must have focus; checked right before the keys

@@ -155,6 +155,24 @@ what its "System tools" block reports MISSING (git-lfs, sox, Maestro: copy `~/.m
 versioned `~/.maestro-<ver>` it links to) and move the `BRIGHTDATA_API_TOKEN` env value into the
 target's `~/.claude/settings.json` on a pipe. The secrets vault is not copied unless Nadav asks.
 Claude Code and Codex get a fresh login on the target (rotating tokens).
+`setup.sh` does not write `~/.codex/config.toml`. Copy the source's Codex config without its
+sessions, history, sqlite, logs, `auth.json`, `.env` and `secrets/`: `config.toml` (rewrite the home
+path, drop the `[projects.*]` tables, desktop-only entries such as `node_repl` from
+`/opt/codex-desktop` and removed plugins), `hooks.json` (point the omx hook at
+`~/.local/share/fnm/aliases/default`, never a versioned Node; the changed hash means Nadav trusts the
+hooks once in Codex `/hooks`), `AGENTS.md`, `agents`, `prompts`, `skills`, `local-marketplaces`,
+`.omx`, `plugins`. Check with `tomllib`, `codex mcp list` and `omx doctor` (the same warnings as on
+the source are parity). Also `~/.config/claude-omc` (OMC tiers, outside nadavai), `.tmux.conf` and
+`.tmux`, `.pnpmrc`, `.bunfig.toml`, `~/.config/act`, and the `pw-clean` timer.
+Then diff the top level of `~` and `~/.config` by name between the two machines: inventory.sh does
+not see configs, and that diff is what found the missing Codex config on 2026-11-03.
+
+### 7c. Prove the tools run
+A list proves nothing works. On the target: `docker run --rm --device nvidia.com/gpu=all ubuntu:24.04
+nvidia-smi -L` (the docker group applies only to a new login: use `sudo` for the proof); a Playwright
+Chromium launch that renders Hebrew; `google-chrome-stable --headless=new --user-data-dir=<tmp>
+--dump-dom`; `gh api user`; and `--version` for the rest. Playwright WebKit cannot run on Arch (it
+links Ubuntu's libicu 74, flite, libjxl 0.8): the same on every machine, so not a provisioning gap.
 
 ### 8. Prove and report
 - `compare.py` again until only ignore-file lines remain, `update-audit.sh` on both machines,

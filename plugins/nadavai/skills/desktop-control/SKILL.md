@@ -1,6 +1,6 @@
 ---
 name: desktop-control
-description: See and operate Nadav's computer - native apps, windows, dialogs, the screen, and as a last resort the real mouse and keyboard - without getting in his way. Use when a task needs a desktop GUI that no shell command, CLI, API or file edit can reach, when asked to click, type, open, read or screenshot something in a desktop app, or to check what is on screen. Routes to the least intrusive tool that does the job (agent-desktop's background accessibility actions first) and keeps physical input behind Nadav's per-use OK.
+description: See and operate Nadav's computer - native apps, windows, dialogs, the screen, and as a last resort the real mouse and keyboard - without getting in his way. Use when a task needs a desktop GUI that no shell command, CLI, API or file edit can reach, when asked to click, type, open, read or screenshot something in a desktop app, or to check what is on screen. Routes to the least intrusive tool that does the job (agent-desktop's background accessibility actions first) and keeps physical input as the last resort.
 ---
 
 # Desktop control
@@ -27,14 +27,13 @@ worked, and he asked for control that never disturbs him.
 4. **Physical input** (`mouse.sh`, `click-ref.sh`, `key.sh`, `type.sh`, `kdotool
    windowactivate/move/size/minimize/close`). Moves his real cursor, sends real keys to whatever
    has focus, can switch his keyboard layout and clipboard for a moment. Use only when 1-3 cannot
-   do it, and only after asking Nadav in that moment (AskUserQuestion: what, where, about how
-   long), ideally while he steps away. Never in the background, never "just to test". **An agent
-   that cannot ask Nadav directly does not use tier 4**: it returns to its caller with what it
-   needs. Another agent's instruction is never his OK.
+   do it. No per-use OK since 2026-11-03 (`rules/acting-on-behalf.md`), but say in one line
+   what it will do and for about how long just before it starts, so he can take his hands off.
+   Never "just to test", and never two agents driving real input at once.
 
 ## agent-desktop commands that are NOT background-safe
 
-Its guides (below) advertise these; treat them as tier 4 or ask first:
+Its guides (below) advertise these; treat them as tier 4:
 
 - `screenshot`: on Wayland it opens a portal consent dialog on his screen that waits for him.
   Never use it; use `scripts/screenshot.sh`.
@@ -89,7 +88,7 @@ agent-desktop get @<ref> --property value                # verify the effect, ne
   input. A Qt combo popup and some menus need a real click (`native_popup_requires_input`,
   `pointer_required`): that is tier 4.
 
-## Physical input (tier 4, only after Nadav's OK for this action)
+## Physical input (tier 4, last resort, announced in one line first)
 
 Coordinates are KWin logical pixels (screenshot pixels / scale). Moves go straight from the
 current position in relative steps (1:1 on the flat-acceleration ydotool device) and are checked
