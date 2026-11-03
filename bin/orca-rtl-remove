@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Remove the Orca terminal RTL/BiDi patch.
+# Files patched in place (beside the asar) are restored from the per-version backup
+# patch.mjs made; on older layouts the packed asar is restored from app.asar.rtl-backup.
+set -euo pipefail
+RES=/opt/Orca/resources
+ASAR="$RES/app.asar"
+BACKUP="$RES/app.asar.rtl-backup"
+VER=$(/opt/Orca/orca-ide --version 2>/dev/null | awk '{print $NF}')
+BDIR="$HOME/.local/share/orca-rtl/backup-$VER"
+did=0
+if [ -d "$BDIR" ]; then
+  (cd "$BDIR" && find . -type f) | while read -r rel; do sudo install -m 644 "$BDIR/$rel" "$RES/app.asar.unpacked/$rel"; done
+  echo "[orca-rtl] restored in-place files from $BDIR"
+  did=1
+fi
+if [ ! -d "$RES/app.asar.unpacked/out/renderer/assets" ] && [ -f "$BACKUP" ]; then
+  sudo cp "$BACKUP" "$ASAR.orca-rtl-new" && sudo mv -f "$ASAR.orca-rtl-new" "$ASAR"
+  echo "[orca-rtl] restored pristine asar from backup"
+  did=1
+fi
+[ "$did" = 1 ] || { echo "[orca-rtl] ERROR: no backup found ($BDIR, $BACKUP)" >&2; exit 1; }
+echo "[orca-rtl] done. Reload Orca. (optional) restore GPU terminal: Settings -> Terminal -> GPU acceleration = Auto"

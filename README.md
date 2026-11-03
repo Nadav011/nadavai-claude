@@ -18,6 +18,15 @@ each approved host; session keys and the private `~/.local/state/wacli` archive
 stay there. Updates do not enable this service on other machines, and capture
 does not automatically reply or require a browser.
 
+`bin/orca-rtl-apply` makes Hebrew read right-to-left in Orca's terminal panes (and in its
+native chat and the paired phone's terminal). It patches Orca's bundled xterm DOM renderer
+with `unicode-bidi: plaintext` per row (engine in `lib/orca-rtl/patch.mjs`, idempotent,
+originals kept in `~/.local/share/orca-rtl/backup-<version>/`; `bin/orca-rtl-remove` restores
+them). It needs Orca's Settings → Terminal → GPU acceleration set to Off, because under WebGL
+the patch is inert. To re-apply after every Orca update, opt in per machine: symlink
+`systemd/user/orca-rtl-reapply.{path,service}` into `~/.config/systemd/user/` and run
+`systemctl --user enable --now orca-rtl-reapply.path`.
+
 `bin/worktree-clean` removes git worktrees nobody needs any more (clean and idle, or idle a week
 after snapshotting their unsaved work under `refs/worktree-clean/` and `~/Archive/worktree-clean/`).
 Its weekly run is opt-in per machine, on the machine where agents create worktrees: symlink

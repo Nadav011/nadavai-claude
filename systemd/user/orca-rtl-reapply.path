@@ -1,0 +1,14 @@
+[Unit]
+Description=Watch Orca's app.asar for changes (auto-update) and re-apply the RTL patch
+
+[Path]
+PathChanged=/opt/Orca/resources/app.asar
+# Belt-and-suspenders rate limit: patch.mjs is already idempotent and does not
+# rewrite app.asar when nothing changed (so the natural re-apply -> already-patched
+# -> no-write -> no-retrigger chain self-terminates after one cascade run). This
+# cap just guards against that assumption ever breaking silently.
+TriggerLimitIntervalSec=60
+TriggerLimitBurst=4
+
+[Install]
+WantedBy=default.target

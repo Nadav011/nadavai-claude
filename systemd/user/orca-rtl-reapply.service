@@ -1,0 +1,6 @@
+[Unit]
+Description=Re-apply Orca RTL patch after app.asar changes (idempotent; no-ops if already patched)
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/orca-rtl-apply

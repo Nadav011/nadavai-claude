@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# Re-apply the Orca terminal RTL/BiDi patch (idempotent). Run after an Orca update.
+# Patches the vendored xterm DOM renderer so Hebrew renders right-to-left while
+# English/numbers stay LTR-correct. Requires passwordless sudo + DOM renderer
+# (Settings -> terminal GPU acceleration = OFF; the patch is inert under WebGL).
+set -euo pipefail
+# The engine lives in nadavai (lib/orca-rtl); runtime data (backups, node_modules for
+# the old layout) stays in ~/.local/share/orca-rtl.
+DIR="$(cd "$(dirname "$(readlink -f "$0")")/../lib/orca-rtl" && pwd)"
+ASAR=/opt/Orca/resources/app.asar
+MARK=orca-rtl-chat
+# Newer Orca keeps out/renderer unpacked next to the asar; the mark then lives there.
+CSSDIR=/opt/Orca/resources/app.asar.unpacked/out/renderer/assets
+patched() { if [ -d "$CSSDIR" ]; then grep -lq "$MARK" "$CSSDIR"/*.css 2>/dev/null; else grep -aq "$MARK" "$ASAR"; fi; }
+
+# ponytail: the .path unit fires on the FIRST inotify event of a dpkg upgrade and
+# does not re-queue while this service runs. On 1.4.155 that made patch.mjs read the
+# pre-upgrade asar, log "already patched", and leave the NEW asar unpatched silently.
+# Wait for size+mtime to hold still, then verify against the live file and retry once.
+settle() {
+  local prev="" cur
+  for _ in $(seq 30); do
+    cur=$(stat -c '%Y %s' "$ASAR" 2>/dev/null || echo missing)
+    if [ "$cur" != missing ] && [ "$cur" = "$prev" ]; then return 0; fi
+    prev=$cur
+    sleep 2
+  done
+}
+
+settle
+node "$DIR/patch.mjs" "$@"
+
+# The asar can still be swapped while we extract/repack (a ~2 min window).
+if ! patched; then
+  echo "[orca-rtl] live asar is unpatched (replaced mid-run) — retrying once"
+  settle
+  node "$DIR/patch.mjs" "$@"
+  patched || { echo "[orca-rtl] FAILED: live asar still unpatched"; exit 1; }
+fi
+echo "[orca-rtl] verified: live Orca carries the patch."
