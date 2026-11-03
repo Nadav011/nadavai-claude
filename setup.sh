@@ -91,6 +91,9 @@ step "continues CLI and the cs shortcut"
 ensure_continues
 link_shortcuts
 
+step "agent-browser and its vault plugin"
+ensure_agent_browser
+
 if [ "$WITH_NPM" = 1 ]; then
   step "Global npm packages"
   ensure_npm_globals
