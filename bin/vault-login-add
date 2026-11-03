@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+# Save an EXISTING website login in the vault without the password passing through an agent.
+# Prints only the file path.
+#
+#   vault-login-add <name> <login-url> <username> [--also <url>]...
+#
+# The password comes from stdin when it is piped (for example from another vault file or a
+# password-manager CLI), otherwise from a password dialog that Nadav types into (zenity or
+# kdialog). Writes ~/.claude/secrets/login-<name>.env (chmod 600) and refuses to overwrite.
+# For a NEW account use vault-login-new, which generates the password.
+set -euo pipefail
+
+if [ "$#" -lt 3 ] || [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
+  sed -n '2,10p' "$0"; exit 2
+fi
+name="$1"; url="$2"; user="$3"; shift 3
+also=()
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --also) also+=("${2:?}"); shift 2 ;;
+    *) echo "unknown option: $1" >&2; exit 2 ;;
+  esac
+done
+
+[[ "$name" =~ ^[a-z0-9][a-z0-9._-]{0,63}$ ]] || { echo "name must be lowercase [a-z0-9._-]" >&2; exit 2; }
+for v in "$url" "$user" ${also[@]+"${also[@]}"}; do
+  [[ "$v" =~ [[:cntrl:]] ]] && { echo "control characters are not allowed in the url, username or --also" >&2; exit 2; }
+  [[ "$v" == *"'"* ]] && { echo "quotes are not allowed in the url, username or --also" >&2; exit 2; }
+done
+for u in "$url" ${also[@]+"${also[@]}"}; do
+  [[ "$u" =~ ^https?://[^/[:space:]]+ ]] || { echo "not an http(s) url: $u" >&2; exit 2; }
+done
+
+vault="${NADAVAI_VAULT_DIR:-$HOME/.claude/secrets}"
+file="$vault/login-$name.env"
+if [ -e "$file" ] || [ -L "$file" ]; then echo "exists, not overwritten: $file" >&2; exit 1; fi
+
+if [ ! -t 0 ]; then
+  IFS= read -r pw || true
+else
+  title="Vault: password for $name"
+  text="Password for $user at $url (saved to the vault; agents never see it)"
+  if command -v zenity >/dev/null 2>&1; then
+    pw="$(zenity --password --title="$title" --text="$text" 2>/dev/null)" || { echo "cancelled" >&2; exit 1; }
+  elif command -v kdialog >/dev/null 2>&1; then
+    pw="$(kdialog --title "$title" --password "$text" 2>/dev/null)" || { echo "cancelled" >&2; exit 1; }
+  else
+    echo "no zenity or kdialog; pipe the password on stdin" >&2; exit 2
+  fi
+fi
+[ -n "${pw:-}" ] || { echo "empty password" >&2; exit 1; }
+[[ "$pw" =~ [[:cntrl:]] ]] && { echo "control characters in the password" >&2; exit 2; }
+
+# The plugin's reader strips one pair of outer quotes and nothing else, so a password with a
+# single quote is wrapped in double quotes instead.
+umask 077
+mkdir -p "$vault"
+set -o noclobber
+{
+  echo "# Website login for $name, saved $(date +%F) by vault-login-add. Never print these values."
+  echo "LOGIN_URL='$url'"
+  echo "LOGIN_USERNAME='$user'"
+  if [ "${#also[@]}" -gt 0 ]; then (IFS=,; echo "LOGIN_ORIGINS='${also[*]}'"); fi
+  if [[ "$pw" == *"'"* ]]; then echo "LOGIN_PASSWORD=\"$pw\""; else echo "LOGIN_PASSWORD='$pw'"; fi
+} > "$file"
+chmod 600 "$file"
+echo "$file"

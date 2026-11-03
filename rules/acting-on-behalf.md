@@ -31,7 +31,9 @@
   `agent-browser auth login <name> --credential-provider vault --item <name>`; the plugin gives a
   password only to its own site. For a new account, run
   `vault-login-new <name> <login-url> <email> [--also <sign-up-url>]` first (it generates the
-  password), then fill the form as its `--help` shows. Never `fill`, type or `auth save
+  password), then fill the form as its `--help` shows. For an account he already has,
+  `vault-login-add <name> <login-url> <username>` opens a password dialog that Nadav types
+  into. Never `fill`, type or `auth save
   --password` a password, and never read or print a vault login (`agent-guard.sh` denies it).
   Why: a password in a command or output lands in the transcript.
 - Keep logins: run with `--profile ~/.agent-browser/profiles/nadav` so a session survives
