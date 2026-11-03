@@ -2,7 +2,11 @@
 # ci-wait-wp: wait for the Woodpecker landing run (ci.nadavc.ai) of one commit. ci-wait hands over
 # to it for every repo listed in lib/woodpecker-repos.txt; run it directly the same way.
 #
-#   ci-wait-wp <repo> <sha|branch|pr:N> [--timeout MIN] [--land] [--detach]
+#   ci-wait-wp <repo> <sha|branch|pr:N> [--timeout MIN] [--land | --check] [--detach]
+#
+#   --check    a CI answer on a branch without a landing: a manual run of the branch head (every
+#              step; statuses ci/woodpecker/manual/*, never counted as a landing). For a branch
+#              that must not be merged.
 #
 #   --land     make sure the commit is a landing: an open, non-draft PR into main. A branch with no
 #              PR gets one (title = its newest commit's subject); a draft PR is marked ready.
@@ -35,6 +39,7 @@ while [ $# -gt 0 ]; do
     --require) shift ;;
     --require=*) ;;
     --land) land=1 ;;
+    --check) check=1 ;;
     --detach) follow=0 ;;
     -*) echo "ci-wait-wp: unknown option $1" >&2; usage 64 >&2 ;;
     *) if [ -z "$repo" ]; then repo=$1; elif [ -z "$ref" ]; then ref=$1; else usage 64 >&2; fi ;;
@@ -76,6 +81,20 @@ case "$ref" in
 esac
 [[ $sha =~ ^[0-9a-f]{40}$ ]] || { echo "ci-wait-wp: cannot resolve $ref in $OWNER/$repo" >&2; exit 64; }
 
+# --check: a CI answer on a branch without a landing (no PR, nothing to merge, e.g. a DO-NOT-MERGE
+# integration branch). A manual Woodpecker run of the branch head runs every step; its statuses are
+# ci/woodpecker/manual/*, which the merge guard never counts as a landing.
+if [ -n "${check:-}" ]; then
+  [ -n "$branch" ] || { echo "ci-wait-wp: --check takes a branch name" >&2; exit 64; }
+  n=$(curl -sf --max-time 20 -X POST -H @<(printf 'Authorization: Bearer %s\n' "$WOODPECKER_TOKEN") -H 'Content-Type: application/json' \
+      "$SERVER/api/repos/$rid/pipelines" -d "$(jq -cn --arg b "$branch" '{branch: $b}')" | jq -r '.number // empty')
+  [ -n "$n" ] || { echo "ci-wait-wp: could not start a manual run of $branch" >&2; exit 3; }
+  echo "ci-wait-wp: started a manual check run of $branch (${sha:0:7}): $SERVER/repos/$rid/pipeline/$n"
+  prj="" prnum="" land=""
+  skip_pr=1
+fi
+
+if [ -z "${skip_pr:-}" ]; then
 # The open PR whose head is this sha (the landing request).
 prs=$(ghr pr list -R "$OWNER/$repo" --state open --base main --json number,isDraft,headRefOid,headRefName --limit 200 2>/dev/null)
 prj=$(jq -c --arg s "$sha" '[.[] | select(.headRefOid == $s)][0] // empty' <<<"${prs:-[]}" 2>/dev/null)
@@ -89,8 +108,12 @@ if [ -n "$land" ]; then
     echo "ci-wait-wp: opened landing PR $url"
     prj=$(jq -cn --arg n "${url##*/}" '{number: ($n | tonumber), isDraft: false}')
   elif [ "$(jq -r .isDraft <<<"$prj")" = true ]; then
+    # Marking a draft ready sends GitHub's ready_for_review event, which Woodpecker does not turn into
+    # a run (it only builds opened/synchronize). A landing then needs one more push.
     gh pr ready "$(jq -r .number <<<"$prj")" -R "$OWNER/$repo" >/dev/null 2>&1 \
       && echo "ci-wait-wp: marked PR #$(jq -r .number <<<"$prj") ready"
+    echo "ci-wait-wp: Woodpecker starts a landing run only on a push, not on 'ready'. Push the branch once more (an empty commit works: git commit --allow-empty -m 'ci: land' && git push), then run ci-wait $repo ${branch:-pr:$(jq -r .number <<<"$prj")} again."
+    exit 5
   fi
 elif [ -n "$prj" ] && [ "$(jq -r .isDraft <<<"$prj")" = true ]; then
   echo "ci-wait-wp: PR #$(jq -r .number <<<"$prj") is a draft: drafts run no CI. Mark it ready (gh pr ready) or pass --land." >&2
@@ -110,6 +133,7 @@ if [ -z "$prj" ] && [ -z "$land" ]; then
     prnum=$(jq -r '[.[] | select(.base.ref == "main")][0].number // empty' <<<"${pulls:-[]}" 2>/dev/null)
     [ -n "$prnum" ] && prj=$(jq -cn --arg n "$prnum" '{number: ($n | tonumber), isDraft: false}')
   fi
+fi
 fi
 
 # A landing waits on the PR's own pull_request run; with no PR, a cron or manual run of the sha counts.

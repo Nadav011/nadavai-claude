@@ -85,6 +85,7 @@ while [ $# -gt 0 ]; do
     --require) require=${2:-}; shift ;;
     --require=*) require=${1#*=} ;;
     --land) land=1 ;;
+    --check) check=1 ;;
     --detach) follow=0 ;;
     -*) echo "ci-wait: unknown option $1" >&2; usage 64 >&2 ;;
     *) if [ -z "$repo" ]; then repo=$1; elif [ -z "$ref" ]; then ref=$1; else usage 64 >&2; fi ;;
@@ -107,7 +108,7 @@ wp_active() {
   [ -r "$list" ] && grep -qixF "$repo" <(sed 's/[[:space:]]*#.*//; /^$/d' "$list")
 }
 if wp_active; then
-  args=("$repo" "$ref" --timeout "$timeout_min"); [ -n "$land" ] && args+=(--land); [ "$follow" = 0 ] && args+=(--detach)
+  args=("$repo" "$ref" --timeout "$timeout_min"); [ -n "$land" ] && args+=(--land); [ -n "${check:-}" ] && args+=(--check); [ "$follow" = 0 ] && args+=(--detach)
   exec "$(dirname "$(readlink -f "$0")")/ci-wait-wp" "${args[@]}"
 fi
 # Snapshots, head lookups and locks of waits long over.
