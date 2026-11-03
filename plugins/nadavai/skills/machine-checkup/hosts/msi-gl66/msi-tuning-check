@@ -16,7 +16,7 @@ for z in intel-rapl:0 intel-rapl-mmio:0; do
   chk "$z PL1 40 W / PL2 45 W"             "[ \"\$(sudo cat $d/constraint_0_power_limit_uw)\" = 40000000 ] && [ \"\$(sudo cat $d/constraint_1_power_limit_uw)\" = 45000000 ]"
 done
 chk "msi-power-limits.timer active"        "systemctl is-active -q msi-power-limits.timer"
-chk "max clock 4.2 GHz"                    "[ \"\$(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq)\" = 4200000 ]"
+chk "max clock 4.2 GHz on every CPU (timer active)" "[ \"\$(cat /sys/devices/system/cpu/cpu*/cpufreq/scaling_max_freq | sort -u)\" = 4200000 ] && systemctl is-active -q cpu-maxfreq.timer"
 chk "msi-fan-boost running (boost now: $(cat $E/cooler_boost 2>/dev/null))" "systemctl is-active -q msi-fan-boost"
 echo "== Disk"
 chk "scheduler bfq, nr_requests 64"        "grep -q '\[bfq\]' $Q/scheduler && [ \"\$(cat $Q/nr_requests)\" = 64 ]"

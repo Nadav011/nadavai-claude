@@ -24,7 +24,7 @@ sudo modprobe msi-ec   # loud failure here if the DKMS build failed (missing hea
 sudo install -m 644 "$here/intel-undervolt.conf" /etc/intel-undervolt.conf
 sudo install -m 755 "$here/msi-fan-boost" /usr/local/bin/msi-fan-boost
 sudo install -m 644 "$here/msi-turbo.service" "$here/cpu-maxfreq.service" "$here/msi-power-limits.service" \
-  "$here/msi-power-limits.timer" "$here/msi-fan-boost.service" "$here/docker-wifi-block.service" /etc/systemd/system/
+  "$here/msi-power-limits.timer" "$here/cpu-maxfreq.timer" "$here/msi-fan-boost.service" "$here/docker-wifi-block.service" /etc/systemd/system/
 
 # Always-on box (CI agent): closing the lid must not suspend it.
 sudo install -D -m 644 "$here/50-lid-ignore.conf" /etc/systemd/logind.conf.d/50-lid-ignore.conf
@@ -53,8 +53,9 @@ install -D -m 755 "$here/msi-tuning-check" "$HOME/.local/bin/msi-tuning-check"
 sudo sysctl -q -p /etc/sysctl.d/99-dev-limits.conf
 sudo udevadm control --reload && sudo udevadm trigger -s block --sysname-match='nvme*' -c change
 sudo systemctl daemon-reload
-sudo systemctl enable --now msi-turbo.service intel-undervolt.service cpu-maxfreq.service msi-power-limits.timer msi-fan-boost.service
-sudo systemctl start msi-power-limits.service
+sudo systemctl enable --now msi-turbo.service intel-undervolt.service cpu-maxfreq.service cpu-maxfreq.timer msi-power-limits.timer msi-fan-boost.service
+# restart, not start: an older unit file had RemainAfterExit=yes, and an "active (exited)" oneshot is not re-run
+sudo systemctl restart msi-power-limits.service cpu-maxfreq.service msi-fan-boost.service
 if systemctl list-unit-files docker.service >/dev/null 2>&1; then sudo systemctl enable --now docker-wifi-block.service; fi
 sudo systemctl restart ananicy-cpp
 # rasdaemon records MCEs; v1.0 logs every SIGCHLD unless signal tracing is disabled (a CI host forks a lot).
