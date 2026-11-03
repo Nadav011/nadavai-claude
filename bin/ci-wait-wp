@@ -1,0 +1,176 @@
+#!/usr/bin/env bash
+# ci-wait-wp: wait for the Woodpecker landing run (ci.nadavc.ai) of one commit. ci-wait hands over
+# to it for every repo listed in lib/woodpecker-repos.txt; run it directly the same way.
+#
+#   ci-wait-wp <repo> <sha|branch|pr:N> [--timeout MIN] [--land] [--detach]
+#
+#   --land     make sure the commit is a landing: an open, non-draft PR into main. A branch with no
+#              PR gets one (title = its newest commit's subject); a draft PR is marked ready.
+#   --timeout  default 90 minutes. --require full is accepted and ignored (a landing is the full
+#              answer for what the PR changed; the night runs everything).
+#   --detach   keep waiting when the process that started it is gone.
+#
+# CI runs only on a non-draft PR into main and at night; a branch push alone runs nothing.
+# Run it with run_in_background: true and continue when it ends; never a status loop.
+#
+# Exit codes: 0 green; 1 red (failed steps and the log tail of the first are printed); 2 timeout;
+# 3 Woodpecker unreachable 3 times in a row, or no run appeared; 4 the starting process is gone;
+# 5 nothing to wait on (no landing PR for this commit, a draft, or a run Woodpecker blocked or
+# skipped); 6 superseded (a newer push to the PR cancelled this run: wait on the new head).
+set -uo pipefail
+
+OWNER=Nadav011
+ENV_FILE=${WOODPECKER_ENV_FILE:-$HOME/.claude/secrets/woodpecker.env}
+POLL=${CI_WAIT_POLL:-20}
+PENDING_WARN_S=300
+
+usage() { sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+
+repo="" ref="" timeout_min=90 land="" follow=${CI_WAIT_FOLLOW_PARENT:-1} branch=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -h|--help) usage 0 ;;
+    --timeout) timeout_min=${2:-}; shift ;;
+    --timeout=*) timeout_min=${1#*=} ;;
+    --require) shift ;;
+    --require=*) ;;
+    --land) land=1 ;;
+    --detach) follow=0 ;;
+    -*) echo "ci-wait-wp: unknown option $1" >&2; usage 64 >&2 ;;
+    *) if [ -z "$repo" ]; then repo=$1; elif [ -z "$ref" ]; then ref=$1; else usage 64 >&2; fi ;;
+  esac
+  shift
+done
+[ -n "$repo" ] && [ -n "$ref" ] || usage 64 >&2
+[[ $timeout_min =~ ^[0-9]+$ ]] || { echo "ci-wait-wp: --timeout takes whole minutes" >&2; exit 64; }
+repo=${repo#"$OWNER/"}
+[[ $repo =~ ^[A-Za-z0-9._-]+$ ]] || { echo "ci-wait-wp: $repo is not a repository name" >&2; exit 64; }
+
+if [ -z "${WOODPECKER_TOKEN:-}" ]; then
+  # shellcheck disable=SC1090
+  [ -r "$ENV_FILE" ] && { set -a; . "$ENV_FILE"; set +a; }
+fi
+SERVER=${WOODPECKER_SERVER:-https://ci.nadavc.ai}
+[ -n "${WOODPECKER_TOKEN:-}" ] || { echo "ci-wait-wp: no WOODPECKER_TOKEN (vault file $ENV_FILE)" >&2; exit 3; }
+
+# The token goes to curl through a file descriptor, never on its command line (/proc/*/cmdline).
+api() { curl -sf --max-time 20 -H @<(printf 'Authorization: Bearer %s\n' "$WOODPECKER_TOKEN") "$SERVER/api/$1"; }
+
+parent=$PPID
+parent_alive() { [ "$follow" = 0 ] || kill -0 "$parent" 2>/dev/null; }
+
+rid=$(api "repos/lookup/$OWNER/$repo" | jq -r 'select(.active == true) | .id' 2>/dev/null)
+[ -n "$rid" ] || { echo "ci-wait-wp: $OWNER/$repo is not active on Woodpecker ($SERVER), or Woodpecker is unreachable" >&2; exit 3; }
+
+# Resolve the ref to a head sha once; a later push does not move what this waits for.
+sha="" pr=""
+case "$ref" in
+  pr:*|'#'*) pr=${ref#pr:}; pr=${pr#\#}
+             [[ $pr =~ ^[0-9]+$ ]] || { echo "ci-wait-wp: pr:N takes a PR number" >&2; exit 64; }
+             sha=$(gh pr view "$pr" -R "$OWNER/$repo" --json headRefOid --jq .headRefOid 2>/dev/null) ;;
+  *) [[ $ref =~ ^[0-9a-f]{7,40}$ ]] || branch=$ref
+     sha=$(gh api "repos/$OWNER/$repo/commits/$ref" --jq .sha 2>/dev/null) ;;
+esac
+[[ $sha =~ ^[0-9a-f]{40}$ ]] || { echo "ci-wait-wp: cannot resolve $ref in $OWNER/$repo" >&2; exit 64; }
+
+# The open PR whose head is this sha (the landing request).
+prs=$(gh pr list -R "$OWNER/$repo" --state open --base main --json number,isDraft,headRefOid,headRefName --limit 200 2>/dev/null)
+prj=$(jq -c --arg s "$sha" '[.[] | select(.headRefOid == $s)][0] // empty' <<<"${prs:-[]}" 2>/dev/null)
+if [ -n "$land" ]; then
+  if [ -z "$prj" ]; then
+    [ -n "$branch" ] || { echo "ci-wait-wp: --land needs a branch name (or an open PR) for ${sha:0:7}" >&2; exit 5; }
+    title=$(gh api "repos/$OWNER/$repo/commits/$sha" --jq '.commit.message | split("\n")[0]' 2>/dev/null)
+    url=$(gh pr create -R "$OWNER/$repo" --base main --head "$branch" --title "${title:-$branch}" \
+      --body "Landing request opened by ci-wait --land." 2>/dev/null) \
+      || { echo "ci-wait-wp: could not open a PR for $branch (is it pushed, and is its head ${sha:0:7}?)" >&2; exit 5; }
+    echo "ci-wait-wp: opened landing PR $url"
+    prj=$(jq -cn --arg n "${url##*/}" '{number: ($n | tonumber), isDraft: false}')
+  elif [ "$(jq -r .isDraft <<<"$prj")" = true ]; then
+    gh pr ready "$(jq -r .number <<<"$prj")" -R "$OWNER/$repo" >/dev/null 2>&1 \
+      && echo "ci-wait-wp: marked PR #$(jq -r .number <<<"$prj") ready"
+  fi
+elif [ -n "$prj" ] && [ "$(jq -r .isDraft <<<"$prj")" = true ]; then
+  echo "ci-wait-wp: PR #$(jq -r .number <<<"$prj") is a draft: drafts run no CI. Mark it ready (gh pr ready) or pass --land." >&2
+  exit 5
+fi
+prnum=""; [ -n "$prj" ] && prnum=$(jq -r '.number // empty' <<<"$prj" 2>/dev/null)
+# A commit on main is not tested again (rule 7): it answers with the landing of the PR it was merged
+# from, so a wait on main after a merge reports that PR's run.
+if [ -z "$prj" ] && [ -z "$land" ]; then
+  mp=$(gh api "repos/$OWNER/$repo/commits/$sha/pulls" 2>/dev/null \
+    | jq -c '[.[] | select(.merged_at != null and .base.ref == "main")][0] // empty | {number, head: .head.sha}' 2>/dev/null)
+  if [ -n "$mp" ]; then
+    prnum=$(jq -r .number <<<"$mp"); merged_from=${sha:0:7}; sha=$(jq -r .head <<<"$mp"); prj=$mp
+    echo "ci-wait-wp: $merged_from on main is the merge of PR #$prnum; main is not tested again, so this reports PR #$prnum's landing (head ${sha:0:7})"
+  fi
+fi
+
+# A landing waits on the PR's own pull_request run; with no PR, a cron or manual run of the sha counts.
+if [ -n "$prj" ]; then sel='select(.commit == $s and .event == "pull_request")'; else sel='select(.commit == $s)'; fi
+
+deadline=$(( $(date +%s) + timeout_min * 60 ))
+down=0 warned="" since=$(date +%s) n=""
+while :; do
+  parent_alive || { echo "ci-wait-wp: the process that started this wait is gone"; exit 4; }
+  [ "$(date +%s)" -lt "$deadline" ] || { echo "ci-wait-wp: timeout after ${timeout_min} min on ${sha:0:7}${n:+ (pipeline $n)}"; exit 2; }
+  if [ -z "$n" ]; then
+    if ! list=$(api "repos/$rid/pipelines?per_page=50"); then
+      down=$((down + 1)); [ "$down" -ge 3 ] && { echo "ci-wait-wp: Woodpecker ($SERVER) unreachable 3 times in a row"; exit 3; }
+      sleep "$POLL"; continue
+    fi
+    down=0
+    n=$(jq -r --arg s "$sha" "[.[] | $sel] | sort_by(.number) | last | .number // empty" <<<"$list" 2>/dev/null)
+    if [ -z "$n" ]; then
+      waited=$(( $(date +%s) - since ))
+      if [ -z "$prj" ] && [ "$waited" -ge 60 ]; then
+        echo "ci-wait-wp: no landing run for ${sha:0:7}: a branch push runs no CI. Open a non-draft PR into main, or run ci-wait $repo <branch> --land."
+        exit 5
+      fi
+      [ "$waited" -ge 600 ] && { echo "ci-wait-wp: PR #$prnum exists but Woodpecker created no run in 10 min (webhook, or no .woodpecker/ on the PR): $SERVER/repos/$rid"; exit 3; }
+      sleep "$POLL"; continue
+    fi
+    echo "ci-wait-wp: $repo ${sha:0:7} -> $SERVER/repos/$rid/pipeline/$n"
+  fi
+  if ! d=$(api "repos/$rid/pipelines/$n"); then
+    down=$((down + 1)); [ "$down" -ge 3 ] && { echo "ci-wait-wp: Woodpecker ($SERVER) unreachable 3 times in a row"; exit 3; }
+    sleep "$POLL"; continue
+  fi
+  down=0
+  st=$(jq -r '.status // empty' <<<"$d")
+  case "$st" in
+    success)
+      dur=$(jq -r '((.finished // 0) - (.started // 0))' <<<"$d" 2>/dev/null); [[ $dur =~ ^[0-9]+$ ]] || dur=0
+      echo "green: $repo ${sha:0:7} pipeline $n in $((dur / 60))m$((dur % 60))s"
+      jq -r '.workflows[]?.children[]? | "  \(.name): \(.state)"' <<<"$d" 2>/dev/null
+      exit 0 ;;
+    killed)
+      now=""
+      [ -n "$prnum" ] && now=$(gh pr view "$prnum" -R "$OWNER/$repo" --json headRefOid --jq .headRefOid 2>/dev/null)
+      if [ -n "$now" ] && [ "$now" != "$sha" ]; then
+        echo "superseded: pipeline $n of ${sha:0:7} was cancelled by a newer push (PR #$prnum head is now ${now:0:7}). Wait on that: ci-wait $repo pr:$prnum"
+        exit 6
+      fi
+      echo "red: $repo ${sha:0:7} pipeline $n was killed: $SERVER/repos/$rid/pipeline/$n"
+      exit 1 ;;
+    failure|error|declined)
+      echo "red: $repo ${sha:0:7} pipeline $n is $st: $SERVER/repos/$rid/pipeline/$n"
+      jq -r '.workflows[]?.children[]? | select(.state != "success" and .state != "skipped") | "  \(.name): \(.state) (exit \(.exit_code))"' <<<"$d" 2>/dev/null
+      sid=$(jq -r '[.workflows[]?.children[]? | select(.state == "failure")][0].id // empty' <<<"$d" 2>/dev/null)
+      if [ -n "$sid" ]; then
+        echo "--- last lines of the first failed step:"
+        api "repos/$rid/logs/$n/$sid" | jq -r '.[-40:][] | .data // empty' 2>/dev/null \
+          | while IFS= read -r l; do printf '%s' "$l" | base64 -d 2>/dev/null; echo; done | sed '/^$/d' | tail -40
+      fi
+      exit 1 ;;
+    blocked|skipped)
+      echo "ci-wait-wp: pipeline $n is $st (Woodpecker did not run it): $SERVER/repos/$rid/pipeline/$n"
+      exit 5 ;;
+    pending)
+      created=$(jq -r '.created // 0' <<<"$d")
+      if [ -z "$warned" ] && [ $(( $(date +%s) - created )) -ge "$PENDING_WARN_S" ]; then
+        echo "ci-wait-wp: warning: pipeline $n has waited over 5 min for a free agent ($SERVER/admin/agents)"
+        warned=1
+      fi ;;
+  esac
+  sleep "$POLL"
+done

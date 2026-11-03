@@ -526,6 +526,45 @@ if [ -n "$MAIN_LOCAL_SHA" ] && [ "${MAIN_LOCAL_SHA//0/}" != "" ]; then
              jq -e 'type == "array" and any(.[]; .context == "nadavai-ci")' >/dev/null 2>&1 && on_ci=1 ;;
       esac
     fi
+    # CI v2: a repo cut over to Woodpecker (lib/woodpecker-repos.txt) lands through a PR. A direct
+    # push to main passes when the pushed commit (or a commit with the same tree: itself, a parent,
+    # five first parents) has a green ci/woodpecker/pr/landing status, or only documentation
+    # changed since main. Same rule family as agent-guard's wp_merge_check.
+    if [ "${gh_owner,,}" = nadav011 ] && grep -qixF "$gh_name" <(sed 's/[[:space:]]*#.*//; /^$/d' "${NADAVAI_HOME:-$HOME/nadavai}/lib/woodpecker-repos.txt" 2>/dev/null); then
+      on_ci=""
+      MAIN_REMOTE=""; case "$MAIN_REMOTE_SHA" in *[!0]*) git cat-file -e "$MAIN_REMOTE_SHA^{commit}" 2>/dev/null && MAIN_REMOTE=$MAIN_REMOTE_SHA ;; esac
+      wp_ok="" wp_unread=0
+      if [ -n "${NADAVAI_LAND_URGENT:-}" ]; then
+        echo "⚠️  pre-push [landing]: NADAVAI_LAND_URGENT ($NADAVAI_LAND_URGENT): ${MAIN_LOCAL_SHA:0:7} reaches main without a Woodpecker landing"
+        LANDING="urgent:${NADAVAI_LAND_URGENT//[$'\t\n']/ }"; wp_ok=1
+      elif [ -n "$MAIN_REMOTE" ] && landing_docs_only "$MAIN_REMOTE" "$MAIN_LOCAL_SHA"; then
+        echo "✅ pre-push [landing]: documentation only since main"; LANDING="ok"; wp_ok=1
+      else
+        wp_tree=$(git rev-parse -q --verify "$MAIN_LOCAL_SHA^{tree}" 2>/dev/null)
+        wp_c=$MAIN_LOCAL_SHA; wp_cands=("$MAIN_LOCAL_SHA")
+        for ((i = 0; i < 5; i++)); do wp_c=$(git rev-parse -q --verify "$wp_c^1" 2>/dev/null) || break; wp_cands+=("$wp_c"); done
+        for p in "${wp_cands[@]}"; do
+          [ "$(git rev-parse -q --verify "$p^{tree}" 2>/dev/null)" = "$wp_tree" ] || continue
+          r=$(timeout 10 gh api "repos/$GH_REPO/commits/$p/statuses?per_page=100" 2>/dev/null | jq -r 'if type == "array" then ([sort_by(.id) | reverse | .[] | select(.context == "ci/woodpecker/pr/landing")][0].state // "none") else "unread" end' 2>/dev/null)
+          [ -n "$r" ] || r=unread
+          [ "$r" = unread ] && wp_unread=1
+          [ "$r" = success ] && { echo "✅ pre-push [landing]: the tree of ${p:0:7} passed its Woodpecker landing"; LANDING="ok"; wp_ok=1; break; }
+        done
+        if [ -z "$wp_ok" ] && [ "$wp_unread" = 1 ]; then
+          echo "⚠️  pre-push [landing]: GitHub unreadable; main pushed without the landing check"; LANDING=unreadable; wp_ok=1
+        fi
+      fi
+      if [ -z "$wp_ok" ]; then
+        echo ""
+        echo "🚫 pre-push [landing]: ${MAIN_LOCAL_SHA:0:7} has no green Woodpecker landing (ci/woodpecker/pr/landing)."
+        echo "   $gh_name lands through a non-draft PR into main: push the branch, run"
+        echo "   ci-wait $gh_name <branch> --land in the background, and merge the PR after it is green."
+        echo "   Urgent fix: NADAVAI_LAND_URGENT='<reason>' git push ...   Emergency: git push --no-verify"
+        DECISION=landing-refused LANDING=refused
+        kill $(jobs -p) 2>/dev/null; wait 2>/dev/null
+        exit 1
+      fi
+    fi
     if [ -n "$on_ci" ]; then
       # The repos whose main deploys itself (DEPLOY auto in nadavai-ci): a documentation commit on
       # top of a commit that is not live yet still makes main deploy, a full run.

@@ -8,6 +8,10 @@ CASES="$(cd "$(dirname "$0")" && pwd)/agent-guard-strict-cases.jsonl"
 PASS=0; FAIL=0
 # Strict mode follows ${XDG_CONFIG_HOME}/nadavai/guard-strict: off here, on under $STRICT_CFG.
 tmp=$(mktemp -d); trap 'rm -rf -- "$tmp"' EXIT
+# The merge cases below test the old nadavai-ci rule: no repo is cut over to Woodpecker here
+# (tests/test-wp-merge.sh covers that rule).
+mkdir -p "$tmp/nadavai-home/lib"; : >"$tmp/nadavai-home/lib/woodpecker-repos.txt"
+export NADAVAI_HOME=$tmp/nadavai-home
 export XDG_CONFIG_HOME=$tmp/off
 STRICT_CFG=$tmp/on; mkdir -p "$STRICT_CFG/nadavai"; : >"$STRICT_CFG/nadavai/guard-strict"
 

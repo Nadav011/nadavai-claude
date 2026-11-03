@@ -606,6 +606,48 @@ strict_guard() { # strict_guard <command>: denies, or returns
   esac
 }
 
+# CI v2 merge rule for a Woodpecker repo (Nadav, 2026-11-03, plan ~/.omc/plans/ci-v2-2026-11-03.md):
+# the PR head's newest ci/woodpecker/pr/landing status is success, and if main moved since the PR
+# branched, main's new commits touch none of the PR's files and no shared file (lockfile, package
+# manifest, tsconfig, *.config.*, .woodpecker/, migrations). Otherwise: rebase and land again.
+# GitHub unreadable lets the merge through, like the old rule.
+WP_SHARED_RE='(^|/)(package\.json|pnpm-lock\.yaml|package-lock\.json|pnpm-workspace\.yaml|deno\.jsonc?|deno\.lock|tsconfig[^/]*\.json)$|(^|/)[^/]*\.config\.[cm]?[jt]s$|^\.woodpecker/|(^|/)migrations/'
+wp_merge_check() { # owner name pr-or-branch dir
+  local o=$1 n=$2 pr=$3 dir=$4 pv head ref num st cmp ahead nmain mainfiles prfiles hit
+  [ -n "$pr" ] || pr=$(git -C "$dir" branch --show-current 2>/dev/null)
+  [ -n "$pr" ] || return 0
+  pv=$(timeout 10 gh pr view "$pr" -R "$o/$n" --json number,headRefOid,headRefName,baseRefName 2>/dev/null) || return 0
+  head=$(jq -r .headRefOid <<<"$pv"); ref=$(jq -r .headRefName <<<"$pv"); num=$(jq -r .number <<<"$pv")
+  [ "$(jq -r .baseRefName <<<"$pv")" = main ] || return 0
+  # Every Woodpecker PR context's newest status must be success ("none" when there is none at all).
+  st=$(timeout 10 gh api "repos/$o/$n/commits/$head/statuses?per_page=100" 2>/dev/null \
+    | jq -r 'if type == "array" then
+        ([.[] | select(.context | startswith("ci/woodpecker/pr/"))] | group_by(.context)
+         | map(sort_by(.id) | last | .state)) as $s
+        | if ($s | length) == 0 then "none" elif all($s[]; . == "success") then "success" else ($s | map(select(. != "success")) | first) end
+      else empty end' 2>/dev/null)
+  [ -n "$st" ] || return 0
+  if [ "$st" != success ]; then
+    deny "PR $num on $n has no green Woodpecker landing run on its head ${head:0:7} (ci/woodpecker/pr: $st). The landing runs on a non-draft PR into main: run ci-wait $n pr:$num in run_in_background (or ci-wait $n $ref --land) and merge after it is green, with gh pr merge $num --match-head-commit $head. For an urgent fix, add '# land-urgent: <reason>' to the command."
+  fi
+  cmp=$(timeout 15 gh api "repos/$o/$n/compare/$head...main" 2>/dev/null) || return 0
+  ahead=$(jq -r '.ahead_by // 0' <<<"$cmp")
+  [ "$ahead" -gt 0 ] 2>/dev/null || return 0
+  # GitHub's compare lists at most 300 files and 250 commits: past that the overlap cannot be read.
+  nmain=$(jq -r '.files | length' <<<"$cmp")
+  if [ "$ahead" -gt 250 ] || [ "${nmain:-0}" -ge 300 ]; then
+    deny "Main moved $ahead commits since PR $num on $n was tested, too many to check for overlap. Rebase $ref on main, push it, run ci-wait $n pr:$num in run_in_background, and merge after it is green. For an urgent fix, add '# land-urgent: <reason>' to the command."
+  fi
+  mainfiles=$(jq -r '.files[]? | .filename, (.previous_filename // empty)' <<<"$cmp")
+  prfiles=$(timeout 20 gh api --paginate "repos/$o/$n/pulls/$num/files?per_page=100" --jq '.[] | .filename, (.previous_filename // empty)' 2>/dev/null) || return 0
+  hit=$(comm -12 <(sort -u <<<"$mainfiles") <(sort -u <<<"$prfiles") | head -5)
+  [ -n "$hit" ] || hit=$(grep -E "$WP_SHARED_RE" <<<"$mainfiles" | head -5)
+  if [ -n "$hit" ]; then
+    deny "Main moved $ahead commits since PR $pr on $n was tested, and those commits touch files this PR also changes or a shared file: $(tr '\n' ' ' <<<"$hit"). Rebase $ref on main, push it (the landing runs again on the PR), run ci-wait $n pr:$pr in run_in_background, and merge after it is green. For an urgent fix, add '# land-urgent: <reason>' to the command."
+  fi
+  return 0
+}
+
 merge_guard() { # merge_guard <command> <cwd>: denies on the first failing merge, or returns
   local found lines line rp pr dir o n pv head ref base kind passed behind
   case "$1" in *gh*pr*merge*) ;; *) return 0 ;; esac
@@ -629,6 +671,15 @@ merge_guard() { # merge_guard <command> <cwd>: denies on the first failing merge
     case "$rp" in */*) ;; *) continue ;; esac
     n=${rp##*/}; o=${rp%/*}; o=${o##*[/:]}
     [ "${o,,}" = nadav011 ] || continue
+    # CI v2: a repo cut over to Woodpecker (lib/woodpecker-repos.txt in nadavai) has its own rule.
+    # A PR named through the shell cannot be looked up on either path.
+    if grep -qixF "$n" <(sed 's/[[:space:]]*#.*//; /^$/d' "${NADAVAI_HOME:-$HOME/nadavai}/lib/woodpecker-repos.txt" 2>/dev/null); then
+      if [ -n "$pr" ] && ! [[ $pr =~ ^[A-Za-z0-9._/-]+$ ]]; then
+        deny "gh pr merge $pr on $n names its PR through the shell, so the guard cannot check its landing run before it runs. Merge one PR per command with its literal number (gh pr merge 12 ...). For an urgent fix, add '# land-urgent: <reason>' to the command."
+      fi
+      wp_merge_check "$o" "$n" "$pr" "$dir"
+      continue
+    fi
     # Any other repo is on NadavAI CI when main's head carries a nadavai-ci status (repos added later too).
     case "${n,,}" in
       therapy-flow-v2|sportchat-web|cash-next-app|snooker-smart) ;;

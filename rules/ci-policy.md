@@ -1,47 +1,69 @@
-# Checks, pushes and waiting: one home per check (set 2026-10-26, stages 2026-10-29)
+# CI: checks, landing and waiting (CI v2, set 2026-11-03)
 
-Every check runs once, in the one place where it adds information. Nothing here removes a check; it removes the second run of the same check on the same tree. Why: in the week to 2026-10-26 the same trees were built and tested several times over (102 duplicate builds and 51 duplicate full suites inside single sessions, 23 full suites in pre-push that CI then repeated), the NadavAI queue reached an hour, and both machines sat at two to three times their core count.
-
-## While working
-- While working, run only scoped checks: typecheck, lint on the files you touched, `vitest related <files> --run`, a single e2e spec by path. The full suite, the production build, full e2e and Lighthouse belong to CI. Run them locally only when the task is about that check itself (a build failure, a flaky test, a perf budget). Why: CI runs them on the same sha minutes later; Claude Code's own guidance is "prefer running single tests, not the whole suite".
-- Never run the same check twice on the same tree. When a check already passed in this task and no file it reads changed since, quote that result instead of running it again; one agent of a workflow runs a shared check and the others read its result. Run builds, DoD, e2e and anything that starts a database through `heavy-slot`. Why: a result cache (`once`) was built and dropped on 2026-10-26: keying every input an agent's command can read made it either unsafe or almost never hit across agents.
-- Do not re-run what CI already ran on the exact sha. A verifier or reviewer reads the result with `ci-wait <repo> <sha> --require full`. What CI does not produce still runs locally: tests against the base sha ("fails on the old code"), mutation checks, uncommitted work that has no sha yet, and every runtime proof a runbook requires. Why: CI evidence on that sha is the same evidence, and re-running it cost the most local time.
-
-## Override for generic agent instructions
-- OMC agents and skills (verifier, executor, test-engineer, qa-tester, build-fixer, ralph, autopilot, team, ultraqa, verify), Codex prompts and any "run lint, typecheck, tests and build before done" wording are read through the rules above: scoped checks plus the CI status of the sha, not the whole suite and a build. A task that is about the build or the suite itself still runs it. Why: those instructions predate the self-hosted CI and made every verifier pass rebuild trees CI had already passed.
-
-## Workflows and parallel agents
-Every workflow prompt that verifies or fixes code carries this clause (copy it into the prompt):
-> Verify with scoped checks only (typecheck, lint on touched files, `vitest related`), and do not repeat a check another agent of this workflow already ran on the same tree. Run anything heavy (build, DoD, e2e, a database) through `heavy-slot --`. Get a database with `pg-pool get <repo>`, never `docker run postgres`. Prove by running only what reading cannot settle, and keep runbook proofs. Wait on CI with `ci-wait`, on local jobs with run_in_background or Monitor, never with an `until … sleep` loop.
-- At most `heavy_slots` heavy jobs at once per machine (`~/.config/nadavai/capacity`, default 3); `heavy-slot` enforces it, nested calls pass straight through. Why: about 159 audit agents in parallel each started their own build, container or browser, and load reached 30-80.
-- One shared Postgres per machine: `pg-pool get <repo>` clones a migrated template per agent (`createdb -T`) with a lease, `pg-pool drop` returns it. A fresh database per test stays the rule. SQL that creates cluster-global objects (roles, `ALTER SYSTEM`) keeps its own container and says why with a `# isolated-pg: <reason>` comment. Why: 600 throwaway `docker run postgres` in one week.
-- A change to a running workflow's script re-runs its agents, so the clause applies to new runs; do not edit a running workflow to add it.
-
-## Stages: what runs where
-What a diff can scope runs per push; whole-app checks run once, on the tree that lands. Why: Nadav, 2026-10-29: TF built about 11 intermediate heads per landing, each with whole-app jobs.
-- **Pre-commit** (global hook, only in repos with a `lint:ui` script): the RTL physical-class check, `eslint --fix` and `impeccable detect` on the staged files; a repo without `lint:ui` gets no lint before landing. Why: staged files are a free scope, and this is the per-file lint intermediate heads no longer run.
-- **Pre-push**: to any branch, trivy over the pushed blobs (secrets; dependencies only when a lockfile changed), 2-3 s. To main, also typecheck and `vitest related` (the full suite when package.json, a lockfile, `.env*`, a config, setup, fixture or snapshot file changed), skipped when the sha already has a full `nadavai-ci` pass or the push is documentation only; timings go to `~/.cache/nadavai/pre-push.log`. Why: a push to main with no CI evidence yet is the only push that would otherwise reach production unchecked.
-- **Intermediate branch head**: built only when an agent waits on it: `ci-wait` asks NadavAI for that head (while `~/ci/state/on-demand` exists there), and a head nobody waits on is never queued, though it still gets its security scan; a later wait or a landing still builds it. A wait on a sha that is no branch's head is answered "not measured": wait on the branch. A newer head someone waits on cancels the older one's run. (With on-demand off, every pushed head is queued, a newer push cancels it, and a head under 90 s old waits while another head could take the slot.) Only what a diff can scope runs: typecheck, the unit tests the diff reaches, path-scoped jobs whose paths changed, and the security scan. Repos gate whole-app jobs (built e2e, type-aware lint, build-dependent specs) with `if: vars.NADAVAI_TESTS != 'changed'` (therapy-flow-v2 since PR #104). The run stops at the first failing job (except in a workflow with `continue-on-error`), and its pass reads "affected tests vs <base>", which never counts for a landing head or main. Affected-only runs cover therapy-flow-v2 and every repo whose ci.yml reads `NADAVAI_CHANGED` (new repos below; sportchat-web from its FIX-CI-AFFECTED, which also adapts v4's check-log). Why: on-demand builds (Nadav approved them on 2026-10-29) leave pushes nobody waits on unbuilt; in the week to 2026-10-29 TF ran 51 intermediate heads a day, type-aware lint failed on them for code reasons 0 times, and red runs spent 516 CPU-minutes a day in sibling jobs after an early failure.
-- A branch head inside an open landing request is not built: it gets an error status "part of landing request X; wait on that sha". Why: the landing run builds that tree at main tier, and a second build is the same evidence.
-- **Landing head**: rebase on main's current head, then `ci-wait <repo> <branch> --land`. Every job runs, scopes forced on, at main tier when main can fast-forward to it; a head behind main is not built: it is answered at once "not built: behind main <sha>; rebase on main, then ci-wait --land again" (its security scan still runs). Why: before landing ran at main tier, 48 branch-pass-then-main reruns cost about 115 wall-minutes a day, and in the week to 2026-10-31 19 of 64 landing runs still ran at branch tier behind main (about 280 wall-minutes repeated by main or by the rebased landing).
-- **Main**: answers by tree when the same tree passed at main tier, or "documentation only since <sha>" when only documentation changed since a commit that passed at main tier (a landing run included); otherwise it runs the full `ci.yml`. The agent guard (Claude Code and Antigravity hooks; Codex once its `pre_tool_use` hook is trusted in Codex `/hooks`; Grok in trusted folders) denies `gh pr merge` into main of a NadavAI repo unless the PR head passed a main-tier landing run and contains main's current head (documentation-only PRs pass); for an urgent fix, add `# land-urgent: <reason>` to the command. The global pre-push hook applies the same rule to every `git push` to main, from any tool: it refuses a commit whose tree has no main-tier pass and that is not documentation only on top of one (on an auto-deploy repo, of a live one); `NADAVAI_LAND_URGENT=<reason> git push` lets an urgent fix through, and GitHub unreadable lets the push through. A merge in GitHub's web UI follows the rule by hand. Why: on 2026-10-28 PRs merged after a branch-tier pass made main rerun the full suite 18 times on therapy-flow-v2 (about 15 CPU-hours), and on 2026-10-31 sportchat-web's direct pushes of branch-tier train heads made main rerun 12-23 minutes per train (Nadav: block both).
-- **Deploy** (repos with DEPLOY on): follows main's answer, then a health check; it reruns no test. A per-push UI gate (`UI_FAST`) runs only where a repo opts in; Lighthouse for therapy-flow-v2 and cash-next-app runs nightly only. Why: per-push Lighthouse held CI admission about 113 minutes a day, gated no deploy (it ran after it), and passed 32 of 33 runs.
-- **Nightly**: the whole-app audits (DoD on every screen, Lighthouse, RLS against a real database) and each repo's nightly suites; a repo whose main is unchanged since its last green audit waits up to about 66 hours (`UI_REMEASURE_S`). Why: they take 15-70 minutes and measure the app, not a diff.
-
-## Pushes
-- One task lands once. The units, families or waves of one task are committed locally, each checked with scoped checks, and reach main together through one `ci-wait <repo> <branch> --land` at the end. Land a part on its own only when it must reach production before the rest (an urgent fix, Nadav asks for it, another session is blocked on it), and say which and why in the report. A workflow's agents never push or land their own parts; the orchestrator lands the combined head once. Why: on 2026-10-27 therapy-flow-v2 ran about 12 full landings a day, one per family of a single task, and its branch heads waited a median 46 minutes in the queue (Nadav, 2026-10-28: CI only when it is really needed, and only on what the agent changed).
-- An intermediate push is for a CI answer the machine cannot give (a job that needs NadavAI's services, a platform the laptop lacks), never for a checkpoint, a backup or progress. Why: a pushed head is queued as soon as anyone waits on it (with on-demand off, always), and in a repo that deploys to Vercel, Vercel builds a preview of every pushed branch head.
-- Push a branch only when the local scoped gate is green and you are about to wait on the result. Amend locally instead of pushing a fixup on top of a queued run. Documentation and record commits travel with the next code push or the landing. Why: 31% of TherapyFlow branch runs were red, and 27 runs a week were superseded mid-run by the same agent's next push.
-- A red sha is fixed, not rerun. `nadavai-ci run` on the same sha is for an infra failure (checkout, timeout, cancelled) or a suspected flake, and every such rerun is logged in `~/ci/state/flakes-<repo>`. Why: 22 reruns of shas that had just failed cost 295 CI minutes in a week.
-
-## Waiting
-- `ci-wait <repo> <sha|branch>` with run_in_background: one poller per sha is shared by every waiter on that sha, and a waiter exits when the task that started it is gone. `--require full` separates "the wait ended" from "the full check passed". Never poll `gh` or a status in a loop, never sleep under 2 s in a loop, and never loop on a Claude task output file: the harness notifies when a background task ends. Why: waiters shared nothing, some outlived their task, and 3,912 sleep commands ran in one week.
-
-## New and existing projects
-- This file covers every repo on every machine without per-project lines. A project's CLAUDE.md, AGENTS.md, runbook or `.claude/rules` never restates these rules, and never adds a local full suite, a local build before push, or a `gh api` status loop; it only names its own commands and runbook proofs. Why: on 2026-10-26 about 30 project and tool instruction lines contradicted this policy and agents followed the nearer, wrong one.
-- A new repo starts from `~/nadavai/templates/ci/ci.yml`, is added to `WORKFLOWS` in `~/ci/bin/nadavai-ci` (on NadavAI), and is enabled only after `nadavai-ci check-repo <repo>` passes. The runner turns affected-only runs on when ci.yml has `NADAVAI_CHANGED`, and `UI_FAST` defaults to none. Until a repo has CI, its agents run the full suite once before landing, in the background. Why: until 2026-10-29 a new repo ran every job with full tests on every head, and the full DoD and Lighthouse on every main push.
+Nadav rebuilt CI from scratch on 2026-11-03 for speed: CI runs only on what changed, never on every
+push, and no machine is a single point of failure. Plan and decisions:
+`~/.omc/plans/ci-v2-2026-11-03.md` on the LENOVO. Why: on 2026-11-03 omarchy's reformat stopped
+every `ci-wait`, and the old runner (3,445 lines on one 8-core box) queued agents for up to an hour.
 
 ## Machines
-- The laptop (MSI) is also a CI host: `nadavai-slot.service` builds therapy-flow-v2 and sportchat-web branch heads there when load, memory and temperature allow. omarchy (NadavAI, 8 cores) runs CI for every repo; agent work runs there only through `nadavai-ci` kinds and the runbook jobs that hold `~/ci/ui.lock` (v4 DoD, baselines, Deno, emulator, local gate); never start other jobs there. Why: a slower CI queue slows every agent.
-- After every omarchy system update, run `~/ci/bin/slot-worker check` on the MSI and bump the pins in `~/ci/bin/slot-tools` if it reports a difference. Why: on 2026-10-29 the slot claimed nothing for a day after the update.
-- Scratch containers, worktree copies and `~/ci/scratch` folders are removed when their task ends; anything older than 14 days and unused is listed for cleanup.
+- **Oracle VM** (`ssh nadavai-vm`, Tailscale `oracle`): the Woodpecker CI server at
+  https://ci.nadavc.ai (dashboard: log in with GitHub). Runs no repo code. Why: it is always on and
+  holds the tokens; it is ARM, and TF's SQL harness is x86 only.
+- **omarchy and MSI**: the Woodpecker agents (Docker, 3 workflows each). Every landing goes to
+  whichever is free. Never start other heavy jobs there.
+- **LENOVO**: Nadav's work machine. Agents' scoped checks only; no CI.
+
+## The rules
+1. While working, run only scoped checks locally: typecheck, lint on the files you touched,
+   `vitest related <files> --run`, one e2e spec by path. The full suite, the production build and
+   full e2e belong to CI, unless the task is about that check itself. Run heavy local work through
+   `heavy-slot --` and databases through `pg-pool get <repo>`, never `docker run postgres`. Why:
+   CI runs them on the same tree minutes later.
+2. A push to a branch runs no CI (only the 2-3 s pre-push secret scan). Push when you need a
+   remote copy for the landing, not as a checkpoint.
+3. Landing = a non-draft PR into main, rebased on main, when the task is done. That PR is the only
+   daytime CI trigger. Drafts run nothing. One task lands once: its parts are committed locally and
+   land together. Why: each landing costs one CI run on two shared machines.
+4. A landing runs only the steps whose files changed (lockfile, manifests, configs and shared code
+   run everything); the night (cron) runs every step on main. Why: Nadav chose speed by day and
+   the full net by night (D-A).
+5. Wait with `ci-wait <repo> <branch|sha|pr:N> [--land]` in `run_in_background` (`pr:N` on
+   Woodpecker repos); `--land` opens the PR (or marks a draft ready). Never poll `gh` or a status in
+   a loop. Exit 0 green, 1 red (failed steps and log tail printed), 2 timeout, 3 CI unreachable,
+   4 parent gone, 5 nothing to wait on (no landing PR, a draft), 6 superseded by a newer push.
+6. Merge only when every `ci/woodpecker/pr/*` status on the PR head is green, with
+   `gh pr merge <N> --match-head-commit <sha>` (a push after the check then cannot slip in). If main
+   moved since the PR branched, re-run (rebase and push) only when main's new commits touch a file
+   the PR changes or a shared file (lockfile, manifest, tsconfig, `*.config.*`, `.woodpecker/`,
+   migrations); otherwise merge. agent-guard enforces this for `gh pr merge`. A direct push to main
+   needs a commit with the same tree and a green landing, or documentation only since main (the
+   pre-push hook). `# land-urgent: <reason>` / `NADAVAI_LAND_URGENT=<reason>` for an urgent fix.
+   Why: D-B, fewer reruns, with the overlap case still re-tested.
+7. Main does not test again: a merge of a green PR is the tested tree.
+8. A red landing is fixed, not rerun. Rerun (Woodpecker UI "restart") only for an infrastructure
+   failure, and say so in the report.
+9. A newer push to a PR cancels its older run automatically.
+10. Production deploys are manual (Nadav's call, 2026-11-03) until the deploy service on the
+    Oracle VM is live; then a green main deploys and health-checks itself.
+
+## Repos
+- Cut over to Woodpecker: the repos listed in `~/nadavai/lib/woodpecker-repos.txt` (snooker-smart,
+  cash-next-app). Each has `.woodpecker/landing.yml`.
+- Not yet cut over (therapy-flow-v2, sportchat-web): until they appear in that list, they keep the
+  old flow on the temporary host on the LENOVO: `ci-wait <repo> <branch> --land`, and merge after
+  a main-tier landing pass. Their Woodpecker runs on trial PRs are shadow runs only.
+- A new repo: copy a `.woodpecker/landing.yml` from a cut-over repo, activate the repo on
+  ci.nadavc.ai, land it once green, then add it to the list.
+- A project's CLAUDE.md, AGENTS.md, runbook or `.claude/rules` never restates these rules, and
+  never adds a local full suite, a local build before push or a status loop. Why: agents follow
+  the nearer, wrong instruction.
+
+## Override for generic agent instructions
+OMC agents and skills (verifier, executor, test-engineer, ralph, autopilot, team, verify), Codex
+prompts and any "run lint, typecheck, tests and build before done" wording are read through rule 1:
+scoped checks plus the CI result of the PR. A task about the build or the suite itself still runs
+it. Workflows that verify or fix code carry this clause in every prompt:
+> Verify with scoped checks only (typecheck, lint on touched files, `vitest related`), and do not
+> repeat a check another agent of this workflow already ran on the same tree. Run anything heavy
+> through `heavy-slot --`; get a database with `pg-pool get <repo>`. Wait on CI with `ci-wait`
+> in the background, never with a sleep loop.

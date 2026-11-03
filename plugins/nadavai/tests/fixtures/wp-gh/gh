@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Fake gh for agent-guard's wp_merge_check tests (tests/test-wp-merge.sh).
+# FAKE_STATE success|failure|none, FAKE_SECOND (state of a second workflow context, optional),
+# FAKE_AHEAD n, FAKE_MAIN_FILES space list, FAKE_NMAIN (fake file count, optional).
+case "$*" in
+  "pr view"*) echo '{"number":141,"headRefOid":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","headRefName":"feat/x","baseRefName":"main"}' ;;
+  "api --paginate repos/"*"/pulls/"*"/files"*) printf 'src/a.ts\nsrc/b.ts\n' ;;
+  "api repos/"*"/statuses"*)
+    case "$FAKE_STATE" in
+      none) echo '[]' ;;
+      *) s=$(printf '{"id":2,"context":"ci/woodpecker/pr/landing","state":"%s"},{"id":1,"context":"ci/woodpecker/pr/landing","state":"pending"}' "$FAKE_STATE")
+         [ -n "${FAKE_SECOND:-}" ] && s="$s,$(printf '{"id":3,"context":"ci/woodpecker/pr/extra","state":"%s"}' "$FAKE_SECOND")"
+         echo "[$s]" ;;
+    esac ;;
+  "api repos/"*"/compare/"*)
+    files=""; for f in $FAKE_MAIN_FILES; do files="$files{\"filename\":\"$f\"},"; done
+    if [ -n "${FAKE_NMAIN:-}" ]; then files=""; for ((i = 0; i < FAKE_NMAIN; i++)); do files="$files{\"filename\":\"x/$i.ts\"},"; done; fi
+    printf '{"ahead_by":%s,"files":[%s]}\n' "${FAKE_AHEAD:-0}" "${files%,}" ;;
+  *) echo '[]' ;;
+esac

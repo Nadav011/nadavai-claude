@@ -1,0 +1,6 @@
+# Repos whose CI is Woodpecker (https://ci.nadavc.ai), one per line. ci-wait hands these over to
+# ci-wait-wp, and agent-guard and the pre-push hook check their Woodpecker landing status.
+# A repo is added only after its .woodpecker/landing.yml is on main and green (cutover).
+# snooker-smart: PR #141, cash-next-app: PR #20 (both merged 2026-11-03; nightly cron 01:30/01:45 UTC).
+snooker-smart
+cash-next-app

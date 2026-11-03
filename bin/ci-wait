@@ -98,6 +98,18 @@ case "$require" in ''|full) ;; *) echo "ci-wait: --require takes only: full" >&2
 repo=${repo#"$OWNER/"}
 [[ $repo =~ ^[A-Za-z0-9._-]+$ ]] || { echo "ci-wait: $repo is not a repository name" >&2; exit 64; }
 mkdir -p "$CACHE" || exit 64
+# A repo cut over to Woodpecker (ci.nadavc.ai, CI v2 since 2026-11-03) is waited on there: hand
+# over to ci-wait-wp. The cutover is the explicit list lib/woodpecker-repos.txt in nadavai, one repo
+# per line, so a repo that is only being trialled on Woodpecker (shadow runs) keeps the old path.
+wp_active() {
+  local list
+  list="$(dirname "$(readlink -f "$0")")/../lib/woodpecker-repos.txt"
+  [ -r "$list" ] && grep -qixF "$repo" <(sed 's/[[:space:]]*#.*//; /^$/d' "$list")
+}
+if wp_active; then
+  args=("$repo" "$ref" --timeout "$timeout_min"); [ -n "$land" ] && args+=(--land); [ "$follow" = 0 ] && args+=(--detach)
+  exec "$(dirname "$(readlink -f "$0")")/ci-wait-wp" "${args[@]}"
+fi
 # Snapshots, head lookups and locks of waits long over.
 find "$CACHE" -type f -mmin +1440 -delete 2>/dev/null
 
