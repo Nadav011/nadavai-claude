@@ -80,9 +80,11 @@ agent-desktop get @<ref> --property value                # verify the effect, ne
 - Verify every action by reading the effect (`get`, `wait --text`, a fresh snapshot). `ok: true`
   with `delivered_unverified` is not proof.
 - An app missing from `list-apps` is not exposed: Qt/KDE apps need `QT_ACCESSIBILITY=1` (in
-  `~/.config/environment.d/50-accessibility.conf`, live after a re-login), Chrome needs
-  `--force-renderer-accessibility` (in `~/.config/chrome-flags.conf`, live after a Chrome
-  restart). `check.sh` says which is pending. Never restart his Chrome or session yourself.
+  `~/.config/environment.d/50-accessibility.conf`, live after a re-login; `check.sh` says if it
+  is pending). Never restart his session or apps yourself.
+- Chrome's page content is deliberately not exposed: `--force-renderer-accessibility` costs
+  memory and CPU on every page he opens (Nadav removed it on 2026-11-03). Web pages go through the
+  browser routing in tier 2; do not add the flag back.
 - Refused on Wayland by design: pointer gestures, `focus-window`, window move/resize, headed
   input. A Qt combo popup and some menus need a real click (`native_popup_requires_input`,
   `pointer_required`): that is tier 4.

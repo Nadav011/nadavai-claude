@@ -50,7 +50,5 @@ ps_pid=$(pgrep -xo plasmashell || true)
 if [ -n "$ps_pid" ] && ! tr '\0' '\n' <"/proc/$ps_pid/environ" 2>/dev/null | grep -q '^QT_ACCESSIBILITY=1'; then
   note "this login predates QT_ACCESSIBILITY: apps opened from the KDE launcher stay invisible until Nadav logs out and in (or launch them with QT_ACCESSIBILITY=1)"
 fi
-grep -qsx -- '--force-renderer-accessibility' "$HOME/.config/chrome-flags.conf" && ok "Chrome flag --force-renderer-accessibility" || bad "Chrome accessibility flag" "setup.sh, then restart Chrome"
-pgrep -af '/opt/google/chrome/chrome' 2>/dev/null | grep -v -- '--type=' | grep -q -- '--force-renderer-accessibility' || { pgrep -f /opt/google/chrome/chrome >/dev/null && note "running Chrome started without the flag: its pages stay invisible to agent-desktop until Chrome restarts"; }
 
 exit $fail

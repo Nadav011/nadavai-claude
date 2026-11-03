@@ -2,10 +2,11 @@
 # Idempotent setup of desktop control on a KDE Plasma (Wayland) machine on Arch/CachyOS.
 # Installs: agent-desktop (npm, pinned), ydotool + kdotool + helpers (pacman/paru),
 # enables the ydotoold user service, sets the ydotool pointer to flat acceleration,
-# exposes Qt apps (QT_ACCESSIBILITY=1) and Chrome pages (--force-renderer-accessibility)
-# to the accessibility bus. Changes no permission: /dev/uinput must already be
-# writable by the user (systemd's uaccess rule does that on a local seat).
-# Afterwards: log out and in (Qt), restart Chrome (flag). Then run check.sh.
+# exposes Qt apps (QT_ACCESSIBILITY=1) to the accessibility bus. Changes no
+# permission: /dev/uinput must already be writable by the user (systemd's uaccess
+# rule does that on a local seat). Chrome gets no accessibility flag on purpose: it
+# would cost memory and CPU on every page Nadav opens, and web pages go through the
+# browser routing instead. Afterwards: log out and in (Qt). Then run check.sh.
 set -euo pipefail
 
 AD_VERSION=1.1.0
@@ -50,14 +51,6 @@ if ! grep -qs '^QT_ACCESSIBILITY=1' "$HOME/.config/environment.d/"*.conf; then
   mkdir -p "$(dirname "$envf")"
   [ ! -s "$envf" ] || [ -z "$(tail -c1 "$envf")" ] || echo >>"$envf"
   printf '%s\n' '# Expose Qt (KDE) apps on the AT-SPI accessibility bus for agent-desktop.' 'QT_ACCESSIBILITY=1' >>"$envf"
-fi
-
-flags="$HOME/.config/chrome-flags.conf"
-if ! grep -qsx -- '--force-renderer-accessibility' "$flags"; then
-  log "Chrome flag -> $flags (takes effect when Chrome restarts)"
-  [ -f "$flags" ] && cp "$flags" "$flags.bak-$(date +%F)"
-  [ ! -s "$flags" ] || [ -z "$(tail -c1 "$flags")" ] || echo >>"$flags"
-  printf '%s\n' '--force-renderer-accessibility' >>"$flags"
 fi
 
 log "done; run check.sh"
