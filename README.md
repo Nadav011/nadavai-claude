@@ -27,14 +27,19 @@ the patch is inert. To re-apply after every Orca update, opt in per machine: sym
 `systemd/user/orca-rtl-reapply.{path,service}` into `~/.config/systemd/user/` and run
 `systemctl --user enable --now orca-rtl-reapply.path`.
 
-`bin/worktree-clean` removes git worktrees nobody needs any more (clean and idle, or idle a week
-after snapshotting their unsaved work under `refs/worktree-clean/` and `~/Archive/worktree-clean/`).
-It never touches what an owner listed in [`config/worktree-clean.json`](config/worktree-clean.json)
-(`~/.config/nadavai/worktree-clean.json` can add more) or a worktree whose Claude, Codex or Grok
-transcript changed in the last 3 days, nor a worktree with another one registered inside it. It never
-prunes stale `git worktree` entries itself, only reports them; Orca's own removal may prune them, so right
-before it the tool locks every stale entry an owner rule protects, and Orca may prune the unprotected rest.
-`--dry-run` writes nothing. Its weekly run is opt-in per machine, on the machine where agents create worktrees: symlink
+`bin/worktree-clean` finds git worktrees nobody needs any more (clean and idle, or idle a week with
+unsaved work). By default it only reports: it writes `~/Archive/worktree-clean/<date>/REPORT.md` with every
+candidate, what removing it would do, and every kept worktree with its reason, and it changes nothing in
+any repo. The weekly timer runs exactly that report and never removes anything (Nadav, 2026-11-03).
+Removal happens only with `--apply`, run by a person or the owner session; it first saves unsaved work
+under `refs/worktree-clean/` and `~/Archive/worktree-clean/`. `--dry-run` prints the report and writes
+nothing. It never touches what an owner listed in [`config/worktree-clean.json`](config/worktree-clean.json)
+(`~/.config/nadavai/worktree-clean.json` can add more), a worktree whose Claude, Codex or Grok transcript
+changed in the last 3 days, one Orca shows a live terminal or agent in, one mid-rebase or mid-merge, or one
+with another worktree or repo inside it. It never prunes stale `git worktree` entries itself; Orca's own
+removal during `--apply` may prune them, so right before it the tool pins every stale HEAD no ref reaches
+and locks every stale entry an owner rule protects, and Orca may prune the unprotected rest.
+The weekly report is opt-in per machine, on the machine where agents create worktrees: symlink
 [`systemd/user/worktree-clean.service`](systemd/user/worktree-clean.service) and `.timer` into
 `~/.config/systemd/user/` and `systemctl --user enable --now worktree-clean.timer`. Tests:
 `tests/worktree-clean.sh`.
