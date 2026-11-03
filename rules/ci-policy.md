@@ -64,8 +64,8 @@ every `ci-wait`, and the old runner (3,445 lines on one 8-core box) queued agent
   run in parallel). sportchat-web has no Lighthouse per landing for now (Nadav).
 - The old nadavai-ci runner is retired: the temporary host on the LENOVO was stopped on
   2026-11-03 when therapy-flow-v2 moved. A `nadavai-ci` status on an old commit is history only.
-- A new repo: copy a `.woodpecker/landing.yml` from a cut-over repo, activate the repo on
-  ci.nadavc.ai, land it once green, then add it to the list.
+- A new repo: start from `~/nadavai/templates/ci/woodpecker-landing.yml`, activate the repo on
+  ci.nadavc.ai (`ci-v2/README.md`, "Per repo"), land it once green, then add it to the list.
 - A project's CLAUDE.md, AGENTS.md, runbook or `.claude/rules` never restates these rules, and
   never adds a local full suite, a local build before push or a status loop. Why: agents follow
   the nearer, wrong instruction.

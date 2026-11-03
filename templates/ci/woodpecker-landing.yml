@@ -1,0 +1,92 @@
+# Template: .woodpecker/landing.yml for a new repo on Woodpecker (CI v2, rules/ci-policy.md).
+# Copy it to the repo, replace every {PLACEHOLDER}, and delete steps the repo does not have.
+# Proven shape: cash-next-app's landing (install, then the checks in parallel, path-scoped on a PR,
+# everything at night). Then: activate the repo on ci.nadavc.ai, land this file through a PR, and add
+# the repo to lib/woodpecker-repos.txt (ci-v2/README.md, "Per repo").
+#
+# Notes from the four live repos:
+# - Step shells are /bin/sh (dash): no ${X:0:7}; write $$ for a shell variable, because Woodpecker
+#   substitutes ${...} itself.
+# - Pin every image to an exact tag; check it with `docker manifest inspect`.
+# - Browsers: the official Playwright image whose tag matches the lockfile's Playwright version.
+# - No secrets, volumes, devices or Docker socket here: a PR controls this file. Anything that needs
+#   them is a nightly job (nadavai-nightly on omarchy).
+# - More than ~6 heavy steps: split into two workflow files (e.g. web.yml + backend.yml) so the two
+#   agents run them in parallel; every workflow must always post (no workflow-level path filter).
+# - npm cache: copy the install step's cache ping from a live repo's landing.yml (ci-v2/README.md,
+#   "npm cache"); it falls back to npmjs by itself.
+when:
+  - event: pull_request
+    branch: main
+    evaluate: 'CI_COMMIT_PULL_REQUEST_DRAFT == "false"'
+  - event: [cron, manual]
+
+labels:
+  heavy: "yes"
+
+variables:
+  - &node_image "node:{NODE_VERSION}-bookworm"
+  - &pm "corepack enable && corepack prepare pnpm@{PNPM_MAJOR} --activate"
+  - &code
+    - path:
+        include: ["**"]
+        exclude: ["**/*.md", "docs/**", ".claude/**", ".omc/**", "planning/**"]
+    - event: [cron, manual]
+  - &env
+    CI: "true"
+    # Dummy public values the build or the tests read at import time (never real keys); rename.
+    EXAMPLE_PUBLIC_URL: "https://placeholder.example"
+
+steps:
+  - name: install
+    image: *node_image
+    environment: *env
+    when: *code
+    commands:
+      - *pm
+      - pnpm install --frozen-lockfile
+
+  - name: typecheck
+    image: *node_image
+    depends_on: [install]
+    environment: *env
+    when: *code
+    commands:
+      - *pm
+      - pnpm run typecheck
+
+  - name: lint
+    image: *node_image
+    depends_on: [install]
+    environment: *env
+    when: *code
+    commands:
+      - *pm
+      - pnpm run lint
+
+  - name: unit
+    image: *node_image
+    depends_on: [install]
+    environment: *env
+    when: *code
+    commands:
+      - *pm
+      - pnpm test --maxWorkers=3
+
+  - name: build
+    image: *node_image
+    depends_on: [install]
+    environment: *env
+    when: *code
+    commands:
+      - *pm
+      - NEXT_PUBLIC_APP_VERSION=$(printf %.7s "$CI_COMMIT_SHA") pnpm run build
+
+  - name: e2e
+    image: mcr.microsoft.com/playwright:v{PLAYWRIGHT_VERSION}-noble
+    depends_on: [build]
+    environment: *env
+    when: *code
+    commands:
+      - *pm
+      - pnpm test:e2e
