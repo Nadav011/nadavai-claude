@@ -48,6 +48,11 @@
             "type": "command",
             "command": "command -v node >/dev/null 2>&1 && node \"${CLAUDE_PLUGIN_ROOT}\"/scripts/hebrew-guard.mjs || true",
             "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "command -v node >/dev/null 2>&1 && node \"${CLAUDE_PLUGIN_ROOT}\"/scripts/candor-guard.mjs || true",
+            "timeout": 10
           }
         ]
       }
