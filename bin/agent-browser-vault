@@ -1,0 +1,85 @@
+#!/usr/bin/env node
+// agent-browser credential plugin (agent-browser.plugin.v1, capability credential.read).
+// Resolves a website login from Nadav's vault so `agent-browser auth login` can fill it
+// without the password ever reaching the agent's context, arguments or output.
+//
+//   agent-browser auth login <name> --credential-provider vault --item <name>
+//
+// The item is ~/.claude/secrets/login-<name>.env (chmod 600), created by vault-login-new:
+//   LOGIN_URL=https://example.com/login
+//   LOGIN_USERNAME=nadav@example.com
+//   LOGIN_PASSWORD=...
+//   LOGIN_ORIGINS=https://signup.example.com   (optional, other hosts allowed to receive it)
+//   LOGIN_USERNAME_SELECTOR= / LOGIN_PASSWORD_SELECTOR= / LOGIN_SUBMIT_SELECTOR=  (optional)
+// Only login-*.env files are readable here, so a plugin call can never return an API key.
+// Only stdout is parsed and it never carries anything but the protocol reply.
+
+import { readFileSync, statSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+
+const PROTOCOL = "agent-browser.plugin.v1";
+const VAULT = process.env.NADAVAI_VAULT_DIR || join(homedir(), ".claude", "secrets");
+
+const reply = (body) => process.stdout.write(JSON.stringify({ protocol: PROTOCOL, ...body }));
+const fail = (error) => { reply({ success: false, error }); process.exit(0); };
+
+function parseEnv(text) {
+  const out = {};
+  for (const raw of text.split("\n")) {
+    const line = raw.trim();
+    if (!line || line.startsWith("#")) continue;
+    const eq = line.indexOf("=");
+    if (eq < 1) continue;
+    let value = line.slice(eq + 1).trim();
+    if (value.length >= 2 && (value[0] === '"' || value[0] === "'") && value.at(-1) === value[0]) {
+      value = value.slice(1, -1);
+    }
+    out[line.slice(0, eq).trim()] = value;
+  }
+  return out;
+}
+
+const chunks = [];
+for await (const chunk of process.stdin) chunks.push(chunk);
+let input;
+try { input = JSON.parse(Buffer.concat(chunks).toString("utf8")); } catch { fail("invalid json"); }
+if (input?.protocol !== PROTOCOL) fail("unsupported protocol");
+
+if (input.type === "plugin.manifest") {
+  reply({ success: true, manifest: { name: "vault", capabilities: ["credential.read"] } });
+  process.exit(0);
+}
+if (input.type !== "credential.resolve") fail("unsupported request type");
+
+const item = String(input.request?.itemRef || input.request?.profileName || "");
+if (!/^[a-z0-9][a-z0-9._-]{0,63}$/.test(item)) fail("item must be a lowercase vault login name");
+
+const file = join(VAULT, `login-${item}.env`);
+let env;
+try {
+  const st = statSync(file);
+  if ((st.mode & 0o077) !== 0) fail(`login-${item}.env must be chmod 600`);
+  env = parseEnv(readFileSync(file, "utf8"));
+} catch (e) {
+  fail(e?.code === "ENOENT" ? `no vault login named ${item}` : `cannot read login-${item}.env (${e?.code || "error"})`);
+}
+
+if (!env.LOGIN_USERNAME || !env.LOGIN_PASSWORD) fail(`login-${item}.env lacks LOGIN_USERNAME or LOGIN_PASSWORD`);
+
+// The password goes only to the site it belongs to. agent-browser checks the page origin
+// against the URL returned here, so a caller's --url is honoured only when its origin is
+// LOGIN_URL's or one listed in LOGIN_ORIGINS (comma-separated, e.g. a separate sign-up host).
+const origin = (u) => { try { return new URL(u).origin; } catch { return null; } };
+const allowed = new Set([env.LOGIN_URL, ...String(env.LOGIN_ORIGINS || "").split(",")]
+  .map((s) => origin(s.trim())).filter(Boolean));
+if (allowed.size === 0) fail(`login-${item}.env lacks a valid LOGIN_URL`);
+const requested = input.request?.url;
+if (requested && !allowed.has(origin(requested))) fail(`url is not an origin allowed for ${item}`);
+
+const credential = { username: env.LOGIN_USERNAME, password: env.LOGIN_PASSWORD };
+credential.url = requested || env.LOGIN_URL;
+if (env.LOGIN_USERNAME_SELECTOR) credential.usernameSelector = env.LOGIN_USERNAME_SELECTOR;
+if (env.LOGIN_PASSWORD_SELECTOR) credential.passwordSelector = env.LOGIN_PASSWORD_SELECTOR;
+if (env.LOGIN_SUBMIT_SELECTOR) credential.submitSelector = env.LOGIN_SUBMIT_SELECTOR;
+reply({ success: true, credential });

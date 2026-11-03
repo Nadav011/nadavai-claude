@@ -74,7 +74,7 @@ deny() {
 # Fast path: most calls carry neither word, and this runs before every Bash/run_command call.
 case "$input" in
   # rm after a blank, an operator, a quote, a slash (/bin/rm) or JSON's \n / \t escapes
-  *'"fork"'*|*sleep*|*gh*merge*|*find*|*bfs*|*[[:space:]\;\&\|\(\`\"\'/nt]'rm '*) ;;
+  *'"fork"'*|*sleep*|*gh*merge*|*find*|*bfs*|*[[:space:]\;\&\|\(\`\"\'/nt]'rm '*|*.claude/secrets*) ;;
   *while*|*until*|*docker*|*podman*|*supabase*) [ "$strict" = 1 ] || allow ;;
   *) allow ;;
 esac
@@ -690,8 +690,26 @@ if [ "$is_agy" = 1 ]; then
   allow
 fi
 
+# Website logins in the vault are filled by agent-browser's vault plugin; an agent never reads
+# them (rules/acting-on-behalf.md). Listing, chmod, removal and the two vault tools pass.
+vault_guard() {
+  local cmd="$1"
+  [[ $cmd == *secrets/login-* ]] || return 0
+  [[ $cmd == *'# vault-read:'* ]] && return 0
+  if [[ $cmd =~ (^|[[:space:]\;\&\|\(\`])(cat|bat|less|more|head|tail|grep|egrep|rg|ag|sed|awk|gawk|cut|tr|sort|uniq|strings|xxd|od|hexdump|base64|cp|mv|scp|rsync|tar|zip|python3?|node|deno|bun|perl|ruby|jq|diff|cmp|vi|vim|nvim|nano|tee|source|\.|eval|env|dd|curl|wget|nc|ssh)[[:space:]] ]]; then
+    deny "This command reads a website login from the vault (~/.claude/secrets/login-*). Passwords never pass through an agent: log in with agent-browser auth login <name> --credential-provider vault --item <name>, and create one with vault-login-new (rules/acting-on-behalf.md). If Nadav asked for this value himself, add '# vault-read: <reason>' to the command."
+  fi
+}
+
 tool=$(jq -r '.tool_name // .toolName // empty' <<<"$input" 2>/dev/null)
 case "$tool" in
+  Read|Grep|view_file)
+    p=$(jq -r '.tool_input.file_path // .tool_input.path // .toolInput.path // .toolInput.AbsolutePath // empty' <<<"$input" 2>/dev/null)
+    case "$p" in
+      *secrets/login-*|*/.claude/secrets|*/.claude/secrets/)
+        deny "Website logins in the vault (~/.claude/secrets/login-*) are not read by agents; agent-browser's vault plugin fills them (rules/acting-on-behalf.md)." ;;
+    esac
+    ;;
   Agent)
     [ "$(jq -r '.tool_input.subagent_type // empty' <<<"$input")" = fork ] || allow
     [[ $(jq -r '.tool_input.description // empty' <<<"$input") == *"[fork]"* ]] && allow
@@ -700,6 +718,7 @@ case "$tool" in
   Bash|run_terminal_command)
     cmd=$(jq -r '.tool_input.command // .toolInput.command // empty' <<<"$input" 2>/dev/null)
     cwd=$(jq -r '.cwd // empty' <<<"$input" 2>/dev/null)
+    vault_guard "$cmd"
     disk_search_guard "$cmd" "$cwd"
     # Claude Code only: Codex (turn_id) and Grok (run_terminal_command) have no such removal check.
     if [ "$tool" = Bash ] && [ -z "$(jq -r '.turn_id // empty' <<<"$input" 2>/dev/null)" ]; then

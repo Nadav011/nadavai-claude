@@ -54,6 +54,9 @@ refresh_codex_plugin || CODEX_REFRESH_FAILED=1
 step "continues CLI"
 ensure_continues
 
+step "agent-browser"
+ensure_agent_browser
+
 if [ "$NPM" = 1 ]; then
   step "Global npm packages"
   ensure_npm_globals

@@ -36,6 +36,17 @@ grok_cmd() { jq -cn --arg c "$1" --arg w "${3:-/tmp}" --argjson b "${2:-null}" '
 codex_cmd() { jq -cn --arg c "$1" --arg w "${2:-/tmp}" '{session_id:"s",turn_id:"t",cwd:$w,hook_event_name:"PreToolUse",model:"gpt-6.1-sol",tool_name:"Bash",tool_use_id:"u",tool_input:{command:$c}}'; }
 
 # A find that walks / or a home directory. codex_cmd sets the cwd.
+readp() { jq -cn --arg t "$1" --arg p "$2" '{hook_event_name:"PreToolUse",tool_name:$t,tool_input:{file_path:$p,path:$p}}'; }
+check "vault login: cat"             deny  "$(bashc 'cat ~/.claude/secrets/login-x.env')"
+check "vault login: grep"            deny  "$(bashc 'grep PASS /home/u/.claude/secrets/login-x.env')"
+check "vault login: ls"              allow "$(bashc 'ls -la ~/.claude/secrets/login-x.env')"
+check "vault login: rm"              allow "$(bashc 'rm -f /home/u/.claude/secrets/login-x.env')"
+check "vault login: vault-read"      allow "$(bashc 'cat ~/.claude/secrets/login-x.env # vault-read: Nadav asked')"
+check "vault api key: cat"           allow "$(bashc 'cat ~/.claude/secrets/brightdata.env')"
+check "vault login: Read"            deny  "$(readp Read /home/u/.claude/secrets/login-x.env)"
+check "vault api key: Read"          allow "$(readp Read /home/u/.claude/secrets/brightdata.env)"
+check "vault dir: Grep"              deny  "$(readp Grep /home/u/.claude/secrets)"
+check "plain Read"                   allow "$(readp Read /home/u/nadavai/README.md)"
 check "find /"                      deny  "$(bashc 'find / -name x 2>/dev/null | head -3')"
 check "find / in the background"    deny  "$(bashc 'find / -name x' true)"
 check "find ~"                      deny  "$(bashc 'find ~ -name x')"

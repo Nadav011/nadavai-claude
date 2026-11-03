@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+# Create a website login in the vault for an account an agent is about to open, with a
+# freshly generated password the agent never sees. Prints only the file path.
+#
+#   vault-login-new <name> <login-url> <username> [--also <url>]... [--length N]
+#
+# <login-url> is the page later logins start from. --also adds another origin allowed to
+# receive the password (a sign-up page on a different host). Writes
+# ~/.claude/secrets/login-<name>.env (chmod 600) and refuses to overwrite.
+#
+# Fill the sign-up form's other fields (name, terms checkbox) first, then the credentials,
+# with agent-browser's vault provider, never with `fill`:
+#   agent-browser auth login <name> --credential-provider vault --item <name> --no-navigate \
+#     --url <sign-up page url> --username-selector '<email field>' \
+#     --password-selector '<password field>' --submit-selector '<submit button>'
+# With a confirm-password field: run that with --submit-selector '<confirm field>' (a click
+# there only focuses it), run it again with --password-selector '<confirm field>' and the same
+# --submit-selector, then click the real submit button.
+set -euo pipefail
+
+if [ "$#" -lt 3 ] || [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
+  sed -n '2,18p' "$0"; exit 2
+fi
+name="$1"; url="$2"; user="$3"; shift 3
+len=24
+also=()
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --length) len="${2:?}"; shift 2 ;;
+    --also) also+=("${2:?}"); shift 2 ;;
+    *) echo "unknown option: $1" >&2; exit 2 ;;
+  esac
+done
+
+[[ "$name" =~ ^[a-z0-9][a-z0-9._-]{0,63}$ ]] || { echo "name must be lowercase [a-z0-9._-]" >&2; exit 2; }
+for v in "$url" "$user" ${also[@]+"${also[@]}"}; do
+  [[ "$v" =~ [[:cntrl:]] ]] && { echo "control characters are not allowed in the url, username or --also" >&2; exit 2; }
+  [[ "$v" == *"'"* ]] && { echo "quotes are not allowed in the url, username or --also" >&2; exit 2; }
+done
+for u in "$url" ${also[@]+"${also[@]}"}; do
+  [[ "$u" =~ ^https?://[^/[:space:]]+ ]] || { echo "not an http(s) url: $u" >&2; exit 2; }
+done
+[[ "$len" =~ ^[0-9]+$ ]] && [ "$len" -ge 12 ] && [ "$len" -le 128 ] || { echo "--length must be 12-128" >&2; exit 2; }
+
+vault="${NADAVAI_VAULT_DIR:-$HOME/.claude/secrets}"
+file="$vault/login-$name.env"
+if [ -e "$file" ] || [ -L "$file" ]; then echo "exists, not overwritten: $file" >&2; exit 1; fi
+
+# Letters, digits and a few symbols most sign-up forms accept; at least one of each class.
+# No quote characters, so the single-quoted value below needs no escaping.
+pw=""
+until [[ "$pw" =~ [a-z] && "$pw" =~ [A-Z] && "$pw" =~ [0-9] && "$pw" =~ [-_.!@#%+=] ]]; do
+  # Process substitution, not a pipe: tr dies of SIGPIPE when head stops reading, and
+  # under pipefail that would abort the script.
+  pw="$(head -c "$len" < <(LC_ALL=C tr -dc 'A-Za-z0-9_.!@#%+=-' </dev/urandom))"
+done
+
+umask 077
+mkdir -p "$vault"
+set -o noclobber
+{
+  echo "# Website login for $name, created $(date +%F) by vault-login-new. Never print these values."
+  echo "LOGIN_URL='$url'"
+  echo "LOGIN_USERNAME='$user'"
+  if [ "${#also[@]}" -gt 0 ]; then (IFS=,; echo "LOGIN_ORIGINS='${also[*]}'"); fi
+  echo "LOGIN_PASSWORD='$pw'"
+} > "$file"
+chmod 600 "$file"
+echo "$file"

@@ -252,6 +252,29 @@ ensure_continues() {
   fi
 }
 
+AGENT_BROWSER_VERSION=0.41.1
+ensure_agent_browser() {
+  # agent-browser drives a separate Chrome for agents; its "vault" credential plugin
+  # (bin/agent-browser-vault) fills logins from ~/.claude/secrets without the password
+  # reaching the agent. See rules/acting-on-behalf.md.
+  if ! command -v agent-browser >/dev/null 2>&1; then
+    log "installing agent-browser@$AGENT_BROWSER_VERSION (npm -g)"
+    npm install -g "agent-browser@$AGENT_BROWSER_VERSION" || { warn "could not install agent-browser"; return 0; }
+  fi
+  local cfg="$HOME/.agent-browser/config.json" tmp
+  mkdir -p "$HOME/.agent-browser"
+  [ -s "$cfg" ] || echo '{}' > "$cfg"
+  tmp="$(mktemp)"
+  if jq --arg cmd "$HOME/.local/bin/agent-browser-vault" '
+      .plugins = ([(.plugins // [])[] | select(.name != "vault")]
+                  + [{name: "vault", command: $cmd, capabilities: ["credential.read"]}])' \
+      "$cfg" > "$tmp"; then
+    mv "$tmp" "$cfg"
+  else
+    rm -f "${tmp:?}"; warn "could not register the vault plugin in $cfg"
+  fi
+}
+
 link_shortcuts() {
   # `cs` runs continues. Claude Squad ships a binary of the same name, so the first
   # run moves it to `csq` and nothing overwrites a binary that is already there.

@@ -20,7 +20,8 @@
 - Regression: the project's Playwright suite via Bash.
 - Exploration or repeatable flows: Playwright MCP inside a subagent.
 - Debugging (console, network, performance, Lighthouse): Chrome DevTools MCP, preferring the chrome-devtools-cli skill.
-- Nadav's logged-in sessions: Claude in Chrome.
+- Nadav's logged-in sessions (reading, clicking): Claude in Chrome.
+- Acting in his name (sign-ups, logins, forms, terms): agent-browser with the vault plugin (`acting-on-behalf.md`).
 - Research sources (Reddit, X, YouTube, sites that block fetches, search with site or date filters): the Bright Data MCP. `search_engine` first, then by URL `web_data_reddit_posts` (post plus comments), `web_data_x_posts`, `web_data_youtube_videos` (transcript, chapters, comments; allow up to 3 minutes), or `scrape_as_markdown` for other sites. Plain scraping of reddit.com is blocked on this account; use the data tool. X discovery: `search_engine` with `site:x.com`. Every finding keeps its URL. One open page: WebFetch.
 
 ## Second model
@@ -37,7 +38,8 @@
 - `cs` is `continues`; Claude Squad is `csq`.
 
 ## Approval gates
-- Ask before: auth or permission changes, payment logic, DB migrations or deletions, app-store publishing, any paid-service spend.
+- Ask before: auth or permission changes in code, payment logic, DB migrations or deletions, app-store publishing, any paid-service spend. Money is asked every time, at that moment.
+- Acting in Nadav's name online and on his machines (accounts, sign-ups, logins, forms, terms, sudo) is pre-approved: `acting-on-behalf.md`.
 - Routine web deploys proceed once the repo's CI is green on the sha being deployed; run a health check after.
 - Pre-approved, never ask: `git push` to any branch other than main (no force push), and deleting local files that are temporary, generated, or created in the current session. Why: both are easy to undo, and asking about them stalled work (Nadav, 2026-09-25).
 
