@@ -178,8 +178,10 @@ the script owns the limit. Undervolt is locked (MSR 0x194 bit 20). BIOS options 
 a reboot from efivars (`Setup-a04a27f4`, `CpuSetup-b08f97ff`, `SaSetup-72c5e28c`, 4-byte header;
 offsets from the IFR of the official image) but writes are refused (EACCES), so BIOS changes are made
 in F2. Read the dGPU's sleep state from `runtime_status`, never `nvidia-smi` (it wakes the card).
-rasdaemon needs `DISABLE="signal:signal_generate"` or it logs every SIGCHLD. Details:
-memory `lenovo-performance-tuning-2026-11.md`.
+rasdaemon needs `DISABLE="signal:signal_generate"` or it logs every SIGCHLD. Every file lives in
+`hosts/lenovo-83lu/`: after a reinstall run `hosts/lenovo-83lu/install.sh` (refuses any other
+model, idempotent), and `lenovo-tuning-check` shows each layer. A change to the live script is
+copied back there and committed. Details: memory `lenovo-performance-tuning-2026-11.md`.
 
 **Omarchy / NadavAI** (`ssh omarchy`, no sudo, runs CI for every repo; the MSI also builds
 therapy-flow-v2 branch heads through `nadavai-slot.service`). Archive target:

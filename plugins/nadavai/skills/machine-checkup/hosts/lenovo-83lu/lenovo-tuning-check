@@ -1,0 +1,18 @@
+#!/bin/bash
+# After a reboot or BIOS change on the LENOVO: confirm every tuning layer is live.
+# Context: memory lenovo-performance-tuning-2026-11.md.
+ok(){ printf '%-40s %s\n' "$1" "$2"; }
+M=/sys/class/powercap/intel-rapl-mmio:0
+ok "CPU limits (want 110/125/28)" "$(( $(cat $M/constraint_0_power_limit_uw)/1000000 ))/$(( $(cat $M/constraint_1_power_limit_uw)/1000000 ))/$(( ($(cat $M/constraint_0_time_window_us)+500000)/1000000 ))"
+ok "legion-power-limits.timer" "$(systemctl is-active legion-power-limits.timer)/$(systemctl is-enabled legion-power-limits.timer)"
+ok "profile / EPP (want performance)" "$(cat /sys/firmware/acpi/platform_profile) / $(cat /sys/devices/system/cpu/cpu0/cpufreq/energy_performance_preference)"
+ok "battery conservation (want 1)" "$(cat /sys/bus/platform/drivers/ideapad_acpi/VPC2004:00/conservation_mode)"
+ok "rasdaemon" "$(systemctl is-active rasdaemon)"
+ok "Orca autostart" "$([ -f ~/.config/autostart/orca-ide.desktop ] && echo yes || echo NO)"
+ok "dGPU runtime PM" "$(cat /sys/bus/pci/devices/0000:02:00.0/power/runtime_status)"
+SC=/sys/firmware/efi/efivars/Setup-a04a27f4-df00-4d42-b552-39511302113d
+SA=/sys/firmware/efi/efivars/SaSetup-72c5e28c-7783-43a1-8767-fad73fccafa4
+b(){ od -An -tu1 -j $(( $2 + 4 )) -N1 $1 | tr -d ' '; }
+ok "BIOS Instant boot (want 2 = Adapter)" "$(b $SC 0x16E)"
+ok "BIOS SAGV (1 = on, 0 = off)" "$(b $SA 0x1F7)"
+ok "i915 SAGV status" "$(sudo cat /sys/kernel/debug/dri/0000:00:02.0/i915_sagv_status 2>/dev/null | awk '/SAGV status/{print $3}')"

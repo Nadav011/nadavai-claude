@@ -1,0 +1,2 @@
+# Re-apply CPU power limits right away when the charger is plugged or unplugged.
+ACTION=="change", SUBSYSTEM=="power_supply", KERNEL=="ADP0", RUN+="/usr/bin/systemctl start --no-block legion-power-limits.service"

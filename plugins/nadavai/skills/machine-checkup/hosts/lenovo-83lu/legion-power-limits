@@ -1,0 +1,61 @@
+#!/bin/bash
+# Legion Pro 5 16IAX10H (BIOS Q6CN79WW): on Linux the firmware leaves the RAPL MMIO package
+# limit at 30 W/30 W (Windows lifts it through Intel DPTF), so 24 cores run at ~1.3-1.8 GHz
+# under load. The firmware path is closed: platform_profile rejects "custom" and the
+# lenovo-wmi-other ppt_* attributes return EBUSY. So this script owns the MMIO limits.
+#
+# Measured 2026-11-03 (stress-ng fft, interleaved reversed rounds, agents running):
+#   sustained PL1: 30W 12-21K ops/s, 80W 64-69K, 110W 75-78K, 125W 73-78K (no gain over 110).
+#   bursts (15 s on / 10 s off): PL2 160 = +7% work but 103-105 C and 58K-261K throttle
+#   events; PL2 125 = 89-91 C, ~4K events. PL2 140 = +1.5% at 98-100 C; 150 = +4% at 103 C. Chosen 110/125: sustained work is set by
+#   PL1 alone, and 125 keeps bursts ~13 C under the 103 C throttle point.
+#   Sustained 4 min x2 rounds (PL2 125): PL1 110 = 20.6M ops, 109 W, 85-87 C, 0 throttle events;
+#   PL1 95 = 19.8M (-4%), 94 W, 79-81 C. Fan 4800 in both.
+#   tau 28 s = the OEM DPTF table (power_limit_0_tmin_us); 56 s made no measurable difference.
+set -u
+M=/sys/class/powercap/intel-rapl-mmio:0
+if [ ! -w "$M/constraint_0_power_limit_uw" ]; then
+  echo "<3>intel-rapl-mmio:0 missing or read-only: CPU stays at the firmware's 30 W cap" >&2
+  exit 1
+fi
+read -r ac < /sys/class/power_supply/ADP0/online
+read -r prof < /sys/firmware/acpi/platform_profile
+read -r bat < /sys/class/power_supply/BAT0/status
+tau=28
+# Weak charger (battery draining on AC): drop to 70/125 and hold for 10 minutes, so the
+# limit does not flip every tick. The barrel adapter (ADP0, 245 W) never drains the battery here.
+weak=/run/legion-power-limits.weak-ac
+if [ "$ac" = 1 ] && [ "$bat" = Discharging ]; then : > "$weak"; fi
+held=0
+if [ -e "$weak" ]; then
+  if [ "$ac" = 1 ] && [ $(( $(date +%s) - $(stat -c %Y "$weak") )) -lt 600 ]; then held=1; else rm -f "$weak"; fi
+fi
+if [ "$ac" = 1 ] && [ "$held" = 0 ]; then
+  case "$prof" in
+    performance|max-power|custom) pl1=110 pl2=125 ;;
+    balanced) pl1=70 pl2=125 ;;           # the static ppt_pl1_spl/ppt_pl2_sppt defaults
+    *) pl1=30 pl2=30 ;;
+  esac
+elif [ "$ac" = 1 ]; then
+  pl1=70 pl2=125                           # charger too weak, held 10 min
+else
+  pl1=30 pl2=30                            # firmware default on battery
+fi
+want="${pl1}000000 ${pl2}000000 ${tau}"
+read -r c1 < "$M/constraint_0_power_limit_uw"
+read -r c2 < "$M/constraint_1_power_limit_uw"
+read -r ct < "$M/constraint_0_time_window_us"
+have="$c1 $c2 $(( (ct + 500000) / 1000000 ))"   # hardware rounds 28 s to 27.98 s
+# The MSR domain is disabled by the firmware today; if it ever enforces a lower limit, say so.
+R=/sys/class/powercap/intel-rapl:0
+if [ "$(cat $R/enabled 2>/dev/null)" = 1 ] && [ "$(cat $R/constraint_0_power_limit_uw)" -lt "${pl1}000000" ]; then
+  echo "<4>intel-rapl:0 (MSR) is enforcing PL1=$(( $(cat $R/constraint_0_power_limit_uw) / 1000000 ))W, below the ${pl1}W set here"
+fi
+[ "$have" = "$want" ] && exit 0
+rc=0
+w() { local err; err=$( { echo "$2" > "$M/$1"; } 2>&1 ) || { echo "<3>write $1=$2 failed: $err"; rc=1; }; }
+w constraint_0_power_limit_uw "${pl1}000000"
+w constraint_1_power_limit_uw "${pl2}000000"
+w constraint_0_time_window_us "${tau}000000"
+echo "<5>set PL1=${pl1}W PL2=${pl2}W tau=${tau}s (ac=$ac bat=$bat profile=$prof, was $((c1/1000000))/$((c2/1000000))/$(( (ct + 500000) / 1000000 ))s) rc=$rc"
+exit $rc

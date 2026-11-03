@@ -1,0 +1,8 @@
+[Unit]
+Description=Legion Pro 5: lift the firmware's 30 W Linux CPU power cap (RAPL MMIO)
+Documentation=file:///usr/local/bin/legion-power-limits
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/legion-power-limits
+LogLevelMax=notice

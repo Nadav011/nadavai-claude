@@ -1,0 +1,4 @@
+#!/bin/sh
+# Re-apply CPU power limits after resume (firmware may reset RAPL MMIO).
+[ "$1" = post ] && /usr/bin/systemctl start --no-block legion-power-limits.service
+exit 0
