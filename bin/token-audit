@@ -1,0 +1,211 @@
+#!/usr/bin/env -S python3 -I
+"""token-audit [days] - where Claude Code tokens went, from the local session transcripts.
+
+Reads every *.jsonl under ~/.claude/projects and the Orca profile projects dirs (deduplicated
+by inode, request id and tool_use id) and keeps only lines from the last N days (default 7,
+by each line's own timestamp). Prints:
+  - totals and a price-weighted share by main/subagent x model
+  - the agent types that cost the most, average context per request, fixed context at start
+  - which model callers request per subagent type (Agent tool calls)
+  - tool-result volume by tool, Read by file type, Bash by command kind
+  - why the prompt cache was rewritten (gap past the cache lifetime, model switch, ...)
+
+Weights are relative API prices per token type: input 1, 5-minute cache write 1.25, 1-hour
+cache write 2, cache read 0.1, output 5. They leave out the price difference between models,
+and the subscription quota's exact weighting is not published, so shares are estimates;
+token counts are exact.
+"""
+import collections, glob, json, os, re, sys, time
+from datetime import datetime
+
+USAGE = __doc__.split('\n')[0]
+try:
+    DAYS = float(sys.argv[1]) if len(sys.argv) > 1 else 7.0
+except ValueError:
+    sys.exit('usage: ' + USAGE)
+CUT = time.time() - DAYS * 86400
+ROOTS = [os.path.expanduser('~/.claude/projects')] + glob.glob(os.path.expanduser('~/.config/orca/claude-profiles/*/home/projects'))
+BASH_KINDS = [
+    ('search (grep/rg/find/ls)', r'\b(grep|rg|find|fd|ls|tree)\b'),
+    ('read (cat/sed/head/tail/jq/awk)', r'\b(cat|sed|head|tail|nl|jq|awk)\b'),
+    ('git/gh', r'\b(git|gh)\b'),
+    ('tests/build/lint', r'\b(vitest|jest|playwright|pytest|tsc|eslint|npm|pnpm|bun|npx|make|cargo)\b'),
+    ('ci/remote/db', r'\b(ci-wait|heavy-slot|pg-pool|docker|ssh|psql|curl)\b'),
+]
+WAIT_TAGS = ('ci-wait', 'heavy-slot', 'pg-pool', 'ssh', 'vitest', 'playwright', 'docker')
+
+
+def ts(s):
+    try:
+        return datetime.fromisoformat(str(s).replace('Z', '+00:00')).timestamp()
+    except Exception:
+        return None
+
+
+def agent_type(path):
+    if '/subagents/' not in path and '/workflows/' not in path:
+        return 'main'
+    t = 'workflow-agent' if '/workflows/' in path else '?'
+    try:
+        with open(path[:-6] + '.meta.json') as fh:
+            t = json.load(fh).get('agentType') or t
+    except Exception:
+        pass
+    return 'sub:' + re.sub(r'^(rv|arv|ag|wf)-.*', r'\1-*', t) + ('[wf]' if '/workflows/' in path else '')
+
+
+def as_dict(x):
+    return x if isinstance(x, dict) else {}
+
+
+seen_files, seen_req, seen_tool = set(), set(), set()
+by = collections.defaultdict(collections.Counter)
+tok = collections.Counter()
+first_ctx = collections.defaultdict(list)
+tool_chars, tool_calls, read_ext = collections.Counter(), collections.Counter(), collections.Counter()
+bash_chars, bash_calls = collections.Counter(), collections.Counter()
+agent_model = collections.Counter()
+cw_cause, cw_wait_tool = collections.Counter(), collections.Counter()
+cw_total = 0.0
+n_req = 0
+
+for root in ROOTS:
+    for f in glob.glob(root + '/**/*.jsonl', recursive=True):
+        try:
+            st = os.stat(f)
+            if st.st_mtime < CUT or (st.st_ino, st.st_dev) in seen_files:
+                continue
+            seen_files.add((st.st_ino, st.st_dev))
+            fh = open(f, errors='ignore')
+        except OSError:
+            continue
+        t = agent_type(f)
+        kind = 'main' if t == 'main' else 'sub'
+        pending, first, prev_t, prev_model, compact, last_tool = {}, True, None, None, False, ''
+        with fh:
+            for line in fh:
+                try:
+                    d = json.loads(line)
+                except Exception:
+                    continue
+                if not isinstance(d, dict):
+                    continue
+                if d.get('isCompactSummary') or d.get('subtype') == 'compact_boundary':
+                    compact = True
+                m = d.get('message')
+                if not isinstance(m, dict):
+                    continue
+                now = ts(d.get('timestamp'))
+                in_window = not (now and now < CUT)
+                content = m.get('content') if isinstance(m.get('content'), list) else []
+                if d.get('type') == 'assistant':
+                    for b in content:
+                        if not (isinstance(b, dict) and b.get('type') == 'tool_use'):
+                            continue
+                        inp = as_dict(b.get('input'))
+                        name = b.get('name') or '?'
+                        pending[b.get('id')] = (name, inp)
+                        last_tool = name
+                        if name == 'Bash':
+                            cmd = str(inp.get('command') or '')
+                            last_tool = next(('Bash:' + k for k in WAIT_TAGS if k in cmd), 'Bash')
+                        if name == 'Agent' and in_window and b.get('id') not in seen_tool:
+                            seen_tool.add(b.get('id'))
+                            agent_model[(inp.get('subagent_type') or '(none)', inp.get('model') or '(unset)')] += 1
+                    u = m.get('usage')
+                    rid = d.get('requestId') or m.get('id')
+                    if not isinstance(u, dict) or not rid or rid in seen_req:
+                        continue
+                    seen_req.add(rid)
+                    model = m.get('model') or '?'
+                    if model == '<synthetic>':
+                        continue
+                    if not in_window:
+                        prev_t, prev_model, first = now or prev_t, model, False
+                        continue
+                    cc = as_dict(u.get('cache_creation'))
+                    cw = u.get('cache_creation_input_tokens') or 0
+                    cw_1h = cc.get('ephemeral_1h_input_tokens') or 0
+                    cw_5m = max(cw - cw_1h, 0)
+                    cww = cw_5m * 1.25 + cw_1h * 2.0
+                    w = (u.get('input_tokens') or 0) + cww + (u.get('cache_read_input_tokens') or 0) * 0.1 + (u.get('output_tokens') or 0) * 5
+                    ctx = (u.get('input_tokens') or 0) + cw + (u.get('cache_read_input_tokens') or 0)
+                    n_req += 1
+                    c = by[(t, model)]
+                    c['req'] += 1; c['w'] += w; c['ctx'] += ctx
+                    tok['input'] += u.get('input_tokens') or 0
+                    tok['cache write 5m'] += cw_5m
+                    tok['cache write 1h'] += cw_1h
+                    tok['cache read'] += u.get('cache_read_input_tokens') or 0
+                    tok['output'] += u.get('output_tokens') or 0
+                    cw_total += cww
+                    ttl = 3600 if cw_1h > cw_5m else 300
+                    if first:
+                        first_ctx[kind].append(ctx); cause = 'first request'; first = False
+                    elif cw <= 50000:
+                        cause = 'normal growth (<50K)'
+                    else:
+                        gap = (now - prev_t) if (now and prev_t) else -1
+                        if compact: cause = 'after compaction'
+                        elif model != prev_model: cause = 'model switch'
+                        elif gap > ttl: cause = 'cache expired (%s)' % ('1h' if ttl == 3600 else '5m')
+                        else: cause = 'other (cache alive)'
+                        if cause == 'cache expired (5m)':
+                            cw_wait_tool[(kind, last_tool)] += cww
+                    cw_cause[(kind, cause)] += cww
+                    compact = False
+                    prev_t, prev_model = now or prev_t, model
+                elif d.get('type') == 'user' and in_window:
+                    for b in content:
+                        if not (isinstance(b, dict) and b.get('type') == 'tool_result'):
+                            continue
+                        tid = b.get('tool_use_id')
+                        if tid in seen_tool:
+                            continue
+                        seen_tool.add(tid)
+                        name, inp = pending.get(tid, ('?', {}))
+                        size = len(json.dumps(b.get('content'), ensure_ascii=False))
+                        key = re.sub(r'^mcp__(.+?)__.*', r'mcp:\1', name)
+                        tool_chars[key] += size; tool_calls[key] += 1
+                        if name == 'Read':
+                            read_ext[os.path.splitext(str(inp.get('file_path') or ''))[1].lower() or '(none)'] += size
+                        elif name == 'Bash':
+                            cmd = str(inp.get('command') or '')
+                            k = next((n for n, rx in BASH_KINDS if re.search(rx, cmd)), 'other')
+                            bash_chars[k] += size; bash_calls[k] += 1
+
+tw = sum(c['w'] for c in by.values()) or 1
+cwt = cw_total or 1
+print(f"token-audit: last {DAYS:g} days, {n_req} requests, {len(seen_files)} transcripts")
+print('tokens (M): ' + ', '.join(f"{k} {v/1e6:,.1f}" for k, v in tok.items()))
+
+agg = collections.defaultdict(collections.Counter)
+for (t, mo), c in by.items():
+    agg[('main' if t == 'main' else 'sub', mo)].update(c)
+print('\n== weighted share by main/subagent x model')
+for (k, mo), c in sorted(agg.items(), key=lambda x: -x[1]['w']):
+    print(f"  {k:4} {mo:22} {c['w']/tw*100:5.1f}%  req {c['req']:7}  avg ctx {c['ctx']//max(c['req'],1):>7}")
+for k, v in first_ctx.items():
+    v.sort(); print(f"  {k} fixed context at first request: median {v[len(v)//2]}  (n={len(v)})")
+
+print('\n== top agent types')
+for (t, mo), c in sorted(by.items(), key=lambda x: -x[1]['w'])[:15]:
+    print(f"  {t[:46]:46} {mo.replace('claude-',''):12} {c['w']/tw*100:5.1f}%  req {c['req']:6}  avg ctx {c['ctx']//max(c['req'],1)}")
+
+print('\n== model requested in Agent calls (subagent_type / model)')
+for (st, mo), n in agent_model.most_common(12):
+    print(f"  {n:5}  {st} / {mo}")
+
+print('\n== tool results (chars; images are counted as base64 and overstate their tokens)')
+for n, s in tool_chars.most_common(10):
+    print(f"  {n:34} {s/1e6:7.1f}M  calls {tool_calls[n]:6}")
+print('  Read by type: ' + ', '.join(f"{e} {s/1e6:.0f}M" for e, s in read_ext.most_common(6)))
+bt = sum(bash_chars.values()) or 1
+print('  Bash by kind: ' + ', '.join(f"{k} {v/bt*100:.0f}%" for k, v in bash_chars.most_common()))
+
+print('\n== cache writes by cause (share of cache-write weight)')
+for (k, c), v in sorted(cw_cause.items(), key=lambda x: -x[1]):
+    if v / cwt >= 0.005:
+        print(f"  {k:4} {c:24} {v/cwt*100:5.1f}%")
+print('  last tool before a 5m-expiry rewrite: ' + ', '.join(
+    f"{k}:{tl} {v/cwt*100:.1f}%" for (k, tl), v in cw_wait_tool.most_common(6)))

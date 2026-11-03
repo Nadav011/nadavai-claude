@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # SessionStart hook: print the setup steps still pending for the project in the cwd.
 # Plain stdout from a SessionStart hook is added to Claude's context.
-#   PROJECT-FACTS.md present            -> re-init pending (rules/project-reinit.md)
-#   UI project without DESIGN.md/PRODUCT.md -> design layer pending (rules/design-init.md)
+#   PROJECT-FACTS.md present            -> re-init pending (guides/project-reinit.md)
+#   UI project without DESIGN.md/PRODUCT.md -> design layer pending (guides/design-init.md)
 set -u
 
 if [ "${1:-}" = "--antigravity" ]; then
@@ -46,7 +46,7 @@ if [ "$is_project" = 1 ] && [ -f "$D/CLAUDE.md" ] && [ ! -e "$D/AGENTS.md" ]; th
 fi
 
 if [ -f "$D/PROJECT-FACTS.md" ]; then
-  printf '%s\n' "PROJECT REINIT PENDING: this project has PROJECT-FACTS.md at its root, so it was cleaned but not re-initialized. Follow ~/.claude/rules/project-reinit.md now: tell Nadav to run /init, then /oh-my-claudecode:deepinit, then paste the step-3 merge prompt from that rule."
+  printf '%s\n' "PROJECT REINIT PENDING: this project has PROJECT-FACTS.md at its root, so it was cleaned but not re-initialized. Follow ~/nadavai/guides/project-reinit.md now: tell Nadav to run /init, then /oh-my-claudecode:deepinit, then paste the step-3 merge prompt from that guide."
 fi
 
 if [ -f "$D/package.json" ] && grep -qE '"(react|next|vite|vue|svelte|@angular/core)"' "$D/package.json"; then
@@ -54,10 +54,10 @@ if [ -f "$D/package.json" ] && grep -qE '"(react|next|vite|vue|svelte|@angular/c
   [ -f "$D/DESIGN.md" ] || missing="DESIGN.md"
   [ -f "$D/PRODUCT.md" ] || missing="${missing:+$missing and }PRODUCT.md"
   if [ -n "$missing" ]; then
-    printf '%s\n' "DESIGN SETUP PENDING: this UI project has no $missing at its root. Tell Nadav once, in Hebrew, to run /ux-setup (the nadav-design skill; ~/.claude/rules/design-init.md is the fallback when it is unavailable), after project-reinit if that is pending too."
+    printf '%s\n' "DESIGN SETUP PENDING: this UI project has no $missing at its root. Tell Nadav once, in Hebrew, to run /ux-setup (the nadav-design skill; ~/nadavai/guides/design-init.md is the fallback when it is unavailable), after project-reinit if that is pending too."
   fi
   if [ -f "$D/DESIGN.md" ] && [ -f "$D/PRODUCT.md" ] && [ ! -d "$D/e2e/dod" ]; then
-    printf '%s\n' "DOD GATE MISSING: DESIGN.md and PRODUCT.md exist but e2e/dod/ does not. Tell Nadav to run /ux-setup (its step 12 installs the gate from ~/nadavai/templates/dod/); design-init.md step 6 is the fallback."
+    printf '%s\n' "DOD GATE MISSING: DESIGN.md and PRODUCT.md exist but e2e/dod/ does not. Tell Nadav to run /ux-setup (its step 12 installs the gate from ~/nadavai/templates/dod/); ~/nadavai/guides/design-init.md step 6 is the fallback."
   fi
   # UI loop position (nadav-design skill), derived from tracked files only (rules in its Hard rules).
   if [ -f "$D/DESIGN.md" ] && [ -f "$D/PRODUCT.md" ]; then
@@ -75,11 +75,11 @@ if [ -f "$D/package.json" ] && grep -qE '"(react|next|vite|vue|svelte|@angular/c
     fi
     printf '%s\n' "UI LOOP: next: $ui_next. Tell Nadav in one Hebrew line at the start of the session (or /ux-next for the full picture)."
   fi
-  # PostHog: every production app reports usage and errors to it (rules/posthog-init.md).
+  # PostHog: every production app reports usage and errors to it (guides/posthog-init.md).
   # Silent once the SDK is in package.json or CLAUDE.md mentions PostHog (connected or "not used").
   if ! grep -qE '"(posthog-js|posthog-node|posthog-react-native|@posthog/[a-z0-9-]+)"' "$D/package.json" \
      && ! grep -qi 'posthog' "$D/CLAUDE.md" 2>/dev/null; then
-    printf '%s\n' "POSTHOG PENDING: this UI project has no PostHog SDK in package.json and CLAUDE.md does not mention PostHog. Follow ~/.claude/rules/posthog-init.md: tell Nadav once, in Hebrew, that the app is not connected to PostHog and ask whether to connect it now or mark it as not used."
+    printf '%s\n' "POSTHOG PENDING: this UI project has no PostHog SDK in package.json and CLAUDE.md does not mention PostHog. Follow ~/nadavai/guides/posthog-init.md: tell Nadav once, in Hebrew, that the app is not connected to PostHog and ask whether to connect it now or mark it as not used."
   fi
 fi
 # Stack tools that live in the project's .mcp.json (PROJECT-CLEANUP.md, "stack additions").

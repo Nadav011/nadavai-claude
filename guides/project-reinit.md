@@ -29,4 +29,4 @@ order, and nothing else first:
 
 Why: the three active projects (TherapyFlow, Green Room, SporChat) went through exactly this
 flow on 2026-09-15 and 2026-09-16, and it produced CLAUDE.md files that are short, factual and
-free of the old system. The marker file is the only state; once it is deleted the rule is inert.
+free of the old system. The marker file is the only state; once it is deleted the guide is inert.

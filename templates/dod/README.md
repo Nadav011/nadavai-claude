@@ -1,4 +1,4 @@
-# DoD gate template (step 6 of rules/design-init.md)
+# DoD gate template (step 6 of guides/design-init.md)
 
 Source: `~/Desktop/design-bakeoff-2026/e2e/` (2026-09), moved under `e2e/dod/` and given its
 own Playwright config so it never collides with a project's existing `e2e/` suite.
