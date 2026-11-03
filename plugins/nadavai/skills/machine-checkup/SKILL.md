@@ -154,7 +154,7 @@ line (exit 0 current, 1 pending, 2 not verified, 3 reboot only; no `RESULT:` lin
 finish). It covers: repos, AUR,
 the local .deb repacks in `~/.local/share/pkgbuilds/*/latest`, Node within its major, npm, pnpm
 (including globals an older pnpm layout hid), pipx, uv, Rust, the self-updating CLIs, fwupd,
-microcode against `intel-ucode`, BIOS against the vendor (Lenovo catalog, MSI download server),
+microcode against `intel-ucode`, BIOS against the vendor (Lenovo catalog, MSI download server, ASUS support API),
 devices whose driver exists but is not bound, firmware load failures, DKMS, the NVIDIA module
 against `nvidia-utils`, ELF files with missing libraries, old binaries in `~/.local/bin` that
 shadow the pacman ones, the running kernel, and failed units. Fix each PENDING line, then run it
@@ -192,9 +192,10 @@ nvidia-container-toolkit + CDI for Docker GPU access.
 on 2026-11-03 as CachyOS + KDE (user `nadavmsi`, fish shell, `ssh msi` = Tailscale `msi-1`),
 provisioned from the LENOVO with tools only (memory `msi-reinstall-2026-11.md`). BIOS
 E1581IMS.313 is the newest on download.msi.com; msi-ec now comes from AUR `msi-ec-dkms-git`
-(EC 1581EMS1.107) with nothing set. None of the tuning below is active since the reinstall; the
-Pop!_OS files are in the LENOVO's `~/Archive/msi-20261103/system/` and come back only with an
-A/B (step 5). The old tuning, measured on Pop!_OS: msi-ec (DKMS, BeardOverflow) `shift_mode=turbo` via
+(EC 1581EMS1.107). Restored the same afternoon on CachyOS: `msi-turbo.service` (shift_mode turbo),
+`intel-undervolt` -50 mV with PL1 40 / PL2 45 W, `cpu-maxfreq.service` 4.2 GHz, the logind lid
+drop-in. Not back: the NVMe udev rule (CachyOS runs kyber), `agent-nice.timer`. The Pop!_OS files are
+in the LENOVO's `~/Archive/msi-20261103/system/`. The old tuning, measured on Pop!_OS: msi-ec (DKMS, BeardOverflow) `shift_mode=turbo` via
 `msi-turbo.service`; `intel-undervolt` -50 mV core/cache (-85 mV crashed), PL1 40 W / PL2 45 W;
 `cpu-maxfreq.service` 4.2 GHz (same clock as 4.6 under the 40 W cap, 5-7 C cooler); HWP on and
 OC Lock off in the hidden BIOS menu; NVMe `bfq`, `nr_requests 64`, `wbt_lat_usec 2000`,
@@ -218,10 +219,21 @@ rasdaemon needs `DISABLE="signal:signal_generate"` or it logs every SIGCHLD. Eve
 model, idempotent), and `lenovo-tuning-check` shows each layer. A change to the live script is
 copied back there and committed. Details: memory `lenovo-performance-tuning-2026-11.md`.
 
-**Omarchy / NadavAI** (`ssh omarchy`, no sudo, runs CI for every repo; the MSI also builds
-therapy-flow-v2 branch heads through `nadavai-slot.service`). Archive target:
-`/mnt/data/archive/<host>-<date>/` on the 2 TB disk. Do not move agent work there unless a
-measurement shows spare capacity.
+**Omarchy / NadavAI** (`ssh omarchy` = `nadav@100.93.63.88`, fish shell, passwordless sudo; ASUS ROG
+STRIX Z390-F GAMING, BIOS 2203 = newest on the ASUS support API, i7-9700K, 46 GB, GTX 1660 Ti,
+NVIDIA 615; usually no monitor attached). Reinstalled on 2026-11-03 as CachyOS + KDE and provisioned
+from the LENOVO without desktop apps (memory `omarchy-provision-2026-11.md`). It runs CI for every
+repo, owned by another session: never touch `~/ci`, the runners or dagu from here. BIOS settings
+survive a reinstall (DDR4-2666 manual, not XMP, because the kits are mixed; VT-x; SpeedShift; BIOS
+power limits off), so after a reinstall only the OS layer comes back: PL1 140 W in
+`/etc/tmpfiles.d/rapl-pl1.conf` (unlimited reached 93-97 C under CI and throttled),
+`power-profiles-daemon` enabled and set to performance with `sudo`, `/etc/sysctl.d/99-omarchy-restore.conf`
+(the rest of the old sysctl file is already in `70-cachyos-settings.conf`), USB autosuspend off, and
+the `LABEL=data` line in fstab. Measured 2026-11-03: 5 min stress-ng (8 CPU + 2x6 GB VM) held
+4.6-4.7 GHz, max 88 C, 0 throttle events, 0 failures. The 2 TB disk is a 7200 rpm HDD (bfq): archives
+and CI data only, never tools, because nothing makes it as fast as the NVMe. Archive target:
+`/mnt/data/archive/<host>-<date>/`. Do not move agent work there unless a measurement shows spare
+capacity.
 
 **New NVMe for the MSI**: clone the old drive to the new one, boot from it, then run this skill's
 step 5 again; the bfq/nr_requests choice was made for the old drive and must be re-measured.

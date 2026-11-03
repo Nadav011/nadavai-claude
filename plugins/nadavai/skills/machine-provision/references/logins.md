@@ -31,6 +31,11 @@ before copying any of these anyway.
   (`~/.local/share/com.vercel.cli/auth.json`, has `refreshToken`), Wrangler
   (`~/.config/.wrangler/config/default.toml`, has `refresh_token`), Higgsfield
   (`~/.config/higgsfield/credentials.json`).
+- Vercel without Nadav at the target's screen: start the device login there in the background
+  (`nohup setsid vercel login > /tmp/vercel-login.log 2>&1 < /dev/null &`), read the
+  `vercel.com/oauth/device?user_code=...` link from the log, and give it to Nadav to open in the
+  source's Chrome; `vercel whoami` on the target proves it. A separate token cannot be minted from
+  the source's CLI session (`POST /v3/user/tokens` answers 403 "Cannot create tokens for this app").
 - To classify a new tool, list key paths only, never values, recursively (Codex keeps
   `refresh_token` under `tokens`):
   `python3 -I -c 'import json,sys,tomllib;f=sys.argv[1];d=tomllib.load(open(f,"rb")) if f.endswith(".toml") else json.load(open(f));w=lambda o,p="":[k for kk,v in o.items() for k in [p+kk]+w(v,p+kk+".")] if isinstance(o,dict) else [];print("\n".join(w(d)))' FILE`.

@@ -1,0 +1,81 @@
+# Intended differences for compare.py --ignore, LENOVO -> omarchy (CI box), 2026-11-03: ignore.example plus the scope Nadav chose (no desktop apps).
+# Format: "<section> <item>" or "<section> *". Keep a reason on every line.
+pkg-explicit-native intel-npu-driver        # Tiger Lake has no NPU
+system-units-enabled legion-power-limits.timer   # LENOVO power-limit fix, host-specific
+system-units-enabled migration-leftovers-clean.service   # one-shot cleanup on the LENOVO
+cargo-installed parry-guard                 # copied as a binary: every version fails to build (ort-sys 403)
+user-scripts *                              # nadavai bin and personal scripts: environment, excluded
+user-units-enabled *                        # agent-nice, pw-clean, wacli-sync...: environment, excluded
+desktop-entries claude-pet-quickchat.desktop  # environment
+desktop-entries claude-rtl.desktop          # environment
+desktop-entries hf-chat.desktop             # personal tool in ~/tools
+opt Grok Bot.msi-copy-2026-11-03            # backup deleted at the LENOVO's next boot
+opt Orca.pre-pkg-1.4.246                    # same
+docker-images *                             # test databases come from pg-pool on demand
+playwright-browsers b                       # stray dir in ~/.cache/ms-playwright
+user-binaries rustup                        # target uses pacman rust (rustup conflicts with it)
+user-binaries cargo-miri
+user-binaries rls
+# omarchy scope (Nadav 2026-11-03): CI box, no desktop apps, no python3.12 personal scripts
+pkg-explicit-native claude-desktop  # desktop app, not chosen
+pkg-explicit-native copyq  # desktop app
+pkg-explicit-native ghostty  # desktop terminal
+pkg-explicit-native kitty  # desktop terminal
+pkg-explicit-native libreoffice-fresh  # desktop app
+pkg-explicit-native gnome-keyring  # KDE ksecretd owns the Secret Service; a second provider would split the Chrome key
+pkg-explicit-native seahorse  # gnome-keyring UI
+pkg-explicit-native gtk-layer-shell  # claude-pet dependency
+pkg-explicit-native libayatana-appindicator  # claude-pet dependency
+pkg-explicit-native webkit2gtk-4.1  # claude-pet dependency
+pkg-explicit-native intel-compute-runtime  # iGPU disabled on this desktop
+pkg-explicit-native intel-gpu-tools  # iGPU disabled
+pkg-explicit-native intel-media-driver  # iGPU disabled
+pkg-explicit-native level-zero-loader  # iGPU disabled
+pkg-explicit-native vpl-gpu-rt  # iGPU disabled
+pkg-explicit-native vulkan-intel  # iGPU disabled
+pkg-explicit-native gst-plugin-va  # Intel VA
+pkg-explicit-native nvidia-prime  # laptop hybrid graphics
+pkg-explicit-native switcheroo-control  # laptop hybrid graphics
+pkg-explicit-native solaar  # Logitech receiver, none here (G502 is wired)
+pkg-explicit-native plasma-foreground-booster  # desktop tweak, not chosen
+pkg-explicit-native ydotool  # moves the real mouse; no desktop control on a headless box
+pkg-explicit-foreign codex-desktop  # desktop app
+pkg-explicit-foreign grok-bot  # desktop app
+pkg-explicit-foreign orca-ide  # desktop app
+pkg-explicit-foreign openwhispr-vulkan  # desktop app
+pkg-explicit-foreign logiops  # no Logitech MX device
+pkg-explicit-foreign python312  # only for the LENOVO personal pip-user scripts
+pip-user *  # LENOVO personal scripts
+opt Grok Bot  # desktop app
+opt Orca  # desktop app
+opt codex-desktop  # desktop app
+opt openwhispr  # desktop app
+system-units-enabled logid.service  # no Logitech MX device
+system-units-enabled nvidia-powerd.service  # laptop Dynamic Boost only
+system-units-enabled switcheroo-control.service  # laptop hybrid graphics
+user-binaries claude-pet  # desktop app
+user-binaries wacli  # WhatsApp is never copied
+desktop-entries claude-code-url-handler.desktop  # written by Claude Code at its first login on the box
+desktop-entries codex-desktop.desktop  # launcher of a desktop app left out
+desktop-entries com.anthropic.Claude.desktop  # launcher of a desktop app left out
+desktop-entries com.github.hluk.copyq.desktop  # launcher of a desktop app left out
+desktop-entries com.mitchellh.ghostty.desktop  # launcher of a desktop app left out
+desktop-entries gcr-prompter.desktop  # gnome-keyring/gcr UI, not installed on KDE
+desktop-entries gcr-viewer.desktop  # gnome-keyring/gcr UI, not installed on KDE
+desktop-entries grok-bot.desktop  # launcher of a desktop app left out
+desktop-entries kitty-open.desktop  # launcher of a desktop app left out
+desktop-entries kitty.desktop  # launcher of a desktop app left out
+desktop-entries libreoffice-base.desktop  # launcher of a desktop app left out
+desktop-entries libreoffice-calc.desktop  # launcher of a desktop app left out
+desktop-entries libreoffice-draw.desktop  # launcher of a desktop app left out
+desktop-entries libreoffice-impress.desktop  # launcher of a desktop app left out
+desktop-entries libreoffice-math.desktop  # launcher of a desktop app left out
+desktop-entries libreoffice-startcenter.desktop  # launcher of a desktop app left out
+desktop-entries libreoffice-writer.desktop  # launcher of a desktop app left out
+desktop-entries libreoffice-xsltfilter.desktop  # launcher of a desktop app left out
+desktop-entries openwhispr.desktop  # launcher of a desktop app left out
+desktop-entries orca-ide.desktop  # launcher of a desktop app left out
+desktop-entries org.gnome.seahorse.Application.desktop  # launcher of a desktop app left out
+desktop-entries org.kde.foreground-booster.desktop  # launcher of a desktop app left out
+desktop-entries qemu.desktop  # qemu GUI launcher from a LENOVO-only package
+desktop-entries solaar.desktop  # launcher of a desktop app left out

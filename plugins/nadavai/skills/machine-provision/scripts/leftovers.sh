@@ -57,7 +57,7 @@ for f in "$HOME"/.config/systemd/user/*.service; do
     command -v "$e" >/dev/null 2>&1 || [ -x "$e" ] || out "  $(basename "$f"): ExecStart $e missing"
   done
 done
-for l in "$HOME"/.config/systemd/user/*.wants/*; do [ -e "$l" ] || out "  dangling wants link $l"; done 2>/dev/null
+for l in "$HOME"/.config/systemd/user/*.wants/*; do [ -L "$l" ] && [ ! -e "$l" ] && out "  dangling wants link $l"; done 2>/dev/null
 
 out "== unowned files under /usr/bin, /usr/lib (top level), /opt, /usr/share/applications"
 owned=$(mktemp); pacman -Qlq 2>/dev/null | sed 's#/$##' | sort -u > "$owned"

@@ -227,6 +227,20 @@ PY
 ); do [ "$(code "$n")" = 200 ] && next="$base.$n"; done
       if [ -n "$next" ]; then pending "BIOS $bios, MSI download server has $next"; else say "  ok: no newer $base.* (checked 16 versions ahead)"; fi
     fi ;;
+  ASUS*|"ASUSTeK COMPUTER INC.")
+    # Desktop boards report "System Product Name"; the model is the board name (spaces kept).
+    board=$(cat /sys/class/dmi/id/board_name 2>/dev/null)
+    latest=$(curl -s -m 30 -A 'Mozilla/5.0' -G 'https://www.asus.com/support/api/product.asmx/GetPDBIOS' \
+      --data-urlencode website=global --data-urlencode "model=$board" --data-urlencode pdhashedid= 2>/dev/null |
+      python3 -I -c 'import json,sys
+try: d = json.load(sys.stdin)
+except ValueError: sys.exit()
+for o in (d.get("Result") or {}).get("Obj", []):
+    if o.get("Name") == "BIOS" and o.get("Files"):
+        f = o["Files"][0]; print(f.get("Version", ""), f.get("ReleaseDate", "")); break' 2>/dev/null)
+    if [ -z "$latest" ]; then unknown "ASUS support API gave no BIOS for '$board' (offline, or another model name)"
+    elif [ "${latest%% *}" != "$bios" ]; then pending "BIOS $bios, ASUS has ${latest%% *} (${latest#* })"
+    else say "  ok: ${latest%% *} (${latest#* }) is the newest on the ASUS support site"; fi ;;
   *) unknown "no vendor check for '$vendor': look up the support page by hand" ;;
 esac
 

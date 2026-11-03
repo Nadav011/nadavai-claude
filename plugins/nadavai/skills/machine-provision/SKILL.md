@@ -17,10 +17,14 @@ hold the last run's decisions and what was intentionally left out.
    any update of an app that is running there) go to Nadav, because rule 3 forbids acting on them.
    A run without a `RESULT:` line did not finish. Why: on 2026-11-03 "done" was claimed four
    times; each new diff found more.
-2. **Nadav decides the scope.** Ask once (AskUserQuestion): tools only, or also the agent
-   environment (nadavai, rules, user services, Orca RTL); which Chrome data; whether logins move.
-   Files and projects never move unless he names them. CI (`nadavai-slot`) is never touched
-   without him.
+2. **Nadav decides the scope.** Ask once (AskUserQuestion, multiSelect), by category, after the
+   first diff so the question names real items: command-line tools (Node, pnpm, bun, uv, pipx,
+   Docker, gh); agents and nadavai (Claude Code, Codex, Gemini, omc, rules, the Bright Data token);
+   desktop apps (Orca, Claude Desktop, Codex Desktop, Grok Bot, OpenWhispr, terminals, LibreOffice);
+   heavy kits (Android SDK, JDK, Playwright browsers, gcloud, Maestro). Then which Chrome data, and
+   which logins. A box he rarely sits at (omarchy, a CI host) gets no desktop apps by default.
+   Files, projects and agent sessions never move unless he names them. CI (`nadavai-slot`, `~/ci`,
+   runners, dagu) is never touched without him: another session owns it.
 3. **Never interrupt the source.** No reboot, no restart of Orca, Chrome or Docker there. Ask him
    to close Chrome for the profile copy. Reboot the target only when he says so.
 4. **Logins follow `references/logins.md`**: static and Google tokens may be copied, rotating
@@ -37,12 +41,21 @@ Tailscale name and IP (`tailscale status`), `ssh <host>` with a key, passwordles
 (fish rejects `${...}` and `$?`). The exception is a command that pipes a secret: it uses
 `... | ssh <host> "bash -c '...'"` (see `references/logins.md`), and the secret is never written
 into a heredoc. Record the username: paths that embed `/home/<user>` must be rewritten on the target.
+Inside the heredoc, wrap the body in `main() { ...; }; main </dev/null`. Never write
+`bash -s <<'EOF' </dev/null` (the second redirect replaces the heredoc, so nothing runs) or
+`exec </dev/null` at the top (it closes the script bash is still reading). Both returned empty
+output, with no error, on 2026-11-03.
+
+Where tools go: on the SSD. A second HDD (omarchy's 2 TB) holds archives and data only. No kernel
+or scheduler makes a spinning disk as fast as NVMe for node_modules, SDKs and Docker layers, and
+Nadav's condition for using it was "the same speed", so the answer is no unless the SSD is full.
 
 ### 1. Inventory both sides
 `scripts/inventory.sh > src.txt`, `ssh <host> bash -s < scripts/inventory.sh > dst.txt`,
 `python3 -I scripts/compare.py src.txt dst.txt --ignore ignore.txt` (start the ignore file from
-`references/ignore.example`, one reason per line; its `user-scripts *` and `user-units-enabled *`
-lines fit a tools-only scope: drop them when Nadav wants the environment too). Run it again at the end and after every pass:
+`references/ignore.example`, or `references/ignore.omarchy` for a box without desktop apps; one
+reason per line, after a `#`, or the line silently matches nothing; its `user-scripts *` and
+`user-units-enabled *` lines fit a tools-only scope: drop them when Nadav wants the environment too). Run it again at the end and after every pass:
 another session may install something on the source meanwhile (OpenWhispr and espeak-ng arrived
 mid-run on 2026-11-03). Sections to read with care: `user-binaries` (compiled tools, which the
 target may get from a pacman package instead), `user-scripts` (mostly the personal environment),
@@ -101,6 +114,22 @@ cronie, earlyoom, rasdaemon (`/etc/sysconfig/rasdaemon`), the SSH hardening drop
 (`sshd -t` before the reload, then prove key login with `-o ControlPath=none` and that password
 login is refused). User services belong to the environment: only with Nadav's yes.
 
+### 5b. Host tuning after a reformat
+A reinstall keeps the BIOS and loses the OS layer. Prove the BIOS part first: `dmidecode -t memory`
+(configured speed), `/dev/kvm`, `hwp` in cpuinfo with `intel_pstate` active, and the RAPL limit
+(4095 W in `constraint_0_power_limit_uw` = BIOS limits off). Then bring back the OS part from the
+pre-format keep set (its `/etc` tarballs: tmpfiles.d, sysctl.d, modprobe.d, udev rules, systemd
+drop-ins, fstab), and diff each value against what the new distro already ships: CachyOS's
+`cachyos-settings` already sets swappiness 150, page-cluster 0, vfs_cache_pressure 50, dirty bytes,
+inotify watches and zswap off, so only the rest is restored. A second drive needs its fstab line
+back (`findmnt --verify`, `daemon-reload`). `power-profiles-daemon` is not enabled at boot on
+CachyOS KDE, and `powerprofilesctl set` over ssh needs `sudo` (polkit refuses a remote session):
+enable it, then set the profile, then read the EPP back. Drop items for hardware the box no longer
+has (omarchy's RTL8192EU Wi-Fi). Prove it under load: 5 min of
+`stress-ng --cpu <cores> --vm 2 --vm-bytes 6G`, sampling the package temperature and clock every
+10 s, then `package_throttle_count` before/after and the kernel log for MCE. Power from
+`energy_uj` needs root. The host's limits and numbers live in machine-checkup's host notes.
+
 ### 6. Drivers and firmware
 Run `machine-checkup/scripts/update-audit.sh` on the target and fix each PENDING line. Then the
 vendor drivers for the target's own hardware (`lsusb`, `lspci -k`, DMI vendor):
@@ -115,7 +144,17 @@ a dbx update.
 ### 7. Chrome and logins
 Follow `references/logins.md`: close Chrome on the source, copy the profiles, rewrite the home
 path, move the Safe Storage key, prove decryption with `scripts/chrome-verify.py`, then the tool
-logins Nadav approved, each checked with the tool's own status command.
+logins Nadav approved, each checked with the tool's own status command. On a KDE target never
+install `gnome-keyring`: ksecretd already owns the Secret Service, and a second provider can take
+the name at the next login and hide the Chrome key.
+
+### 7b. Agents and nadavai (only when Nadav chose them)
+Clone `Nadav011/nadavai-claude` to `~/nadavai` (gh over HTTPS; the SSH key is not on GitHub) and run
+`./setup.sh` with the fnm path first on PATH. It installs no services and no CI pieces. Then fix
+what its "System tools" block reports MISSING (git-lfs, sox, Maestro: copy `~/.maestro` and the
+versioned `~/.maestro-<ver>` it links to) and move the `BRIGHTDATA_API_TOKEN` env value into the
+target's `~/.claude/settings.json` on a pipe. The secrets vault is not copied unless Nadav asks.
+Claude Code and Codex get a fresh login on the target (rotating tokens).
 
 ### 8. Prove and report
 - `compare.py` again until only ignore-file lines remain, `update-audit.sh` on both machines,
