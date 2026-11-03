@@ -59,8 +59,10 @@ reason per line, after a `#`, or the line silently matches nothing; its `user-sc
 another session may install something on the source meanwhile (OpenWhispr and espeak-ng arrived
 mid-run on 2026-11-03). Sections to read with care: `user-binaries` (compiled tools, which the
 target may get from a pacman package instead), `user-scripts` (mostly the personal environment),
-`pip-user` (`pip install --user` packages per Python; the LENOVO's python3.12 set serves the
-copied Ubuntu scripts, so ask before reproducing it), and `groups` (read from the group db; a
+`pip-user` (`pip install --user` packages per Python: never reproduce them on a target. The
+LENOVO's 436-package python3.12 set was unused and went to `~/Archive/python312-user-2026-11-03/`
+on 2026-11-03; a tool that came from it is installed from the repos instead, as pyright and
+git-filter-repo were, and a project installs its own libraries with uv), and `groups` (read from the group db; a
 multiplexed ssh session shows stale groups).
 
 ### 2. System packages
