@@ -67,13 +67,33 @@ reach a production token (plan Revision v2 item 5). Code in `deploy/`, installed
 pnpm 10.32.1, wrangler 4.151.3 and vercel 64.7.0 from `deploy/tools/package-lock.json`), the system
 user `nadavai-build`, work dirs in `/srv/nadavai-deploy`, and the user timer
 `nadavai-deploy-auto.timer`.
-- Commands (`ssh nadavai-vm nadavai-deploy <cmd>`): `deploy <repo> <sha> [--dry-run]`,
+- Who deploys (since 2026-11-04): the session that merged a PR runs `deploy <repo> <merge sha>`
+  (rules/ci-policy.md rule 10), in all four repos; nothing deploys on a timer.
+- Commands (`ssh nadavai-vm nadavai-deploy <cmd>`): `deploy <repo> <sha> [--dry-run]
+  [--migration-approved "<reason>"]`,
   `hold <repo> <reason>`, `release <repo>`, `hold-status <repo>` (one word: held, off, auto or
   manual), `pages-live <repo>` (live deployment id and commit, Vercel repos too),
   `rollback <repo> <deployment id>`, `repos`. Exit codes are in the script's header.
 - Gate: the sha is on main and is the merge commit of a PR into main whose head has every
   `ci/woodpecker/pr/*` status and `nadavai-security` green (main is not tested again). A direct push
   to main has no PR, so it is refused; deploy the next merge commit instead.
+- Migration gate: when `git diff` between the live commit (`pages-live`) and the sha, in the
+  mirror, holds a migration (`MIGRATION_RE`: a `.sql` under `supabase/migrations*/`,
+  `migrations*/` or `supabase/release-candidates/`, not `__tests__/`), the deploy refuses with exit
+  5 and lists the files. `--migration-approved "<reason>"`, passed only after Nadav approved the
+  migration, lets it through; the reason goes into the run log and the `deploys.log` line. An
+  unreadable live commit counts as a migration.
+- Nightly gate: the latest finished (success, failure or error) Woodpecker cron run named
+  `nightly` on main (`GET /api/repos/<id>/pipelines?event=cron&branch=main`; ids 2 snooker-smart,
+  3 cash-next-app, 4 therapy-flow-v2, 5 sportchat-web). Green passes. Red on the sha, or on a
+  newer commit, refuses with exit 6 and its failing steps. Red on an older commit: the deploy
+  starts the cron now (`POST /api/repos/<id>/cron/<cron id>`, which runs on main's head) and waits
+  up to 20 minutes (`NADAVAI_DEPLOY_NIGHTLY_WAIT`): green on the sha passes; red, or main having
+  moved past the sha, refuses with 6; still running is 75, and a second `deploy` waits on that
+  same run instead of starting another. The omarchy audits (`nadavai-ui`, `nadavai-nightly`) are
+  not gates. A real deploy stops at the first refusal and posts a `nadavai-deploy` failure
+  ("not deployed: ..."); a dry run reports both gates, goes on, and exits with the refusal's code.
+  A hold or off set while the gates ran (the wait) still stops the deploy (exit 3).
 - Build: therapy-flow-v2 builds on the VM from a fresh clone of a bare mirror, as `nadavai-build` in
   a transient systemd unit (`sudo systemd-run`): no /home (so no secrets), read-only system, no
   route to 169.254.0.0/16 (cloud metadata), Tailscale, loopback or private networks (DNS allowed),
@@ -93,18 +113,22 @@ user `nadavai-build`, work dirs in `/srv/nadavai-deploy`, and the user timer
   held. `state/off` (all repos) or `state/<repo>.off` switch deploys off.
 - Auto: OFF. The timer runs `nadavai-deploy auto` every 5 minutes, which reads nothing unless a
   `state/<repo>.auto` file exists; then it deploys main's new head through the same gate, and a
-  failed head is not retried until main moves. sportchat-web never deploys automatically. Turning
-  auto on for a repo is Nadav's call (rules/ci-policy.md rule 10): `touch ~/deploy/state/<repo>.auto`.
+  failed head is not retried until main moves. sportchat-web is never deployed by the timer (it
+  deploys only from the merging session). Turning the timer on for a repo is Nadav's call:
+  `touch ~/deploy/state/<repo>.auto`. The timer never passes `--migration-approved`.
 - Secrets, VM only, 600 in `~/deploy/secrets/`: `github.env` (`GH_TOKEN`: a fine-grained PAT for the four repos
   with Contents read, Pull requests read, Commit statuses read and write; pending as of
   2026-11-04: GitHub asked for GitHub Mobile confirmation, so Nadav creates it and pipes it in), `therapy-flow-v2.env` (the Pages deploy token from
   the old `therapy-flow-v2.deploy.env`), `therapy-flow-v2.build.env` (public `VITE_*` build env, read
   by systemd as root, never by the build user), and `cash-next-app.env`, `snooker-smart.env`,
   `sportchat-web.env` (`VERCEL_TOKEN`, team scope `nadav011s-projects`: the Vercel CLI refuses
-  project-scoped tokens; expires 2027-11-04). Copied with pipes; nothing in Woodpecker or a repo.
+  project-scoped tokens; expires 2027-11-04), and `woodpecker.env` (`WOODPECKER_TOKEN`, Nadav011's
+  Woodpecker API token from the LENOVO vault, for the nightly gate). Copied with pipes; nothing in
+  Woodpecker or a repo.
 - Vercel Git deploys: none of the three projects deploys main by itself (snooker-smart's
   `vercel.json` sets `git.deploymentEnabled.main=false`; cash-next-app and sportchat-web have no Git
   link), so this service is their only production path.
 - Tests: `bash deploy/tests/nadavai-deploy.sh` (offline, stub gh/curl/sudo): the 37 hold, rollback
   and pages-live checks ported from nadavai-ci 9ca934d plus the gate, dry run, auto pass and clean
-  upload environment.
+  upload environment, and the migration gate (on a git mirror the test builds) and nightly gate
+  (stub Woodpecker): 103 checks.
