@@ -51,7 +51,9 @@ GH
 printf '#!/bin/sh\nprintf "%%s\\n" "$*" >>"${SSHLOG:-/dev/null}"\nexit 0\n' >"$t/bin/ssh"
 chmod +x "$t/bin/gh" "$t/bin/ssh"
 A=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa B=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
-export PATH=$t/bin:$PATH CI_WAIT_POLL=1
+# This suite covers the old nadavai-ci path: no repo is handed over to ci-wait-wp (Woodpecker) here.
+: >"$t/no-woodpecker-repos"
+export PATH=$t/bin:$PATH CI_WAIT_POLL=1 CI_WAIT_WP_REPOS=$t/no-woodpecker-repos
 fail=0 n=0
 ok() { echo "ok   $1"; }
 bad() { echo "FAIL $1: $2"; fail=1; }
@@ -238,16 +240,16 @@ detached() { # name env-assignment option
   fresh_cache; export DONE=$t/done-$1
   # shellcheck disable=SC2016  # expanded by the inner shell
   env "$2" bash -c 'bash "$1" therapy-flow-v2 "$2" --timeout 1 $5 >"$3" 2>&1 & echo $! >"$4"; wait' \
-    _ "$cw" "$A" "$t/dt.out" "$t/dt.pid" "$3" &
+    _ "$cw" "$A" "$t/dt-$1.out" "$t/dt-$1.pid" "$3" &
   local parent=$! waiter i
-  for ((i = 0; i < 100; i++)); do grep -q "nadavai-ci: pending" "$t/dt.out" 2>/dev/null && break; sleep 0.1; done
-  waiter=$(cat "$t/dt.pid")
+  for ((i = 0; i < 100; i++)); do grep -q "nadavai-ci: pending" "$t/dt-$1.out" 2>/dev/null && break; sleep 0.1; done
+  waiter=$(cat "$t/dt-$1.pid")
   kill -9 "$parent"; wait "$parent" 2>/dev/null
   sleep 2
-  if ! kill -0 "$waiter" 2>/dev/null; then bad "$1" "it stopped: $(tail -1 "$t/dt.out")"; return; fi
+  if ! kill -0 "$waiter" 2>/dev/null; then bad "$1" "it stopped: $(tail -1 "$t/dt-$1.out")"; return; fi
   touch "$DONE"
-  if wait_gone "$waiter" 3 && grep -q "^GREEN" "$t/dt.out"; then ok "$1: the parent killed, the wait went on to green"
-  else bad "$1" "did not end green: $(tail -1 "$t/dt.out")"; kill "$waiter" 2>/dev/null; fi
+  if wait_gone "$waiter" 3 && grep -q "^GREEN" "$t/dt-$1.out"; then ok "$1: the parent killed, the wait went on to green"
+  else bad "$1" "did not end green: $(tail -1 "$t/dt-$1.out")"; kill "$waiter" 2>/dev/null; fi
 }
 detached --detach CI_WAIT_FOLLOW_PARENT=1 --detach
 detached CI_WAIT_FOLLOW_PARENT=0 CI_WAIT_FOLLOW_PARENT=0 ""

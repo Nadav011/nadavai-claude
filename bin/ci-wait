@@ -110,7 +110,7 @@ mkdir -p "$CACHE" || exit 64
 # per line, so a repo that is only being trialled on Woodpecker (shadow runs) keeps the old path.
 wp_active() {
   local list
-  list="$(dirname "$(readlink -f "$0")")/../lib/woodpecker-repos.txt"
+  list=${CI_WAIT_WP_REPOS:-"$(dirname "$(readlink -f "$0")")/../lib/woodpecker-repos.txt"}  # tests point it elsewhere
   [ -r "$list" ] && grep -qixF "$repo" <(sed 's/[[:space:]]*#.*//; /^$/d' "$list")
 }
 if wp_active; then
