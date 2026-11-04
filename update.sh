@@ -54,6 +54,9 @@ refresh_codex_plugin || CODEX_REFRESH_FAILED=1
 step "continues CLI"
 ensure_continues
 
+step "TypeScript language server"
+ensure_ts_lsp
+
 step "agent-browser"
 ensure_agent_browser
 

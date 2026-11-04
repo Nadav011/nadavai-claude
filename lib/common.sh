@@ -252,6 +252,16 @@ ensure_continues() {
   fi
 }
 
+# The LSP tool and OMC lsp_* need a TypeScript language server on PATH for the
+# "LSP before grep" rule (rules/model-routing.md). It uses each project's own
+# node_modules/typescript, so no global typescript is installed for it.
+ensure_ts_lsp() {
+  if ! command -v typescript-language-server >/dev/null 2>&1; then
+    log "installing typescript-language-server (npm -g)"
+    npm install -g typescript-language-server || warn "could not install typescript-language-server"
+  fi
+}
+
 AGENT_BROWSER_VERSION=0.41.1
 ensure_agent_browser() {
   # agent-browser drives a separate Chrome for agents; its "vault" credential plugin
