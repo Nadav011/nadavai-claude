@@ -16,7 +16,8 @@ every `ci-wait`, and the old runner (3,445 lines on one 8-core box) queued agent
   (`omarchy-nightly`, capacity 1) that takes only Nadav011/nadavai-nightly's workflows, cron
   `night` 23:00 UTC, on each repo's main (Green Room: the commit production serves). It posts
   `nadavai-ui`, `nadavai-nightly`, `nadavai-native` and `nadavai-expo-doctor`, and keeps the
-  "NadavAI: main is red" issue per repo. Summary: `ssh omarchy ~/nightly/bin/ci-summary <repo>`.
+  "NadavAI: main is red" issue per repo. Summary: `ssh omarchy /home/nadav/nightly/bin/ci-summary <repo>` (absolute: a bare `~`
+  expands on the LENOVO). Logs: `/home/nadav/nightly/logs` on omarchy, 14 days.
 - **LENOVO**: Nadav's work machine. Agents' scoped checks only; no CI.
 
 ## The rules
