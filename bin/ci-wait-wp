@@ -24,7 +24,8 @@
 # Run it with run_in_background: true and continue when it ends; never a status loop.
 #
 # Exit codes: 0 green; 1 red (failed steps and the log tail of the first are printed); 2 timeout;
-# 3 Woodpecker unreachable 3 times in a row, or no run appeared; 4 the starting process is gone;
+# 3 Woodpecker unreachable 3 times in a row, no run appeared, or the --slice folder cannot be
+# created; 4 the starting process is gone;
 # 5 nothing to wait on (no landing PR for this commit, a draft, or a run Woodpecker blocked or
 # skipped); 6 superseded (a newer push to the PR cancelled this run: wait on the new head);
 # 7 still running at the end of --slice (run the same command again).
@@ -35,7 +36,7 @@ ENV_FILE=${WOODPECKER_ENV_FILE:-$HOME/.claude/secrets/woodpecker.env}
 POLL=${CI_WAIT_POLL:-20}
 PENDING_WARN_S=300
 
-usage() { sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage() { sed -n '2,31p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 
 repo="" ref="" timeout_min=90 land="" follow=${CI_WAIT_FOLLOW_PARENT:-1} branch="" slice=""
 while [ $# -gt 0 ]; do
@@ -299,7 +300,8 @@ while :; do
       done ;;
     killed)
       now=""
-      [ -n "$prnum" ] && now=$(ghr pr view "$prnum" -R "$OWNER/$repo" --json headRefOid --jq .headRefOid 2>/dev/null)
+      # An unanswered lookup is no answer: check again rather than restart a run a newer push cancelled.
+      if [ -n "$prnum" ] && ! now=$(ghr pr view "$prnum" -R "$OWNER/$repo" --json headRefOid --jq .headRefOid 2>/dev/null); then nap; continue; fi
       if [ -n "$now" ] && [ "$now" != "$sha" ]; then
         echo "superseded: pipeline $n of ${sha:0:7} was cancelled by a newer push (PR #$prnum head is now ${now:0:7}). Wait on that: ci-wait $repo pr:$prnum"
         exit 6
@@ -331,8 +333,9 @@ while :; do
                       grep -oE '=> \.?/?[A-Za-z0-9_./-]+\.(test|spec)\.[cm]?[jt]sx?:[0-9]+' <<<"$log" | sed -E 's|^=> \.?/?||; s|:[0-9]+$||'; } | sort -u)
           nontest=$(jq -r '[.workflows[]?.children[]? | select(.state == "failure") | .name | select(test("^(unit|integration|e2e|edge|sql|test)") | not)] | length' <<<"$d" 2>/dev/null)
           if [ -n "$ftests" ] && [ "${nontest:-1}" = 0 ]; then
-            prf=$(ghr api --paginate "repos/$OWNER/$repo/pulls/$prnum/files?per_page=100" --jq '.[].filename')
             touched=""
+            # Unread file list: count the tests as touched, so no flake restart on a guess.
+            prf=$(ghr api --paginate "repos/$OWNER/$repo/pulls/$prnum/files?per_page=100" --jq '.[].filename') || touched=1
             while IFS= read -r t; do grep -qF "$t" <<<"$prf" && touched=1; done <<<"$ftests"
             if [ -z "$touched" ] && restart_run "suspected flake in tests this PR did not change: $(tr '\n' ' ' <<<"$ftests")"; then continue; fi
           fi
