@@ -272,6 +272,10 @@ ensure_ts_lsp() {
   fi
   mkdir -p "$HOME/.local/bin"
   ln -sfn "$prefix/node_modules/.bin/typescript-language-server" "$HOME/.local/bin/typescript-language-server"
+  # bf256ed installed it with npm -g (no TypeScript fallback); that copy can shadow this one in PATH
+  if [ -d "$(npm root -g 2>/dev/null)/typescript-language-server" ]; then
+    npm rm -g typescript-language-server >/dev/null 2>&1 || warn "could not remove the global typescript-language-server"
+  fi
 }
 
 AGENT_BROWSER_VERSION=0.41.1

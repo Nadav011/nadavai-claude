@@ -1,39 +1,61 @@
 #!/usr/bin/env -S python3 -I
-"""executor-quality [days] [-v] - how executor subagents' work fared, by model, from local transcripts.
+"""executor-quality [days | --since YYYY-MM-DD] [-v] - how executor subagents' work fared, by model.
 
-For every oh-my-claudecode:executor subagent (plain subagents; Workflow agents are not covered)
-started in the last N days (default: all), in its parent session:
+Reads the local transcripts. For every oh-my-claudecode:executor subagent (plain subagents; Workflow
+agents are not covered) started in the window (default: all), in its parent session:
   - the model it actually ran on, and its size (tool calls)
-  - review: the verdict of the first review that started after the executor ended (a
-    code-reviewer / verifier / security-reviewer subagent, or `omc ask codex|antigravity`). A review
-    counts for every executor that ended since the previous review, so a parallel batch shares it.
-  - CI: the first ci-wait verdict after it ended, read from ci-wait's own GREEN:/RED: line (or the
-    exit code when the command did not pipe or chain it). Same sharing rule as reviews.
-Observational: Opus tends to get the harder tasks, so compare by size bucket too, and treat small
-counts as small. -v prints one row per run with the start of the review text.
+  - review: the first review within 6 h after the executor ended (a code-reviewer / verifier /
+    security-reviewer subagent, or `omc ask codex|antigravity`), preferring one whose text names the
+    branch or a commit sha from the executor's own final text. Reviews that only report a usage
+    limit, or have no text, are skipped. A batch of executors can share one review.
+  - CI: the first ci-wait verdict within 6 h, from ci-wait's own GREEN:/RED: line (foreground
+    result or the task notification of a background run); an infrastructure kill is not counted.
+The rejection rate counts clear verdicts only (rejected / (rejected + approved)); unclear ones are
+reported apart. Observational: compare by size, and treat small counts as small.
 """
-import collections, glob, json, os, re, sys, time
+import collections, glob, json, math, os, re, sys, time
 from datetime import datetime
 
-args = [a for a in sys.argv[1:] if a != '-v']
+USAGE = 'usage: ' + __doc__.split('\n')[0]
+argv = sys.argv[1:]
+if '-h' in argv or '--help' in argv:
+    print(__doc__); sys.exit(0)
+VERBOSE = '-v' in argv
+argv = [a for a in argv if a != '-v']
+CUT = 0.0
 try:
-    if len(args) > 1:
+    if argv[:1] == ['--since'] and len(argv) == 2:
+        CUT = datetime.fromisoformat(argv[1]).timestamp(); WINDOW = 'since ' + argv[1]
+    elif len(argv) == 1:
+        days = float(argv[0])
+        if not math.isfinite(days) or days <= 0:
+            raise ValueError
+        CUT = time.time() - days * 86400; WINDOW = 'last %g days' % days
+    elif not argv:
+        WINDOW = 'all transcripts'
+    else:
         raise ValueError
-    DAYS = float(args[0]) if args else 0.0
 except ValueError:
-    sys.exit('usage: ' + __doc__.split('\n')[0])
-CUT = time.time() - DAYS * 86400 if DAYS else 0
-ROOTS = [os.path.expanduser('~/.claude/projects')] + glob.glob(os.path.expanduser('~/.config/orca/claude-profiles/*/home/projects'))
+    sys.exit(USAGE)
+
+GAP = 6 * 3600
+ROOTS = []
+for r in [os.path.expanduser('~/.claude/projects')] + glob.glob(os.path.expanduser('~/.config/orca/claude-profiles/*/home/projects')):
+    if os.path.realpath(r) not in [os.path.realpath(x) for x in ROOTS]:
+        ROOTS.append(r)
 REVIEWERS = ('code-reviewer', 'verifier', 'security-reviewer')
-LABEL = re.compile(r'verdict|recommendation|status|overall|bottom line', re.I)
-TOKEN_NEG = ('FIX', 'REVISE', 'BLOCK', 'REQUEST', 'REJECT', 'FAIL', 'CHANGES', 'NOT ', 'DO NOT', 'NO-GO', 'NO GO', 'HOLD')
-TOKEN_POS = ('APPROVE', 'SHIP', 'PASS', 'LGTM', 'ACCEPT', 'GO', 'MERGE')
+LIMIT = re.compile(r"hit your .{0,30}limit|usage limit|rate[- ]limit(ed)?\b|limit will reset|out of (extra )?usage", re.I)
+STRONG_LABEL = re.compile(r'\b(verdict|recommendation|bottom line)\b', re.I)
+WEAK_LABEL = re.compile(r'\b(overall|status)\b', re.I)
+TOKEN_NEG = re.compile(r'(FIX\b|FIX-|REVISE|BLOCK|REQUEST|REJECT|FAIL|CHANGES|NOT\b|DO NOT|NO-GO|NO GO|HOLD\b)')
+TOKEN_POS = re.compile(r'(APPROVE|SHIP\b|PASS(ED)?\b|LGTM|ACCEPT|GO\b|MERGE\b|COMMENT\b)')
 NEG = re.compile(r'REQUEST[ _-]?CHANGES|\bREVISE\b|\bREJECT(ED)?\b|\bNOT APPROVED\b|CHANGES REQUESTED|\bdo not (ship|merge|land)\b'
                  r'|נדרשים שינויים|דרושים שינויים|לא מאושר|לא לאשר|\b(finding|issue)s? blocks\b', re.I)
 POS = re.compile(r'\bAPPROV(E|ED|ING)\b|\bLGTM\b|מאושר|אין חוסם|לא מצאתי (חוסם|בעיה חוסמת)'
                  r'|nothing (here )?(is a confirmed )?blocks?|no(thing)? blocking|found no (P0|blocking|blocker|high)|no issue blocks', re.I)
-NEGATION = re.compile(r"\b(not|no|don't|never|would not|wouldn't)\W+(\w+\W+){0,2}$", re.I)
-PAST = re.compile(r'previous|earlier|last round|were|are (all )?(fixed|closed)|now fixed', re.I)
+NEGATION = re.compile(r"\b(not|no|don't|never|cannot|can't|won't|would not|wouldn't|will not)\W+(\w+\W+){0,2}$", re.I)
+PAST = re.compile(r'\b(previous|earlier|last round|(are|were) (all )?(fixed|closed|addressed)|now fixed)\b', re.I)
+REF = re.compile(r'\b(?:[a-z][\w.-]*/[\w./-]{3,})\b|\b[0-9a-f]{7,40}\b')
 
 
 def ts(s):
@@ -58,37 +80,42 @@ def lines(path):
                 yield d
 
 
+def token_verdict(tok):
+    tok = tok.strip().upper()
+    if TOKEN_NEG.match(tok):
+        return 'neg'
+    if TOKEN_POS.match(tok):
+        return 'pos'
+    return None
+
+
+def sentence(text, start, end):
+    a = max(text.rfind(c, 0, start) for c in '.;\n') + 1
+    b = min([i for i in (text.find(c, end) for c in '.;\n') if i >= 0] or [len(text)])
+    return text[a:b]
+
+
 def verdict(text):
     if not text:
         return None
     t = text.replace('*', '').replace('`', '')
-    # 1. an explicit label: "Verdict: X", "Recommendation: X", or a heading with X on the next line
-    for m in LABEL.finditer(t):
-        nxt = re.match(r'\W{0,8}([A-Za-z][A-Za-z_\-]*(?: [A-Za-z_\-]+){0,3})', t[m.end():m.end() + 60])
-        if not nxt:
-            continue
-        tok = nxt.group(1).upper()
-        if LABEL.fullmatch(tok.split()[0].lower()):
-            continue  # "Verdict / Status: X": the next label carries the value
-        if tok.startswith(TOKEN_NEG):
-            return 'neg'
-        if tok.startswith(TOKEN_POS):
-            return 'pos'
-    for m in re.finditer(r'^#+\s*(verdict|recommendation)\s*$\n+\s*(\S[^\n]{0,40})', t, re.I | re.M):
-        tok = m.group(2).strip().upper()
-        if tok.startswith(TOKEN_NEG):
-            return 'neg'
-        if tok.startswith(TOKEN_POS):
-            return 'pos'
-    # 2. keywords in the opening, skipping negated approvals and rejections from an earlier round
-    head = t[:1500]
-    hits = []
+    for label in (STRONG_LABEL, WEAK_LABEL):  # "Verdict:" wins over "Typecheck status:"
+        for m in label.finditer(t):
+            nxt = re.match(r'[ \t:#\-–—]{0,8}\n?\s*([A-Za-z][A-Za-z_\-]*(?: [A-Za-z_\-]+){0,3})', t[m.end():m.end() + 80])
+            if not nxt:
+                continue
+            tok = nxt.group(1)
+            if STRONG_LABEL.match(tok) or WEAK_LABEL.match(tok):
+                continue  # "Verdict / Status: X": the next label carries the value
+            v = token_verdict(tok)
+            if v:
+                return v
+    head, hits = t[:1500], []
     for m in NEG.finditer(head):
-        sent = head[max(0, head.rfind('.', 0, m.start())):m.end() + 80]
-        if not PAST.search(sent):
+        if not PAST.search(sentence(head, m.start(), m.end())):
             hits.append((m.start(), 'neg'))
     for m in POS.finditer(head):
-        if not NEGATION.search(head[max(0, m.start() - 30):m.start()]):
+        if not NEGATION.search(head[max(0, m.start() - 30):m.start()]) and not PAST.search(sentence(head, m.start(), m.end())):
             hits.append((m.start(), 'pos'))
     return min(hits)[1] if hits else None
 
@@ -112,25 +139,44 @@ def sub_info(path):
     return i
 
 
+def strip_heredocs(cmd):
+    return re.sub(r"<<-?\s*['\"]?(\w+)['\"]?.*?\n\1\s*$", '', cmd, flags=re.S | re.M)
+
+
 def at_command_position(cmd, name):
-    """True when `name` runs as a command (not as text in grep/ps/echo), and whether its exit code survives."""
-    for seg in re.split(r'&&|\|\||[;\n]', cmd):
-        first = seg.split('|')[0].strip()
-        first = re.sub(r'^((\w+=\S*|timeout\s+\S+|heavy-slot\s+--|exec|command)\s+)*', '', first)
+    """(runs as a command, its exit code is the whole command's exit code)."""
+    cmd = strip_heredocs(cmd)
+    segs = [s for s in re.split(r'&&|\|\||[;\n]', cmd) if s.strip()]
+    for n, seg in enumerate(segs):
+        first = re.sub(r'^((\w+=\S*|timeout\s+\S+|heavy-slot\s+--|exec|command)\s+)*', '', seg.split('|')[0].strip())
         if re.match(r'(\S*/)?' + name + r'(\s|$)', first):
-            plain = '|' not in seg and not re.search(r'[;&]|\n', cmd.split(first, 1)[-1].split('\n', 1)[0])
-            return True, plain
+            return True, '|' not in seg and n == len(segs) - 1 and '>' not in seg
     return False, False
 
 
 def ci_verdict(text):
-    m = re.findall(r'^\s*(GREEN|RED|green|red):', text, re.M)
-    return None if not m else (0 if m[-1].lower() == 'green' else 1)
+    m = re.findall(r'^\s*(GREEN(?: with notes)?|RED|green|red):(.*)$', text, re.M)
+    if not m:
+        return None
+    word, rest = m[-1]
+    if word.lower().startswith('green'):
+        return 0
+    return None if re.search(r'killed|infrastructure', rest, re.I) else 1
+
+
+def text_of(c):
+    if isinstance(c, str):
+        return c
+    out = []
+    for b in c if isinstance(c, list) else []:
+        if isinstance(b, dict):
+            out.append(b.get('text') or (b.get('content') if isinstance(b.get('content'), str) else json.dumps(b.get('content'), ensure_ascii=False)))
+    return '\n'.join(x for x in out if x)
 
 
 def parent_events(parent):
-    """Reviews done with `omc ask` and ci-wait verdicts in the parent transcript: [(t, kind, value)]."""
-    ev, pend = [], {}
+    """`omc ask` reviews and ci-wait verdicts in the parent transcript: [(t, kind, verdict, text)]."""
+    ev, pend, bg = [], {}, {}
     for d in lines(parent):
         m = d.get('message')
         if not isinstance(m, dict):
@@ -147,40 +193,56 @@ def parent_events(parent):
                     pend[b.get('id')] = ('ci', t, plain)
                 elif at_command_position(cmd, r'omc\s+ask\s+(codex|antigravity)')[0]:
                     pend[b.get('id')] = ('review', t, False)
-        elif d.get('type') == 'user' and pend and isinstance(c, list):
-            for b in c:
-                if not (isinstance(b, dict) and b.get('type') == 'tool_result' and b.get('tool_use_id') in pend):
-                    continue
-                kind, t0, plain = pend.pop(b['tool_use_id'])
-                text = b.get('content') if isinstance(b.get('content'), str) else json.dumps(b.get('content'), ensure_ascii=False)
-                if 'Command running in background' in text:
-                    mo = re.search(r'Output is being written to: (\S+?\.output)', text)
-                    if mo and os.path.exists(mo.group(1)):
-                        try:
-                            text = open(mo.group(1), errors='ignore').read()[-20000:]
-                        except OSError:
-                            continue
-                    else:
-                        continue
-                if kind == 'ci':
-                    v = ci_verdict(text)
-                    if v is None and plain:
-                        mo = re.search(r'Exit code (\d+)', text)
-                        v = int(mo.group(1)) if mo else (0 if not b.get('is_error') else None)
-                    if v in (0, 1):
-                        ev.append((t0, 'ci', v))
-                else:
-                    ev.append((t0, 'review', (verdict(text[:6000]), text[:6000])))
+            continue
+        if d.get('type') != 'user':
+            continue
+        text = text_of(c)
+        if '<task-notification>' in text:
+            for tid in re.findall(r'<tool-use-id>(\S+?)</tool-use-id>', text):
+                if tid in bg:
+                    kind, t0, plain = bg.pop(tid)
+                    add(ev, kind, t0, plain, text, re.search(r'exit code (\d+)', text))
+        if not isinstance(c, list):
+            continue
+        for b in c:
+            if not (isinstance(b, dict) and b.get('type') == 'tool_result' and b.get('tool_use_id') in pend):
+                continue
+            kind, t0, plain = pend.pop(b['tool_use_id'])
+            res = text_of([b])
+            if 'Command running in background' in res:
+                bg[b['tool_use_id']] = (kind, t0, plain)
+                continue
+            add(ev, kind, t0, plain, res, re.search(r'Exit code (\d+)', res) or (None if b.get('is_error') else '0'))
     return ev
 
 
-# one entry per (session id, agent file): ~/.config/orca/... holds real copies, not links
+def add(ev, kind, t0, plain, text, exit_match):
+    if kind == 'ci':
+        v = ci_verdict(text)
+        if v is None and plain and exit_match is not None:
+            code = int(exit_match if isinstance(exit_match, str) else exit_match.group(1))
+            v = code if code in (0, 1) else None
+        if v is not None:
+            ev.append((t0, 'ci', v, ''))
+    elif text and not LIMIT.search(text[:400]):
+        ev.append((t0, 'review', verdict(text[:6000]), text[:6000]))
+
+
+# one entry per (session id, agent file); some Orca profile dirs are real copies, not links
 seen, by_session = set(), collections.defaultdict(dict)
 for root in ROOTS:
     for meta in glob.glob(root + '/*/*/subagents/agent-*.meta.json'):
         p = meta[:-10] + '.jsonl'
         sess_dir = os.path.dirname(os.path.dirname(p))
-        key = (os.path.basename(sess_dir), os.path.basename(p))
+        sid = os.path.basename(sess_dir)
+        parent = sess_dir + '.jsonl'
+        s = by_session[sid]
+        try:
+            if os.path.getsize(parent) > s.get('psize', -1):
+                s['parent'], s['psize'] = parent, os.path.getsize(parent)
+        except OSError:
+            pass
+        key = (sid, os.path.basename(p))
         if key in seen:
             continue
         try:
@@ -188,59 +250,50 @@ for root in ROOTS:
         except Exception:
             continue
         seen.add(key)
-        if st.st_mtime < CUT:
-            continue
-        s = by_session[os.path.basename(sess_dir)]
-        s.setdefault('parent', sess_dir + '.jsonl')
-        s.setdefault('subs', []).append((p, md if isinstance(md, dict) else {}))
+        if st.st_mtime >= CUT:
+            s.setdefault('subs', []).append((p, md if isinstance(md, dict) else {}))
 
 rows = []
 for sid, s in by_session.items():
-    subs = s['subs']
-    if not any(str(md.get('agentType', '')).endswith('executor') for _, md in subs):
+    subs = s.get('subs', [])
+    if not s.get('parent') or not any(str(md.get('agentType', '')).endswith('executor') for _, md in subs):
         continue
     infos = []
     for p, md in subs:
         i = sub_info(p)
         if i['t0']:
             i['type'] = str(md.get('agentType') or '?'); infos.append(i)
-    execs = sorted((i for i in infos if i['type'].endswith('executor')), key=lambda x: x['t1'])
+    execs = [i for i in infos if i['type'].endswith('executor') and not LIMIT.search(i['last'][:400] or 'x')]
     pev = parent_events(s['parent'])
-    reviews = sorted([(i['t0'], verdict(i['last']), i['last']) for i in infos if any(r in i['type'] for r in REVIEWERS)]
-                     + [(t, v[0], v[1]) for t, k, v in pev if k == 'review' and t], key=lambda x: x[0])
-    cis = sorted([(t, v, '') for t, k, v in pev if k == 'ci' and t], key=lambda x: x[0])
-
-    def credit(events):
-        """executor index -> (value, text) of the first event after it ended; a batch shares one event."""
-        out, prev = {}, -1.0
-        for t, v, text in events:
-            for k, e in enumerate(execs):
-                if prev < e['t1'] <= t and k not in out:
-                    out[k] = (v, text)
-            prev = t
-        return out
-    rv, ci = credit(reviews), credit(cis)
-    for k, e in enumerate(execs):
+    reviews = [(i['t0'], verdict(i['last']), i['last']) for i in infos
+               if any(r in i['type'] for r in REVIEWERS) and i['last'] and not LIMIT.search(i['last'][:400])]
+    reviews += [(t, v, x) for t, k, v, x in pev if k == 'review' and t]
+    reviews.sort(key=lambda x: x[0])
+    cis = sorted([(t, v) for t, k, v, _ in pev if k == 'ci' and t], key=lambda x: x[0])
+    for e in execs:
         if e['t0'] < CUT:
             continue
-        r = rv.get(k)
-        rows.append(dict(model=(e['model'] or '?').replace('claude-', ''), tools=e['tools'],
-                         reviewed=r is not None, rev=r[0] if r else None, ci=ci[k][0] if k in ci else None,
-                         text=(r[1] if r else '')[:200].replace('\n', ' ')))
+        cand = [r for r in reviews if e['t1'] <= r[0] <= e['t1'] + GAP]
+        refs = {x for x in REF.findall(e['last']) if not x.isdigit()}
+        r = next((r for r in cand if any(x in r[2] for x in refs)), cand[0] if cand else None)
+        c = next((v for t, v in cis if e['t1'] <= t <= e['t1'] + GAP), None)
+        rows.append(dict(model=(e['model'] or '?').replace('claude-', ''), tools=e['tools'], reviewed=r is not None,
+                         rev=r[1] if r else None, ci=c, text=(r[2] if r else '')[:200].replace('\n', ' ')))
 
 
 def line(rs):
     rv = [r for r in rs if r['reviewed']]
     ci = [r for r in rs if r['ci'] is not None]
-    neg = sum(r['rev'] == 'neg' for r in rv); unc = sum(r['rev'] is None for r in rv)
+    neg = sum(r['rev'] == 'neg' for r in rv); pos = sum(r['rev'] == 'pos' for r in rv)
+    distinct = {(r['text'], r['rev']) for r in rv}
+    dneg = sum(v == 'neg' for _, v in distinct); dpos = sum(v == 'pos' for _, v in distinct)
+    pct = lambda a, b: f"{a / b * 100:3.0f}%" if b else '  - '
     red = sum(r['ci'] == 1 for r in ci)
-    distinct = {(r['text'], r['rev']) for r in rv if r['text']}
-    dneg = sum(v == 'neg' for _, v in distinct)
-    return (f"runs {len(rs):4}  review rejected {neg:3}/{len(rv):<3} (unclear {unc:2}; distinct reviews {dneg}/{len(distinct)})"
-            f"  CI red {red:3}/{len(ci):<3}")
+    return (f"runs {len(rs):4}  rejected {neg:3}/{neg + pos:<3} {pct(neg, neg + pos)} (unclear {len(rv) - neg - pos:2})"
+            f"  distinct reviews rejected {dneg:3}/{dneg + dpos:<3} {pct(dneg, dneg + dpos)}  CI red {red:2}/{len(ci):<3}")
 
 
-print(f"executor-quality: {'last %g days' % DAYS if DAYS else 'all transcripts'}, {len(rows)} executor runs")
+print(f"executor-quality: {WINDOW}, {len(rows)} executor runs (rejection rate over clear verdicts)")
 models = sorted({r['model'] for r in rows}, key=lambda m: -sum(r['model'] == m for r in rows))
 for m in models:
     rs = [r for r in rows if r['model'] == m]
@@ -252,6 +305,7 @@ for lo, hi in ((0, 20), (20, 60), (60, 10**9)):
         rs = [r for r in rows if r['model'] == m and lo <= r['tools'] < hi]
         if rs:
             print(f"  {lo:>3}-{'' if hi > 10**6 else hi:<4} {m:12} {line(rs)}")
-if '-v' in sys.argv:
+if VERBOSE:
     for r in rows:
-        print(f"{r['model']:12} tools {r['tools']:4} review {str(r['rev']):5} ci {str(r['ci']):4} | {r['text']}")
+        rv = '-' if not r['reviewed'] else str(r['rev'])
+        print(f"{r['model']:12} tools {r['tools']:4} review {rv:5} ci {'-' if r['ci'] is None else r['ci']} | {r['text']}")
