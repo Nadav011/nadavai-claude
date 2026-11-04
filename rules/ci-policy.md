@@ -37,7 +37,9 @@ every `ci-wait`, and the old runner (3,445 lines on one 8-core box) queued agent
 5. Wait with `ci-wait <repo> <branch|sha|pr:N> [--land]` in `run_in_background` (`pr:N` on
    Woodpecker repos); `--land` opens the PR (or marks a draft ready). Never poll `gh` or a status in
    a loop. Exit 0 green, 1 red (failed steps and log tail printed), 2 timeout, 3 CI unreachable,
-   4 parent gone, 5 nothing to wait on (no landing PR, a draft), 6 superseded by a newer push.
+   4 parent gone, 5 nothing to wait on (no landing PR, a draft), 6 superseded by a newer push,
+   7 still running at the end of `--slice`. A subagent or Workflow agent waits in the foreground
+   with `--slice 270` and runs the same command again on exit 7 (`model-routing.md`).
 6. Merge only when every `ci/woodpecker/pr/*` status and `nadavai-security` on the PR head are
    green, with `gh pr merge <N> --match-head-commit <sha>` (required: agent-guard denies a merge
    without it or with another sha, so a push after the check cannot slip

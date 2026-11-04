@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ci-wait: wait for NadavAI CI (nadavai-ci, the poller on NadavAI) to finish one commit.
 #
-#   ci-wait <repo> <sha|branch> [--timeout MIN] [--require full] [--land] [--detach]
+#   ci-wait <repo> <sha|branch> [--timeout MIN] [--slice SEC] [--require full] [--land] [--detach]
 #
 #   --timeout MIN    default 90 minutes
 #   --require full   green only on a full-scope nadavai-ci pass ("passed on NadavAI|MSI in
@@ -12,6 +12,9 @@
 #                    wait as --require full, on a status posted after the request
 #   --detach         keep waiting when the process that started it is gone (exit 4 off;
 #                    also CI_WAIT_FOLLOW_PARENT=0)
+#   --slice SEC      exit 7 after SEC seconds while CI is still running; run the same command
+#                    again to keep waiting. Subagents wait in slices of 270 (their prompt cache
+#                    lives 5 minutes)
 #
 # Run it with run_in_background: true and carry on until the completion notice arrives,
 # instead of a status loop. It resolves a branch to its full sha once, at the start, and
@@ -36,6 +39,7 @@
 #   4  parent gone: the process that started the wait exited, or was itself orphaned
 #      (its own parent died: a shell wrapper left behind by a dead session); --detach
 #      turns this off
+#   7  still running at the end of --slice
 set -uo pipefail
 
 OWNER=Nadav011
@@ -59,7 +63,7 @@ declare -A HAS_UI=([therapy-flow-v2]=1 [snooker-smart]=1 [sportchat-web]=1 [cash
 # ~/nadavai/git/hooks/pre-push; change both together.
 FULL_PASS_RE='^passed on (NadavAI|MSI) in [0-9]+m( \[msi:[0-9a-f]{8}\])?$'
 
-usage() { sed -n '2,38p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage() { sed -n '2,42p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 
 # The fields of /proc/<pid>/stat from field 3 on, into F (F[1] the ppid, F[19] the start
 # time), read past the command name, which may hold spaces. Builtins only: it runs every poll.
@@ -76,12 +80,14 @@ if stat_fields "$parent"; then
   stat_fields "$grand" && grand_start=${F[19]}
 fi
 
-repo=""; ref=""; timeout_min=90; require=""; land=""; follow=${CI_WAIT_FOLLOW_PARENT:-1}
+repo=""; ref=""; timeout_min=90; require=""; land=""; follow=${CI_WAIT_FOLLOW_PARENT:-1}; slice=""
 while [ $# -gt 0 ]; do
   case "$1" in
     -h|--help) usage 0 ;;
     --timeout) timeout_min=${2:-}; shift ;;
     --timeout=*) timeout_min=${1#*=} ;;
+    --slice) slice=${2:-}; shift ;;
+    --slice=*) slice=${1#*=} ;;
     --require) require=${2:-}; shift ;;
     --require=*) require=${1#*=} ;;
     --land) land=1 ;;
@@ -94,6 +100,7 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$repo" ] && [ -n "$ref" ] || usage 64 >&2
 [[ $timeout_min =~ ^[0-9]+$ ]] || { echo "ci-wait: --timeout takes whole minutes" >&2; exit 64; }
+[ -z "$slice" ] || [[ $slice =~ ^[0-9]+$ && $slice -ge 30 ]] || { echo "ci-wait: --slice takes whole seconds, at least 30" >&2; exit 64; }
 case "$require" in ''|full) ;; *) echo "ci-wait: --require takes only: full" >&2; exit 64 ;; esac
 [ -n "$land" ] && require=full
 repo=${repo#"$OWNER/"}
@@ -108,7 +115,7 @@ wp_active() {
   [ -r "$list" ] && grep -qixF "$repo" <(sed 's/[[:space:]]*#.*//; /^$/d' "$list")
 }
 if wp_active; then
-  args=("$repo" "$ref" --timeout "$timeout_min"); [ -n "$land" ] && args+=(--land); [ -n "${check:-}" ] && args+=(--check); [ "$follow" = 0 ] && args+=(--detach)
+  args=("$repo" "$ref" --timeout "$timeout_min"); [ -n "$land" ] && args+=(--land); [ -n "${check:-}" ] && args+=(--check); [ "$follow" = 0 ] && args+=(--detach); [ -n "$slice" ] && args+=(--slice "$slice")
   exec "$(dirname "$(readlink -f "$0")")/ci-wait-wp" "${args[@]}"
 fi
 # Snapshots, head lookups and locks of waits long over.
@@ -451,6 +458,10 @@ while :; do
     unset st ds up
   fi
 
+  if [ -n "$slice" ] && [ $SECONDS -ge "$slice" ]; then
+    echo "ci-wait: still running on ${OWNER}/$repo ${sha:0:7} after ${slice}s: run the same command again to keep waiting"
+    exit 7
+  fi
   if [ $SECONDS -ge $deadline ]; then
     echo "TIMEOUT after ${timeout_min}m: ${OWNER}/$repo ${sha:0:7}, still pending: ${pending[*]:-status unreadable}"
     exit 2
