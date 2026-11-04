@@ -68,9 +68,12 @@ pnpm 10.32.1, wrangler 4.151.3 and vercel 64.7.0 from `deploy/tools/package-lock
 user `nadavai-build`, work dirs in `/srv/nadavai-deploy`, and the user timer
 `nadavai-deploy-auto.timer`.
 - Who deploys (since 2026-11-04): the session that merged a PR runs `deploy <repo> <merge sha>`
-  (rules/ci-policy.md rule 10), in all four repos; nothing deploys on a timer.
+  (rules/ci-policy.md rule 10), in all four repos, unless the repo is held (sportchat-web is, until
+  its v4 release); nothing deploys on a timer. `deploy` starts itself as a systemd user unit
+  (`nadavai-deploy-run-*`, output in `~/deploy/logs/session-*.out`, exit code in `.out.rc`) and
+  only follows it, so a dropped ssh never stops a deploy, its rollback or its status.
 - Commands (`ssh nadavai-vm nadavai-deploy <cmd>`): `deploy <repo> <sha> [--dry-run]
-  [--migration-approved "<reason>"]`,
+  [--migration-approved "<key>:<reason>"]`,
   `hold <repo> <reason>`, `release <repo>`, `hold-status <repo>` (one word: held, off, auto or
   manual), `pages-live <repo>` (live deployment id and commit, Vercel repos too),
   `rollback <repo> <deployment id>`, `repos`. Exit codes are in the script's header.
@@ -78,36 +81,32 @@ user `nadavai-build`, work dirs in `/srv/nadavai-deploy`, and the user timer
   `ci/woodpecker/pr/*` status and `nadavai-security` green (main is not tested again). A direct push
   to main has no PR, so it is refused; deploy the next merge commit instead.
 - Migration gate: when `git diff` between the live commit (`pages-live`) and the sha, in the
-  mirror, holds a migration (`MIGRATION_RE`: a `.sql` under `supabase/migrations*/`,
-  `migrations*/` or `supabase/release-candidates/`, not `__tests__/`), the deploy refuses with exit
-  5 and lists the files. `--migration-approved "<reason>"`, passed only after Nadav approved the
-  migration, lets it through; the reason goes into the run log and the `deploys.log` line. An
-  unreadable live commit counts as a migration.
-- Nightly gate: the latest finished (success, failure or error) Woodpecker cron run named
-  `nightly` on main (`GET /api/repos/<id>/pipelines?event=cron&branch=main`; ids 2 snooker-smart,
-  3 cash-next-app, 4 therapy-flow-v2, 5 sportchat-web). Green passes. Red on the sha, or on a
-  newer commit, refuses with exit 6 and its failing steps. Red on an older commit: the deploy
+  mirror, holds a migration (`MIGRATION_RE`, any case and depth: a `.sql` under
+  `supabase/migrations/`, `migrations*/`, `supabase/release-candidates/` or `supabase/schemas/`, not
+  `__tests__/`; therapy-flow-v2's `scripts/*.sql` are out until Nadav decides), the deploy refuses
+  with exit 5, lists the files and prints an approval key (12 hex of sha256 over the live commit,
+  the sha and the sorted files). `--migration-approved "<key>:<reason>"`, passed only after Nadav
+  approved the migration, lets exactly that range through; another key is refused. The reason goes
+  into the run log and the `deploys.log` line. An unreadable live commit counts as a migration.
+- Nightly gate: the latest finished (success, failure, error or killed) Woodpecker cron run named
+  `nightly` on branch main (`GET /api/repos/<id>/pipelines?event=cron&branch=main`, filtered again
+  on `cron`, `branch` and `event`; ids 2 snooker-smart, 3 cash-next-app, 4 therapy-flow-v2, 5
+  sportchat-web; a real answer is in `deploy/tests/fixtures/`). Green passes. Red on the sha, or
+  on a newer commit, refuses with exit 6 and its failing steps. Red on an older commit: the deploy
   starts the cron now (`POST /api/repos/<id>/cron/<cron id>`, which runs on main's head) and waits
-  up to 20 minutes (`NADAVAI_DEPLOY_NIGHTLY_WAIT`): green on the sha passes; red, or main having
-  moved past the sha, refuses with 6; still running is 75, and a second `deploy` waits on that
-  same run instead of starting another. The omarchy audits (`nadavai-ui`, `nadavai-nightly`) are
-  not gates. A real deploy stops at the first refusal and posts a `nadavai-deploy` failure
-  ("not deployed: ..."); a dry run reports both gates, goes on, and exits with the refusal's code.
-  A hold or off set while the gates ran (the wait) still stops the deploy (exit 3).
-- Build: therapy-flow-v2 builds on the VM from a fresh clone of a bare mirror, as `nadavai-build` in
-  a transient systemd unit (`sudo systemd-run`): no /home (so no secrets), read-only system, no
-  route to 169.254.0.0/16 (cloud metadata), Tailscale, loopback or private networks (DNS allowed),
-  8 GB, low CPU weight, 1 hour cap. Only the upload step sources the token, with a cleared
-  environment (`clean_exec`), from a directory holding only `wrangler.toml` and `functions/` from git
-  plus the built `dist/`. The Vercel repos build remotely: the CLI uploads the checkout with
-  `--prod --skip-domain`, and the service promotes the build through the REST API.
-- Health: therapy-flow-v2 needs `https://medizen.nadavc.ai/sw.js` to carry the sha's `tf-shell`
-  stamp and the repo's `.cf-healthcheck.mjs` (run in the sandbox) to pass; Vercel repos need the
-  production host to serve the new deployment with `nadavai_sha` = the sha and answer
-  (cash `/login` exactly 307 to `/deliveries`; greenroom `/`, sporchat `/he` any 2xx/3xx). A failed
-  check rolls back to the deployment live before. Every run appends a line with
-  `live before deploy:` to `~/deploy/logs/deploys.log` (full log per run beside it) and posts the
-  `nadavai-deploy` status (`live: <id> ...` on success). A dry run posts nothing.
+  up to 20 minutes (`NADAVAI_DEPLOY_NIGHTLY_WAIT`): green on the sha passes; red refuses with 6;
+  main having moved past the sha refuses with 4 ("main moved; deploy <head>"); still running is
+  75, and a second `deploy` waits on that same run instead of starting another. A run wp-watchdog
+  cancelled and restarted (the new run's `parent`) is followed. Fail-closed, exit 75: an answer
+  that is not a JSON array, no nightly cron, no finished run, or a cancelled latest run. The
+  omarchy audits (`nadavai-ui`, `nadavai-nightly`) are not gates.
+- Order: the hold first (a held repo refuses before any gate), the landing gate, then the
+  migration and nightly gates without the repo lock, so the wait never keeps a rollback waiting.
+  Under the lock: the hold again, the live commit again (and the migrations when it moved), and the
+  nightly verdict again without a second wait. A real deploy stops at the first refusal and posts a
+  `nadavai-deploy` failure ("not deployed: ..."); a dry run starts no nightly (it says it would, and
+  waits only on a run already going), reports both gates, goes on, and exits with the refusal's code
+  even when its build fails.
 - Hold: `state/<repo>.hold`, written and removed under `state/<repo>.lock`, the lock every real deploy
   and rollback holds for its whole run, and read with that lock held. A rollback is allowed while
   held. `state/off` (all repos) or `state/<repo>.off` switch deploys off.
@@ -130,5 +129,5 @@ user `nadavai-build`, work dirs in `/srv/nadavai-deploy`, and the user timer
   link), so this service is their only production path.
 - Tests: `bash deploy/tests/nadavai-deploy.sh` (offline, stub gh/curl/sudo): the 37 hold, rollback
   and pages-live checks ported from nadavai-ci 9ca934d plus the gate, dry run, auto pass and clean
-  upload environment, and the migration gate (on a git mirror the test builds) and nightly gate
-  (stub Woodpecker): 103 checks.
+  upload environment, the migration gate (on a git mirror the test builds), the nightly gate (stub
+  Woodpecker, plus a saved real answer) and the detached run: 132 checks.

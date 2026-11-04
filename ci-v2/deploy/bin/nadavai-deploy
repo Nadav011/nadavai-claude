@@ -4,9 +4,9 @@
 # Replaces the deploys of the retired nadavai-ci runner; the hold, rollback and pages-live logic is
 # ported from its feat/deploy-hold branch (9ca934d) and its deploy-therapy-flow-v2 / deploy-vercel.
 #
-#   nadavai-deploy deploy <repo> <sha> [--dry-run] [--migration-approved "<reason>"]
+#   nadavai-deploy deploy <repo> <sha> [--dry-run] [--migration-approved "<key>:<reason>"]
 #                                                    deploy one commit of main (the session that
-#                                                    merged its PR runs it)
+#                                                    merged its PR runs it; detached, see below)
 #   nadavai-deploy hold <repo> <reason>              no deploy of the repo starts until release;
 #                                                    returns once a deploy in flight has finished
 #   nadavai-deploy release <repo>                    end the hold
@@ -26,25 +26,36 @@
 # live before on a failed check, appends a line with "live before deploy" to logs/deploys.log, and
 # posts the nadavai-deploy status on the sha ("live: ..." on success).
 #
-# Two more gates run before anything is built (2026-11-04):
-# - Migrations: when the commits between the live production commit and the sha change a database
-#   migration (MIGRATION_RE), the deploy refuses (exit 5) unless --migration-approved "<reason>"
-#   is given, which the agent passes only after Nadav approved that migration; the reason is logged.
+# Two more gates run before anything is built (2026-11-04), without the repo lock (a rollback is
+# never kept waiting behind them); under the lock the live commit, the migrations, the hold and the
+# nightly verdict are read again, without a second wait:
+# - Migrations: when the live production commit and the sha differ in a database migration
+#   (MIGRATION_RE), the deploy refuses (exit 5) and prints an approval key (sha256 of the live
+#   commit, the sha and the sorted files). --migration-approved "<key>:<reason>", passed only after
+#   Nadav approved that migration, lets exactly that range through; the reason is logged.
 # - Nightly: the latest finished Woodpecker nightly (cron) of main. Green passes. Red refuses
 #   (exit 6) when the sha is that red commit or older; when the sha is newer (a fix may have
 #   landed), the nightly cron runs now and the deploy waits for it (NADAVAI_DEPLOY_NIGHTLY_WAIT,
-#   default 20 minutes): green on the sha passes, anything else refuses with the failing steps.
-#   A nightly already running on the sha is waited on instead of starting another.
+#   default 20 minutes): green on the sha passes, red refuses with the failing steps, main having
+#   moved refuses with 4 ("main moved; deploy <head>"). A nightly already running on the sha is
+#   waited on instead of starting another, and a run wp-watchdog restarted is followed. A
+#   cancelled latest run, an odd Woodpecker answer or no finished run is 75, never a pass.
+#
+# Detached: `deploy` runs itself as a systemd user unit (logs/session-*.out) and only follows its
+# output, so a dropped ssh never stops a deploy, its rollback or its status; the exit code is the
+# deploy's.
 #
 # --dry-run: the same gates, checkout, live read, build and verification, then stops before the
-# upload: nothing is uploaded, nothing is promoted, no status is posted. A refusal of the migration
-# or nightly gate is reported and the dry run goes on; it then exits with that refusal's code.
+# upload: nothing is uploaded, nothing is promoted, no status is posted, no nightly is started (it
+# says it would, and waits only on a run already going). A refusal of the migration or nightly gate
+# is reported and the dry run goes on; it exits with that refusal's code, even if the build fails.
 #
 # Exit codes: 0 done (or the dry run passed); 1 the deploy or command failed; 2 usage; 3 refused:
-# held or off; 4 refused: the gate (not on main, no green landing); 5 refused: migrations in range
-# without --migration-approved; 6 refused: the nightly full suite is red; 73 busy (the auto pass
-# does not wait for a running deploy); 75 not ready yet (the landing's statuses are still pending,
-# GitHub or Woodpecker did not answer, or the nightly run was still going when the wait ended).
+# held or off; 4 refused: the gate (not on main, no green landing, main moved during the nightly
+# check); 5 refused: migrations in range without a matching --migration-approved; 6 refused: the
+# nightly full suite is red; 73 busy (the auto pass does not wait for a running deploy); 75 not
+# ready yet (the landing's statuses are still pending, GitHub or Woodpecker did not answer, or the
+# nightly is cancelled, unfinished or still going when the wait ended).
 set -uo pipefail
 umask 077
 
@@ -59,6 +70,7 @@ NODE=$TOOLS/node/bin/node
 CLI=$TOOLS/cli/node_modules
 RETRY_SLEEP=${NADAVAI_DEPLOY_RETRY_SLEEP:-3}
 PATH=$TOOLS/gh/bin:$PATH
+SELF=$(readlink -f "${BASH_SOURCE[0]}")
 GIT=(git -c core.hooksPath=/dev/null -c core.fsmonitor=false -c advice.detachedHead=false)
 
 # The repos and their targets are fixed here on purpose: a commit cannot point a deploy elsewhere.
@@ -87,9 +99,10 @@ NIGHTLY_WAIT=${NADAVAI_DEPLOY_NIGHTLY_WAIT:-1200} NIGHTLY_GAP=${NADAVAI_DEPLOY_N
 # Database migrations, where the four repos keep them (checked 2026-11-04): therapy-flow-v2
 # supabase/migrations; snooker-smart supabase/migrations and supabase/migrations-deferred;
 # sportchat-web supabase/migrations, the hand-applied migrations-gal1/ and migrations-gal2/, and
-# supabase/release-candidates/; cash-next-app has none. A .sql file there is a migration, except
-# the tests under __tests__/ (sportchat-web's supabase/migrations/__tests__).
-MIGRATION_RE='^((supabase/)?migrations(-[^/]+)?|supabase/release-candidates)/.*\.sql$'
+# supabase/release-candidates/; cash-next-app has none. A .sql file there (at any depth, any case,
+# supabase/schemas/ too) is a migration, except the tests under __tests__/ (sportchat-web's
+# supabase/migrations/__tests__). therapy-flow-v2's scripts/*.sql are left out (Nadav decides).
+MIGRATION_RE='^(.*/)?(supabase/migrations|migrations[^/]*|supabase/release-candidates|supabase/schemas)/.*\.sql$'
 
 say() { printf '%s\n' "$*"; }
 err() { printf 'nadavai-deploy: %s\n' "$*" >&2; }
@@ -277,30 +290,42 @@ gate() { # repo sha
 }
 
 # ---------------------------------------------------------------- the migration gate
-# The migration files that differ between the live commit and the sha (one per line, maybe none),
-# from the mirror; 1 when the live commit cannot be read (unknown, or not on GitHub).
+# The migration files that differ between the live commit and the sha (sorted, one per line, maybe
+# none), from the mirror; 1 when the live commit cannot be read (unknown, or not on GitHub).
 migrations_in_range() { # repo live-commit sha
   local m=$MIRROR/$1.git files
   [[ ${2:-} =~ ^[0-9a-f]{40}$ ]] || return 1
   "${GIT[@]}" -C "$m" cat-file -e "$2^{commit}" 2>/dev/null || gitauth -C "$m" fetch -q --no-tags origin "$2" >/dev/null 2>&1 || return 1
   files=$("${GIT[@]}" -C "$m" -c core.quotePath=false diff --no-renames --name-only "$2" "$3" 2>/dev/null) || return 1
-  grep -E "$MIGRATION_RE" <<<"$files" | grep -v '/__tests__/'
+  grep -iE "$MIGRATION_RE" <<<"$files" | grep -iv '/__tests__/' | LC_ALL=C sort
   return 0
 }
-# 0 when no migration is in range, or Nadav approved it (approved = his reason); 5 refused.
+# What an approval is for: 12 hex of sha256 over the live commit, the sha and the sorted migration
+# files. A new migration, another target or another live commit gives another key.
+migration_key() { printf '%s\n%s\n%s\n' "$1" "$2" "$3" | sha256sum | cut -c1-12; }
+# 0 when no migration is in range, or approved = "<key>:<reason>" with this range's key; 5 refused.
+# Sets MIG_KEY (empty when there is nothing to approve).
 migration_gate() { # repo live-commit sha approved
-  local files n
+  local files n live=${2:--}
+  MIG_KEY=''
   if ! files=$(migrations_in_range "$1" "$2" "$3"); then
-    say "migrations: the live commit (${2:-none}) cannot be read, so the migrations since it are unknown; that counts as a migration"
-  elif [ -z "$files" ]; then say "migrations: none between the live ${2:0:7} and ${3:0:7}"; return 0
+    say "migrations: the live commit ($live) cannot be read, so the migrations since it are unknown; that counts as a migration"
+    files='(unknown)'
+  elif [ -z "$files" ]; then say "migrations: none between the live ${live:0:7} and ${3:0:7}"; return 0
   else
     n=$(grep -c . <<<"$files")
-    say "migrations: $n file(s) changed between the live ${2:0:7} and ${3:0:7}:"
+    say "migrations: $n file(s) changed between the live ${live:0:7} and ${3:0:7}:"
     head -20 <<<"$files" | sed 's/^/  /'
     [ "$n" -le 20 ] || say "  ... and $((n - 20)) more"
   fi
-  if [ -n "$4" ]; then say "migrations: approved by Nadav: $4"; return 0; fi
-  err "refusing: the deploy changes database migrations; deploy with --migration-approved \"<reason>\" only after Nadav approved them (AskUserQuestion)"
+  MIG_KEY=$(migration_key "$live" "$3" "$files")
+  say "migrations: approval key $MIG_KEY (live ${live:0:7}, target ${3:0:7}, these files)"
+  if [ -n "$4" ]; then
+    if [ "${4%%:*}" = "$MIG_KEY" ]; then say "migrations: approved by Nadav ($MIG_KEY): ${4#*:}"; return 0; fi
+    err "refusing: the approval is for key ${4%%:*}, but this range is $MIG_KEY (the live commit, the target or the migrations differ); ask Nadav again"
+    return 5
+  fi
+  err "refusing: the deploy changes database migrations; ask Nadav (AskUserQuestion), and only after his yes deploy with --migration-approved \"$MIG_KEY:<what he approved>\""
   return 5
 }
 
@@ -314,6 +339,14 @@ wp_call() { # api-path [curl args...]
   )
 }
 wp_get() { local i out; for i in 1 2 3; do out=$(wp_call "$1") && { say "$out"; return 0; }; [ "$i" = 3 ] || sleep "$RETRY_SLEEP"; done; return 1; }
+# The nightly runs of main, newest first, as a JSON array; 1 when Woodpecker answers anything else
+# (null, an HTML page, an error), so an odd answer never reads as "no red nightly".
+wp_nightlies() { # repo-id
+  local out
+  out=$(wp_get "repos/$1/pipelines?event=cron&branch=main&perPage=50") || return 1
+  jq -e 'type == "array"' >/dev/null 2>&1 <<<"$out" || return 1
+  jq -c '[.[] | select(.cron == "nightly" and .branch == "main" and .event == "cron")] | sort_by(-.number)' <<<"$out"
+}
 wp_failed_steps() { # repo-id number: the steps (or workflows) that did not pass, one per line
   wp_get "repos/$1/pipelines/$2" | jq -r '
     [.workflows[]? as $w | $w.children[]? | select(.state | IN("failure", "error", "killed"))
@@ -321,56 +354,78 @@ wp_failed_steps() { # repo-id number: the steps (or workflows) that did not pass
     | if ($s | length) > 0 then $s[]
       else (.workflows[]? | select(.state != "success") | "  \(.name): \(.state)") end' 2>/dev/null
 }
-# Waits for nightly run number of the repo to finish: 0 green, 6 red, 75 still going at the deadline
-# or unreadable. Prints its result and, when red, the failing steps.
+# Waits for nightly run number of the repo to finish: 0 green on sha, 6 red, 4 main moved (green on
+# another commit; NIGHTLY_HEAD says which), 75 still going at the deadline, unreadable, or cancelled
+# with no restart. A run wp-watchdog cancelled and restarted (a run whose parent is this one, on
+# the same sha) is followed.
 wp_wait() { # repo number sha
-  local id=${WP_ID[$1]} deadline=$((SECONDS + NIGHTLY_WAIT)) p st commit
-  say "nightly: waiting for run #$2 ($WP_SERVER/repos/$id/pipeline/$2), up to $((NIGHTLY_WAIT / 60)) minutes"
+  local id=${WP_ID[$1]} n=$2 deadline=$((SECONDS + NIGHTLY_WAIT)) p st='' commit next killed=0
+  say "nightly: waiting for run #$n ($WP_SERVER/repos/$id/pipeline/$n), up to $((NIGHTLY_WAIT / 60)) minutes"
   while :; do
-    if p=$(wp_get "repos/$id/pipelines/$2"); then
+    if p=$(wp_get "repos/$id/pipelines/$n"); then
       read -r st commit < <(jq -r '"\(.status) \(.commit)"' <<<"$p" 2>/dev/null)
       case $st in
-        success) if [ "$commit" = "$3" ]; then say "nightly: run #$2 is green on ${3:0:7}"; return 0; fi
-                 err "refusing: nightly run #$2 is green on ${commit:0:7}, not on ${3:0:7} (main moved; deploy main's head)"; return 6 ;;
-        failure|error|killed|declined|skipped)
-          err "refusing: nightly run #$2 on ${commit:0:7} ended $st; failing steps:"
-          wp_failed_steps "$id" "$2" >&2
+        success) if [ "$commit" = "$3" ]; then say "nightly: run #$n is green on ${3:0:7}"; return 0; fi
+                 NIGHTLY_HEAD=$commit
+                 err "refusing: main moved; deploy ${commit:0:7} (nightly run #$n is green on it, not on ${3:0:7})"; return 4 ;;
+        failure|error)
+          err "refusing: nightly run #$n on ${commit:0:7} ended $st; failing steps:"
+          wp_failed_steps "$id" "$n" >&2
           return 6 ;;
+        killed|declined|skipped)
+          next=$(wp_nightlies "$id" | jq -r --argjson p "$n" --arg s "$3" '[.[] | select(.parent == $p and .commit == $s)] | min_by(.number) // empty | .number' 2>/dev/null)
+          if [ -n "$next" ]; then say "nightly: run #$n was $st and restarted as #$next; following it"; n=$next; killed=0; continue; fi
+          killed=$((killed + 1))
+          if [ "$killed" -ge 3 ]; then
+            err "not ready: nightly run #$n was $st and not restarted; run the nightly again (or wait for tonight's), then deploy again"
+            return 75
+          fi ;;
       esac
     fi
     if [ "$SECONDS" -ge "$deadline" ]; then
-      err "not ready: nightly run #$2 is ${st:-unreadable} after $((NIGHTLY_WAIT / 60)) minutes; run the deploy again later, it waits on this run instead of starting another"
+      err "not ready: nightly run #$n is ${st:-unreadable} after $((NIGHTLY_WAIT / 60)) minutes; run the deploy again later, it waits on this run instead of starting another"
       return 75
     fi
     sleep "$NIGHTLY_GAP"
   done
 }
-# 0 when the latest finished nightly of main is green, or a fresh one is green on the sha; 6 red;
-# 75 Woodpecker unreadable or the run still going. Needs the mirror (mirror_fetch) for the order.
-nightly_gate() { # repo sha
-  local repo=$1 sha=$2 id=${WP_ID[$1]} list run num st commit cid
-  list=$(wp_get "repos/$id/pipelines?event=cron&branch=main&perPage=50") ||
-    { err "not ready: could not read the nightly runs of $repo from Woodpecker"; return 75; }
-  # A nightly already running on the sha (the timer's, or an earlier deploy's): wait on that one.
-  run=$(jq -r --arg s "$sha" '[.[] | select(.cron == "nightly" and .commit == $s and (.status | IN("created", "pending", "running")))][0] // empty | .number' <<<"$list" 2>/dev/null)
-  [ -n "$run" ] && { wp_wait "$repo" "$run" "$sha"; return; }
-  read -r num st commit < <(jq -r '[.[] | select(.cron == "nightly" and (.status | IN("success", "failure", "error")))][0] // empty | "\(.number) \(.status) \(.commit)"' <<<"$list" 2>/dev/null)
-  if [ -z "${num:-}" ]; then say "nightly: $repo has no finished nightly yet; the gate passes"; return 0; fi
-  if [ "$st" = success ]; then say "nightly: the latest, run #$num on ${commit:0:7}, is green"; return 0; fi
+# The verdict of main's nightly for sha: 0 pass, 6 red, 4 main moved (NIGHTLY_HEAD), 75 not ready
+# (Woodpecker unreadable or odd, no finished nightly, the latest cancelled, the run still going).
+# mode: wait (start the cron when the sha is newer than a red nightly, and wait), dry (only wait on
+# a run already going; say what a deploy would start), nowait (the re-check under the lock: never
+# start or wait). Needs the mirror (mirror_fetch) for the order of commits.
+nightly_gate() { # repo sha [wait|dry|nowait]
+  local repo=$1 sha=$2 mode=${3:-wait} id=${WP_ID[$1]} list cron run num st commit
+  NIGHTLY_HEAD=''
+  list=$(wp_nightlies "$id") || { err "not ready: Woodpecker gave no readable list of $repo's nightly runs"; return 75; }
+  cron=$(wp_get "repos/$id/cron" | jq -er '[.[]? | select(.name == "nightly" and .branch == "main")][0].id' 2>/dev/null)
+  [[ $cron =~ ^[0-9]+$ ]] || { err "not ready: $repo has no nightly cron of main on Woodpecker (or it could not be read)"; return 75; }
+  # A nightly already going on the sha (the timer's, or an earlier deploy's): wait on that one.
+  run=$(jq -r --arg s "$sha" '[.[] | select(.commit == $s and (.status | IN("created", "pending", "running")))][0] // empty | .number' <<<"$list")
+  if [ -n "$run" ] && [ "$mode" != nowait ]; then wp_wait "$repo" "$run" "$sha"; return; fi
+  read -r num st commit < <(jq -r '[.[] | select(.status | IN("success", "failure", "error", "killed"))][0] // empty | "\(.number) \(.status) \(.commit)"' <<<"$list")
+  if [ -z "${num:-}" ]; then err "not ready: the nightly cron of $repo has no finished run yet"; return 75; fi
+  case $st in
+    success) say "nightly: the latest, run #$num on ${commit:0:7}, is green"; return 0 ;;
+    killed) err "not ready: the latest nightly, run #$num on ${commit:0:7}, was cancelled, so no finished run is newer than it; run the nightly again (or wait for tonight's)"; return 75 ;;
+  esac
   say "nightly: the latest, run #$num on ${commit:0:7}, is red ($st); failing steps:"
   wp_failed_steps "$id" "$num"
   if [ "$commit" = "$sha" ] || ! "${GIT[@]}" -C "$MIRROR/$repo.git" merge-base --is-ancestor "$commit" "$sha" 2>/dev/null; then
     err "refusing: the nightly is red on ${commit:0:7} and ${sha:0:7} is not newer; merge a fix, then deploy its merge commit"
     return 6
   fi
+  case $mode in
+    dry) say "dry run: ${sha:0:7} is newer than the red ${commit:0:7}; a deploy would start the nightly on main now and wait up to $((NIGHTLY_WAIT / 60)) minutes (not started)"; return 0 ;;
+    nowait) err "not ready: the nightly changed while this deploy waited for the lock; deploy again"; return 75 ;;
+  esac
   say "nightly: ${sha:0:7} is newer than the red ${commit:0:7}, so it may hold the fix; running the nightly on main now"
-  cid=$(wp_get "repos/$id/cron" | jq -r '[.[] | select(.name == "nightly" and .branch == "main")][0].id // empty' 2>/dev/null)
-  [[ $cid =~ ^[0-9]+$ ]] || { err "not ready: no nightly cron of main on Woodpecker for $repo"; return 75; }
-  read -r run commit < <(wp_call "repos/$id/cron/$cid" -X POST | jq -r '"\(.number // "") \(.commit // "")"' 2>/dev/null)
+  read -r run commit < <(wp_call "repos/$id/cron/$cron" -X POST | jq -r '"\(.number // "") \(.commit // "")"' 2>/dev/null)
   [[ ${run:-} =~ ^[0-9]+$ ]] || { err "not ready: Woodpecker did not start the nightly of $repo"; return 75; }
   if [ -n "${commit:-}" ] && [ "$commit" != "$sha" ]; then
-    err "refusing: main moved to ${commit:0:7}, so nightly run #$run tests that, not ${sha:0:7}; deploy ${commit:0:7} instead"
-    return 6
+    NIGHTLY_HEAD=$commit
+    err "refusing: main moved; deploy ${commit:0:7} (nightly run #$run tests it, not ${sha:0:7})"
+    return 4
   fi
   wp_wait "$repo" "$run" "$sha"
 }
@@ -609,11 +664,12 @@ deploy_vercel() { # repo sha workdir dry live_before_id
   return 1
 }
 
-# A TERM or INT after the upload started (a timeout, a person's Ctrl-C) leaves production on an
+# A TERM, INT, HUP or PIPE after the upload started (a timeout, a person's Ctrl-C) leaves production on an
 # unchecked deployment: roll back to the one live before and say so on the commit.
 on_term() {
   local ok=1
-  trap - TERM INT
+  trap - TERM INT HUP PIPE
+  trap '' PIPE   # a closed output must not end the rollback halfway
   # The transient units are system units: a signal to this process does not stop them, so a
   # running upload would land after the rollback. Stop them first (stop waits until they are gone).
   sudo -n systemctl stop "nadavai-deploy-*-$$-*.service" 2>/dev/null
@@ -646,8 +702,27 @@ clean_exec() {
 # ---------------------------------------------------------------- commands
 main_head_of_mirror() { "${GIT[@]}" -C "$MIRROR/$1.git" rev-parse -q --verify refs/heads/main 2>/dev/null; }
 
-cmd_deploy() { # repo sha [--dry-run] [--auto] [--migration-approved reason]
-  local repo=${1:-} ref=${2:-} dry='' auto='' approved='' sha w live='' rc t0=$SECONDS log result refused='' grc
+# held | off | manual-under-auto: prints why on stderr and returns 3; 0 when the deploy may go.
+hold_gate() { # repo dry auto
+  case $(hold_status "$1") in
+    held) if [ -n "$2" ]; then say "note: deploys of $1 are held ($(hold_reason "$1")); a real deploy would refuse"
+          else err "refusing: deploys of $1 are held ($(hold_reason "$1"))"; return 3; fi ;;
+    off) if [ -n "$2" ]; then say "note: deploys of $1 are off; a real deploy would refuse"
+         else err "refusing: deploys of $1 are off ($STATE/off or $STATE/$1.off)"; return 3; fi ;;
+    manual) if [ -n "$3" ]; then err "auto: $1 has no .auto flag any more"; return 3; fi ;;
+  esac
+  return 0
+}
+hold_note() { # repo -> the status text of a held or off refusal
+  if [ "$(hold_status "$1")" = held ]; then say "not deployed: deploys are held on nadavai-deploy: $(hold_reason "$1")"
+  else say "not deployed: deploys are off on nadavai-deploy"; fi
+}
+refusal_of() { # a gate's exit code -> the deploy's result name ('' for 0)
+  case $1 in 0) ;; 4) say refused-main-moved ;; 5) say refused-migration ;; 6) say refused-nightly ;; *) say nightly-not-ready ;; esac
+}
+
+cmd_deploy() { # repo sha [--dry-run] [--auto] [--migration-approved key:reason]
+  local repo=${1:-} ref=${2:-} dry='' auto='' approved='' sha w live='' now rc t0=$SECONDS log result refused='' grc code
   known "$repo" && [[ $ref =~ ^[0-9a-f]{7,40}$ ]] || usage
   shift 2
   while [ $# -gt 0 ]; do
@@ -656,7 +731,8 @@ cmd_deploy() { # repo sha [--dry-run] [--auto] [--migration-approved reason]
       --auto) auto=1 ;;
       --migration-approved)
         approved=${2:-}; approved=${approved//[$'\t\r\n']/ }
-        [ -n "${approved// /}" ] || usage
+        # "<key>:<reason>": the key the refusal printed for this range, and what Nadav approved.
+        [[ $approved =~ ^[0-9a-f]{12}:.*[[:graph:]] ]] || usage
         shift ;;
       *) usage ;;
     esac
@@ -668,21 +744,9 @@ cmd_deploy() { # repo sha [--dry-run] [--auto] [--migration-approved reason]
   sha=$(ghr api "repos/$OWNER/$repo/commits/$ref" | jq -r '.sha // empty')
   [[ $sha =~ ^[0-9a-f]{40}$ ]] || { err "cannot resolve $ref in $OWNER/$repo"; return 75; }
 
-  if [ -z "$dry" ]; then
-    take_lock "$repo" ${auto:+nowait}; rc=$?
-    [ "$rc" = 0 ] || { [ "$rc" = 73 ] && err "a deploy of $repo is running; this pass skips it"; return "$rc"; }
-  fi
-  # The hold is read with the repo's lock held (a real deploy). `hold` writes its file before it
-  # waits for the lock, so every deploy that gets the lock after a hold was asked for refuses.
-  case $(hold_status "$repo") in
-    held) if [ -n "$dry" ]; then say "note: deploys of $repo are held ($(hold_reason "$repo")); a real deploy would refuse"
-          else err "refusing: deploys of $repo are held ($(hold_reason "$repo"))"
-               status "$repo" "$sha" failure "not deployed: deploys are held on nadavai-deploy: $(hold_reason "$repo")"
-               return 3; fi ;;
-    off) if [ -n "$dry" ]; then say "note: deploys of $repo are off; a real deploy would refuse"
-         else err "refusing: deploys of $repo are off ($STATE/off or $STATE/$repo.off)"; return 3; fi ;;
-    manual) if [ -n "$auto" ]; then err "auto: $repo has no .auto flag any more"; return 3; fi ;;
-  esac
+  # A held or off repo refuses at once, before any gate or nightly run; the hold is read again
+  # under the lock, after the gates.
+  hold_gate "$repo" "$dry" "$auto" || { rc=$?; [ -n "$auto" ] || status "$repo" "$sha" failure "$(hold_note "$repo")"; return "$rc"; }
 
   log=$LOGS/$repo-${sha:0:7}-$(date -u +%Y%m%dT%H%M%SZ)${dry:+-dry}.log
   say "nadavai-deploy ${dry:+(dry run) }$repo ${sha:0:7}; log $log"
@@ -694,24 +758,40 @@ cmd_deploy() { # repo sha [--dry-run] [--auto] [--migration-approved reason]
   result=failed
   CUR_WORK='' CUR_UP='' PAST_UPLOAD='' DEPLOY_REPO=$repo DEPLOY_SHA=$sha DEPLOY_LIVE=''
   trap 'drop_dir "${CUR_UP:-}"; drop_dir "${CUR_WORK:-}"' EXIT
-  [ -n "$dry" ] || trap on_term TERM INT
+  [ -n "$dry" ] || trap on_term TERM INT HUP PIPE
   if ! mirror_fetch "$repo" "$sha"; then err "could not fetch ${sha:0:7} into the mirror"
   elif ! live=$(live_of "$repo") || [ -z "$live" ]; then
     err "cannot read the deployment production serves; refusing without a rollback target"
   else
     DEPLOY_LIVE=${live%% *}
     say "live before deploy: $live"
-    # The migration and nightly gates. A real deploy stops at the first refusal (no nightly run
-    # is started for a deploy that needs Nadav first); a dry run reports both and goes on.
+    # The migration and nightly gates, without the repo lock (the nightly wait must not keep a
+    # rollback waiting). A real deploy stops at the first refusal (no nightly run is started for a
+    # deploy that needs Nadav first); a dry run reports both and goes on.
     grc=0; migration_gate "$repo" "${live#* }" "$sha" "$approved" || grc=$?
     if [ "$grc" = 0 ] || [ -n "$dry" ]; then
-      rc=0; nightly_gate "$repo" "$sha" || rc=$?
+      rc=0; nightly_gate "$repo" "$sha" "${dry:+dry}" || rc=$?
       [ "$grc" != 0 ] || grc=$rc
     fi
-    case $grc in 0) ;; 5) refused="refused-migration" ;; 6) refused="refused-nightly" ;; *) refused="nightly-not-ready" ;; esac
-    # The nightly wait can be long: a hold or off set meanwhile still stops this deploy.
+    refused=$(refusal_of "$grc")
     if [ -z "$dry" ] && [ -z "$refused" ]; then
-      case $(hold_status "$repo") in held|off) err "refusing: deploys of $repo were held or switched off while the gates ran"; refused="refused-held" ;; esac
+      # Under the lock: the hold, the live commit (and the migrations when it moved) and the
+      # nightly verdict again, never a second wait.
+      take_lock "$repo" ${auto:+nowait}; rc=$?
+      if [ "$rc" != 0 ]; then
+        if [ "$rc" = 73 ]; then err "a deploy of $repo is running; this pass skips it"; refused=busy; else refused=failed; fi
+      elif ! hold_gate "$repo" '' "$auto"; then refused="refused-held"
+      elif ! now=$(live_of "$repo") || [ -z "$now" ]; then
+        err "cannot read the deployment production serves (under the lock); refusing without a rollback target"; refused=failed
+      else
+        if [ "$now" != "$live" ]; then
+          say "live changed while this deploy waited: $now"
+          live=$now DEPLOY_LIVE=${now%% *}
+          grc=0; migration_gate "$repo" "${live#* }" "$sha" "$approved" || grc=$?
+        fi
+        [ "$grc" != 0 ] || { nightly_gate "$repo" "$sha" nowait || grc=$?; }
+        refused=$(refusal_of "$grc")
+      fi
     fi
     if [ -n "$refused" ] && [ -n "$dry" ]; then say "dry run: a real deploy would stop here ($refused); the dry run goes on"; fi
     [ -z "$refused" ] || [ -n "$dry" ] || result=$refused
@@ -729,9 +809,9 @@ cmd_deploy() { # repo sha [--dry-run] [--auto] [--migration-approved reason]
       fi
     fi
   fi
-  trap - TERM INT
+  trap - TERM INT HUP PIPE
   drop_dir "${CUR_UP:-}"; drop_dir "${CUR_WORK:-}"; CUR_WORK='' CUR_UP=''
-  [ -z "$dry" ] || [ -z "$refused" ] || [ "$result" != dry-run ] || result="dry-run ($refused)"
+  [ -z "$dry" ] || [ -z "$refused" ] || result="$result ($refused)"
   printf '%s\t%s\t%s\t%s\tlive before deploy: %s\tlive after: %s\tPR #%s\t%ss%s\n' "$(date -u +%FT%TZ)" "$repo" "$sha" \
     "$result" "${live:--}" "${LIVE_AFTER:--}" "${GATE_PR:-?}" "$((SECONDS - t0))" "${approved:+$'\t'migration approved: $approved}" >>"$LOGS/deploys.log"
   say "result: $result (logged in $LOGS/deploys.log)"
@@ -746,20 +826,43 @@ cmd_deploy() { # repo sha [--dry-run] [--auto] [--migration-approved reason]
       rollback-failed) status "$repo" "$sha" error "deploy failed the health check and the rollback failed: check production now" ;;
       refused-migration) status "$repo" "$sha" failure "not deployed: database migrations since the live commit need Nadav's approval" ;;
       refused-nightly) status "$repo" "$sha" failure "not deployed: the nightly full suite of main is red (log on the Oracle VM)" ;;
-      refused-held) status "$repo" "$sha" failure "not deployed: deploys were held or switched off while the gates ran" ;;
-      nightly-not-ready) ;;
+      refused-main-moved) status "$repo" "$sha" failure "not deployed: main moved during the nightly check; deploy ${NIGHTLY_HEAD:0:7}" ;;
+      refused-held) status "$repo" "$sha" failure "$(hold_note "$repo")" ;;
+      nightly-not-ready|busy) ;;
       *) status "$repo" "$sha" failure "deploy failed before going live; production unchanged (log on the Oracle VM)" ;;
     esac
   fi
   exec 1>&3 2>&4
-  case $result in
-    live|dry-run) return 0 ;;
-    refused-migration|"dry-run (refused-migration)") return 5 ;;
-    refused-nightly|"dry-run (refused-nightly)") return 6 ;;
-    nightly-not-ready|"dry-run (nightly-not-ready)") return 75 ;;
-    refused-held) return 3 ;;
-    *) return 1 ;;
+  # A dry run's refusal decides its exit code even when its build failed: a real deploy would
+  # have stopped there.
+  case $refused in
+    '') case $result in live|dry-run) code=0 ;; *) code=1 ;; esac ;;
+    refused-main-moved) code=4 ;; refused-migration) code=5 ;; refused-nightly) code=6 ;; nightly-not-ready) code=75 ;;
+    refused-held) code=3 ;; busy) code=73 ;; *) code=1 ;;
   esac
+  return "$code"
+}
+
+# `deploy` from a session (ssh): the deploy runs as a systemd user unit, so a dropped ssh stops
+# neither it, nor its rollback, nor its status; this only follows its output and returns its code.
+cmd_detached() { # repo sha [flags...]
+  local repo=${1:-} ref=${2:-} ts unit out rcf pid v rc envs=()
+  known "$repo" && [[ $ref =~ ^[0-9a-f]{7,40}$ ]] || usage
+  mkdir -p "$LOGS"
+  ts=$(date -u +%Y%m%dT%H%M%SZ); unit=nadavai-deploy-run-$repo-$ts-$$
+  out=$LOGS/session-$repo-${ref:0:7}-$ts.out; rcf=$out.rc
+  : >"$out"
+  for v in $(compgen -e); do case $v in NADAVAI_DEPLOY_*) envs+=("--setenv=$v") ;; esac; done
+  systemd-run --user --quiet --collect --service-type=exec --unit="$unit" \
+    -p "StandardOutput=append:$out" -p "StandardError=append:$out" -p TimeoutStopSec=10min \
+    "${envs[@]}" --setenv="NADAVAI_DEPLOY_DETACHED=$rcf" -- "$SELF" deploy "$@" >/dev/null ||
+    { err "could not start the deploy as a user unit"; return 1; }
+  say "nadavai-deploy: running as user unit $unit (a dropped ssh does not stop it); output in $out"
+  pid=$(systemctl --user show -p MainPID --value "$unit" 2>/dev/null)
+  if [[ ${pid:-} =~ ^[1-9][0-9]*$ ]]; then tail -n +1 -f --pid="$pid" "$out"; else cat "$out"; fi
+  rc=$(cat "$rcf" 2>/dev/null)
+  [[ $rc =~ ^[0-9]+$ ]] || { err "the deploy ended without an exit code (stopped?); see $out and $LOGS/deploys.log"; return 1; }
+  return "$rc"
 }
 
 cmd_hold_release() { # hold|release repo [reason...]
@@ -833,7 +936,13 @@ cmd_auto() {
 
 main() {
   case ${1:-} in
-    deploy) shift; cmd_deploy "$@" ;;
+    deploy) shift
+      # In the user unit cmd_detached started: the deploy itself, its exit code for the follower.
+      if [ -n "${NADAVAI_DEPLOY_DETACHED:-}" ]; then
+        local rc=0; ( cmd_deploy "$@" ) || rc=$?
+        echo "$rc" >"$NADAVAI_DEPLOY_DETACHED"; return "$rc"
+      fi
+      cmd_detached "$@" ;;
     hold|release) cmd_hold_release "$@" ;;
     hold-status)
       known "${2:-}" || { err "usage: nadavai-deploy hold-status <repo> (one of: ${!KIND[*]})"; return 2; }

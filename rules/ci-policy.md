@@ -63,19 +63,25 @@ every `ci-wait`, and the old runner (3,445 lines on one 8-core box) queued agent
    never touched, and a real regression still fails the second time.
 9. A newer push to a PR cancels its older run automatically.
 10. The session that merged a PR (rule 6) deploys it: `ssh nadavai-vm nadavai-deploy deploy <repo>
-    <merge sha>` in `run_in_background`, then reports the result (all four repos, sportchat-web
-    too). The Oracle VM's deploy service, never a pipeline, checks the green landing, health-checks,
-    rolls back on a failed check and posts `nadavai-deploy`. Two gates may stop it:
-    - Exit 5: the commits since the live one change a database migration. Ask Nadav with
-      AskUserQuestion; only after his yes, rerun with `--migration-approved "<what he approved>"`.
-    - Exit 6: main's nightly full suite (Woodpecker cron) is red. A fix is merged, not bypassed:
-      for a sha newer than the red nightly the deploy reruns the nightly itself and waits up to
-      20 minutes (exit 75 if still running: run the same command again). The omarchy audits
-      (`nadavai-ui`, `nadavai-nightly`) stay reports, not gates.
-    Nothing deploys on a timer (no `.auto` flag). `hold <repo> <reason>` / `release <repo>`,
-    `hold-status`, `pages-live`, `rollback <repo> <id>`, `--dry-run`: `ci-v2/README.md`, "Deploy
-    service". Why: Nadav, 2026-11-04: a merged green PR goes live without waiting for him, but
-    never a schema change he did not approve or a commit whose full suite is red.
+    <merge sha>` in `run_in_background`, then reports the result (all four repos). The deploy runs
+    detached on the Oracle VM's deploy service, never a pipeline, so a dropped ssh stops nothing;
+    it checks the green landing, health-checks, rolls back on a failed check and posts
+    `nadavai-deploy`. Exit codes that stop it:
+    - 3: the repo is held (`hold-status` says held). A held repo is never deployed, and a session
+      never runs `release`: only Nadav, or that repo's own release step, does.
+    - 5: the live commit and the sha differ in a database migration; the refusal prints an
+      approval key. Ask Nadav with AskUserQuestion; only after his yes, rerun with
+      `--migration-approved "<key>:<what he approved>"`. The key covers that live commit, that sha
+      and those files only, so any change means asking again.
+    - 6: main's nightly full suite (Woodpecker cron) is red. A fix is merged, not bypassed: for a
+      sha newer than the red nightly the deploy reruns the nightly itself and waits up to 20
+      minutes. 4 with "main moved; deploy <head>": deploy that head instead. 75: not ready (still
+      running, cancelled, Woodpecker unreadable): run the same command again later. The omarchy
+      audits (`nadavai-ui`, `nadavai-nightly`) stay reports, not gates.
+    Nothing deploys on a timer (no `.auto` flag). `hold`, `hold-status`, `pages-live`,
+    `rollback <repo> <id>`, `--dry-run` (starts no nightly): `ci-v2/README.md`, "Deploy service".
+    Why: Nadav, 2026-11-04: a merged green PR goes live without waiting for him, but never a held
+    repo, a schema change he did not approve, or a commit whose full suite is red.
 
 ## Repos
 - On Woodpecker: every repo listed in `~/nadavai/lib/woodpecker-repos.txt` (snooker-smart,

@@ -1,0 +1,28 @@
+[
+  {
+    "number": 55,
+    "parent": 0,
+    "event": "cron",
+    "status": "failure",
+    "branch": "main",
+    "commit": "ef962b03b44038a38f9a11585ce6160f133b77b6",
+    "cron": "nightly",
+    "sender": "nightly",
+    "created": 1793781625,
+    "started": 1793781629,
+    "finished": 1793782273
+  },
+  {
+    "number": 41,
+    "parent": 0,
+    "event": "cron",
+    "status": "failure",
+    "branch": "main",
+    "commit": "236849e238cb13fc47400639168a4ff1c1f5b78e",
+    "cron": "nightly",
+    "sender": "nightly",
+    "created": 1793758544,
+    "started": 1793758548,
+    "finished": 1793759118
+  }
+]

@@ -52,13 +52,15 @@ done
 base=https://api.cloudflare.com/client/v4/accounts/acc123/pages/projects/medizen
 cf=$HOME/cf
 # Woodpecker at https://wp.test, from the files in ~/wp: pipelines.json (the run list), cron.json,
-# trigger.json (what a cron run answers; each POST is logged in ~/wp/posts), and per run N:
+# trigger.json (what a cron run answers; each POST is logged in ~/wp/posts, and after-post.json,
+# when it exists, becomes the run list), and per run N:
 # seq-N (its status at each read, one per line, the last one repeats), commit-N, wf-N.json.
 wp=$HOME/wp
 case "$method $url" in
   "GET https://wp.test/api/repos/4/pipelines?"*) cat "$wp/pipelines.json"; exit ;;
   "GET https://wp.test/api/repos/4/cron") cat "$wp/cron.json"; exit ;;
-  "POST https://wp.test/api/repos/4/cron/"*) echo "${url##*/}" >>"$wp/posts"; cat "$wp/trigger.json"; exit ;;
+  "POST https://wp.test/api/repos/4/cron/"*) echo "${url##*/}" >>"$wp/posts"; cat "$wp/trigger.json"
+    [ -f "$wp/after-post.json" ] && cp "$wp/after-post.json" "$wp/pipelines.json"; exit 0 ;;
   "GET https://wp.test/api/repos/4/pipelines/"*)
     n=${url##*/}; k=$(( $(cat "$wp/reads-$n" 2>/dev/null || echo 0) + 1 )); echo "$k" >"$wp/reads-$n"
     st=$(sed -n "${k}p" "$wp/seq-$n"); st=${st:-$(tail -1 "$wp/seq-$n")}
@@ -293,68 +295,118 @@ c4=$(mk migrations-gal1/p1.sql 'create view v as select 1;')
 mkdir -p "$MIRROR"; git clone -q --bare "$fx" "$MIRROR/$R.git"
 . "$src"; real_mg=$(declare -f migration_gate) real_ng=$(declare -f nightly_gate)   # the real gates again
 mg() { ( migration_gate $R "$1" "$2" "${3:-}" ) >"$t/mg.out" 2>&1; echo $?; }
+key() { sed -n 's/.*approval key \([0-9a-f]\{12\}\).*/\1/p' "$t/mg.out" | head -1; }
 check "migrations: none in range passes" "0 1" "$(mg "$c1" "$c2") $(grep -c 'migrations: none' "$t/mg.out")"
 check "migrations: a migration in range is refused with 5" 5 "$(mg "$c0" "$c2")"
-check "migrations: the refusal names the file and how to approve" "1 1" "$(grep -c '^  supabase/migrations/20261104_init.sql$' "$t/mg.out") $(grep -c -- '--migration-approved' "$t/mg.out")"
+k02=$(key)
+check "migrations: the refusal names the file, the key and how to approve" "1 1" \
+  "$(grep -c '^  supabase/migrations/20261104_init.sql$' "$t/mg.out") $(grep -c -- "--migration-approved \"$k02:<what he approved>\"" "$t/mg.out")"
 check "migrations: tests and docs in the migrations folder do not count" 0 "$(mg "$c2" "$c3")"
 check "migrations: a hand-applied migrations-gal1/ file counts" 5 "$(mg "$c3" "$c4")"
 check "migrations: a deploy behind production (back over a migration) is refused too" 5 "$(mg "$c2" "$c0")"
-check "migrations: --migration-approved lets it through and says so" "0 1" "$(mg "$c0" "$c2" "Nadav approved 20261104_init") $(grep -c 'approved by Nadav: Nadav approved 20261104_init' "$t/mg.out")"
+check "migrations: the approval with this range's key lets it through and says so" "0 1" \
+  "$(mg "$c0" "$c2" "$k02:Nadav approved 20261104_init") $(grep -c "approved by Nadav ($k02): Nadav approved 20261104_init" "$t/mg.out")"
+check "migrations: an approval with another key is refused" "5 1" "$(mg "$c0" "$c2" "0123456789ab:old approval") $(grep -c 'the approval is for key 0123456789ab' "$t/mg.out")"
+mg "$c0" "$c3" >/dev/null
+check "migrations: another target gives another key" yes "$([ "$(key)" != "$k02" ] && echo yes)"
+check "migrations: an approval for one target does not cover another" 5 "$(mg "$c0" "$c3" "$k02:Nadav approved 20261104_init")"
 check "migrations: an unreadable live commit is refused" 5 "$(mg - "$c2")"
 check "migrations: an unknown live commit is refused" 5 "$(mg "$(printf 'e%.0s' {1..40})" "$c2")"
-check "migrations: the paths of all four repos" "supabase/migrations/1.sql|supabase/migrations-deferred/2.sql|migrations-gal2/3.sql|supabase/release-candidates/4.sql|migrations/5.sql" \
+check "migrations: the paths of all four repos, nested and in any case" \
+  "supabase/migrations/1.sql|supabase/migrations-deferred/2.sql|migrations-gal2/3.sql|supabase/release-candidates/4.sql|migrations/5.sql|apps/api/supabase/migrations/6.sql|Supabase/Migrations/7.SQL|supabase/schemas/8.sql" \
   "$(printf '%s\n' supabase/migrations/1.sql supabase/migrations-deferred/2.sql migrations-gal2/3.sql supabase/release-candidates/4.sql \
-      migrations/5.sql supabase/seed.sql supabase/rollbacks/6.sql src/lib/migration/x.ts supabase/migrations/AGENTS.md | grep -E "$MIGRATION_RE" | paste -sd'|')"
+      migrations/5.sql apps/api/supabase/migrations/6.sql Supabase/Migrations/7.SQL supabase/schemas/8.sql supabase/seed.sql \
+      supabase/rollbacks/9.sql src/lib/migration/x.ts scripts/x.sql planning/clinic-migration-2026-10-31/y.sql supabase/migrations/AGENTS.md |
+      grep -iE "$MIGRATION_RE" | paste -sd'|')"
 
-# The migration gate inside deploy (the nightly gate stubbed and recording that it ran).
+# The migration gate inside deploy (the nightly gate stubbed, recording its mode).
 stubs; eval "$real_mg"
-nightly_gate() { echo nightly >>"$HOME/nightly-ran"; return 0; }
+nightly_gate() { echo "nightly ${3:-wait}" >>"$HOME/nightly-ran"; return 0; }
 live_of() { echo "live1 $c0"; }
 deploy_pages() { echo "${4:+dry }$2" >>"$HOME/deployed"; LIVE_AFTER="new-$2 $2"; return 0; }
 : >"$HOME/deployed"; : >"$HOME/gh.log"; : >"$HOME/nightly-ran"
-( cmd_deploy $R "$c2" ) >"$t/d.out" 2>&1; rc=$?
+( cmd_deploy $R "$c2" ) >"$t/mg.out" 2>&1; rc=$?
 check "deploy: a migration in range refuses with 5 and builds nothing" "5 " "$rc $(cat "$HOME/deployed")"
 check "deploy: no nightly run is started for a deploy that needs Nadav first" "" "$(cat "$HOME/nightly-ran")"
 check "deploy: the migration refusal posts its status" 1 "$(dstatus "$c2" "not deployed: database migrations")"
 check "deploy: the migration refusal is in deploys.log" 1 "$(grep -c "$c2"$'\trefused-migration\t' "$LOGS/deploys.log")"
-( cmd_deploy $R "$c2" --migration-approved "Nadav approved 20261104_init (AskUserQuestion)" ) >/dev/null 2>&1; rc=$?
-check "deploy: --migration-approved deploys" "0 $c2" "$rc $(cat "$HOME/deployed")"
-check "deploy: the approval reason is in deploys.log" 1 "$(grep -c "$c2"$'\tlive\t.*\tmigration approved: Nadav approved 20261104_init (AskUserQuestion)$' "$LOGS/deploys.log")"
+k=$(key)
+( cmd_deploy $R "$c2" --migration-approved "$k:Nadav approved 20261104_init (AskUserQuestion)" ) >/dev/null 2>&1; rc=$?
+check "deploy: --migration-approved with the printed key deploys" "0 $c2" "$rc $(cat "$HOME/deployed")"
+check "deploy: the nightly verdict is read again under the lock, without a wait" "nightly wait|nightly nowait" "$(paste -sd'|' "$HOME/nightly-ran")"
+check "deploy: the approval and its reason are in deploys.log" 1 "$(grep -c "$c2"$'\tlive\t.*\tmigration approved: '"$k"':Nadav approved 20261104_init (AskUserQuestion)$' "$LOGS/deploys.log")"
 : >"$HOME/deployed"; : >"$HOME/gh.log"; : >"$HOME/nightly-ran"
 ( cmd_deploy $R "$c2" --dry-run ) >/dev/null 2>&1; rc=$?
-check "dry run: a migration refusal is reported, the rest runs, and it exits 5" "5 dry $c2 nightly" "$rc $(cat "$HOME/deployed") $(cat "$HOME/nightly-ran")"
+check "dry run: a migration refusal is reported, the rest runs, and it exits 5" "5 dry $c2 nightly dry" "$rc $(cat "$HOME/deployed") $(cat "$HOME/nightly-ran")"
 check "dry run: the refusal is in its deploys.log line, and no status is posted" "1 0" "$(grep -c "$c2"$'\tdry-run (refused-migration)\t' "$LOGS/deploys.log") $(grep -c 'statuses/' "$HOME/gh.log")"
+deploy_pages() { return 1; }
+( cmd_deploy $R "$c2" --dry-run ) >/dev/null 2>&1; rc=$?
+check "dry run: the refusal's code stays when the build fails too" "5 1" "$rc $(grep -c "$c2"$'\tfailed (refused-migration)\t' "$LOGS/deploys.log")"
+deploy_pages() { echo "${4:+dry }$2" >>"$HOME/deployed"; LIVE_AFTER="new-$2 $2"; return 0; }
+for a in "" "  " "Nadav approved it" "$k:" "$k:   " "XYZ:reason"; do
+  ( cmd_deploy $R "$c2" --migration-approved "$a" ) >/dev/null 2>&1; rc=$?
+  check "deploy: --migration-approved '$a' is a usage error" 2 "$rc"
+done
 ( cmd_deploy $R "$c2" --migration-approved ) >/dev/null 2>&1; rc=$?
-check "deploy: --migration-approved without a reason is a usage error" 2 "$rc"
-( cmd_deploy $R "$c2" --migration-approved "  " ) >/dev/null 2>&1; rc=$?
-check "deploy: a blank reason is a usage error" 2 "$rc"
-( cmd_deploy $R "$c2" --auto --migration-approved "x" ) >/dev/null 2>&1; rc=$?
+check "deploy: --migration-approved without a value is a usage error" 2 "$rc"
+( cmd_deploy $R "$c2" --auto --migration-approved "$k:x" ) >/dev/null 2>&1; rc=$?
 check "deploy: the auto pass cannot approve a migration" 2 "$rc"
+# The live commit moves while the deploy waits for the lock: the migrations are checked again.
+live_of() { local n; n=$(( $(cat "$HOME/live-reads" 2>/dev/null || echo 0) + 1 )); echo "$n" >"$HOME/live-reads"
+  if [ "$n" = 1 ]; then echo "live1 $c1"; else echo "live2 $c0"; fi; }
+rm -f "$HOME/live-reads"; : >"$HOME/deployed"; : >"$HOME/gh.log"
+( cmd_deploy $R "$c2" ) >"$t/mg.out" 2>&1; rc=$?
+check "deploy: a live commit that moved before the lock is checked for migrations again" "5 1 " "$rc $(grep -c 'live changed while this deploy waited' "$t/mg.out") $(cat "$HOME/deployed")"
+# The gates run without the repo lock (a rollback is not kept waiting behind the nightly wait).
+live_of() { echo "live1 $c1"; }
+nightly_gate() { ( exec 7>"$S/$R.lock"; flock -n 7 ) && echo free >>"$HOME/nightly-ran" || echo locked >>"$HOME/nightly-ran"; return 0; }
+: >"$HOME/nightly-ran"
+( cmd_deploy $R "$c2" ) >/dev/null 2>&1
+check "deploy: the nightly gate runs without the repo lock, the re-check with it" "free|locked" "$(paste -sd'|' "$HOME/nightly-ran")"
 
 # ---- The nightly gate, against the stub Woodpecker (repo id 4) and the same mirror.
 eval "$real_ng"
 printf 'WOODPECKER_TOKEN=zz-fake-wp-3\n' >"$SECRETS/woodpecker.env"
 echo '[{"id":4,"name":"nightly","branch":"main"}]' >"$t/wp/cron.json"
-run() { printf '{"number":%s,"status":"%s","commit":"%s","cron":"%s","event":"cron"}' "$1" "$2" "$3" "${4:-nightly}"; }
+run() { printf '{"number":%s,"status":"%s","commit":"%s","cron":"%s","event":"cron","branch":"%s","parent":%s}' "$1" "$2" "$3" "${4:-nightly}" "${5:-main}" "${6:-0}"; }
 runs() { local IFS=,; echo "[$*]" >"$t/wp/pipelines.json"; }
 wprun() { printf '%s\n' "${@:3}" >"$t/wp/seq-$1"; echo "$2" >"$t/wp/commit-$1"; rm -f "$t/wp/reads-$1"; }
 echo '[{"name":"web","state":"failure","children":[{"name":"unit","state":"failure","exit_code":1},{"name":"lint","state":"success","exit_code":0}]},{"name":"backend","state":"success","children":[]}]' >"$t/wp/wf-41.json"
-cp "$t/wp/wf-41.json" "$t/wp/wf-99.json"; wprun 41 "$c2" failure
-ng() { : >"$t/wp/posts"; ( nightly_gate $R "$1" ) >"$t/ng.out" 2>&1; echo $?; }
+cp "$t/wp/wf-41.json" "$t/wp/wf-99.json"; cp "$t/wp/wf-41.json" "$t/wp/wf-55.json"; wprun 41 "$c2" failure
+ng() { : >"$t/wp/posts"; ( nightly_gate $R "$1" "${2:-}" ) >"$t/ng.out" 2>&1; echo $?; }
 posts() { grep -c . "$t/wp/posts"; }
+# Woodpecker's real answer (GET /api/repos/4/pipelines?event=cron&branch=main, 2026-11-04,
+# trimmed to these fields): run #55 red on ef962b0.
+fxl=$(dirname "$0")/fixtures/wp-therapy-flow-v2-nightly-list.json
+cp "$fxl" "$t/wp/pipelines.json"; wprun 55 ef962b03b44038a38f9a11585ce6160f133b77b6 failure
+check "nightly: Woodpecker's real list: run #55 red on the sha refuses with 6" "6 1" \
+  "$(ng ef962b03b44038a38f9a11585ce6160f133b77b6) $(grep -c 'the latest, run #55 on ef962b0, is red' "$t/ng.out")"
 runs "$(run 40 success "$c1")"
 : >"$HOME/curl.log"; : >"$HOME/curl.headers"
 check "nightly: the latest green passes, nothing is started" "0 0" "$(ng "$c2") $(posts)"
-check "nightly: the token reaches Woodpecker in a header, on no command line" "1 0" \
+check "nightly: the token reaches Woodpecker in a header (the list and the cron), on no command line" "2 0" \
   "$(grep -c '^Authorization: Bearer zz-fake-wp-3$' "$HOME/curl.headers") $(grep -c zz-fake-wp-3 "$HOME/curl.log")"
-runs "$(run 42 killed "$c3")" "$(run 9 failure "$c3" other)" "$(run 40 success "$c1")"
-check "nightly: killed runs and other crons are not the nightly's verdict" 0 "$(ng "$c2")"
+runs "$(run 43 failure "$c3" other)" "$(run 42 failure "$c3" nightly feature)" "$(run 40 success "$c1")"
+check "nightly: other crons and other branches are not the nightly's verdict" 0 "$(ng "$c2")"
+runs "$(run 42 killed "$c3")" "$(run 40 success "$c1")"
+check "nightly: a cancelled latest run newer than the green one is not ready (75)" "75 1" "$(ng "$c2") $(grep -c 'was cancelled' "$t/ng.out")"
+for body in null '<html><body>502 Bad Gateway</body></html>' '{"error":"x"}'; do
+  printf '%s\n' "$body" >"$t/wp/pipelines.json"
+  check "nightly: a list that is not a JSON array ($body) is not ready (75)" 75 "$(ng "$c2")"
+done
+echo '[]' >"$t/wp/pipelines.json"
+check "nightly: no finished run while the cron exists is not ready (75)" "75 1" "$(ng "$c4") $(grep -c 'no finished run yet' "$t/ng.out")"
+echo '[]' >"$t/wp/cron.json"; runs "$(run 40 success "$c1")"
+check "nightly: no nightly cron is not ready (75)" 75 "$(ng "$c4")"
+echo '[{"id":4,"name":"nightly","branch":"main"}]' >"$t/wp/cron.json"
 runs "$(run 41 failure "$c2")" "$(run 40 success "$c1")"
 check "nightly: red on the sha itself refuses with 6, nothing started" "6 0" "$(ng "$c2") $(posts)"
 check "nightly: the refusal prints the failing step" "1 0" "$(grep -c '^  web/unit: failure (exit 1)$' "$t/ng.out") $(grep -c 'lint' "$t/ng.out")"
 check "nightly: red on a newer commit refuses an older sha" "6 0" "$(ng "$c1") $(posts)"
 run 99 pending "$c4" >"$t/wp/trigger.json"; wprun 99 "$c4" pending running success
 check "nightly: a newer sha starts the nightly once and passes when it is green on the sha" "0 1 4" "$(ng "$c4") $(posts) $(cat "$t/wp/posts")"
+check "nightly: a dry run never starts the nightly; it says it would" "0 0 1" "$(ng "$c4" dry) $(posts) $(grep -c 'would start the nightly' "$t/ng.out")"
+check "nightly: the re-check under the lock never starts or waits" "75 0" "$(ng "$c4" nowait) $(posts)"
 wprun 99 "$c4" running failure
 check "nightly: the fresh run red refuses with 6 and prints its failing steps (the old run's, then its own)" "6 1 2" \
   "$(ng "$c4") $(grep -c 'nightly run #99 on [0-9a-f]\{7\} ended failure' "$t/ng.out") $(grep -c '^  web/unit: failure' "$t/ng.out")"
@@ -362,10 +414,18 @@ wprun 99 "$c4" running
 check "nightly: still running when the wait ends is not ready (75)" "75 1" "$(NIGHTLY_WAIT=0 ng "$c4") $(grep -c 'run the deploy again later' "$t/ng.out")"
 runs "$(run 99 running "$c4")" "$(run 41 failure "$c2")"; wprun 99 "$c4" running success
 check "nightly: a run already going on the sha is waited on, not started again" "0 0" "$(ng "$c4") $(posts)"
+wprun 99 "$c4" running success
+check "nightly: a dry run waits on a run already going on the sha" "0 0" "$(ng "$c4" dry) $(posts)"
+# wp-watchdog cancels a run that lost its agent and restarts it (a new run whose parent is the old).
+runs "$(run 101 running "$c4" nightly main 99)" "$(run 99 killed "$c4")" "$(run 41 failure "$c2")"
+wprun 99 "$c4" running killed; wprun 101 "$c4" running success
+: >"$t/wp/posts"; ( wp_wait $R 99 "$c4" ) >"$t/ng.out" 2>&1; rc=$?
+check "nightly: a run the watchdog restarted is followed to its result" "0 1" "$rc $(grep -c 'restarted as #101; following it' "$t/ng.out")"
+runs "$(run 99 killed "$c4")" "$(run 41 failure "$c2")"; wprun 99 "$c4" killed
+( wp_wait $R 99 "$c4" ) >"$t/ng.out" 2>&1; rc=$?
+check "nightly: a cancelled run with no restart is not ready (75), not red" "75 1" "$rc $(grep -c 'was killed and not restarted' "$t/ng.out")"
 runs "$(run 41 failure "$c2")"; run 100 pending "$(printf 'f%.0s' {1..40})" >"$t/wp/trigger.json"
-check "nightly: main moved past the sha refuses at once" "6 1 1" "$(ng "$c4") $(posts) $(grep -c 'main moved' "$t/ng.out")"
-echo '[]' >"$t/wp/pipelines.json"
-check "nightly: no finished nightly yet passes" 0 "$(ng "$c4")"
+check "nightly: main moved past the sha is 4, 'main moved; deploy <head>'" "4 1 1" "$(ng "$c4") $(posts) $(grep -c 'main moved; deploy fffffff' "$t/ng.out")"
 mv "$SECRETS/woodpecker.env" "$t/wp.env"
 check "nightly: no Woodpecker token is not ready (75)" 75 "$(ng "$c4")"
 mv "$t/wp.env" "$SECRETS/woodpecker.env"
@@ -380,14 +440,51 @@ check "deploy: the nightly refusal posts its status, and no pending one" "1 0" "
 run 99 pending "$c4" >"$t/wp/trigger.json"; wprun 99 "$c4" running; : >"$HOME/gh.log"
 ( NIGHTLY_WAIT=0 cmd_deploy $R "$c4" ) >/dev/null 2>&1; rc=$?
 check "deploy: a nightly still running at the deadline is 75 and posts no status" "75 0" "$rc $(grep -c 'statuses/' "$HOME/gh.log")"
-wprun 99 "$c4" success; : >"$HOME/deployed"
+# Green on the newer sha; Woodpecker's list then shows that run as the latest (after-post.json).
+wprun 99 "$c4" success; runs "$(run 41 failure "$c2")"
+printf '[%s,%s]\n' "$(run 99 success "$c4")" "$(run 41 failure "$c2")" >"$t/wp/after-post.json"; : >"$HOME/deployed"
 ( cmd_deploy $R "$c4" ) >/dev/null 2>&1; rc=$?
 check "deploy: green on the newer sha deploys" "0 $c4" "$rc $(cat "$HOME/deployed")"
-nightly_gate() { printf 'hold set during the wait\n' >"$S/$R.hold"; return 0; }
-: >"$HOME/deployed"
+rm -f "$t/wp/after-post.json"
+runs "$(run 41 failure "$c2")"; run 100 pending "$(printf 'f%.0s' {1..40})" >"$t/wp/trigger.json"; : >"$HOME/deployed"; : >"$HOME/gh.log"
 ( cmd_deploy $R "$c4" ) >/dev/null 2>&1; rc=$?
-check "deploy: a hold set while the gates ran stops the deploy" "3 " "$rc $(cat "$HOME/deployed")"
+check "deploy: main moved during the nightly check is 4, with its own status" "4 1" "$rc $(dstatus "$c4" "not deployed: main moved during the nightly check; deploy fffffff")"
+nightly_gate() { printf 'hold set during the wait\n' >"$S/$R.hold"; return 0; }
+: >"$HOME/deployed"; : >"$HOME/gh.log"
+( cmd_deploy $R "$c4" ) >/dev/null 2>&1; rc=$?
+check "deploy: a hold set while the gates ran stops the deploy" "3  1" "$rc $(cat "$HOME/deployed") $(dstatus "$c4" "not deployed: deploys are held on nadavai-deploy: hold set during the wait")"
 rm -f "$S/$R.hold"
+
+# ---- `deploy` from a session runs detached (a stub systemd-run runs the unit in the background).
+cat >"$t/bin/systemd-run" <<'SR'
+#!/usr/bin/env bash
+echo "$*" >>"$HOME/systemd-run.log"
+unit='' out=''
+while [ "$1" != -- ]; do
+  case $1 in
+    --unit=*) unit=${1#--unit=} ;;
+    StandardOutput=append:*) out=${1#StandardOutput=append:} ;;
+    --setenv=*=*) v=${1#--setenv=}; export "${v%%=*}=${v#*=}" ;;
+  esac
+  shift
+done
+shift
+setsid "$@" >>"$out" 2>&1 </dev/null &
+echo $! >"$HOME/unit-$unit"
+SR
+printf '#!/usr/bin/env bash\ncat "$HOME/unit-${*: -1}" 2>/dev/null\n' >"$t/bin/systemctl"
+chmod +x "$t/bin/systemd-run" "$t/bin/systemctl"
+bash "$src" hold $R "detach test" >/dev/null 2>&1; : >"$HOME/gh.log"
+out=$(bash "$src" deploy $R "$c2" 2>&1); rc=$?
+check "detached: the follower returns the deploy's exit code and prints its output" "3 1 1" \
+  "$rc $(grep -c 'running as user unit nadavai-deploy-run-' <<<"$out") $(grep -c 'refusing: deploys of therapy-flow-v2 are held (detach test)' <<<"$out")"
+check "detached: the deploy ran in the unit, with its exit code beside the output" "1 3" \
+  "$(grep -c -- '-- .*nadavai-deploy deploy therapy-flow-v2' "$HOME/systemd-run.log") $(cat "$LOGS"/session-$R-*.out.rc | tail -1)"
+check "detached: the unit gets the caller's NADAVAI_DEPLOY_* settings" 1 "$(grep -c -- '--setenv=NADAVAI_DEPLOY_WP_SERVER ' "$HOME/systemd-run.log")"
+bash "$src" release $R >/dev/null 2>&1
+bash "$src" deploy no-such-repo "$c2" >/dev/null 2>&1; rc=$?
+check "detached: a usage error starts no unit" "2 1" "$rc $(grep -c . "$HOME/systemd-run.log")"
+check "deploy: the TERM, INT, HUP and PIPE traps roll back" 1 "$(grep -c 'trap on_term TERM INT HUP PIPE' "$src")"
 
 # Vercel API URLs: one ? then &teamId (bash 5.2's patsub_replacement once doubled the path).
 printf 'VERCEL_TOKEN=zz-fake-vercel-5\n' >"$SECRETS/cash-next-app.env"; : >"$HOME/curl.log"
