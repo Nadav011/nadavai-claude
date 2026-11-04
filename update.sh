@@ -70,6 +70,7 @@ fi
 
 step "Model policy"
 apply_model_policy
+apply_plugin_policy
 apply_machine_env
 
 step "Links"

@@ -204,6 +204,33 @@ apply_model_policy() {
   ' "$REPO/settings/settings.base.json" "$target" "$BACKUP"
 }
 
+apply_plugin_policy() {
+  # A plugin settings.base.json turns off is off in every Claude config on this machine
+  # (~/.claude and each Orca account profile). Plugins it turns on are left as each machine has
+  # them, and a project can still turn one on in its own .claude/settings.json.
+  # Why: every enabled plugin's skill list is re-read by every request, main loop and subagents.
+  local t
+  for t in "$CFG/settings.json" "$HOME/.claude/settings.json" "$HOME"/.config/orca/claude-profiles/*/home/settings.json; do
+    [ -f "$t" ] || continue
+    node -e '
+      const fs = require("fs");
+      const [base, target, backup] = process.argv.slice(1);
+      const off = Object.entries(JSON.parse(fs.readFileSync(base, "utf8")).enabledPlugins || {}).filter(([, v]) => v === false);
+      const raw = fs.readFileSync(target, "utf8");
+      let cur;
+      try { cur = JSON.parse(raw); } catch (e) { console.log("  skipped " + target + ": not valid JSON"); process.exit(0); }
+      cur.enabledPlugins = cur.enabledPlugins || {};
+      const changed = off.filter(([k]) => cur.enabledPlugins[k] !== false).map(([k]) => k);
+      if (!changed.length) process.exit(0);
+      for (const k of changed) cur.enabledPlugins[k] = false;
+      fs.mkdirSync(backup, { recursive: true });
+      fs.writeFileSync(backup + "/" + target.replace(/[\/]/g, "_"), raw);
+      fs.writeFileSync(target, JSON.stringify(cur, null, 2) + "\n");
+      console.log("  turned off " + changed.join(", ") + " in " + target);
+    ' "$REPO/settings/settings.base.json" "$t" "$BACKUP"
+  done
+}
+
 apply_machine_env() {
   # Env values that hold a path into this checkout, so they differ per machine and cannot live
   # in settings.base.json. PLAYWRIGHT_MCP_CONFIG keeps Chromium's shared memory in /dev/shm
