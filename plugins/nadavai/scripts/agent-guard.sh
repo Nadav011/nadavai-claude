@@ -784,15 +784,24 @@ fi
 subagent_wait_guard() { # subagent_wait_guard <command> <timeout ms or empty>
   local cmd="$1" t="$2" why
   [[ $cmd == *'# long-call:'* ]] && return 0
-  why="A subagent's prompt cache lives 5 minutes, so a call that blocks longer rewrites your whole context (about 220K tokens each time; 15% of subagent and workflow cost in the two weeks to 2026-11-04). Wait in slices and check between them, each call with the Bash timeout at 175000: ci-wait <repo> <ref> --slice 140 (exit 7 = still running: run the same command again); for a process, timeout 140 tail --pid=<pid> -f /dev/null, then read its output and repeat; for a run_in_background job, read its output file between slices. If a wait will clearly take more than about 30 minutes, return and give the caller the exact wait command. If this call really cannot be split, add '# long-call: <reason>' to the command."
+  why="A subagent's prompt cache lives 5 minutes, so a call that blocks longer rewrites your whole context (about 220K tokens each time; 15% of subagent and workflow cost in the two weeks to 2026-11-04). Wait in slices and check between them, each call with the Bash timeout at 175000: ci-wait <repo> <ref> --slice 140 (exit 7 = still running: run the same command again); for a long job, start it with nohup <cmd> > <log> 2>&1 & echo \$!, then wait on it with timeout 140 tail --pid=<pid> -f /dev/null, read the log and repeat. If a wait will clearly take more than about 30 minutes, return and give the caller the exact wait command. If this call really cannot be split, add '# long-call: <reason>' to the command."
   if [[ $t =~ ^[0-9]+$ ]] && [ "$t" -gt 290000 ]; then
     deny "This Bash call may block for $((t / 1000)) s (timeout $t). $why"
   fi
   # ci-wait at command position (not as text in grep, pgrep or echo)
-  local at_cmd=$'(^|[;&|({`\n]|[[:space:]](then|do|else))[[:space:]]*((timeout|heavy-slot|nohup|env|time|exec)[^;&|\n]*[[:space:]])?([^[:space:]]*/)?ci-wait(-wp)?[[:space:]]+[^-[:space:]]'
-  if [[ $cmd =~ $at_cmd ]] && [[ $cmd != *--slice* ]] && [[ $cmd != *--help* ]]; then
-    deny "ci-wait waits up to 90 minutes. $why"
+  local at_cmd=$'(^|[;&|({`\n]|[[:space:];&|({`\n](then|do|else))[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*((timeout|heavy-slot|nohup|env|time|exec)[^;&|\n]*[[:space:]])?([^[:space:]]*/)?ci-wait(-wp)?[[:space:]]+[^[:space:]]'
+  [[ $cmd =~ $at_cmd ]] || return 0
+  [[ " $cmd " =~ [[:space:]](-h|--help)[[:space:]] ]] && return 0
+  local sl=$'--slice[=[:space:]]+([0-9]+)'
+  if [[ $cmd =~ $sl ]]; then
+    local n=${BASH_REMATCH[1]} need
+    need=$(( 10#$n * 1000 + 30000 ))
+    if ! [[ $t =~ ^[0-9]+$ ]] || [ "$t" -lt "$need" ]; then
+      deny "With --slice $n, set the Bash timeout to at least $need (the slice plus 30 s; it is ${t:-the 120000 default}), or Bash moves the call to the background before the slice ends. $why"
+    fi
+    return 0
   fi
+  deny "ci-wait waits up to 90 minutes. $why"
   return 0
 }
 

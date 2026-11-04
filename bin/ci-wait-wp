@@ -67,8 +67,12 @@ sliced() { # exit 7 when --slice is up: the caller runs the same command again
   local k=0
   if [ -n "${sd:-}" ]; then [ -r "$sd/slices" ] && read -r k <"$sd/slices"; [[ $k =~ ^[0-9]+$ ]] || k=0; fi
   k=$(( k + 1 )); [ -n "${sd:-}" ] && echo "$k" >"$sd/slices"
-  echo "ci-wait-wp: still running on ${sha:0:7}${n:+ (pipeline $n)}${phase_msg:+, $phase_msg} after slice $k: run the same command again to keep waiting"
-  [ "$k" -ge 12 ] && echo "ci-wait-wp: this wait has taken $k slices; if CI needs much longer, return and hand this command to the caller, whose cache lasts an hour"
+  if [ -n "${n:-}" ]; then
+    echo "ci-wait-wp: still running on ${sha:0:7} (pipeline $n)${phase_msg:+, $phase_msg} after slice $k: run the same command again to keep waiting"
+  else
+    echo "ci-wait-wp: no Woodpecker run for ${sha:0:7} yet after slice $k: run the same command again to keep waiting"
+  fi
+  [ "$k" -ge 12 ] && echo "ci-wait-wp: this wait has taken $k slices; if CI needs much longer, return and give the caller this command without --slice, to run in the background (its cache lasts an hour)"
   exit 7
 }
 nap() { # sleep POLL, or what is left of the slice, then check the slice
@@ -91,12 +95,15 @@ SERVER=${WOODPECKER_SERVER:-https://ci.nadavc.ai}
 api() { curl -sf --max-time 20 -H @<(printf 'Authorization: Bearer %s\n' "$WOODPECKER_TOKEN") "$SERVER/api/$1"; }
 
 # gh with three tries: a reset connection to api.github.com must not read as "no such commit".
-ghr() { local i out; for i in 1 2 3; do out=$(gh "$@" 2>/dev/null) && { printf '%s\n' "$out"; return 0; }; sleep 3; done; return 1; }
+ghr() { local i out; for i in 1 2 3; do out=$(timeout 20 gh "$@" 2>/dev/null) && { printf '%s\n' "$out"; return 0; }; sleep 3; done; return 1; }
 
 parent=$PPID
 parent_alive() { [ "$follow" = 0 ] || kill -0 "$parent" 2>/dev/null; }
 
-rid=$(api "repos/lookup/$OWNER/$repo" | jq -r 'select(.active == true) | .id' 2>/dev/null)
+for _ in 1 2 3; do
+  rid=$(api "repos/lookup/$OWNER/$repo" | jq -r 'select(.active == true) | .id' 2>/dev/null)
+  [ -n "$rid" ] && break; sleep 3
+done
 [ -n "$rid" ] || { echo "ci-wait-wp: $OWNER/$repo is not active on Woodpecker ($SERVER), or Woodpecker is unreachable" >&2; exit 3; }
 
 # Resolve the ref to a head sha once; a later push does not move what this waits for.
@@ -173,8 +180,8 @@ retried=""
 FLAKE_LOG=${CI_WAIT_FLAKE_LOG:-$HOME/.cache/ci-wait/flakes.log}
 restart_seen() { # a sliced wait runs this script several times: a restart an earlier slice of it made counts
   [ -n "$slice" ] && [ -r "$FLAKE_LOG" ] || return 0
-  awk -F'\t' -v s="$(date -d "@$start" -Iseconds)" -v r="$repo" -v h="${sha:0:9}" \
-    '$1 >= s && $2 == r && $3 == h { f = 1 } END { exit !f }' "$FLAKE_LOG" && retried=1
+  awk -F'\t' -v s="$(date -d "@$start" -Iseconds)" -v r="$repo" -v h="${sha:0:9}" -v h0="${sha0:0:9}" \
+    '$1 >= s && $2 == r && ($3 == h || $3 == h0) { f = 1 } END { exit !f }' "$FLAKE_LOG" && retried=1
   return 0
 }
 restart_run() { # reason: restart pipeline $n, switch the wait to the new run
@@ -191,12 +198,19 @@ restart_run() { # reason: restart pipeline $n, switch the wait to the new run
 
 # A sliced wait keeps its clocks in $sd (first slice, no-run since, security wait since), so --timeout
 # and the 10- and 15-minute checks count from the first slice; removed when the wait ends.
+# Keyed by the ref as given (pr:N, branch or sha), with the head it moved to in $sd/head, so a PR that
+# moves keeps one set of clocks. A folder with no write in 10 minutes is an abandoned wait.
 sd=""
+find "$HOME/.cache/ci-wait" -maxdepth 1 -type d -name 'slice-*' -mmin +1440 -exec rm -rf {} + 2>/dev/null
 if [ -n "$slice" ]; then
-  sd="$HOME/.cache/ci-wait/slice-$repo-${sha:0:12}"
-  [ -n "$(find "$sd" -maxdepth 0 -mmin "+$timeout_min" 2>/dev/null)" ] && rm -rf "${sd:?}"
+  sd="$HOME/.cache/ci-wait/slice-$repo-$(printf '%s' "$ref" | tr -c 'A-Za-z0-9._-' '_')"
+  if [ -d "$sd" ] && [ -z "$(find "$sd" -type f -mmin -10 2>/dev/null | head -1)" ]; then rm -rf "${sd:?}"; fi
   mkdir -p "$sd"
   trap 'rc=$?; [ "$rc" = 7 ] || [ -z "${sd:-}" ] || rm -rf "${sd:?}"' EXIT
+  h=""; [ -r "$sd/head" ] && read -r h <"$sd/head"
+  if [[ $h =~ ^[0-9a-f]{40}$ ]] && [ "$h" != "$sha" ]; then
+    echo "ci-wait-wp: an earlier slice followed PR #$prnum to ${h:0:7}; waiting on that head"; sha=$h
+  fi
 fi
 clock() { # clock <name>: when <name> started in this sliced wait (now, and remembered, when unset)
   local now t=""; now=$(date +%s)
@@ -204,9 +218,12 @@ clock() { # clock <name>: when <name> started in this sliced wait (now, and reme
   echo "${t:-$now}"
 }
 start=$(clock start)
+sha0=$sha
+[ -n "$sd" ] && [ -r "$sd/head0" ] && read -r sha0 <"$sd/head0"
+[ -n "$sd" ] && [ ! -e "$sd/head0" ] && echo "$sha" >"$sd/head0"
 restart_seen
 deadline=$(( start + timeout_min * 60 ))
-down=0 warned="" since=$(clock norun) n=""
+down=0 warned="" since=$(clock "norun-${sha:0:12}") n=""
 while :; do
   parent_alive || { echo "ci-wait-wp: the process that started this wait is gone"; exit 4; }
   sliced
@@ -225,8 +242,9 @@ while :; do
         now=$(ghr pr view "$prnum" -R "$OWNER/$repo" --json headRefOid --jq .headRefOid)
         if [[ $now =~ ^[0-9a-f]{40}$ ]] && [ "$now" != "$sha" ]; then
           echo "ci-wait-wp: PR #$prnum moved to ${now:0:7}; waiting on that head"
-          sha=$now since=$(date +%s)
-          [ -n "$sd" ] && echo "$since" >"$sd/norun"
+          sha=$now
+          [ -n "$sd" ] && echo "$sha" >"$sd/head"
+          since=$(clock "norun-${sha:0:12}")
           restart_seen
           nap; continue
         fi
