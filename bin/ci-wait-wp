@@ -93,10 +93,12 @@ SERVER=${WOODPECKER_SERVER:-https://ci.nadavc.ai}
 [ -n "${WOODPECKER_TOKEN:-}" ] || { echo "ci-wait-wp: no WOODPECKER_TOKEN (vault file $ENV_FILE)" >&2; exit 3; }
 
 # The token goes to curl through a file descriptor, never on its command line (/proc/*/cmdline).
-api() { curl -sf --max-time 20 -H @<(printf 'Authorization: Bearer %s\n' "$WOODPECKER_TOKEN") "$SERVER/api/$1"; }
+# Each read is capped at the time left in the slice (5-20 s), so a slow server cannot run past it.
+api() { local t; t=$(slice_left); [ "$t" -gt 20 ] && t=20; [ "$t" -lt 5 ] && t=5
+  curl -sf --max-time "$t" -H @<(printf 'Authorization: Bearer %s\n' "$WOODPECKER_TOKEN") "$SERVER/api/$1"; }
+slice_left() { [ -n "${slice:-}" ] && echo $(( slice_end - $(date +%s) )) || echo 999; }
 
 # gh with three tries: a reset connection to api.github.com must not read as "no such commit".
-slice_left() { [ -n "${slice:-}" ] && echo $(( slice_end - $(date +%s) )) || echo 999; }
 ghr() { local i out t
   for i in 1 2 3; do
     t=$(slice_left); [ "$t" -gt 20 ] && t=20; [ "$t" -lt 5 ] && t=5
@@ -214,7 +216,10 @@ restart_run() { # reason: restart pipeline $n, switch the wait to the new run
 # Keyed by the ref as given (pr:N, branch or sha), with the head it moved to in $sd/head, so a PR that
 # moves keeps one set of clocks. A folder with no write in 10 minutes is an abandoned wait.
 sd=""
-find "$HOME/.cache/ci-wait" -maxdepth 1 -type d -name 'slice-*' -mmin +1440 -exec rm -rf {} + 2>/dev/null
+# Sweep folders with nothing written in a day (the folder and its files; a live wait writes every slice).
+for d in "$HOME"/.cache/ci-wait/slice-*/; do
+  [ -d "$d" ] && [ ! -L "${d%/}" ] && [ -z "$(find "$d" -mmin -1440 2>/dev/null | head -1)" ] && rm -rf "${d:?}"
+done
 if [ -n "$slice" ]; then
   key=$ref; [[ $key =~ ^#([0-9]+)$ ]] && key="pr:${BASH_REMATCH[1]}"
   sd="$HOME/.cache/ci-wait/slice-$repo-$(printf '%s' "$key" | tr -c 'A-Za-z0-9._-' '_')"

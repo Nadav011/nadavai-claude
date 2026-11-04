@@ -788,32 +788,34 @@ subagent_wait_guard() { # subagent_wait_guard <command> <timeout ms or empty>
   if [[ $t =~ ^[0-9]+$ ]] && [ "$t" -gt 290000 ]; then
     deny "This Bash call may block for $((t / 1000)) s (timeout $t). $why"
   fi
-  # ci-wait at command position (not as text in grep, pgrep or echo)
-  local at_cmd=$'(^|[;&|({`\n!]|(^|[[:space:];&|({`\n])(then|do|else|if|elif|while|until))[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*((timeout|heavy-slot|nohup|env|time|exec|command|nice|sudo|stdbuf)[^;&|\n]*[[:space:]])?([^[:space:]]*/)?ci-wait(-wp)?[[:space:]]+[^[:space:]]'
-  [[ $cmd =~ $at_cmd ]] || return 0
-  local m=${BASH_REMATCH[0]}
-  [[ $m =~ command[[:space:]]+-[vV] ]] && return 0  # "is it installed", not a wait
-  # Read -h, --help and --slice only in that ci-wait call: up to the next ; & | or newline, no comment.
-  local seg rest
-  rest=${cmd#*"$m"}
-  rest=${rest//&>/ }; rest=$(sed -E 's/[0-9]*>&[0-9-]*/ /g' <<<"$rest")  # redirects are not separators
-  seg="$m${rest%%[;&|$'\n']*}"
-  seg=$(sed -E 's/(^|[[:space:]])#.*$//' <<<"$seg")  # a comment, not a #N ref
-  [[ " $seg " =~ [[:space:]](-h|--help)[[:space:]] ]] && return 0
-  local sl=$'--slice[=[:space:]]+([0-9]+)'
-  if [[ $seg =~ $sl ]]; then
-    local n=${BASH_REMATCH[1]} need tail=$seg
-    while [[ $tail =~ $sl ]]; do n=${BASH_REMATCH[1]}; tail=${tail#*"${BASH_REMATCH[0]}"}; done  # ci-wait uses the last one
-    need=$(( 10#$n * 1000 + 30000 ))
-    if [ "$need" -gt 180000 ]; then
-      deny "--slice $n is too long: Bash moves a call to the background after 180 s in a background subagent, so a slice is at most 150 (use --slice 140 with the Bash timeout at 175000). $why"
+  # ci-wait at command position (not as text in grep, pgrep or echo): after a separator, a keyword,
+  # a wrapper (timeout, ssh host, flock lock...), or the quote that opens a -c script.
+  local at_cmd=$'(^|[;&|({`\n!]|(^|[[:space:];&|({`\n])(then|do|else|if|elif|while|until)|[[:space:]]-[A-Za-z]*c[[:space:]]+[\'"])[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*((timeout|heavy-slot|nohup|env|time|exec|command|nice|ionice|setsid|sudo|stdbuf|flock|eval|xargs|watch|ssh)([[:space:]][^;&|\n]*)?[[:space:]])?([^[:space:]]*/|[\'"])?ci-wait(-wp)?[\'"]?[[:space:]]+[^[:space:]]'
+  # Every ci-wait call in the command passes on its own: up to the next ; & | or newline, no comment.
+  local m seg rest r sl=$'--slice[=[:space:]]+([0-9]+)' n need tl
+  rest=$cmd
+  while [[ $rest =~ $at_cmd ]]; do
+    m=${BASH_REMATCH[0]}
+    rest="x${rest#*"$m"}"  # the x keeps ^ from matching inside this call's arguments
+    [[ $m =~ command[[:space:]]+-[vV] ]] && continue  # "is it installed", not a wait
+    r=${rest#x}; r=${r//&>/ }; r=$(sed -E 's/[0-9]*>&[0-9-]*/ /g' <<<"$r")  # redirects are not separators
+    seg="$m${r%%[;&|$'\n']*}"
+    seg=$(sed -E 's/(^|[[:space:]])#.*$//' <<<"$seg")  # a comment, not a #N ref
+    [[ " $seg " =~ [[:space:]](-h|--help)[[:space:]] ]] && continue
+    if [[ $seg =~ $sl ]]; then
+      n=${BASH_REMATCH[1]}; tl=$seg
+      while [[ $tl =~ $sl ]]; do n=${BASH_REMATCH[1]}; tl=${tl#*"${BASH_REMATCH[0]}"}; done  # ci-wait uses the last one
+      need=$(( 10#$n * 1000 + 30000 ))
+      if [ "$need" -gt 180000 ]; then
+        deny "--slice $n is too long: Bash moves a call to the background after 180 s in a background subagent, so a slice is at most 150 (use --slice 140 with the Bash timeout at 175000). $why"
+      fi
+      if ! [[ $t =~ ^[0-9]+$ ]] || [ "$t" -lt "$need" ]; then
+        deny "With --slice $n, set the Bash timeout to at least $need (the slice plus 30 s; it is ${t:-the 120000 default}), or Bash moves the call to the background before the slice ends. $why"
+      fi
+      continue
     fi
-    if ! [[ $t =~ ^[0-9]+$ ]] || [ "$t" -lt "$need" ]; then
-      deny "With --slice $n, set the Bash timeout to at least $need (the slice plus 30 s; it is ${t:-the 120000 default}), or Bash moves the call to the background before the slice ends. $why"
-    fi
-    return 0
-  fi
-  deny "ci-wait waits up to 90 minutes. $why"
+    deny "ci-wait waits up to 90 minutes. $why"
+  done
   return 0
 }
 
