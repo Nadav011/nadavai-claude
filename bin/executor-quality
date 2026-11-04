@@ -1,0 +1,167 @@
+#!/usr/bin/env -S python3 -I
+"""executor-quality [days] [-v] - how executor subagents' work fared, by model, from local transcripts.
+
+For every oh-my-claudecode:executor subagent (plain subagents; Workflow agents are not covered)
+started in the last N days (default: all), in its parent session:
+  - the model it actually ran on, and its size (tool calls)
+  - the verdict of the first code-reviewer / verifier / security-reviewer that started after it
+    ended and before the next executor started (regex on the review's final text)
+  - the exit code of the first ci-wait after it ended and before the next executor (1 = red)
+Observational: Opus tends to get the harder tasks, so compare by size bucket too, and treat small
+counts as small. -v prints one row per run with the start of the review text.
+"""
+import collections, glob, json, os, re, sys, time
+from datetime import datetime
+
+args = [a for a in sys.argv[1:] if a != '-v']
+try:
+    DAYS = float(args[0]) if args else 0.0
+except ValueError:
+    sys.exit('usage: ' + __doc__.split('\n')[0])
+CUT = time.time() - DAYS * 86400 if DAYS else 0
+ROOTS = [os.path.expanduser('~/.claude/projects')] + glob.glob(os.path.expanduser('~/.config/orca/claude-profiles/*/home/projects'))
+REVIEWERS = ('code-reviewer', 'verifier', 'security-reviewer')
+NEG = re.compile(r'REQUEST[ _-]?CHANGES|\bREVISE\b|\bREJECT(ED)?\b|\bNOT APPROVED\b|CHANGES REQUESTED|(verdict|status)\W{0,6}\s*FAIL'
+                 r'|נדרשים שינויים|דרושים שינויים|לא מאושר|\b(finding|issue)s? blocks?\b|\bblocks? (landing|merge|the merge)', re.I)
+POS = re.compile(r'\bAPPROV(E|ED|ING)\b|(verdict|status)\W{0,6}\s*PASS|מאושר|אין חוסם|לא מצאתי (חוסם|בעיה חוסמת)|\bLGTM\b|\bSHIP\b'
+                 r'|nothing (here )?(is a confirmed )?block|no(thing)? blocking|found no (P0|blocking|blocker|high)', re.I)
+
+
+def ts(s):
+    try:
+        return datetime.fromisoformat(str(s).replace('Z', '+00:00')).timestamp()
+    except Exception:
+        return None
+
+
+def lines(path):
+    try:
+        fh = open(path, errors='ignore')
+    except OSError:
+        return
+    with fh:
+        for line in fh:
+            try:
+                d = json.loads(line)
+            except Exception:
+                continue
+            if isinstance(d, dict):
+                yield d
+
+
+def verdict(text):
+    if not text:
+        return None
+    heads = [l for l in text.splitlines() if re.search(r'verdict|recommendation|status|overall', l, re.I)]
+    for chunk in heads + [text[:1500]]:
+        n, p = NEG.search(chunk), POS.search(chunk)
+        if n and (not p or n.start() <= p.start()):
+            return 'neg'
+        if p:
+            return 'pos'
+    return None
+
+
+def sub_info(path):
+    i = dict(model=None, t0=None, t1=None, tools=0, last='')
+    for d in lines(path):
+        t = ts(d.get('timestamp'))
+        if t:
+            i['t0'] = i['t0'] or t; i['t1'] = t
+        m = d.get('message')
+        if d.get('type') != 'assistant' or not isinstance(m, dict):
+            continue
+        if m.get('model') and m['model'] != '<synthetic>':
+            i['model'] = i['model'] or m['model']
+        for b in m.get('content') or []:
+            if isinstance(b, dict) and b.get('type') == 'tool_use':
+                i['tools'] += 1
+            elif isinstance(b, dict) and b.get('type') == 'text' and b.get('text'):
+                i['last'] = b['text']
+    return i
+
+
+def ci_events(parent):
+    ev, pend = [], {}
+    for d in lines(parent):
+        m = d.get('message')
+        if not isinstance(m, dict):
+            continue
+        c = m.get('content')
+        if d.get('type') == 'assistant' and isinstance(c, list):
+            for b in c:
+                if isinstance(b, dict) and b.get('type') == 'tool_use' and b.get('name') == 'Bash':
+                    cmd = str((b.get('input') or {}).get('command') or '')
+                    if re.search(r'(^|[\s;&|(])ci-wait\b', cmd) and '--help' not in cmd:
+                        pend[b.get('id')] = ts(d.get('timestamp'))
+        elif d.get('type') == 'user' and pend:
+            text = c if isinstance(c, str) else json.dumps(c, ensure_ascii=False)
+            for tid, t0 in list(pend.items()):
+                if tid and tid in text:
+                    mm = re.search(r'exit code (\d+)', text, re.I)
+                    if mm:
+                        ev.append((t0, int(mm.group(1)))); pend.pop(tid)
+                    elif 'background' not in text[:400].lower():
+                        ev.append((t0, 0)); pend.pop(tid)
+    return ev
+
+
+seen, by_session = set(), collections.defaultdict(list)
+for root in ROOTS:
+    for meta in glob.glob(root + '/*/*/subagents/agent-*.meta.json'):
+        p = meta[:-10] + '.jsonl'
+        try:
+            md = json.load(open(meta)); st = os.stat(p)
+        except Exception:
+            continue
+        if (st.st_ino, st.st_dev) in seen or st.st_mtime < CUT:
+            continue
+        seen.add((st.st_ino, st.st_dev))
+        by_session[os.path.dirname(os.path.dirname(p))].append((p, md if isinstance(md, dict) else {}))
+
+rows = []
+for sess, subs in by_session.items():
+    if not any(str(md.get('agentType', '')).endswith('executor') for _, md in subs):
+        continue
+    infos = []
+    for p, md in subs:
+        i = sub_info(p)
+        if i['t0']:
+            i['type'] = str(md.get('agentType') or '?'); infos.append(i)
+    infos.sort(key=lambda x: x['t0'])
+    execs = [i for i in infos if i['type'].endswith('executor')]
+    ci = ci_events(sess + '.jsonl')
+    for k, e in enumerate(execs):
+        if e['t0'] < CUT:
+            continue
+        nxt = execs[k + 1]['t0'] if k + 1 < len(execs) else float('inf')
+        rv = next((i for i in infos if any(r in i['type'] for r in REVIEWERS) and e['t1'] <= i['t0'] < nxt), None)
+        code = next((c for t, c in ci if t and e['t1'] <= t < nxt), None)
+        rows.append(dict(model=(e['model'] or '?').replace('claude-', ''), tools=e['tools'],
+                         rev=verdict(rv['last']) if rv else None, reviewed=bool(rv), ci=code,
+                         text=(rv or {}).get('last', '')[:200].replace('\n', ' ')))
+
+
+def line(rs):
+    rv = [r for r in rs if r['reviewed']]
+    ci = [r for r in rs if r['ci'] is not None]
+    neg = sum(r['rev'] == 'neg' for r in rv); unc = sum(r['rev'] is None for r in rv)
+    red = sum(r['ci'] == 1 for r in ci)
+    return f"runs {len(rs):4}  review rejected {neg:3}/{len(rv):<3} (unclear {unc:2})  CI red {red:3}/{len(ci):<3}"
+
+
+print(f"executor-quality: {'last %g days' % DAYS if DAYS else 'all transcripts'}, {len(rows)} executor runs")
+models = sorted({r['model'] for r in rows}, key=lambda m: -sum(r['model'] == m for r in rows))
+for m in models:
+    rs = [r for r in rows if r['model'] == m]
+    sz = sorted(r['tools'] for r in rs)
+    print(f"  {m:12} {line(rs)}  median tool calls {sz[len(sz)//2]}")
+print('by size (tool calls):')
+for lo, hi in ((0, 20), (20, 60), (60, 10**9)):
+    for m in models:
+        rs = [r for r in rows if r['model'] == m and lo <= r['tools'] < hi]
+        if rs:
+            print(f"  {lo:>3}-{'' if hi > 10**6 else hi:<4} {m:12} {line(rs)}")
+if '-v' in sys.argv:
+    for r in rows:
+        print(f"{r['model']:12} tools {r['tools']:4} review {str(r['rev']):5} ci {str(r['ci']):4} | {r['text']}")
