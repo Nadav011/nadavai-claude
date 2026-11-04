@@ -4,9 +4,11 @@
 For every oh-my-claudecode:executor subagent (plain subagents; Workflow agents are not covered)
 started in the last N days (default: all), in its parent session:
   - the model it actually ran on, and its size (tool calls)
-  - the verdict of the first code-reviewer / verifier / security-reviewer that started after it
-    ended and before the next executor started (regex on the review's final text)
-  - the exit code of the first ci-wait after it ended and before the next executor (1 = red)
+  - review: the verdict of the first review that started after the executor ended (a
+    code-reviewer / verifier / security-reviewer subagent, or `omc ask codex|antigravity`). A review
+    counts for every executor that ended since the previous review, so a parallel batch shares it.
+  - CI: the first ci-wait verdict after it ended, read from ci-wait's own GREEN:/RED: line (or the
+    exit code when the command did not pipe or chain it). Same sharing rule as reviews.
 Observational: Opus tends to get the harder tasks, so compare by size bucket too, and treat small
 counts as small. -v prints one row per run with the start of the review text.
 """
@@ -15,16 +17,23 @@ from datetime import datetime
 
 args = [a for a in sys.argv[1:] if a != '-v']
 try:
+    if len(args) > 1:
+        raise ValueError
     DAYS = float(args[0]) if args else 0.0
 except ValueError:
     sys.exit('usage: ' + __doc__.split('\n')[0])
 CUT = time.time() - DAYS * 86400 if DAYS else 0
 ROOTS = [os.path.expanduser('~/.claude/projects')] + glob.glob(os.path.expanduser('~/.config/orca/claude-profiles/*/home/projects'))
 REVIEWERS = ('code-reviewer', 'verifier', 'security-reviewer')
-NEG = re.compile(r'REQUEST[ _-]?CHANGES|\bREVISE\b|\bREJECT(ED)?\b|\bNOT APPROVED\b|CHANGES REQUESTED|(verdict|status)\W{0,6}\s*FAIL'
-                 r'|נדרשים שינויים|דרושים שינויים|לא מאושר|\b(finding|issue)s? blocks?\b|\bblocks? (landing|merge|the merge)', re.I)
-POS = re.compile(r'\bAPPROV(E|ED|ING)\b|(verdict|status)\W{0,6}\s*PASS|מאושר|אין חוסם|לא מצאתי (חוסם|בעיה חוסמת)|\bLGTM\b|\bSHIP\b'
-                 r'|nothing (here )?(is a confirmed )?block|no(thing)? blocking|found no (P0|blocking|blocker|high)', re.I)
+LABEL = re.compile(r'verdict|recommendation|status|overall|bottom line', re.I)
+TOKEN_NEG = ('FIX', 'REVISE', 'BLOCK', 'REQUEST', 'REJECT', 'FAIL', 'CHANGES', 'NOT ', 'DO NOT', 'NO-GO', 'NO GO', 'HOLD')
+TOKEN_POS = ('APPROVE', 'SHIP', 'PASS', 'LGTM', 'ACCEPT', 'GO', 'MERGE')
+NEG = re.compile(r'REQUEST[ _-]?CHANGES|\bREVISE\b|\bREJECT(ED)?\b|\bNOT APPROVED\b|CHANGES REQUESTED|\bdo not (ship|merge|land)\b'
+                 r'|נדרשים שינויים|דרושים שינויים|לא מאושר|לא לאשר|\b(finding|issue)s? blocks\b', re.I)
+POS = re.compile(r'\bAPPROV(E|ED|ING)\b|\bLGTM\b|מאושר|אין חוסם|לא מצאתי (חוסם|בעיה חוסמת)'
+                 r'|nothing (here )?(is a confirmed )?blocks?|no(thing)? blocking|found no (P0|blocking|blocker|high)|no issue blocks', re.I)
+NEGATION = re.compile(r"\b(not|no|don't|never|would not|wouldn't)\W+(\w+\W+){0,2}$", re.I)
+PAST = re.compile(r'previous|earlier|last round|were|are (all )?(fixed|closed)|now fixed', re.I)
 
 
 def ts(s):
@@ -52,14 +61,36 @@ def lines(path):
 def verdict(text):
     if not text:
         return None
-    heads = [l for l in text.splitlines() if re.search(r'verdict|recommendation|status|overall', l, re.I)]
-    for chunk in heads + [text[:1500]]:
-        n, p = NEG.search(chunk), POS.search(chunk)
-        if n and (not p or n.start() <= p.start()):
+    t = text.replace('*', '').replace('`', '')
+    # 1. an explicit label: "Verdict: X", "Recommendation: X", or a heading with X on the next line
+    for m in LABEL.finditer(t):
+        nxt = re.match(r'\W{0,8}([A-Za-z][A-Za-z_\-]*(?: [A-Za-z_\-]+){0,3})', t[m.end():m.end() + 60])
+        if not nxt:
+            continue
+        tok = nxt.group(1).upper()
+        if LABEL.fullmatch(tok.split()[0].lower()):
+            continue  # "Verdict / Status: X": the next label carries the value
+        if tok.startswith(TOKEN_NEG):
             return 'neg'
-        if p:
+        if tok.startswith(TOKEN_POS):
             return 'pos'
-    return None
+    for m in re.finditer(r'^#+\s*(verdict|recommendation)\s*$\n+\s*(\S[^\n]{0,40})', t, re.I | re.M):
+        tok = m.group(2).strip().upper()
+        if tok.startswith(TOKEN_NEG):
+            return 'neg'
+        if tok.startswith(TOKEN_POS):
+            return 'pos'
+    # 2. keywords in the opening, skipping negated approvals and rejections from an earlier round
+    head = t[:1500]
+    hits = []
+    for m in NEG.finditer(head):
+        sent = head[max(0, head.rfind('.', 0, m.start())):m.end() + 80]
+        if not PAST.search(sent):
+            hits.append((m.start(), 'neg'))
+    for m in POS.finditer(head):
+        if not NEGATION.search(head[max(0, m.start() - 30):m.start()]):
+            hits.append((m.start(), 'pos'))
+    return min(hits)[1] if hits else None
 
 
 def sub_info(path):
@@ -81,46 +112,91 @@ def sub_info(path):
     return i
 
 
-def ci_events(parent):
+def at_command_position(cmd, name):
+    """True when `name` runs as a command (not as text in grep/ps/echo), and whether its exit code survives."""
+    for seg in re.split(r'&&|\|\||[;\n]', cmd):
+        first = seg.split('|')[0].strip()
+        first = re.sub(r'^((\w+=\S*|timeout\s+\S+|heavy-slot\s+--|exec|command)\s+)*', '', first)
+        if re.match(r'(\S*/)?' + name + r'(\s|$)', first):
+            plain = '|' not in seg and not re.search(r'[;&]|\n', cmd.split(first, 1)[-1].split('\n', 1)[0])
+            return True, plain
+    return False, False
+
+
+def ci_verdict(text):
+    m = re.findall(r'^\s*(GREEN|RED|green|red):', text, re.M)
+    return None if not m else (0 if m[-1].lower() == 'green' else 1)
+
+
+def parent_events(parent):
+    """Reviews done with `omc ask` and ci-wait verdicts in the parent transcript: [(t, kind, value)]."""
     ev, pend = [], {}
     for d in lines(parent):
         m = d.get('message')
         if not isinstance(m, dict):
             continue
         c = m.get('content')
+        t = ts(d.get('timestamp'))
         if d.get('type') == 'assistant' and isinstance(c, list):
             for b in c:
-                if isinstance(b, dict) and b.get('type') == 'tool_use' and b.get('name') == 'Bash':
-                    cmd = str((b.get('input') or {}).get('command') or '')
-                    if re.search(r'(^|[\s;&|(])ci-wait\b', cmd) and '--help' not in cmd:
-                        pend[b.get('id')] = ts(d.get('timestamp'))
-        elif d.get('type') == 'user' and pend:
-            text = c if isinstance(c, str) else json.dumps(c, ensure_ascii=False)
-            for tid, t0 in list(pend.items()):
-                if tid and tid in text:
-                    mm = re.search(r'exit code (\d+)', text, re.I)
-                    if mm:
-                        ev.append((t0, int(mm.group(1)))); pend.pop(tid)
-                    elif 'background' not in text[:400].lower():
-                        ev.append((t0, 0)); pend.pop(tid)
+                if not (isinstance(b, dict) and b.get('type') == 'tool_use' and b.get('name') == 'Bash'):
+                    continue
+                cmd = str((b.get('input') or {}).get('command') or '')
+                ci, plain = at_command_position(cmd, r'ci-wait(-wp)?')
+                if ci and '--help' not in cmd:
+                    pend[b.get('id')] = ('ci', t, plain)
+                elif at_command_position(cmd, r'omc\s+ask\s+(codex|antigravity)')[0]:
+                    pend[b.get('id')] = ('review', t, False)
+        elif d.get('type') == 'user' and pend and isinstance(c, list):
+            for b in c:
+                if not (isinstance(b, dict) and b.get('type') == 'tool_result' and b.get('tool_use_id') in pend):
+                    continue
+                kind, t0, plain = pend.pop(b['tool_use_id'])
+                text = b.get('content') if isinstance(b.get('content'), str) else json.dumps(b.get('content'), ensure_ascii=False)
+                if 'Command running in background' in text:
+                    mo = re.search(r'Output is being written to: (\S+?\.output)', text)
+                    if mo and os.path.exists(mo.group(1)):
+                        try:
+                            text = open(mo.group(1), errors='ignore').read()[-20000:]
+                        except OSError:
+                            continue
+                    else:
+                        continue
+                if kind == 'ci':
+                    v = ci_verdict(text)
+                    if v is None and plain:
+                        mo = re.search(r'Exit code (\d+)', text)
+                        v = int(mo.group(1)) if mo else (0 if not b.get('is_error') else None)
+                    if v in (0, 1):
+                        ev.append((t0, 'ci', v))
+                else:
+                    ev.append((t0, 'review', (verdict(text[:6000]), text[:6000])))
     return ev
 
 
-seen, by_session = set(), collections.defaultdict(list)
+# one entry per (session id, agent file): ~/.config/orca/... holds real copies, not links
+seen, by_session = set(), collections.defaultdict(dict)
 for root in ROOTS:
     for meta in glob.glob(root + '/*/*/subagents/agent-*.meta.json'):
         p = meta[:-10] + '.jsonl'
+        sess_dir = os.path.dirname(os.path.dirname(p))
+        key = (os.path.basename(sess_dir), os.path.basename(p))
+        if key in seen:
+            continue
         try:
             md = json.load(open(meta)); st = os.stat(p)
         except Exception:
             continue
-        if (st.st_ino, st.st_dev) in seen or st.st_mtime < CUT:
+        seen.add(key)
+        if st.st_mtime < CUT:
             continue
-        seen.add((st.st_ino, st.st_dev))
-        by_session[os.path.dirname(os.path.dirname(p))].append((p, md if isinstance(md, dict) else {}))
+        s = by_session[os.path.basename(sess_dir)]
+        s.setdefault('parent', sess_dir + '.jsonl')
+        s.setdefault('subs', []).append((p, md if isinstance(md, dict) else {}))
 
 rows = []
-for sess, subs in by_session.items():
+for sid, s in by_session.items():
+    subs = s['subs']
     if not any(str(md.get('agentType', '')).endswith('executor') for _, md in subs):
         continue
     infos = []
@@ -128,18 +204,29 @@ for sess, subs in by_session.items():
         i = sub_info(p)
         if i['t0']:
             i['type'] = str(md.get('agentType') or '?'); infos.append(i)
-    infos.sort(key=lambda x: x['t0'])
-    execs = [i for i in infos if i['type'].endswith('executor')]
-    ci = ci_events(sess + '.jsonl')
+    execs = sorted((i for i in infos if i['type'].endswith('executor')), key=lambda x: x['t1'])
+    pev = parent_events(s['parent'])
+    reviews = sorted([(i['t0'], verdict(i['last']), i['last']) for i in infos if any(r in i['type'] for r in REVIEWERS)]
+                     + [(t, v[0], v[1]) for t, k, v in pev if k == 'review' and t], key=lambda x: x[0])
+    cis = sorted([(t, v, '') for t, k, v in pev if k == 'ci' and t], key=lambda x: x[0])
+
+    def credit(events):
+        """executor index -> (value, text) of the first event after it ended; a batch shares one event."""
+        out, prev = {}, -1.0
+        for t, v, text in events:
+            for k, e in enumerate(execs):
+                if prev < e['t1'] <= t and k not in out:
+                    out[k] = (v, text)
+            prev = t
+        return out
+    rv, ci = credit(reviews), credit(cis)
     for k, e in enumerate(execs):
         if e['t0'] < CUT:
             continue
-        nxt = execs[k + 1]['t0'] if k + 1 < len(execs) else float('inf')
-        rv = next((i for i in infos if any(r in i['type'] for r in REVIEWERS) and e['t1'] <= i['t0'] < nxt), None)
-        code = next((c for t, c in ci if t and e['t1'] <= t < nxt), None)
+        r = rv.get(k)
         rows.append(dict(model=(e['model'] or '?').replace('claude-', ''), tools=e['tools'],
-                         rev=verdict(rv['last']) if rv else None, reviewed=bool(rv), ci=code,
-                         text=(rv or {}).get('last', '')[:200].replace('\n', ' ')))
+                         reviewed=r is not None, rev=r[0] if r else None, ci=ci[k][0] if k in ci else None,
+                         text=(r[1] if r else '')[:200].replace('\n', ' ')))
 
 
 def line(rs):
@@ -147,7 +234,10 @@ def line(rs):
     ci = [r for r in rs if r['ci'] is not None]
     neg = sum(r['rev'] == 'neg' for r in rv); unc = sum(r['rev'] is None for r in rv)
     red = sum(r['ci'] == 1 for r in ci)
-    return f"runs {len(rs):4}  review rejected {neg:3}/{len(rv):<3} (unclear {unc:2})  CI red {red:3}/{len(ci):<3}"
+    distinct = {(r['text'], r['rev']) for r in rv if r['text']}
+    dneg = sum(v == 'neg' for _, v in distinct)
+    return (f"runs {len(rs):4}  review rejected {neg:3}/{len(rv):<3} (unclear {unc:2}; distinct reviews {dneg}/{len(distinct)})"
+            f"  CI red {red:3}/{len(ci):<3}")
 
 
 print(f"executor-quality: {'last %g days' % DAYS if DAYS else 'all transcripts'}, {len(rows)} executor runs")

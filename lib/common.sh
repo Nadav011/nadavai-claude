@@ -253,13 +253,25 @@ ensure_continues() {
 }
 
 # The LSP tool and OMC lsp_* need a TypeScript language server on PATH for the
-# "LSP before grep" rule (rules/model-routing.md). It uses each project's own
-# node_modules/typescript, so no global typescript is installed for it.
+# "LSP before grep" rule (rules/model-routing.md). It runs from its own prefix
+# with a TypeScript 6 next to it: the server prefers the project's own
+# node_modules/typescript and falls back to that one in a worktree without
+# node_modules. Not npm -g: the global typescript is 7 (no tsserver), and a
+# global install vanishes when fnm switches the default Node.
+TS_LSP_VERSION=5.3.0
+TS_LSP_TYPESCRIPT=6.0.3
 ensure_ts_lsp() {
-  if ! command -v typescript-language-server >/dev/null 2>&1; then
-    log "installing typescript-language-server (npm -g)"
-    npm install -g typescript-language-server || warn "could not install typescript-language-server"
+  local prefix="$HOME/.local/share/nadavai/ts-lsp" have=""
+  have="$(node -p "require('$prefix/node_modules/typescript-language-server/package.json').version + ' ' + require('$prefix/node_modules/typescript/package.json').version" 2>/dev/null || true)"
+  if [ "$have" != "$TS_LSP_VERSION $TS_LSP_TYPESCRIPT" ]; then
+    log "installing typescript-language-server@$TS_LSP_VERSION with typescript@$TS_LSP_TYPESCRIPT"
+    mkdir -p "$prefix"
+    npm install --prefix "$prefix" --no-fund --no-audit --no-save \
+      "typescript-language-server@$TS_LSP_VERSION" "typescript@$TS_LSP_TYPESCRIPT" \
+      || { warn "could not install typescript-language-server"; return 0; }
   fi
+  mkdir -p "$HOME/.local/bin"
+  ln -sfn "$prefix/node_modules/.bin/typescript-language-server" "$HOME/.local/bin/typescript-language-server"
 }
 
 AGENT_BROWSER_VERSION=0.41.1
