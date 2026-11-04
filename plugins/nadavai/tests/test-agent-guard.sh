@@ -435,6 +435,23 @@ else
   echo "FAIL: $CASES is missing"; FAIL=$((FAIL+1))
 fi
 
+# Claude Code subagents (agent_id, no turn_id): no single wait longer than the 5-minute cache.
+subc() { jq -cn --arg c "$1" --argjson t "${2:-null}" --argjson bg "${3:-false}" '{agent_id:"a1",session_id:"s",cwd:"/tmp",hook_event_name:"PreToolUse",tool_name:"Bash",tool_input:({command:$c,run_in_background:$bg} + (if $t == null then {} else {timeout:$t} end))}'; }
+check "subagent: tail --pid with a 600 s timeout" deny "$(subc 'timeout 590 tail --pid=123 -f /dev/null' 600000)"
+check "subagent: until-sleep loop with a 600 s timeout" deny "$(subc 'until grep -q done f; do sleep 5; done' 600000)"
+check "subagent: a 140 s slice with a 175 s timeout" allow "$(subc 'timeout 140 tail --pid=123 -f /dev/null' 175000)"
+check "subagent: ci-wait without --slice" deny "$(subc 'cd /x && ci-wait therapy-flow-v2 pr:12 --land')"
+check "subagent: ci-wait after then" deny "$(subc 'if true; then ci-wait therapy-flow-v2 pr:3; fi')"
+check "subagent: nohup ci-wait-wp" deny "$(subc 'nohup ci-wait-wp sportchat-web abc123')"
+check "subagent: ci-wait --slice 140" allow "$(subc 'ci-wait therapy-flow-v2 pr:12 --land --slice 140' 175000)"
+check "subagent: ci-wait in the background" allow "$(subc 'ci-wait therapy-flow-v2 pr:12' null true)"
+check "subagent: ci-wait as text in grep" allow "$(subc 'ps aux | grep ci-wait')"
+check "subagent: ci-wait -h" allow "$(subc 'ci-wait -h')"
+check "subagent: long-call escape" allow "$(subc 'pnpm test # long-call: one suite' 600000)"
+check "subagent: a short call" allow "$(subc 'ls -la' 60000)"
+check "main loop: 600 s tail --pid" allow "$(bashc 'timeout 590 tail --pid=123 -f /dev/null')"
+check "codex subagent (turn_id): ci-wait" allow "$(jq -cn '{agent_id:"a1",turn_id:"t",session_id:"s",cwd:"/tmp",hook_event_name:"PreToolUse",tool_name:"Bash",tool_input:{command:"ci-wait therapy-flow-v2 pr:3",timeout:600000}}')"
+
 echo "----"
 echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]

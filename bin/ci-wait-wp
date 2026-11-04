@@ -13,9 +13,12 @@
 #   --timeout  default 90 minutes. --require full is accepted and ignored (a landing is the full
 #              answer for what the PR changed; the night runs everything).
 #   --detach   keep waiting when the process that started it is gone.
-#   --slice    give up after SEC seconds with exit 7 when the run is still going; the same command
-#              run again picks the wait up (the one automatic restart is remembered per sha). For
-#              subagents: their prompt cache lives 5 minutes, so they wait in slices of 270.
+#   --slice    give up after SEC seconds (at least 60) with exit 7 when CI is still going; the same
+#              command run again picks the wait up: --timeout, the 10- and 15-minute checks and the
+#              one automatic restart all count from the first slice. Not with --check (each call
+#              starts a run). For subagents and Workflow agents, whose prompt cache lives 5 minutes:
+#              --slice 140 with the Bash tool's timeout at 175000 (Bash moves a longer call to the
+#              background, after 120 s by default and after 180 s in a background subagent).
 #
 # CI runs only on a non-draft PR into main and at night; a branch push alone runs nothing.
 # Run it with run_in_background: true and continue when it ends; never a status loop.
@@ -32,7 +35,7 @@ ENV_FILE=${WOODPECKER_ENV_FILE:-$HOME/.claude/secrets/woodpecker.env}
 POLL=${CI_WAIT_POLL:-20}
 PENDING_WARN_S=300
 
-usage() { sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage() { sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 
 repo="" ref="" timeout_min=90 land="" follow=${CI_WAIT_FOLLOW_PARENT:-1} branch="" slice=""
 while [ $# -gt 0 ]; do
@@ -40,8 +43,8 @@ while [ $# -gt 0 ]; do
     -h|--help) usage 0 ;;
     --timeout) timeout_min=${2:-}; shift ;;
     --timeout=*) timeout_min=${1#*=} ;;
-    --slice) slice=${2:-}; shift ;;
-    --slice=*) slice=${1#*=} ;;
+    --slice) slice=${2:-}; slice_given=1; shift ;;
+    --slice=*) slice=${1#*=}; slice_given=1 ;;
     --require) shift ;;
     --require=*) ;;
     --land) land=1 ;;
@@ -54,12 +57,25 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$repo" ] && [ -n "$ref" ] || usage 64 >&2
 [[ $timeout_min =~ ^[0-9]+$ ]] || { echo "ci-wait-wp: --timeout takes whole minutes" >&2; exit 64; }
-[ -z "$slice" ] || [[ $slice =~ ^[0-9]+$ && $slice -ge 30 ]] || { echo "ci-wait-wp: --slice takes whole seconds, at least 30" >&2; exit 64; }
-slice_end=$(( $(date +%s) + ${slice:-0} ))
+if [ -n "${slice_given:-}" ]; then
+  [[ $slice =~ ^[0-9]+$ && $slice -ge 60 ]] || { echo "ci-wait-wp: --slice takes whole seconds, at least 60" >&2; exit 64; }
+  [ -z "${check:-}" ] || { echo "ci-wait-wp: --slice does not go with --check: every --check call starts a new run" >&2; exit 64; }
+fi
+slice_end=$(( $(date +%s) + ${slice:-0} )) phase_msg=""
 sliced() { # exit 7 when --slice is up: the caller runs the same command again
   [ -n "$slice" ] && [ "$(date +%s)" -ge "$slice_end" ] || return 0
-  echo "ci-wait-wp: still running on ${sha:0:7}${n:+ (pipeline $n)} after ${slice}s: run the same command again to keep waiting"
+  local k=0
+  if [ -n "${sd:-}" ]; then [ -r "$sd/slices" ] && read -r k <"$sd/slices"; [[ $k =~ ^[0-9]+$ ]] || k=0; fi
+  k=$(( k + 1 )); [ -n "${sd:-}" ] && echo "$k" >"$sd/slices"
+  echo "ci-wait-wp: still running on ${sha:0:7}${n:+ (pipeline $n)}${phase_msg:+, $phase_msg} after slice $k: run the same command again to keep waiting"
+  [ "$k" -ge 12 ] && echo "ci-wait-wp: this wait has taken $k slices; if CI needs much longer, return and hand this command to the caller, whose cache lasts an hour"
   exit 7
+}
+nap() { # sleep POLL, or what is left of the slice, then check the slice
+  local t=$POLL left
+  if [ -n "$slice" ]; then left=$(( slice_end - $(date +%s) )); [ "$left" -lt "$t" ] && t=$left; fi
+  [ "$t" -ge 1 ] && sleep "$t"
+  sliced
 }
 repo=${repo#"$OWNER/"}
 [[ $repo =~ ^[A-Za-z0-9._-]+$ ]] || { echo "ci-wait-wp: $repo is not a repository name" >&2; exit 64; }
@@ -155,8 +171,12 @@ if [ -n "$prj" ]; then sel='select(.commit == $s and .event == "pull_request")';
 # One automatic restart per wait (rule 8: an infrastructure stop or a suspected flake), logged.
 retried=""
 FLAKE_LOG=${CI_WAIT_FLAKE_LOG:-$HOME/.cache/ci-wait/flakes.log}
-# A sliced wait runs this script several times: a restart an earlier slice made still counts.
-[ -n "$slice" ] && [ -r "$FLAKE_LOG" ] && grep -qF "$(printf '\t%s\t%s\t' "$repo" "${sha:0:9}")" "$FLAKE_LOG" && retried=1
+restart_seen() { # a sliced wait runs this script several times: a restart an earlier slice of it made counts
+  [ -n "$slice" ] && [ -r "$FLAKE_LOG" ] || return 0
+  awk -F'\t' -v s="$(date -d "@$start" -Iseconds)" -v r="$repo" -v h="${sha:0:9}" \
+    '$1 >= s && $2 == r && $3 == h { f = 1 } END { exit !f }' "$FLAKE_LOG" && retried=1
+  return 0
+}
 restart_run() { # reason: restart pipeline $n, switch the wait to the new run
   local new
   [ -n "${CI_WAIT_DRY_RESTART:-}" ] && { echo "ci-wait-wp: [dry run] would restart pipeline $n once ($1)"; return 1; }
@@ -166,17 +186,27 @@ restart_run() { # reason: restart pipeline $n, switch the wait to the new run
   printf '%s\t%s\t%s\tpipeline %s -> %s\t%s\n' "$(date -Iseconds)" "$repo" "${sha:0:9}" "$n" "$new" "$1" >>"$FLAKE_LOG"
   echo "ci-wait-wp: restarted pipeline $n as $new once ($1); logged in $FLAKE_LOG"
   n=$new retried=1
-  sleep "$POLL"
+  nap
 }
 
-start=$(date +%s)
-if [ -n "$slice" ]; then # --timeout counts from the first slice of this sha, not from each one
-  sf="$HOME/.cache/ci-wait/slice-start-$repo-${sha:0:12}"
-  mkdir -p "${sf%/*}"
-  if [ -n "$(find "$sf" -mmin "-$timeout_min" 2>/dev/null)" ] && read -r s0 <"$sf" && [[ $s0 =~ ^[0-9]+$ ]]; then start=$s0; else echo "$start" >"$sf"; fi
+# A sliced wait keeps its clocks in $sd (first slice, no-run since, security wait since), so --timeout
+# and the 10- and 15-minute checks count from the first slice; removed when the wait ends.
+sd=""
+if [ -n "$slice" ]; then
+  sd="$HOME/.cache/ci-wait/slice-$repo-${sha:0:12}"
+  [ -n "$(find "$sd" -maxdepth 0 -mmin "+$timeout_min" 2>/dev/null)" ] && rm -rf "${sd:?}"
+  mkdir -p "$sd"
+  trap 'rc=$?; [ "$rc" = 7 ] || [ -z "${sd:-}" ] || rm -rf "${sd:?}"' EXIT
 fi
+clock() { # clock <name>: when <name> started in this sliced wait (now, and remembered, when unset)
+  local now t=""; now=$(date +%s)
+  if [ -n "$sd" ]; then [ -r "$sd/$1" ] && read -r t <"$sd/$1"; [[ $t =~ ^[0-9]+$ ]] || { t=$now; echo "$t" >"$sd/$1"; }; fi
+  echo "${t:-$now}"
+}
+start=$(clock start)
+restart_seen
 deadline=$(( start + timeout_min * 60 ))
-down=0 warned="" since=$(date +%s) n=""
+down=0 warned="" since=$(clock norun) n=""
 while :; do
   parent_alive || { echo "ci-wait-wp: the process that started this wait is gone"; exit 4; }
   sliced
@@ -184,7 +214,7 @@ while :; do
   if [ -z "$n" ]; then
     if ! list=$(api "repos/$rid/pipelines?per_page=50"); then
       down=$((down + 1)); [ "$down" -ge 3 ] && { echo "ci-wait-wp: Woodpecker ($SERVER) unreachable 3 times in a row"; exit 3; }
-      sleep "$POLL"; continue
+      nap; continue
     fi
     down=0
     n=$(jq -r --arg s "$sha" "[.[] | $sel] | sort_by(.number) | last | .number // empty" <<<"$list" 2>/dev/null)
@@ -196,7 +226,9 @@ while :; do
         if [[ $now =~ ^[0-9a-f]{40}$ ]] && [ "$now" != "$sha" ]; then
           echo "ci-wait-wp: PR #$prnum moved to ${now:0:7}; waiting on that head"
           sha=$now since=$(date +%s)
-          sleep "$POLL"; continue
+          [ -n "$sd" ] && echo "$since" >"$sd/norun"
+          restart_seen
+          nap; continue
         fi
       fi
       if [ -z "$prj" ] && [ "$waited" -ge 60 ]; then
@@ -204,13 +236,13 @@ while :; do
         exit 5
       fi
       [ "$waited" -ge 600 ] && { echo "ci-wait-wp: PR #$prnum exists but Woodpecker created no run in 10 min (webhook, or no .woodpecker/ on the PR): $SERVER/repos/$rid"; exit 3; }
-      sleep "$POLL"; continue
+      nap; continue
     fi
     echo "ci-wait-wp: $repo ${sha:0:7} -> $SERVER/repos/$rid/pipeline/$n"
   fi
   if ! d=$(api "repos/$rid/pipelines/$n"); then
     down=$((down + 1)); [ "$down" -ge 3 ] && { echo "ci-wait-wp: Woodpecker ($SERVER) unreachable 3 times in a row"; exit 3; }
-    sleep "$POLL"; continue
+    nap; continue
   fi
   down=0
   st=$(jq -r '.status // empty' <<<"$d")
@@ -221,7 +253,7 @@ while :; do
       jq -r '.workflows[]?.children[]? | "  \(.name): \(.state)"' <<<"$d" 2>/dev/null
       # The merge also needs nadavai-security (secscan on omarchy, a separate status), so a landing
       # wait covers it too: up to 15 more minutes for it to post, then its verdict.
-      sdead=$(( $(date +%s) + 900 ))
+      sdead=$(( $(clock security) + 900 )) phase_msg="Woodpecker green, waiting for nadavai-security"
       while :; do
         sj=$(ghr api "repos/$OWNER/$repo/commits/$sha/statuses?per_page=100" --jq '[.[] | select(.context == "nadavai-security")] | sort_by(.id) | last // {} | [.state // "none", (.description // "")] | @tsv')
         IFS=$'\t' read -r sst sdesc <<<"${sj:-none}"
@@ -232,7 +264,7 @@ while :; do
         parent_alive || { echo "ci-wait-wp: the process that started this wait is gone"; exit 4; }
         sliced
         [ "$(date +%s)" -lt "$sdead" ] || { echo "ci-wait-wp: Woodpecker is green but nadavai-security has not answered in 15 min (state: $sst); check secscan on omarchy (systemctl --user status secscan-poll.timer)"; exit 2; }
-        sleep "$POLL"
+        nap
       done ;;
     killed)
       now=""
@@ -291,5 +323,5 @@ while :; do
         warned=1
       fi ;;
   esac
-  sleep "$POLL"
+  nap
 done

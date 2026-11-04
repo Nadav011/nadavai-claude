@@ -13,8 +13,8 @@
 #   --detach         keep waiting when the process that started it is gone (exit 4 off;
 #                    also CI_WAIT_FOLLOW_PARENT=0)
 #   --slice SEC      exit 7 after SEC seconds while CI is still running; run the same command
-#                    again to keep waiting. Subagents wait in slices of 270 (their prompt cache
-#                    lives 5 minutes)
+#                    again to keep waiting (Woodpecker repos only; see ci-wait-wp --help).
+#                    Subagents and Workflow agents: --slice 140, Bash timeout 175000
 #
 # Run it with run_in_background: true and carry on until the completion notice arrives,
 # instead of a status loop. It resolves a branch to its full sha once, at the start, and
@@ -86,8 +86,8 @@ while [ $# -gt 0 ]; do
     -h|--help) usage 0 ;;
     --timeout) timeout_min=${2:-}; shift ;;
     --timeout=*) timeout_min=${1#*=} ;;
-    --slice) slice=${2:-}; shift ;;
-    --slice=*) slice=${1#*=} ;;
+    --slice) slice=${2:-}; slice_given=1; shift ;;
+    --slice=*) slice=${1#*=}; slice_given=1 ;;
     --require) require=${2:-}; shift ;;
     --require=*) require=${1#*=} ;;
     --land) land=1 ;;
@@ -100,7 +100,6 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$repo" ] && [ -n "$ref" ] || usage 64 >&2
 [[ $timeout_min =~ ^[0-9]+$ ]] || { echo "ci-wait: --timeout takes whole minutes" >&2; exit 64; }
-[ -z "$slice" ] || [[ $slice =~ ^[0-9]+$ && $slice -ge 30 ]] || { echo "ci-wait: --slice takes whole seconds, at least 30" >&2; exit 64; }
 case "$require" in ''|full) ;; *) echo "ci-wait: --require takes only: full" >&2; exit 64 ;; esac
 [ -n "$land" ] && require=full
 repo=${repo#"$OWNER/"}
@@ -115,9 +114,11 @@ wp_active() {
   [ -r "$list" ] && grep -qixF "$repo" <(sed 's/[[:space:]]*#.*//; /^$/d' "$list")
 }
 if wp_active; then
-  args=("$repo" "$ref" --timeout "$timeout_min"); [ -n "$land" ] && args+=(--land); [ -n "${check:-}" ] && args+=(--check); [ "$follow" = 0 ] && args+=(--detach); [ -n "$slice" ] && args+=(--slice "$slice")
+  args=("$repo" "$ref" --timeout "$timeout_min"); [ -n "$land" ] && args+=(--land); [ -n "${check:-}" ] && args+=(--check); [ "$follow" = 0 ] && args+=(--detach); [ -n "${slice_given:-}" ] && args+=(--slice "$slice")
   exec "$(dirname "$(readlink -f "$0")")/ci-wait-wp" "${args[@]}"
 fi
+# The old nadavai-ci path re-queues a landing on every call, so a sliced wait would never end there.
+[ -z "${slice_given:-}" ] || { echo "ci-wait: --slice works only for Woodpecker repos (lib/woodpecker-repos.txt); run this wait in the background" >&2; exit 64; }
 # Snapshots, head lookups and locks of waits long over.
 find "$CACHE" -type f -mmin +1440 -delete 2>/dev/null
 
@@ -458,10 +459,6 @@ while :; do
     unset st ds up
   fi
 
-  if [ -n "$slice" ] && [ $SECONDS -ge "$slice" ]; then
-    echo "ci-wait: still running on ${OWNER}/$repo ${sha:0:7} after ${slice}s: run the same command again to keep waiting"
-    exit 7
-  fi
   if [ $SECONDS -ge $deadline ]; then
     echo "TIMEOUT after ${timeout_min}m: ${OWNER}/$repo ${sha:0:7}, still pending: ${pending[*]:-status unreadable}"
     exit 2

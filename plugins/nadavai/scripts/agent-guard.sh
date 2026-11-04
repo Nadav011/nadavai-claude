@@ -8,13 +8,14 @@
 #          the parent's model and its full context (median ~290K tokens per request).
 #   Bash:  a sleep of 120 s or more in the foreground. It blocks the agent; long local
 #          commands go to run_in_background, CI waits to ci-wait.
-#   Bash (Claude Code subagents only, the hook input carries agent_id): a foreground call with a
-#          timeout over 290000 ms, or a foreground ci-wait without --slice, unless the command
-#          carries `# long-call: <reason>`. A subagent's prompt cache lives 5 minutes, so one
-#          longer call rewrites its whole context: in the two weeks to 2026-11-04 such rewrites,
-#          almost all after a ~10-minute wait (tail --pid, until-sleep loops, ci-wait, ssh), were
-#          15% of subagent and workflow-agent cost. Waiting in slices of 270 s costs a cache read
-#          per wake-up instead.
+#   Bash (Claude Code subagents only: the hook input carries agent_id and no turn_id): a
+#          foreground call with a timeout over 290000 ms, or a foreground ci-wait without --slice,
+#          unless the command carries `# long-call: <reason>`. A subagent's prompt cache lives 5
+#          minutes, so one longer call rewrites its whole context: in the two weeks to 2026-11-04
+#          such rewrites, almost all after a ~10-minute wait (tail --pid, until-sleep loops,
+#          ci-wait, ssh), were 15% of subagent and workflow-agent cost. A wake-up inside the cache
+#          costs about 1/12 of a rewrite, so waiting in slices of 140 s is cheaper for any wait
+#          under about half an hour; longer ones go back to the caller.
 #   Bash:  `gh pr merge` into main of a NadavAI CI repo (therapy-flow-v2, sportchat-web,
 #          cash-next-app, snooker-smart, or any other Nadav011 repo whose main head carries a
 #          nadavai-ci status, one more gh call) whose head's newest nadavai-ci round is not a full pass
@@ -81,7 +82,8 @@ deny() {
 # Fast path: most calls carry neither word, and this runs before every Bash/run_command call.
 case "$input" in
   # rm after a blank, an operator, a quote, a slash (/bin/rm) or JSON's \n / \t escapes
-  *'"fork"'*|*'"agent_id"'*|*sleep*|*gh*merge*|*find*|*bfs*|*[[:space:]\;\&\|\(\`\"\'/nt]'rm '*|*.claude/secrets*) ;;
+  *'"fork"'*|*sleep*|*gh*merge*|*find*|*bfs*|*[[:space:]\;\&\|\(\`\"\'/nt]'rm '*|*.claude/secrets*) ;;
+  *'"agent_id"'*ci-wait*|*ci-wait*'"agent_id"'*|*'"agent_id"'*'"timeout"'*|*'"timeout"'*'"agent_id"'*) ;;
   *while*|*until*|*docker*|*podman*|*supabase*) [ "$strict" = 1 ] || allow ;;
   *) allow ;;
 esac
@@ -782,12 +784,12 @@ fi
 subagent_wait_guard() { # subagent_wait_guard <command> <timeout ms or empty>
   local cmd="$1" t="$2" why
   [[ $cmd == *'# long-call:'* ]] && return 0
-  why="A subagent's prompt cache lives 5 minutes, so a call that blocks longer rewrites your whole context (about 220K tokens each time; 15% of subagent and workflow cost in the two weeks to 2026-11-04). Wait in slices of at most 270 s and check between them: ci-wait <repo> <ref> --slice 270 (exit 7 = still running: run the same command again); for a process or a background job, timeout 270 tail --pid=<pid> -f /dev/null, then read its output and repeat; start a long job with run_in_background and wait on it the same way. If this call really cannot be split, add '# long-call: <reason>' to the command."
+  why="A subagent's prompt cache lives 5 minutes, so a call that blocks longer rewrites your whole context (about 220K tokens each time; 15% of subagent and workflow cost in the two weeks to 2026-11-04). Wait in slices and check between them, each call with the Bash timeout at 175000: ci-wait <repo> <ref> --slice 140 (exit 7 = still running: run the same command again); for a process, timeout 140 tail --pid=<pid> -f /dev/null, then read its output and repeat; for a run_in_background job, read its output file between slices. If a wait will clearly take more than about 30 minutes, return and give the caller the exact wait command. If this call really cannot be split, add '# long-call: <reason>' to the command."
   if [[ $t =~ ^[0-9]+$ ]] && [ "$t" -gt 290000 ]; then
     deny "This Bash call may block for $((t / 1000)) s (timeout $t). $why"
   fi
   # ci-wait at command position (not as text in grep, pgrep or echo)
-  local at_cmd=$'(^|[;&|(\n])[[:space:]]*((timeout|heavy-slot)[^;&|\n]*[[:space:]])?([^[:space:]]*/)?ci-wait(-wp)?([[:space:]]|$)'
+  local at_cmd=$'(^|[;&|({`\n]|[[:space:]](then|do|else))[[:space:]]*((timeout|heavy-slot|nohup|env|time|exec)[^;&|\n]*[[:space:]])?([^[:space:]]*/)?ci-wait(-wp)?[[:space:]]+[^-[:space:]]'
   if [[ $cmd =~ $at_cmd ]] && [[ $cmd != *--slice* ]] && [[ $cmd != *--help* ]]; then
     deny "ci-wait waits up to 90 minutes. $why"
   fi
@@ -839,7 +841,8 @@ case "$tool" in
       bg='block_until_ms: 0'
     else
       [ "$(jq -r '.tool_input.run_in_background // false' <<<"$input")" = true ] && allow
-      if [ "$tool" = Bash ] && [ -n "$(jq -r '.agent_id // empty' <<<"$input" 2>/dev/null)" ]; then
+      if [ "$tool" = Bash ] && [ -n "$(jq -r '.agent_id // empty' <<<"$input" 2>/dev/null)" ] \
+        && [ -z "$(jq -r '.turn_id // empty' <<<"$input" 2>/dev/null)" ]; then
         subagent_wait_guard "$cmd" "$(jq -r '.tool_input.timeout // empty' <<<"$input" 2>/dev/null)"
       fi
       bg='run_in_background: true'

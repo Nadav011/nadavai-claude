@@ -39,7 +39,8 @@ every `ci-wait`, and the old runner (3,445 lines on one 8-core box) queued agent
    a loop. Exit 0 green, 1 red (failed steps and log tail printed), 2 timeout, 3 CI unreachable,
    4 parent gone, 5 nothing to wait on (no landing PR, a draft), 6 superseded by a newer push,
    7 still running at the end of `--slice`. A subagent or Workflow agent waits in the foreground
-   with `--slice 270` and runs the same command again on exit 7 (`model-routing.md`).
+   with `--slice 140` (Bash timeout 175000) and runs the same command again on exit 7
+   (`model-routing.md`); never with `--check`, which starts a run on every call.
 6. Merge only when every `ci/woodpecker/pr/*` status and `nadavai-security` on the PR head are
    green, with `gh pr merge <N> --match-head-commit <sha>` (required: agent-guard denies a merge
    without it or with another sha, so a push after the check cannot slip
@@ -91,5 +92,6 @@ scoped checks plus the CI result of the PR. A task about the build or the suite 
 it. Workflows that verify or fix code carry this clause in every prompt:
 > Verify with scoped checks only (typecheck, lint on touched files, `vitest related`), and do not
 > repeat a check another agent of this workflow already ran on the same tree. Run anything heavy
-> through `heavy-slot --`; get a database with `pg-pool get <repo>`. Wait on CI with `ci-wait`
-> in the background, never with a sleep loop.
+> through `heavy-slot --`; get a database with `pg-pool get <repo>`. Wait on CI with
+> `ci-wait <repo> <ref> --slice 140` (Bash timeout 175000; exit 7 = run it again), never with a
+> sleep loop.
