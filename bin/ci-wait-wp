@@ -95,14 +95,26 @@ SERVER=${WOODPECKER_SERVER:-https://ci.nadavc.ai}
 api() { curl -sf --max-time 20 -H @<(printf 'Authorization: Bearer %s\n' "$WOODPECKER_TOKEN") "$SERVER/api/$1"; }
 
 # gh with three tries: a reset connection to api.github.com must not read as "no such commit".
-ghr() { local i out; for i in 1 2 3; do out=$(timeout 20 gh "$@" 2>/dev/null) && { printf '%s\n' "$out"; return 0; }; sleep 3; done; return 1; }
+slice_left() { [ -n "${slice:-}" ] && echo $(( slice_end - $(date +%s) )) || echo 999; }
+ghr() { local i out t
+  for i in 1 2 3; do
+    t=$(slice_left); [ "$t" -gt 20 ] && t=20; [ "$t" -lt 5 ] && t=5
+    out=$(timeout "$t" gh "$@" 2>/dev/null) && { printf '%s\n' "$out"; return 0; }
+    [ "$i" = 3 ] || [ "$(slice_left)" -lt 25 ] && break
+    sleep 3
+  done
+  return 1
+}
 
 parent=$PPID
 parent_alive() { [ "$follow" = 0 ] || kill -0 "$parent" 2>/dev/null; }
 
-for _ in 1 2 3; do
-  rid=$(api "repos/lookup/$OWNER/$repo" | jq -r 'select(.active == true) | .id' 2>/dev/null)
-  [ -n "$rid" ] && break; sleep 3
+rid=""
+for i in 1 2 3; do
+  if look=$(api "repos/lookup/$OWNER/$repo"); then
+    rid=$(jq -r 'select(.active == true) | .id' <<<"$look" 2>/dev/null); break
+  fi
+  [ "$i" = 3 ] || sleep 3
 done
 [ -n "$rid" ] || { echo "ci-wait-wp: $OWNER/$repo is not active on Woodpecker ($SERVER), or Woodpecker is unreachable" >&2; exit 3; }
 
@@ -180,8 +192,8 @@ retried=""
 FLAKE_LOG=${CI_WAIT_FLAKE_LOG:-$HOME/.cache/ci-wait/flakes.log}
 restart_seen() { # a sliced wait runs this script several times: a restart an earlier slice of it made counts
   [ -n "$slice" ] && [ -r "$FLAKE_LOG" ] || return 0
-  awk -F'\t' -v s="$(date -d "@$start" -Iseconds)" -v r="$repo" -v h="${sha:0:9}" -v h0="${sha0:0:9}" \
-    '$1 >= s && $2 == r && ($3 == h || $3 == h0) { f = 1 } END { exit !f }' "$FLAKE_LOG" && retried=1
+  awk -F'\t' -v s="$(date -d "@$start" -Iseconds)" -v r="$repo" -v h="${sha:0:9}" \
+    '$1 >= s && $2 == r && $3 == h { f = 1 } END { exit !f }' "$FLAKE_LOG" && retried=1
   return 0
 }
 restart_run() { # reason: restart pipeline $n, switch the wait to the new run
@@ -203,12 +215,16 @@ restart_run() { # reason: restart pipeline $n, switch the wait to the new run
 sd=""
 find "$HOME/.cache/ci-wait" -maxdepth 1 -type d -name 'slice-*' -mmin +1440 -exec rm -rf {} + 2>/dev/null
 if [ -n "$slice" ]; then
-  sd="$HOME/.cache/ci-wait/slice-$repo-$(printf '%s' "$ref" | tr -c 'A-Za-z0-9._-' '_')"
+  key=$ref; [[ $key =~ ^#([0-9]+)$ ]] && key="pr:${BASH_REMATCH[1]}"
+  sd="$HOME/.cache/ci-wait/slice-$repo-$(printf '%s' "$key" | tr -c 'A-Za-z0-9._-' '_')"
   if [ -d "$sd" ] && [ -z "$(find "$sd" -type f -mmin -10 2>/dev/null | head -1)" ]; then rm -rf "${sd:?}"; fi
-  mkdir -p "$sd"
+  mkdir -p "$sd" || { echo "ci-wait-wp: cannot create $sd" >&2; exit 3; }
   trap 'rc=$?; [ "$rc" = 7 ] || [ -z "${sd:-}" ] || rm -rf "${sd:?}"' EXIT
-  h=""; [ -r "$sd/head" ] && read -r h <"$sd/head"
-  if [[ $h =~ ^[0-9a-f]{40}$ ]] && [ "$h" != "$sha" ]; then
+  h="" h0=""; [ -r "$sd/head" ] && read -r h <"$sd/head"; [ -r "$sd/head0" ] && read -r h0 <"$sd/head0"
+  [ -n "$h0" ] || { h0=$sha; echo "$sha" >"$sd/head0"; }
+  # Follow the head an earlier slice moved to only while the ref still resolves to the first head;
+  # a newer push wins.
+  if [[ $h =~ ^[0-9a-f]{40}$ ]] && [ "$h" != "$sha" ] && [ "$sha" = "$h0" ]; then
     echo "ci-wait-wp: an earlier slice followed PR #$prnum to ${h:0:7}; waiting on that head"; sha=$h
   fi
 fi
@@ -218,9 +234,6 @@ clock() { # clock <name>: when <name> started in this sliced wait (now, and reme
   echo "${t:-$now}"
 }
 start=$(clock start)
-sha0=$sha
-[ -n "$sd" ] && [ -r "$sd/head0" ] && read -r sha0 <"$sd/head0"
-[ -n "$sd" ] && [ ! -e "$sd/head0" ] && echo "$sha" >"$sd/head0"
 restart_seen
 deadline=$(( start + timeout_min * 60 ))
 down=0 warned="" since=$(clock "norun-${sha:0:12}") n=""

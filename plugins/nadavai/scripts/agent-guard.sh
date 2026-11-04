@@ -789,13 +789,21 @@ subagent_wait_guard() { # subagent_wait_guard <command> <timeout ms or empty>
     deny "This Bash call may block for $((t / 1000)) s (timeout $t). $why"
   fi
   # ci-wait at command position (not as text in grep, pgrep or echo)
-  local at_cmd=$'(^|[;&|({`\n]|[[:space:];&|({`\n](then|do|else))[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*((timeout|heavy-slot|nohup|env|time|exec)[^;&|\n]*[[:space:]])?([^[:space:]]*/)?ci-wait(-wp)?[[:space:]]+[^[:space:]]'
+  local at_cmd=$'(^|[;&|({`\n!]|(^|[[:space:];&|({`\n])(then|do|else|if|elif|while|until))[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*((timeout|heavy-slot|nohup|env|time|exec|command|nice|sudo|stdbuf)[^;&|\n]*[[:space:]])?([^[:space:]]*/)?ci-wait(-wp)?[[:space:]]+[^[:space:]]'
   [[ $cmd =~ $at_cmd ]] || return 0
-  [[ " $cmd " =~ [[:space:]](-h|--help)[[:space:]] ]] && return 0
+  # Read -h, --help and --slice only in that ci-wait call: up to the next ; & | or newline, no comment.
+  local seg rest
+  rest=${cmd#*"${BASH_REMATCH[0]}"}
+  seg="${BASH_REMATCH[0]}${rest%%[;&|$'\n']*}"
+  seg=${seg%%#*}
+  [[ " $seg " =~ [[:space:]](-h|--help)[[:space:]] ]] && return 0
   local sl=$'--slice[=[:space:]]+([0-9]+)'
-  if [[ $cmd =~ $sl ]]; then
+  if [[ $seg =~ $sl ]]; then
     local n=${BASH_REMATCH[1]} need
     need=$(( 10#$n * 1000 + 30000 ))
+    if [ "$need" -gt 180000 ]; then
+      deny "--slice $n is too long: Bash moves a call to the background after 180 s in a background subagent, so a slice is at most 150 (use --slice 140 with the Bash timeout at 175000). $why"
+    fi
     if ! [[ $t =~ ^[0-9]+$ ]] || [ "$t" -lt "$need" ]; then
       deny "With --slice $n, set the Bash timeout to at least $need (the slice plus 30 s; it is ${t:-the 120000 default}), or Bash moves the call to the background before the slice ends. $why"
     fi
