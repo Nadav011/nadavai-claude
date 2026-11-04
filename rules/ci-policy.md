@@ -12,7 +12,11 @@ every `ci-wait`, and the old runner (3,445 lines on one 8-core box) queued agent
 - **omarchy and MSI**: the Woodpecker agents (Docker, 3 workflows each). Every landing goes to
   whichever is free. Never start other heavy jobs there. omarchy also runs secscan (user timers
   `secscan-poll` every 2 minutes and `secscan-nightly` at 04:20; code, baselines and logs in
-  `~/secscan`), which posts `nadavai-security`.
+  `~/secscan`), which posts `nadavai-security`. And the nightly audits: a local-backend agent
+  (`omarchy-nightly`, capacity 1) that takes only Nadav011/nadavai-nightly's workflows, cron
+  `night` 23:00 UTC, on each repo's main (Green Room: the commit production serves). It posts
+  `nadavai-ui`, `nadavai-nightly`, `nadavai-native` and `nadavai-expo-doctor`, and keeps the
+  "NadavAI: main is red" issue per repo. Summary: `ssh omarchy ~/nightly/bin/ci-summary <repo>`.
 - **LENOVO**: Nadav's work machine. Agents' scoped checks only; no CI.
 
 ## The rules
