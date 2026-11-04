@@ -278,6 +278,22 @@ ensure_ts_lsp() {
   fi
 }
 
+# A running Claude Code session keeps the plugin version it started with (its CLAUDE_PLUGIN_ROOT),
+# so a new agent-guard rule reaches it only after /reload-plugins. The hook reads the script on
+# every call, and agent-guard is self-contained (it reads only $NADAVAI_HOME), so every cached
+# version gets the current copy: open sessions are guarded at once. Each copy is replaced by a
+# rename, so a hook running at that moment reads the old file or the new one, never half of one.
+refresh_running_guards() {
+  local src="${REPO:-${NADAVAI_HOME:-$HOME/nadavai}}/plugins/nadavai/scripts/agent-guard.sh" d n=0 tmp
+  [ -f "$src" ] || return 0
+  for d in "$HOME/.claude/plugins/cache/nadavai/nadavai"/*/scripts; do
+    [ -f "$d/agent-guard.sh" ] && ! cmp -s "$src" "$d/agent-guard.sh" || continue
+    tmp="$d/.agent-guard.sh.$$"
+    cp "$src" "$tmp" && chmod +x "$tmp" && mv -f "$tmp" "$d/agent-guard.sh" && n=$((n + 1))
+  done
+  log "agent-guard refreshed in $n cached plugin versions (running sessions)"
+}
+
 AGENT_BROWSER_VERSION=0.41.1
 ensure_agent_browser() {
   # agent-browser drives a separate Chrome for agents; its "vault" credential plugin

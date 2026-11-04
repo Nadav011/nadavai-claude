@@ -47,6 +47,9 @@ if [ "$ALL" = 1 ]; then
   done < <(dependency_ids)
 fi
 
+step "Running sessions"
+refresh_running_guards
+
 step "Codex plugin"
 CODEX_REFRESH_FAILED=0
 refresh_codex_plugin || CODEX_REFRESH_FAILED=1
