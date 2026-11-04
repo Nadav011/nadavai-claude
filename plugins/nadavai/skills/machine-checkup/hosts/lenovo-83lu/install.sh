@@ -10,6 +10,12 @@ sudo install -m 644 "$here/legion-power-limits.service" "$here/legion-power-limi
 sudo install -m 644 "$here/99-legion-power-limits.rules" /etc/udev/rules.d/
 sudo install -m 755 "$here/legion-power-limits.sleep" /usr/lib/systemd/system-sleep/legion-power-limits
 install -m 755 "$here/lenovo-tuning-check" "$HOME/.local/bin/lenovo-tuning-check"
+# Crash forensics (2026-11-04): auto-reboot after a kernel oops, and a 1G journal.
+sudo install -m 644 "$here/60-oops-reboot.conf" /etc/sysctl.d/60-oops-reboot.conf
+sudo install -d -m 755 /etc/systemd/journald.conf.d
+sudo install -m 644 "$here/60-journal-size.conf" /etc/systemd/journald.conf.d/60-journal-size.conf
+sudo sysctl -q -p /etc/sysctl.d/60-oops-reboot.conf
+sudo systemctl restart systemd-journald
 sudo systemctl daemon-reload
 sudo udevadm control --reload
 sudo systemctl enable --now legion-power-limits.timer
