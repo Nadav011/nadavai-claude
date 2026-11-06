@@ -20,6 +20,13 @@ emit() {
 
 REPO="${NADAVAI_HOME:-$HOME/nadavai}"
 CFG="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+# Grok loads this hook from the plugin and from ~/.grok/hooks. One report per session.
+if [ -n "${GROK_SESSION_ID:-}" ]; then
+  stamp="${XDG_RUNTIME_DIR:-/tmp}/nadavai-session-check-${GROK_SESSION_ID}"
+  mkdir -p "$(dirname "$stamp")" 2>/dev/null || true
+  if [ -e "$stamp" ]; then emit ""; fi
+  : >"$stamp" 2>/dev/null || true
+fi
 [ -d "$REPO/.git" ] || emit ""
 cd "$REPO" || emit ""
 

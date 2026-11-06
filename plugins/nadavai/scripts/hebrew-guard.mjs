@@ -3,8 +3,9 @@
 // two events check the text:
 //  - Stop: the text Claude showed in the turn that just ended. When a block of it is mostly
 //    English prose, blocks the stop once and asks for the reply again in Hebrew.
-//  - PreToolUse on AskUserQuestion: the dialog itself (question, header, option labels and
-//    descriptions). The Stop check never sees it, because a dialog is a tool call, not text
+//  - PreToolUse on AskUserQuestion (Grok: ask_user_question, Cursor preset: AskQuestion):
+//    the dialog itself (question, header, option labels and descriptions). The Stop check
+//    never sees it, because a dialog is a tool call, not text
 //    (2026-11-03: the SSH and Sunshine questions reached him in English).
 // Code, paths, URLs and identifiers are stripped before counting, so a Hebrew reply or
 // dialog full of code passes.
@@ -31,8 +32,10 @@ const isEnglish = (t, minLatin = 60) => {
   return latin >= minLatin && hebrew < latin * 0.25;
 };
 
-if (input.hook_event_name === "PreToolUse") {
-  if (input.tool_name !== "AskUserQuestion") process.exit(0);
+const toolName = input.tool_name || input.toolName || "";
+const toolInput = input.tool_input || input.toolInput;
+if (input.hook_event_name === "PreToolUse" || input.hookEventName === "pre_tool_use") {
+  if (toolName !== "AskUserQuestion" && toolName !== "ask_user_question" && toolName !== "AskQuestion") process.exit(0);
   // All the dialog's strings, except `preview` (mockups and code snippets, not prose).
   const strings = [];
   const walk = (v, key) => {
@@ -40,7 +43,7 @@ if (input.hook_event_name === "PreToolUse") {
     if (typeof v === "string") strings.push(v);
     else if (v && typeof v === "object") for (const [k, x] of Object.entries(v)) walk(x, k);
   };
-  walk(input.tool_input);
+  walk(toolInput);
   const dialog = strings.join("\n");
   // A dialog is short and all of it is prose, so the bar is lower than for a reply.
   if (!isEnglish(dialog, 25)) process.exit(0);
@@ -59,6 +62,9 @@ if (input.hook_event_name === "PreToolUse") {
 }
 
 if (input.hook_event_name && input.hook_event_name !== "Stop") process.exit(0);
+// Grok also fires Stop at session end (channel_closed / shutdown). That decision is ignored,
+// and counting it would mark the turn as already checked.
+if (input.reason === "channel_closed" || input.reason === "shutdown") process.exit(0);
 
 // Stop: each English block is blocked once per turn (guard-turn.mjs explains why not
 // stop_hook_active); earlier blocks already blocked are skipped, so a Hebrew rewrite passes.

@@ -11,6 +11,8 @@ import { readInput, readTurn, firstTime } from "./guard-turn.mjs";
 const input = await readInput();
 if (!input) process.exit(0);
 if (input.hook_event_name && input.hook_event_name !== "Stop") process.exit(0);
+// Grok also fires Stop at session end. Its decision is ignored; skip so the turn stays correctable.
+if (input.reason === "channel_closed" || input.reason === "shutdown") process.exit(0);
 
 const prose = (t) => t
   .replace(/```[\s\S]*?```/g, " ")

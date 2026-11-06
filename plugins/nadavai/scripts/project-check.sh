@@ -32,6 +32,13 @@ fi
 
 D="${CLAUDE_PROJECT_DIR:-$PWD}"
 [ -d "$D" ] || exit 0
+# Grok loads this hook from the plugin and from ~/.grok/hooks. One report per session.
+if [ -n "${GROK_SESSION_ID:-}" ]; then
+  stamp="${XDG_RUNTIME_DIR:-/tmp}/nadavai-project-check-${GROK_SESSION_ID}"
+  mkdir -p "$(dirname "$stamp")" 2>/dev/null || true
+  if [ -e "$stamp" ]; then exit 0; fi
+  : >"$stamp" 2>/dev/null || true
+fi
 
 # Only real projects: a git repo with a package manifest. Keeps the home directory and scratch folders quiet.
 is_project=0

@@ -106,6 +106,22 @@ check "hebrew: english block"     block "תשובה בעברית." "$H" false h1
 check "hebrew: rewrite passes"    allow "תשובה בעברית." "$H" true h1 hebrew-guard.mjs
 check "hebrew: new english block" block "$EN Another one, different text." "$H" true h1 hebrew-guard.mjs
 check "hebrew: hebrew only"       allow "תשובה בעברית." /nonexistent false h2 hebrew-guard.mjs
+json=$(jq -n --arg m "$EN" '{hook_event_name:"Stop",reason:"shutdown",last_assistant_message:$m,transcript_path:"/nonexistent",stop_hook_active:false}')
+expect "hebrew: shutdown ignored" allow "$(run hebrew-guard.mjs "$json")"
+json=$(jq -n --arg m "You're absolutely right, I'll fix it." '{hook_event_name:"Stop",reason:"channel_closed",last_assistant_message:$m,transcript_path:"/nonexistent",stop_hook_active:false}')
+expect "candor: channel_closed ignored" allow "$(run candor-guard.mjs "$json")"
+
+dialog() {  # name want json
+  local out got
+  out=$(printf '%s' "$3" | node "$DIR/hebrew-guard.mjs")
+  if [ -z "$out" ]; then got=allow
+  elif [ "$(jq -r '.hookSpecificOutput.permissionDecision // empty' <<<"$out")" = deny ]; then got=deny
+  else got="bad: $out"; fi
+  expect "$1" "$2" "$got"
+}
+dialog "hebrew dialog: grok english" deny "$(jq -n '{hook_event_name:"PreToolUse",toolName:"ask_user_question",toolInput:{questions:[{question:"Should I deploy this service now?",options:[{label:"Yes",description:"Ship the change"}]}]}}')"
+dialog "hebrew dialog: grok hebrew" allow "$(jq -n '{hook_event_name:"PreToolUse",toolName:"ask_user_question",toolInput:{questions:[{question:"לפרוס את השירות עכשיו?",options:[{label:"כן",description:"להעלות את השינוי"}]}]}}')"
+dialog "hebrew dialog: claude still" deny "$(jq -n '{hook_event_name:"PreToolUse",tool_name:"AskUserQuestion",tool_input:{questions:[{question:"Should I deploy this service now?",header:"Deploy",options:[{label:"Yes",description:"Ship the change"}]}]}}')"
 
 echo "stop guards: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

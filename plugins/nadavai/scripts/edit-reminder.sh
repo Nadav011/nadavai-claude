@@ -36,7 +36,7 @@ export NADAVAI_EDIT_STATE_FILE="$STATE_FILE"
 # Fast path: almost every edit is outside both trees, and node costs ~200 ms per call.
 # Exit early only when the path is outside them both with and without symlinks
 # resolved; anything else, or no jq, goes to the node script, which decides.
-if command -v jq >/dev/null 2>&1 && file=$(jq -r '.tool_input.file_path // .toolCall.args.TargetFile // empty' <<<"$input" 2>/dev/null); then
+if command -v jq >/dev/null 2>&1 && file=$(jq -r '.tool_input.file_path // .toolInput.file_path // .toolInput.filePath // .toolCall.args.TargetFile // empty' <<<"$input" 2>/dev/null); then
   [ -n "$file" ] || empty_out
   inside=0
   # Physical, lexical, and lexical then physical (node's realpathSync resolves `..`

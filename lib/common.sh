@@ -478,17 +478,47 @@ mirror_rules_to_codex() {
 
 mirror_guard_to_grok() {
   # Grok reads user hooks from ~/.grok/hooks/*.json ([compat.claude] hooks = false keeps it off
-  # ~/.claude/settings.json), and its installed nadavai plugin is a copy that does not follow this
-  # repo, so agent-guard gets its own file pointing at the live script. "Bash" also matches
-  # Grok's run_terminal_command.
+  # ~/.claude/settings.json). Commands are the live scripts in this repo, so a copied plugin
+  # cannot leave Grok on an old guard. Matchers use Claude names; Grok maps Bash, Read, Grep,
+  # and Write onto its own tools, and ask_user_question / spawn_subagent are named outright.
   [ -d "$HOME/.grok" ] || { log "no ~/.grok; skipping Grok guard hook"; return; }
   command -v jq >/dev/null 2>&1 || { warn "jq missing; Grok guard hook not written"; return 0; }
-  local out="$HOME/.grok/hooks/nadavai-guard.json" tmp
+  local out="$HOME/.grok/hooks/nadavai-guard.json" tmp s
+  s="$REPO/plugins/nadavai/scripts"
   mkdir -p "$HOME/.grok/hooks"
   tmp=$(mktemp "$out.XXXXXX")
   # Written whole and renamed, so a Grok session that reloads hooks never reads half a file.
-  if jq -n --arg c "$REPO/plugins/nadavai/scripts/agent-guard.sh" \
-       '{hooks: {PreToolUse: [{matcher: "Bash", hooks: [{type: "command", command: $c, timeout: 45}]}]}}' >"$tmp" &&
+  if jq -n \
+       --arg guard "$s/agent-guard.sh" \
+       --arg session "$s/session-check.sh" \
+       --arg project "$s/project-check.sh" \
+       --arg memory "command -v node >/dev/null 2>&1 && node $s/memory-index-check.mjs || true" \
+       --arg hebrew "command -v node >/dev/null 2>&1 && node $s/hebrew-guard.mjs || true" \
+       --arg candor "command -v node >/dev/null 2>&1 && node $s/candor-guard.mjs || true" \
+       --arg edit "$s/edit-reminder.sh" \
+       '{hooks: {
+          SessionStart: [{matcher: "new|load|startup|resume", hooks: [
+            {type: "command", command: $session, timeout: 15},
+            {type: "command", command: $project, timeout: 5},
+            {type: "command", command: $memory, timeout: 5}
+          ]}],
+          PreToolUse: [
+            {matcher: "Agent|Bash|Read|Grep|Task|spawn_subagent", hooks: [
+              {type: "command", command: $guard, timeout: 45}
+            ]},
+            {matcher: "AskUserQuestion|ask_user_question|AskQuestion", hooks: [
+              {type: "command", command: $hebrew, timeout: 10}
+            ]}
+          ],
+          Stop: [{hooks: [
+            {type: "command", command: $hebrew, timeout: 10},
+            {type: "command", command: $candor, timeout: 10}
+          ]}],
+          PostToolUse: [{matcher: "Write|Edit|MultiEdit", hooks: [
+            {type: "command", command: $edit, timeout: 10},
+            {type: "command", command: $memory, timeout: 5}
+          ]}]
+        }}' >"$tmp" &&
      mv "$tmp" "$out"; then
     log "$out refreshed"
   else

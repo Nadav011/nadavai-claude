@@ -3,7 +3,8 @@
 # (it replaces the whole tool input). The same script serves Claude Code and Codex (the
 # plugin's hooks/hooks.json; Codex sends tool_name "Bash" and reads the same deny), Antigravity
 # (hooks.json, a toolCall payload) and Grok (~/.grok/hooks/nadavai-guard.json written by
-# update.sh; toolName run_terminal_command, toolInput, and it honors permissionDecision).
+# update.sh; toolName run_terminal_command / read_file / spawn_subagent, toolInput,
+# and it honors permissionDecision).
 #   Agent: subagent_type "fork" unless the description carries [fork]. A fork inherits
 #          the parent's model and its full context (median ~290K tokens per request).
 #   Bash:  a sleep of 120 s or more in the foreground. It blocks the agent; long local
@@ -864,16 +865,16 @@ vault_guard() {
 
 tool=$(jq -r '.tool_name // .toolName // empty' <<<"$input" 2>/dev/null)
 case "$tool" in
-  Read|Grep|view_file)
-    p=$(jq -r '.tool_input.file_path // .tool_input.path // .toolInput.path // .toolInput.AbsolutePath // empty' <<<"$input" 2>/dev/null)
+  Read|Grep|view_file|read_file|grep)
+    p=$(jq -r '.tool_input.file_path // .tool_input.path // .tool_input.target_file // .toolInput.file_path // .toolInput.path // .toolInput.target_file // .toolInput.AbsolutePath // empty' <<<"$input" 2>/dev/null)
     case "$p" in
       *secrets/login-*|*/.claude/secrets|*/.claude/secrets/)
         deny "Website logins in the vault (~/.claude/secrets/login-*) are not read by agents; agent-browser's vault plugin fills them (rules/acting-on-behalf.md)." ;;
     esac
     ;;
-  Agent)
-    [ "$(jq -r '.tool_input.subagent_type // empty' <<<"$input")" = fork ] || allow
-    [[ $(jq -r '.tool_input.description // empty' <<<"$input") == *"[fork]"* ]] && allow
+  Agent|spawn_subagent)
+    [ "$(jq -r '.tool_input.subagent_type // .toolInput.subagent_type // .toolInput.subagentType // empty' <<<"$input")" = fork ] || allow
+    [[ $(jq -r '.tool_input.description // .toolInput.description // empty' <<<"$input") == *"[fork]"* ]] && allow
     deny 'A fork inherits your model and your whole context (median ~290K tokens per request). Use a named subagent_type with only the context it needs. If a fork is really what you want, put [fork] in the description.'
     ;;
   Bash|run_terminal_command)

@@ -7,7 +7,7 @@ for await (const chunk of process.stdin) raw += chunk;
 let parsed;
 try { parsed = JSON.parse(raw); } catch { /* not JSON */ }
 const isAgy = Boolean(parsed?.toolCall);
-const file = parsed?.tool_input?.file_path ?? parsed?.toolCall?.args?.TargetFile;
+const file = parsed?.tool_input?.file_path ?? parsed?.toolInput?.file_path ?? parsed?.toolInput?.filePath ?? parsed?.toolCall?.args?.TargetFile;
 if (!file) {
   if (isAgy) process.stdout.write("{}\n");
   process.exit(0);

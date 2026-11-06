@@ -79,7 +79,7 @@ const event = input.hook_event_name || (input.tool_name ? "PostToolUse" : "Sessi
 
 try {
   if (event === "PostToolUse") {
-    const fp = input.tool_input?.file_path || "";
+    const fp = input.tool_input?.file_path || input.toolInput?.file_path || input.toolInput?.filePath || "";
     if (!/\/memory\/[^/]+\.md$/.test(fp)) process.exit(0);
     const indexPath = join(dirname(fp), "MEMORY.md");
     let issues;
