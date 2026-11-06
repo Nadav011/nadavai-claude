@@ -334,7 +334,9 @@ while :; do
         # a real regression fails again and is reported red with "failed twice".
         if [ -z "$retried" ] && [ -n "$prnum" ]; then
           # Vitest/Jest name the file on the FAIL line; Deno names it in its ERRORS list ("name => ./dir/x.test.ts:306:6").
-          ftests=$( { grep -E '(^| )(FAIL|×|✗|✘|FAILED)' <<<"$log" | grep -oE '[A-Za-z0-9_./-]+\.(test|spec)\.[cm]?[jt]sx?'
+          # The mark must open the line: a passing test whose name holds "FAILED" or "×" ("✓ … answered FAILED",
+          # "hours × rate") was listed as failing, and a real failure elsewhere was restarted as a flake.
+          ftests=$( { grep -E '^ *(FAIL|×|✗|✘) ' <<<"$log" | grep -oE '[A-Za-z0-9_./-]+\.(test|spec)\.[cm]?[jt]sx?'
                       grep -oE '=> \.?/?[A-Za-z0-9_./-]+\.(test|spec)\.[cm]?[jt]sx?:[0-9]+' <<<"$log" | sed -E 's|^=> \.?/?||; s|:[0-9]+$||'; } | sort -u)
           nontest=$(jq -r '[.workflows[]?.children[]? | select(.state == "failure") | .name | select(test("^(unit|integration|e2e|edge|sql|test)") | not)] | length' <<<"$d" 2>/dev/null)
           if [ -n "$ftests" ] && [ "${nontest:-1}" = 0 ]; then
