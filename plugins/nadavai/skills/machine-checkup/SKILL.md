@@ -63,6 +63,16 @@ answer it: list directories created since then (`find -maxdepth 3 -newermt`) and
 bytes per inode set, not `du` per tree. On 2026-10-28 this found 48 new SportChat v4 worktrees,
 each with its own `npm ci` (about 2.5 GB, link count 1): 89% became 61% with one `hardlink` pass.
 
+If Nadav says sessions or terminals "crashed" or vanished, first read
+`journalctl -u systemd-oomd` and `journalctl --user | grep 'systemd-oomd killed'`: on CachyOS,
+systemd-oomd kills the whole Orca terminal scope (Claude and every child) that holds the most
+swap once swap passes 90%, so it looks like a crash with no coredump. Then check `findmnt /tmp`:
+`/tmp` must be on disk on every machine (fstab line commented out, `tmp.mount` masked,
+`/etc/tmpfiles.d/tmp.conf` with `q /tmp 1777 root root 3d`). Why: the CachyOS installer puts
+`/tmp` on tmpfs; on the LENOVO (2026-11-07) agent scratchpads and `agent-browser` profiles
+(about 5 GB each) grew it to 24 GB, nearly all of it in zram, and oomd killed three terminals
+in two hours. The MSI had the same fix in September, and the migration did not carry it over.
+
 If Nadav reports freezes, run `python3 -I scripts/freeze-watch.py 600` in the background. It
 separates "Orca's main thread blocked on disk" from "the whole machine stalled"; on 2026-10-20
 it showed 44 Orca stalls and 0 system stalls in 10 minutes, which moved the work from CPU to disk.
