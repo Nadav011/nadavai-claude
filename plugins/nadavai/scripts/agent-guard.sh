@@ -84,6 +84,7 @@ case "$input" in
   # rm after a blank, an operator, a quote, a slash (/bin/rm) or JSON's \n / \t escapes
   *'"fork"'*|*sleep*|*gh*merge*|*find*|*bfs*|*[[:space:]\;\&\|\(\`\"\'/nt]'rm '*|*.claude/secrets*) ;;
   *'"agent_id"'*ci-wait*|*ci-wait*'"agent_id"'*|*'"agent_id"'*'"timeout"'*|*'"timeout"'*'"agent_id"'*) ;;
+  *'"agent_id"'*'tail --pid'*|*'tail --pid'*'"agent_id"'*) ;;
   *while*|*until*|*docker*|*podman*|*supabase*) [ "$strict" = 1 ] || allow ;;
   *) allow ;;
 esac
@@ -819,6 +820,37 @@ subagent_wait_guard() { # subagent_wait_guard <command> <timeout ms or empty>
   return 0
 }
 
+# A turn's Bash calls that are not read-only run one after another, and each one's PreToolUse fires
+# only when the one before it has returned (live probe, 2026-11-06). So several waits sent in one
+# turn block for their sum: three 170 s slices are 510 s, past a subagent's 5-minute prompt cache.
+# Measured 2026-11-06: 72% of the subagent cache rewrites left after slicing followed such a turn.
+# By the time a later call's hook runs, the turn is in the subagent's transcript, so this denies a
+# call whose turn has already run long enough that this call could carry it past 290 s. Only calls
+# the fast path lets through are checked (an explicit timeout, ci-wait or tail --pid); an untimed
+# build after a long wait is not (a missed deny, not a false one).
+sibling_wait_guard() { # sibling_wait_guard <timeout ms or empty>
+  local t="${1:-}" tp tid aid f el
+  [[ $t =~ ^[0-9]+$ ]] || t=120000
+  tp=$(jq -r '.transcript_path // empty' <<<"$input" 2>/dev/null)
+  tid=$(jq -r '.tool_use_id // empty' <<<"$input" 2>/dev/null)
+  aid=$(jq -r '.agent_id // empty' <<<"$input" 2>/dev/null)
+  [ -n "$tp" ] && [[ $tid =~ ^[A-Za-z0-9_-]+$ && $aid =~ ^[A-Za-z0-9_-]+$ ]] || return 0
+  f=$(find "${tp%.jsonl}/subagents" -maxdepth 3 -name "agent-$aid.jsonl" -print -quit 2>/dev/null)
+  [ -r "$f" ] || return 0
+  # Seconds since this call's turn began (its assistant message's first record); 0 when not found.
+  el=$(tail -n 300 "$f" | jq -nR --arg id "$tid" '
+    def ep: sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601;
+    [inputs | fromjson? | select(.type == "assistant")] as $a
+    | ([$a[] | select(any(.message.content[]?; .type == "tool_use" and .id == $id)) | .message.id] | first) as $mid
+    | if $mid == null then 0
+      else ([$a[] | select(.message.id == $mid) | .timestamp | ep] | min) as $t0 | (now - $t0 | floor)
+      end' 2>/dev/null)
+  [[ $el =~ ^[0-9]+$ ]] || return 0
+  if [ "$el" -gt 20 ] && [ $((el + t / 1000)) -gt 290 ]; then
+    deny "One wait per turn. This turn has already run ${el} s (Claude Code runs a turn's Bash calls one after another), and this call can add $((t / 1000)) s more, past your 5-minute prompt cache (the whole context is rewritten). End the turn here: read what the earlier call returned, then run this one in your next turn, or fold the waits into one call that ends within 170 s."
+  fi
+}
+
 # Website logins in the vault are filled by agent-browser's vault plugin; an agent never reads
 # them (rules/acting-on-behalf.md). Listing, chmod, removal and the two vault tools pass.
 vault_guard() {
@@ -867,6 +899,7 @@ case "$tool" in
       if [ "$tool" = Bash ] && [ -n "$(jq -r '.agent_id // empty' <<<"$input" 2>/dev/null)" ] \
         && [ -z "$(jq -r '.turn_id // empty' <<<"$input" 2>/dev/null)" ]; then
         subagent_wait_guard "$cmd" "$(jq -r '.tool_input.timeout // empty' <<<"$input" 2>/dev/null)"
+        [[ $cmd == *'# long-call:'* ]] || sibling_wait_guard "$(jq -r '.tool_input.timeout // empty' <<<"$input" 2>/dev/null)"
       fi
       bg='run_in_background: true'
     fi

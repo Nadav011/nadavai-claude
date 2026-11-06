@@ -355,6 +355,31 @@ npm_globals() {
   sed -e 's/#.*//' -e 's/[[:space:]]//g' "$REPO/npm-globals.txt" | grep -v '^$'
 }
 
+ensure_npm_script_approvals() {
+  # npm 12 runs no install scripts unless a package is approved, and `npm install-scripts approve`
+  # does not work for global installs. Claude Code downloads its native binary in its install
+  # script, so its own auto-update left `claude` printing "claude native binary not installed"
+  # (LENOVO, 2026-11-06, 2.1.319). Approve it in ~/.npmrc, and repair a copy that is already broken.
+  local rc="$HOME/.npmrc" bin dir
+  if ! grep -qxF 'allow-scripts[]=@anthropic-ai/claude-code' "$rc" 2>/dev/null; then
+    printf '\n# npm 12: allow the install script that downloads Claude Code\x27s native binary\nallow-scripts[]=@anthropic-ai/claude-code\n' >>"$rc"
+    log "approved @anthropic-ai/claude-code install script in $rc"
+  fi
+  local out
+  bin=$(command -v claude 2>/dev/null) || return 0
+  out=$(claude --version 2>&1 || true)
+  if [[ $out == *'native binary not installed'* ]]; then
+    dir=$(dirname "$(dirname "$(readlink -f "$bin")")")
+    (cd "$dir" && node install.cjs >/dev/null 2>&1) || true
+    out=$(claude --version 2>&1 || true)
+    if [[ $out != *'native binary not installed'* ]]; then
+      log "repaired claude native binary (${out%%$'\n'*})"
+    else
+      warn "claude native binary missing; run: node $dir/install.cjs"
+    fi
+  fi
+}
+
 ensure_npm_globals() {
   # Opt-in: hundreds of MB. Only installs what is missing.
   local installed missing=() pkg

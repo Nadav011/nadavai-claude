@@ -485,6 +485,25 @@ check "subagent: eval ci-wait" deny "$(subc 'eval ci-wait therapy-flow-v2 pr:12'
 check "subagent: bash -o pipefail -c" deny "$(subc "bash -o pipefail -c 'ci-wait therapy-flow-v2 pr:12'")"
 check "subagent: a sliced ci-wait over ssh" allow "$(subc "ssh msi 'ci-wait therapy-flow-v2 pr:12 --slice 140'" 175000)"
 check "subagent: git -c in a commit" allow "$(subc 'git -c core.pager=cat log --oneline -3 -- bin/ci-wait')"
+# Several waits in one turn: a later call's hook runs after the earlier ones returned, so the turn's
+# age comes from the subagent transcript (the first record of the call's assistant message).
+SIB=$(mktemp -d); mkdir -p "$SIB/main/subagents/workflows/wf_x"
+iso() { date -u -d "@$(( $(date +%s) - $1 ))" +%Y-%m-%dT%H:%M:%S.000Z; }
+sib_use() { jq -cn --arg id "$1" --arg mid "$2" --arg ts "$(iso "$3")" '{type:"assistant",timestamp:$ts,message:{id:$mid,content:[{type:"tool_use",id:$id,name:"Bash",input:{command:"x"}}]}}'; }
+{
+  sib_use t1 m1 200; sib_use t2 m1 199          # a turn that began 200 s ago
+  sib_use t3 m2 5; sib_use t4 m2 4              # a turn that began 5 s ago
+  sib_use t5 m3 150                             # 150 s ago
+} >"$SIB/main/subagents/workflows/wf_x/agent-a1.jsonl"
+sibc() { jq -cn --arg c "$1" --argjson t "$2" --arg id "$3" --arg tp "$SIB/main.jsonl" '{agent_id:"a1",session_id:"s",transcript_path:$tp,tool_use_id:$id,cwd:"/tmp",hook_event_name:"PreToolUse",tool_name:"Bash",tool_input:({command:$c} + (if $t == null then {} else {timeout:$t} end))}'; }
+check "subagent: a 175 s wait in a turn 200 s old" deny "$(sibc 'timeout 170 tail --pid=2 -f /dev/null' 175000 t2)"
+check "subagent: a 60 s call in a turn 200 s old" allow "$(sibc 'pnpm exec vitest related a.ts' 60000 t2)"
+check "subagent: no timeout (120 s) in a turn 200 s old" deny "$(sibc 'timeout 110 tail --pid=2 -f /dev/null' null t2)"
+check "subagent: a 175 s wait in a turn 5 s old" allow "$(sibc 'timeout 170 tail --pid=4 -f /dev/null' 175000 t4)"
+check "subagent: a 140 s wait in a turn 150 s old" allow "$(sibc 'timeout 130 tail --pid=5 -f /dev/null' 140000 t5)"
+check "subagent: long-call escape in an old turn" allow "$(sibc 'timeout 170 tail --pid=2 -f /dev/null # long-call: one wait' 175000 t2)"
+check "subagent: call not in the transcript yet" allow "$(sibc 'timeout 170 tail --pid=9 -f /dev/null' 175000 t9)"
+rm -rf "${SIB:?}"
 check "subagent: long-call escape" allow "$(subc 'pnpm test # long-call: one suite' 600000)"
 check "subagent: a short call" allow "$(subc 'ls -la' 60000)"
 check "main loop: 600 s tail --pid" allow "$(bashc 'timeout 590 tail --pid=123 -f /dev/null')"

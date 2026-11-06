@@ -63,6 +63,9 @@ ensure_ts_lsp
 step "agent-browser"
 ensure_agent_browser
 
+step "npm install-script approvals"
+ensure_npm_script_approvals
+
 if [ "$NPM" = 1 ]; then
   step "Global npm packages"
   ensure_npm_globals
