@@ -106,6 +106,28 @@ check "hebrew: english block"     block "תשובה בעברית." "$H" false h1
 check "hebrew: rewrite passes"    allow "תשובה בעברית." "$H" true h1 hebrew-guard.mjs
 check "hebrew: new english block" block "$EN Another one, different text." "$H" true h1 hebrew-guard.mjs
 check "hebrew: hebrew only"       allow "תשובה בעברית." /nonexistent false h2 hebrew-guard.mjs
+# Several English notes in one turn: one block for all of them, not one per note.
+N="$tmp/n.jsonl"
+jq -nc '{type:"user", uuid:"r1", message:{content:"שאלה"}}' >"$N"
+for i in 1 2 3; do
+  jq -nc --arg t "$EN Note number $i about the next step." '{type:"assistant", message:{content:[{type:"text", text:$t}]}}' >>"$N"
+  jq -nc '{type:"user", message:{content:[{type:"tool_result", content:"ok"}]}}' >>"$N"
+done
+check "hebrew: 3 notes, one block"  block "סיכום בעברית." "$N" false n1 hebrew-guard.mjs
+check "hebrew: then passes"         allow "שורה קצרה בעברית." "$N" true n1 hebrew-guard.mjs
+reason_of() { printf '%s' "$1" | node "$DIR/hebrew-guard.mjs" | jq -r '.reason // empty'; }
+json=$(jq -n --arg t "$N" '{hook_event_name:"Stop",last_assistant_message:"סיכום בעברית.",transcript_path:$t,session_id:"n2"}')
+case "$(reason_of "$json")" in *"do not rewrite the whole reply"*) expect "hebrew: notes ask short line" ok ok ;; *) expect "hebrew: notes ask short line" ok bad ;; esac
+json=$(jq -n --arg m "$EN Final." --arg t "$N" '{hook_event_name:"Stop",last_assistant_message:$m,transcript_path:$t,session_id:"n3"}')
+case "$(reason_of "$json")" in *"in full, in Hebrew"*) expect "hebrew: english final asks full" ok ok ;; *) expect "hebrew: english final asks full" ok bad ;; esac
+# candor: two phrases in one turn block once.
+C="$tmp/c.jsonl"
+jq -nc '{type:"user", uuid:"c1", message:{content:"x"}}' >"$C"
+jq -nc '{type:"assistant", message:{content:[{type:"text", text:"Great idea! Checking."}]}}' >>"$C"
+jq -nc '{type:"assistant", message:{content:[{type:"text", text:"You are right, fixing."}]}}' >>"$C"
+check "candor: 2 phrases, one block" block "בדקתי." "$C" false c1
+check "candor: then passes"          allow "בדקתי." "$C" true c1
+
 json=$(jq -n --arg m "$EN" '{hook_event_name:"Stop",reason:"shutdown",last_assistant_message:$m,transcript_path:"/nonexistent",stop_hook_active:false}')
 expect "hebrew: shutdown ignored" allow "$(run hebrew-guard.mjs "$json")"
 json=$(jq -n --arg m "You're absolutely right, I'll fix it." '{hook_event_name:"Stop",reason:"channel_closed",last_assistant_message:$m,transcript_path:"/nonexistent",stop_hook_active:false}')

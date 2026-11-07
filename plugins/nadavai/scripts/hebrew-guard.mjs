@@ -66,16 +66,27 @@ if (input.hook_event_name && input.hook_event_name !== "Stop") process.exit(0);
 // and counting it would mark the turn as already checked.
 if (input.reason === "channel_closed" || input.reason === "shutdown") process.exit(0);
 
-// Stop: each English block is blocked once per turn (guard-turn.mjs explains why not
-// stop_hook_active); earlier blocks already blocked are skipped, so a Hebrew rewrite passes.
+// Stop: every English block of the turn not blocked before is marked at once (guard-turn.mjs
+// explains why not stop_hook_active), so one Stop blocks once for all of them. Marking them one
+// per Stop forced a full rewrite per English progress note: 476 re-asks in 14 days, 113 in one
+// session (2026-11-07). A full rewrite is asked only when the final reply is English; English
+// notes between tool calls are already on his screen, so for those a short Hebrew line is enough.
 const { texts, promptId } = readTurn(input);
-const bad = texts.find((t) => isEnglish(t) && firstTime(input, "hebrew", promptId, t.trim().slice(0, 400)));
-if (!bad) process.exit(0);
+const fresh = texts.filter((t) => isEnglish(t) && firstTime(input, "hebrew", promptId, t.trim().slice(0, 400)));
+if (!fresh.length) process.exit(0);
+const last = typeof input.last_assistant_message === "string" ? input.last_assistant_message : "";
+const finalIsEnglish = last !== "" && isEnglish(last);
+const notes = fresh.filter((t) => t !== last);
+const began = (t) => `"${t.trim().slice(0, 120)}"`;
 
-process.stdout.write(JSON.stringify({
-  decision: "block",
-  reason:
-    "Your reply to Nadav was written in English. He reads only Hebrew: write the reply again, " +
+const reason = finalIsEnglish
+  ? "Your reply to Nadav was written in English. He reads only Hebrew: write the reply again, " +
     "in full, in Hebrew. Keep code, commands, paths and identifiers as they are. " +
-    `It began: "${bad.trim().slice(0, 120)}"`,
-}) + "\n");
+    `It began: ${began(last)}` +
+    (notes.length ? ` (${notes.length} earlier note(s) in this turn were English too; fold what he needs from them into the Hebrew reply.)` : "")
+  : `${notes.length} note(s) you showed Nadav between tool calls in this turn were in English ` +
+    `(the first began: ${began(notes[0] || fresh[0])}). They are already on his screen, so do not ` +
+    "rewrite the whole reply: add one or two short lines in Hebrew with anything from them he " +
+    "still needs, and write every later note in Hebrew.";
+
+process.stdout.write(JSON.stringify({ decision: "block", reason }) + "\n");

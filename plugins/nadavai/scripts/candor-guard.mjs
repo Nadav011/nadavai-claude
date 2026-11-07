@@ -65,11 +65,11 @@ const hits = (t) => {
 };
 
 const { texts, promptId } = readTurn(input);
-let hit = null;
-for (const t of texts) {
-  hit = hits(t).find((h) => firstTime(input, "candor", promptId, h.toLowerCase()));
-  if (hit) break;
-}
+// Every phrase of the turn not blocked before is marked at once, so one Stop blocks once for
+// all of them instead of once per phrase (the same fix as hebrew-guard.mjs, 2026-11-07).
+const fresh = [];
+for (const t of texts) for (const h of hits(t)) if (firstTime(input, "candor", promptId, h.toLowerCase())) fresh.push(h);
+const hit = fresh[0];
 if (!hit) process.exit(0);
 
 process.stdout.write(JSON.stringify({
