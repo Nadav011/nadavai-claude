@@ -1,6 +1,6 @@
 ---
 name: store-apps
-description: "Move a web app into the App Store and Google Play as real store apps, and keep them in step with every web deploy: choose the model (bundled Capacitor app with signed self-hosted OTA, or a remote-URL Capacitor shell with an update-required gate; never a new TWA), set up the shells (ids, icons, privacy manifests, push, deep links, in-app account deletion, reviewer login), build (iOS on Codemagic, Android locally), do the store work through the App Store Connect and Play Developer APIs first, move installed-PWA users to the store, and run the OTA step of the deploy service. Use for any native, store, OTA, TestFlight, App Review, Play Console, Meta App Review, platform approval (D-U-N-S, organization or business verification), TWA or PWA-to-store work, a store build or release, or a native change in a repo with live store apps. Triggers: \"store app\", \"להעלות לחנות\", \"אפליקציה בחנות\", \"App Store\", \"Google Play\", \"TestFlight\", \"OTA\", \"live update\", \"TWA\", \"native shell\", \"store build\"."
+description: "Move a web app into the App Store and Google Play as real store apps, and keep them in step with every web deploy: choose the model (bundled Capacitor app with signed self-hosted OTA, or a remote-URL Capacitor shell with an update-required gate; never a new TWA), set up the shells, build (iOS on Codemagic, Android locally), do the store work through the store APIs first, end every PWA install for every audience and move PWA users to the store, check the store-installed app really works and is current, and run the OTA step of the deploy service. Use for any native, store, OTA, TestFlight, App Review, Play Console, Meta App Review, platform approval (D-U-N-S, organization or business verification), TWA or PWA-to-store work, a store build or release, or a native change in a repo with live store apps. Triggers: \"store app\", \"להעלות לחנות\", \"אפליקציה בחנות\", \"App Store\", \"Google Play\", \"TestFlight\", \"OTA\", \"live update\", \"TWA\", \"native shell\", \"store build\"."
 ---
 # store-apps
 
@@ -10,7 +10,7 @@ IDs, and keep their IDs out of this public repo.
 
 | Model | Reference | State on 7.11.2026 | Where to read |
 |---|---|---|---|
-| Bundled app + signed self-hosted OTA | MediZen and RetroBarber | OTA live and published by the deploy service; store builds uploaded; iOS in review, Play releases drafts, every `STORE_LIVE` false. Steps 4 and 5 are built here, not yet proven by a public listing. | therapy-flow-v2 `planning/native-apps-2026-11-06/` (OTA.md, SHELLS.md, IOS-BUILD.md, RELEASE.md, PUSH-GOOGLE.md, ACCOUNT-DELETION.md, REVIEWER-LOGIN.md), `scripts/native/`, `native/apps.json`, `src/lib/native/`, `codemagic.yaml` |
+| Bundled app + signed self-hosted OTA | MediZen and RetroBarber | OTA live and published by the deploy service. RetroBarber Android has been public on Play since 7.11, with `STORE_LIVE.retrobarber.android` true (therapy-flow-v2 PR 200). MediZen Android and both iOS apps are in review. | therapy-flow-v2 `planning/native-apps-2026-11-06/` (OTA.md, SHELLS.md, IOS-BUILD.md, RELEASE.md, PUSH-GOOGLE.md, ACCOUNT-DELETION.md, REVIEWER-LOGIN.md), `scripts/native/`, `native/apps.json`, `src/lib/native/`, `codemagic.yaml` |
 | Remote-URL shell + update gate | The Green Room | Live in both stores; customers moved to the store apps, update gate shipped off. | snooker-smart `capacitor.config.ts`, PR #145 (`gh pr diff 145 -R Nadav011/snooker-smart`) |
 
 General Capacitor topics (CLI, config, icons, splash, deep links, plugins) live in the
@@ -52,9 +52,18 @@ before it too.
    meant, read back through the API; the demo sign-in answered HTTP 200 as a non-privileged
    account; and the switch is off once no review is pending.
 
-5. **Move the installed-PWA users** once a listing is public ([references/pwa-to-store.md](references/pwa-to-store.md)).
-   Flip one app × platform switch at a time. Done when the store URL opens the public listing
-   signed out, and the notice shows on an installed PWA of that platform and nowhere else.
+5. **End the PWA and move its users** ([references/pwa-to-store.md](references/pwa-to-store.md)).
+   - No audience keeps a PWA install, staff and owners included (`rules/store-apps.md`).
+   - From the start of the move, remove every install offer: the installable manifest, the
+     `beforeinstallprompt` prompt and the "add to home screen" steps.
+   - Once a listing is public, flip that app × platform switch, one at a time, so offers become
+     store links and installed-PWA users get the move notice.
+   Done when:
+   - the store URL opens the public listing signed out;
+   - the notice shows on an installed PWA of that platform and nowhere else;
+   - no screen of the app offers a home-screen install;
+   - the app installed from the public listing has been checked: it signs in, the main flows
+     run, and the current deploy reached it.
 
 6. **Keep every deploy reaching the apps.** For a bundled app, read the `nadavai-ota` status of
    each deploy and act on it ([references/ota.md](references/ota.md), "After each deploy"). Done

@@ -31,8 +31,32 @@ icon they were told to delete and an app they cannot get.
 Done when each row is covered by a test, and screenshots at 390 px (Android and iPhone user
 agents, standalone) show the notice in Hebrew RTL with a clean console.
 
-## A site that keeps its manifest
+## No installable PWA for anyone
 
-If staff still install the PWA, keep the manifest and the service worker, and cancel
-`beforeinstallprompt` in an inline script before hydration. A public `/app` link (QR codes)
-redirects by phone platform to the right store; inside the native shell it goes home.
+Since 7.11.2026 (Nadav: "אסור שיהיה יותר PWA ... גם ללקוחות"), no audience keeps a home-screen
+install: not customers, not staff, not owners and not admins.
+
+- Drop the installable manifest, or strip its `display: standalone` / `start_url` install
+  fields. Cancel `beforeinstallprompt` in an inline script before hydration.
+- Remove every "add to home screen" card, menu item and iOS step.
+- A service worker may stay for offline and caching. Nothing may invite an install.
+- Before a platform's listing is public, that platform gets the website in the browser and
+  nothing to install.
+- Whatever ran only on the installed PWA (staff push, badges) moves to the store app. Name its
+  replacement before removing it.
+- A public `/app` link (QR codes) redirects by phone platform to the right store. Inside the
+  native shell it goes home.
+
+Done when a browser on Android and iPhone shows no install offer on any screen (customer, staff,
+admin), and `beforeinstallprompt` never reaches the page.
+
+## Really working, not only listed
+
+A platform counts as moved only after the app installed from the public listing was checked:
+- it signs in;
+- the main flows run;
+- the current deploy reached it (OTA applied with the current bundle id, or the live URL serves
+  the current commit).
+
+Check on a real phone or the store build in an emulator. Record the result in the app's
+approvals ledger.
