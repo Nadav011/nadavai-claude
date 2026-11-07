@@ -1,0 +1,277 @@
+#!/usr/bin/env node
+// ui-check: turns a web page into layout numbers, so agents stop judging screens from screenshots.
+// Per width and theme: dir/lang, page overflow, elements past the viewport, clipped text,
+// overlapping controls, small touch targets, console errors, axe-core violations and an RTL
+// text-align hint. Uses the globally installed @playwright/test and the axe-core bundled with
+// @axe-core/cli (resolved through `npm root -g`); it adds no dependency.
+'use strict';
+const { execSync } = require('child_process');
+const fs = require('fs');
+const path = require('path');
+
+const USAGE = 'usage: ui-check <url> [--width 375,1440] [--theme light,dark] [--storage-state <file>]\n' +
+  '                [--ignore <css selector>]... [--wait <ms>] [--json]\n' +
+  'exit: 0 clean, 1 findings, 2 usage or navigation error';
+const MAX = 5;
+
+function fail(msg) { process.stderr.write(`ui-check: ${msg}\n`); process.exit(2); }
+
+function parseArgs(argv) {
+  const o = { url: null, widths: [375, 1440], themes: ['light'], storage: null, ignores: [], wait: 500, json: false };
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    const val = () => { if (i + 1 >= argv.length) fail(`${a} needs a value\n${USAGE}`); return argv[++i]; };
+    if (a === '-h' || a === '--help') { process.stdout.write(USAGE + '\n'); process.exit(0); }
+    else if (a === '--width') o.widths = val().split(',').map((w) => parseInt(w, 10));
+    else if (a === '--theme') o.themes = val().split(',');
+    else if (a === '--storage-state') o.storage = val();
+    else if (a === '--ignore') o.ignores.push(val());
+    else if (a === '--wait') o.wait = parseInt(val(), 10);
+    else if (a === '--json') o.json = true;
+    else if (a.startsWith('-')) fail(`unknown option ${a}\n${USAGE}`);
+    else if (o.url) fail(`one url only\n${USAGE}`);
+    else o.url = a;
+  }
+  if (!o.url) fail(USAGE);
+  if (o.widths.some((w) => !(w > 0 && w < 10000))) fail('--width takes positive integers, e.g. 375,1440');
+  if (o.themes.some((t) => t !== 'light' && t !== 'dark')) fail('--theme takes light, dark or light,dark');
+  if (!(o.wait >= 0)) fail('--wait takes milliseconds');
+  if (o.storage && !fs.existsSync(o.storage)) fail(`storage state not found: ${o.storage}`);
+  if (/^[a-z][a-z0-9+.-]*:/i.test(o.url) === false) {
+    o.url = fs.existsSync(o.url) ? 'file://' + path.resolve(o.url) : 'https://' + o.url;
+  }
+  return o;
+}
+
+function loadDeps() {
+  let root;
+  try { root = execSync('npm root -g', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim(); }
+  catch { fail('npm root -g failed; is node/npm on PATH?'); }
+  let chromium, devices;
+  try { ({ chromium, devices } = require(path.join(root, '@playwright/test'))); }
+  catch { fail(`@playwright/test not found under ${root}`); }
+  const axePath = [path.join(root, '@axe-core/cli/node_modules/axe-core/axe.min.js'), path.join(root, 'axe-core/axe.min.js')]
+    .find((p) => fs.existsSync(p));
+  if (!axePath) fail(`axe-core not found under ${root} (expected via @axe-core/cli)`);
+  return { chromium, phoneUA: devices['Pixel 7'].userAgent, axeSrc: fs.readFileSync(axePath, 'utf8') };
+}
+
+// Runs inside the page. Everything it needs is passed in or defined here.
+function domChecks({ ignores, touch, max }) {
+  for (const s of ignores) { try { document.querySelector(s); } catch { return { badIgnore: s }; } }
+  const html = document.documentElement;
+  const vw = html.clientWidth;
+  const ignored = (el) => ignores.some((s) => el.closest(s));
+  const box = (r) => [r.x, r.y, r.width, r.height].map(Math.round);
+  const uniq = (s) => { try { return document.querySelectorAll(s).length === 1; } catch { return false; } };
+  const sel = (el) => {
+    // Leaf part first; going up, try "ancestor leaf" (short) before the full child chain.
+    const parts = [];
+    for (let cur = el; cur && cur.nodeType === 1 && cur !== html; cur = cur.parentElement) {
+      let p = cur.id && uniq('#' + CSS.escape(cur.id)) ? '#' + CSS.escape(cur.id) : null;
+      if (!p) {
+        p = cur.localName;
+        const cls = [...cur.classList].filter((c) => /^[a-zA-Z_][\w-]*$/.test(c)).slice(0, 2);
+        if (cls.length) p += '.' + cls.join('.');
+        const par = cur.parentElement;
+        const same = par ? [...par.children].filter((c) => c.localName === cur.localName) : [];
+        if (same.length > 1 && same.filter((c) => c.matches(p)).length > 1) p += `:nth-of-type(${same.indexOf(cur) + 1})`;
+      }
+      parts.unshift(p);
+      if (parts.length > 2 && uniq(`${parts[0]} ${parts[parts.length - 1]}`)) return `${parts[0]} ${parts[parts.length - 1]}`;
+      if (uniq(parts.join(' > '))) break;
+    }
+    return parts.join(' > ');
+  };
+  window.__uiCheckSel = sel;
+  const visible = (el, r) => r.width > 1 && r.height > 1 &&
+    el.checkVisibility({ opacityProperty: true, visibilityProperty: true }) &&
+    !el.closest('[aria-hidden="true"],[inert]');
+  const ownText = (el) => [...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim());
+  const mk = () => ({ count: 0, examples: [] });
+  const add = (c, ex) => { c.count++; if (c.examples.length < max) c.examples.push(ex); };
+  const out = { dir: html.getAttribute('dir') || getComputedStyle(html).direction, lang: html.getAttribute('lang') || '',
+    pageOverflow: html.scrollWidth > html.clientWidth ? { scrollWidth: html.scrollWidth, clientWidth: html.clientWidth } : null,
+    overflow: mk(), clipped: mk(), overlap: mk(), touch: mk(), rtlTextLeft: mk() };
+  const rtl = out.dir === 'rtl' || getComputedStyle(document.body).direction === 'rtl';
+  const flagged = new Set();
+  const inter = [];
+  // tabindex=-1 marks a focus target for scripts (carousel slides, regions), not a control.
+  const isInter = (el) => el.matches('a, button, input:not([type="hidden"]), select, textarea, [role="button"], [tabindex]:not([tabindex^="-"])');
+  for (const el of document.body.querySelectorAll('*')) {
+    if (el.closest('svg') && el.localName !== 'svg') continue;
+    const r = el.getBoundingClientRect();
+    if (!visible(el, r) || ignored(el)) continue;
+    const cs = getComputedStyle(el);
+    // Past the viewport, partly visible. Wholly off-screen boxes are skip links or parked drawers.
+    if ((r.left < -1 || r.right > vw + 1) && r.right > 0 && r.left < vw) {
+      let skip = false;
+      for (let a = el.parentElement; a && a !== html; a = a.parentElement) {
+        if (flagged.has(a)) { skip = true; break; }
+        const ox = getComputedStyle(a).overflowX;
+        if (ox !== 'visible') {
+          const ar = a.getBoundingClientRect();
+          if (ar.left >= -1 && ar.right <= vw + 1) { skip = true; break; }
+        }
+      }
+      if (!skip) { flagged.add(el); add(out.overflow, { selector: sel(el), box: box(r) }); }
+    }
+    // Wholly off-screen sideways (carousel clones, parked panels): nobody sees it, skip the rest.
+    if (r.right <= 0 || r.left >= vw) continue;
+    const text = ownText(el);
+    if (text) {
+      const clips = /hidden|clip/.test(cs.overflowX + cs.overflowY) || cs.textOverflow !== 'clip';
+      if (clips && el.clientWidth > 0 && (el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight + 1)) {
+        add(out.clipped, { selector: sel(el), box: box(r), scroll: [el.scrollWidth, el.scrollHeight], client: [el.clientWidth, el.clientHeight] });
+      }
+      if (rtl && cs.textAlign === 'left' && cs.direction === 'rtl') add(out.rtlTextLeft, { selector: sel(el), box: box(r) });
+    }
+    if (isInter(el)) {
+      // For overlap: the part left after every clipping ancestor, and whether it sits on a fixed layer.
+      let fixed = /fixed|sticky/.test(cs.position);
+      const v = { left: r.left, top: r.top, right: r.right, bottom: r.bottom };
+      for (let a = el.parentElement; a && a !== html; a = a.parentElement) {
+        const s = getComputedStyle(a);
+        if (/fixed|sticky/.test(s.position)) fixed = true;
+        if (s.overflowX !== 'visible' || s.overflowY !== 'visible') {
+          const ar = a.getBoundingClientRect();
+          Object.assign(v, { left: Math.max(v.left, ar.left), top: Math.max(v.top, ar.top), right: Math.min(v.right, ar.right), bottom: Math.min(v.bottom, ar.bottom) });
+        }
+      }
+      if (v.right - v.left > 0 && v.bottom - v.top > 0) inter.push({ el, r: v, box: box(r), fixed });
+      // A link inside a sentence is exempt (WCAG 2.5.8 inline exception).
+      const inline = cs.display === 'inline' && el.parentElement && ownText(el.parentElement);
+      if (touch && !inline && (r.width < 44 || r.height < 44)) add(out.touch, { selector: sel(el), box: box(r) });
+    }
+  }
+  // Containment allows 4 px of slack (a caption link laid over its image link); two links to
+  // the same href do the same thing wherever they are tapped. A fixed or sticky bar covers the
+  // content scrolling under it by design, so a pair is checked only within the same kind of layer.
+  const inside = (a, b) => a.left - 4 <= b.left && a.top - 4 <= b.top && a.right + 4 >= b.right && a.bottom + 4 >= b.bottom;
+  const sameHref = (a, b) => a.localName === 'a' && b.localName === 'a' && a.href && a.href === b.href;
+  for (let i = 0; i < inter.length; i++) {
+    for (let j = i + 1; j < inter.length; j++) {
+      const A = inter[i], B = inter[j];
+      const ox = Math.min(A.r.right, B.r.right) - Math.max(A.r.left, B.r.left);
+      const oy = Math.min(A.r.bottom, B.r.bottom) - Math.max(A.r.top, B.r.top);
+      if (ox <= 4 || oy <= 4 || A.fixed !== B.fixed) continue;
+      if (A.el.contains(B.el) || B.el.contains(A.el) || inside(A.r, B.r) || inside(B.r, A.r) || sameHref(A.el, B.el)) continue;
+      add(out.overlap, { selector: sel(A.el), box: A.box, other: sel(B.el), otherBox: B.box });
+    }
+  }
+  return out;
+}
+
+async function runAxe({ ignores, max }) {
+  const ctx = ignores.length ? { exclude: ignores.map((s) => [s]) } : document;
+  const res = await window.axe.run(ctx, { runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag22aa'] }, resultTypes: ['violations'] });
+  const find = (t) => { try { return typeof t === 'string' ? document.querySelector(t) : null; } catch { return null; } };
+  const box = (el) => {
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    return [r.x, r.y, r.width, r.height].map(Math.round);
+  };
+  return res.violations.map((v) => {
+    const rule = { id: v.id, impact: v.impact, count: v.nodes.length };
+    if (v.id === 'color-contrast' || v.id === 'target-size') {
+      rule.examples = v.nodes.slice(0, Math.min(3, max)).map((n) => {
+        const d = (n.any[0] || n.none[0] || n.all[0] || {}).data || {};
+        const t = n.target[n.target.length - 1];
+        const el = find(t);
+        const ex = { selector: el && window.__uiCheckSel ? window.__uiCheckSel(el) : [].concat(t).join(' >>> '), box: box(el) };
+        if (v.id === 'color-contrast') Object.assign(ex, { ratio: d.contrastRatio, need: parseFloat(d.expectedContrastRatio), fg: d.fgColor, bg: d.bgColor });
+        else Object.assign(ex, { size: d.width && d.height ? [Math.round(d.width), Math.round(d.height)] : undefined, min: d.minSize });
+        return ex;
+      });
+    }
+    return rule;
+  });
+}
+
+async function checkViewport(browser, deps, o, width, theme) {
+  // Phone widths get a phone UA and touch, so sites that serve a separate mobile page are checked
+  // on it. No isMobile: it widens the layout viewport to fit overflowing content and hides overflow.
+  const phone = width <= 480;
+  const height = phone ? 812 : 900;
+  const ctx = await browser.newContext({ viewport: { width, height }, colorScheme: theme,
+    ...(phone ? { hasTouch: true, userAgent: deps.phoneUA } : {}),
+    ...(o.storage ? { storageState: o.storage } : {}) });
+  try {
+    const page = await ctx.newPage();
+    const errors = [];
+    page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+    page.on('pageerror', (e) => errors.push(String(e && e.message || e)));
+    let resp;
+    try { resp = await page.goto(o.url, { waitUntil: 'domcontentloaded', timeout: 30000 }); }
+    catch (e) { throw Object.assign(new Error(`navigation failed: ${e.message.split('\n')[0]}`), { nav: true }); }
+    if (resp && resp.status() >= 400) throw Object.assign(new Error(`navigation failed: HTTP ${resp.status()} for ${o.url}`), { nav: true });
+    await page.waitForLoadState('load', { timeout: 15000 }).catch(() => {});
+    if (o.wait) await page.waitForTimeout(o.wait);
+    const dom = await page.evaluate(domChecks, { ignores: o.ignores, touch: width <= 480, max: MAX });
+    if (dom.badIgnore) throw Object.assign(new Error(`invalid --ignore selector: ${dom.badIgnore}`), { nav: true });
+    // Evaluated through CDP, so a page CSP cannot block it; define/module are shadowed so AMD pages still get window.axe.
+    await page.evaluate(`(function(){var define, module, exports;\n${deps.axeSrc}\n})(); 0`);
+    const axe = await page.evaluate(runAxe, { ignores: o.ignores, max: MAX });
+    const vp = { width, height, theme, dir: dom.dir, lang: dom.lang, pageOverflow: dom.pageOverflow,
+      overflow: dom.overflow, clipped: dom.clipped, overlap: dom.overlap, touch: width <= 480 ? dom.touch : null,
+      rtlTextLeft: dom.rtlTextLeft, console: { count: errors.length, messages: errors.slice(0, 3) },
+      axe: { count: axe.reduce((n, r) => n + r.count, 0), rules: axe } };
+    vp.findings = (vp.pageOverflow ? 1 : 0) + vp.overflow.count + vp.clipped.count + vp.overlap.count +
+      (vp.touch ? vp.touch.count : 0) + vp.rtlTextLeft.count + vp.console.count + vp.axe.count;
+    return vp;
+  } finally {
+    await ctx.close().catch(() => {});
+  }
+}
+
+function fmtBox(b) { return b ? `[${b.join(',')}]` : ''; }
+function clip(s, n = 200) { s = String(s).replace(/[\r\n\t]+/g, ' '); return s.length > n ? s.slice(0, n - 1) + '…' : s; }
+
+function human(o, vps) {
+  const lines = [`ui-check ${o.url}`];
+  const row = (name, c, f) => { if (c && c.count) lines.push(clip(`  ${name} ${c.count}: ${c.examples.slice(0, 3).map(f).join('; ')}`)); };
+  const plain = (e) => `${e.selector} ${fmtBox(e.box)}`;
+  for (const v of vps) {
+    const po = v.pageOverflow ? `  page-overflow ${v.pageOverflow.scrollWidth}>${v.pageOverflow.clientWidth}` : '';
+    lines.push(`${v.width} ${v.theme}  dir=${v.dir || '-'} lang=${v.lang || '-'}${po}  ${v.findings ? `findings ${v.findings}` : 'clean'}`);
+    row('past-viewport', v.overflow, plain);
+    row('clipped-text', v.clipped, plain);
+    row('overlap', v.overlap, (e) => `${e.selector} ${fmtBox(e.box)} x ${e.other} ${fmtBox(e.otherBox)}`);
+    row('touch<44', v.touch, plain);
+    row('rtl text-align:left', v.rtlTextLeft, plain);
+    if (v.console.count) lines.push(clip(`  console-errors ${v.console.count}: ${v.console.messages.map((m) => JSON.stringify(clip(m, 70))).join(' | ')}`));
+    if (v.axe.count) {
+      lines.push(clip(`  axe ${v.axe.rules.length} rules/${v.axe.count} nodes: ${v.axe.rules.map((r) => `${r.id}(${r.impact})x${r.count}`).join(', ')}`, 240));
+      for (const r of v.axe.rules.filter((x) => x.examples)) {
+        const f = r.id === 'color-contrast' ? (e) => `${e.selector} ${e.ratio}:1<${e.need} ${e.fg}/${e.bg} ${fmtBox(e.box)}`
+          : (e) => `${e.selector} ${e.size ? e.size.join('x') : '?'}<${e.min || 24} ${fmtBox(e.box)}`;
+        lines.push(clip(`    ${r.id}: ${r.examples.map(f).join('; ')}`));
+      }
+    }
+  }
+  const total = vps.reduce((n, v) => n + v.findings, 0);
+  lines.push(`total findings ${total} -> exit ${total ? 1 : 0}${o.json ? '' : '  (--json for all fields)'}`);
+  return lines.join('\n');
+}
+
+async function main() {
+  const o = parseArgs(process.argv.slice(2));
+  const deps = loadDeps();
+  let browser;
+  const vps = [];
+  try {
+    browser = await deps.chromium.launch({ headless: true, ignoreDefaultArgs: ['--disable-dev-shm-usage'] });
+    for (const w of o.widths) for (const t of o.themes) vps.push(await checkViewport(browser, deps, o, w, t));
+  } catch (e) {
+    process.stderr.write(`ui-check: ${e.nav ? e.message : (e.stack || e)}\n`);
+    process.exitCode = 2;
+    return;
+  } finally {
+    if (browser) await browser.close().catch(() => {});
+  }
+  const total = vps.reduce((n, v) => n + v.findings, 0);
+  process.stdout.write((o.json ? JSON.stringify({ url: o.url, findings: total, viewports: vps }, null, 2) : human(o, vps)) + '\n');
+  process.exitCode = total ? 1 : 0;
+}
+
+main();

@@ -1,0 +1,27 @@
+<!doctype html>
+<html dir="rtl" lang="he">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ui-check clean fixture</title>
+<style>
+  body { margin: 0; padding: 16px; font: 16px/1.5 sans-serif; color: #111; background: #fff; }
+  button { min-width: 48px; min-height: 48px; margin-block: 8px; }
+  .carousel { display: flex; gap: 12px; overflow-x: auto; }
+  .slide { flex: 0 0 300px; height: 120px; background: #eef; }
+</style>
+</head>
+<body>
+<main>
+  <h1>דף תקין</h1>
+  <p>פסקה רגילה, מיושרת לפי כיוון הדף.</p>
+  <button type="button">שמור</button>
+  <div class="carousel" id="carousel" role="region" aria-label="קרוסלה" tabindex="0">
+    <div class="slide">שקופית 1</div>
+    <div class="slide">שקופית 2</div>
+    <div class="slide">שקופית 3</div>
+    <div class="slide">שקופית 4</div>
+  </div>
+</main>
+</body>
+</html>

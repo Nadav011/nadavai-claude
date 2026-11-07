@@ -1,0 +1,30 @@
+<!doctype html>
+<html dir="rtl" lang="he">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ui-check bad fixture</title>
+<style>
+  body { margin: 0; font: 16px/1.5 sans-serif; color: #111; background: #fff; }
+  .wide { width: 520px; height: 40px; background: #eee; }
+  .tiny { width: 30px; height: 30px; padding: 0; }
+  .clip { width: 80px; white-space: nowrap; overflow: hidden; }
+  .pair button { width: 120px; height: 48px; }
+  .pair .second { margin-inline-start: -60px; }
+  .faint { color: #c8c8c8; }
+  .left { text-align: left; }
+</style>
+</head>
+<body>
+<main>
+  <h1>דף שבור</h1>
+  <div class="wide">פס רחב שבורח לשמאל</div>
+  <button class="tiny" aria-label="סגור">x</button>
+  <p class="clip">טקסט ארוך מאוד שנחתך באמצע השורה</p>
+  <div class="pair"><button class="first">ראשון</button><button class="second">שני</button></div>
+  <p class="faint">טקסט חיוור שקשה לקרוא</p>
+  <p class="left">פסקה מיושרת לשמאל בעמוד מימין לשמאל</p>
+</main>
+<script>console.error('fixture boom');</script>
+</body>
+</html>
