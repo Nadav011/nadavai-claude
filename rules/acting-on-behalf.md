@@ -36,6 +36,8 @@
   into. Never `fill`, type or `auth save
   --password` a password, and never read or print a vault login (`agent-guard.sh` denies it).
   Why: a password in a command or output lands in the transcript.
+- Keys pasted into chat are stopped by secret-paste-guard (UserPromptSubmit), saved to
+  ~/.claude/secrets/pasted-*.env and scrubbed from history; rotate them.
 - Keep logins: run with `--profile ~/.agent-browser/profiles/nadav` so a session survives
   restarts; `--profile Default` takes a read-only copy of his own Chrome when he is already
   logged in there.

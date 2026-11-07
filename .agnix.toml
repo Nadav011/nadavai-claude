@@ -4,9 +4,10 @@
 # hooks/hooks.json is Claude Code's format (event -> groups with matcher). Antigravity reads the
 # root plugins/nadavai/hooks.json, which already uses its own shape (handlers straight under
 # SessionStart and Stop, per https://antigravity.google/docs/hooks). Same for the Claude manifest.
+# AGY-HK-002 flags Claude-only events here (UserPromptSubmit), which Antigravity never reads.
 [[overrides]]
 paths = ["plugins/nadavai/hooks/hooks.json"]
-disabled_rules = ["AGY-HK-001"]
+disabled_rules = ["AGY-HK-001", "AGY-HK-002"]
 
 [[overrides]]
 paths = ["plugins/nadavai/.claude-plugin/plugin.json"]
