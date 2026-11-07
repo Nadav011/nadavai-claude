@@ -1,6 +1,6 @@
 ---
 name: store-apps
-description: "Move a web app into the App Store and Google Play as real store apps, and keep them in step with every web deploy: choose the model (bundled Capacitor app with signed self-hosted OTA, or a remote-URL Capacitor shell with an update-required gate; never a new TWA), set up the shells, build (iOS on Codemagic, Android locally), do the store work through the store APIs first, once a listing is public end the PWA there for every audience and move its users to the store, check the store-installed app really works and is current, and run the OTA step of the deploy service. Use for any native, store, OTA, TestFlight, App Review, Play Console, Meta App Review, platform approval (D-U-N-S, organization or business verification), TWA or PWA-to-store work, a store build or release, or a native change in a repo with live store apps. Triggers: \"store app\", \"להעלות לחנות\", \"אפליקציה בחנות\", \"App Store\", \"Google Play\", \"TestFlight\", \"OTA\", \"live update\", \"TWA\", \"native shell\", \"store build\"."
+description: "Move a web app into the App Store and Google Play as real store apps, and keep them in step with every web deploy: choose the model (bundled app with signed OTA, or a remote-URL shell with an update gate; never a new TWA), set up the shells, build (iOS on Codemagic, Android locally), do the store work through the store APIs first, once a listing is public end the PWA there for every audience and move its users to the store, check the store-installed app really works and is current, and run the OTA step of the deploy service. Use for any native, store, OTA, TestFlight, App Review, Play Console, Meta App Review, platform approval, TWA or PWA-to-store work, a store build or release, or a native change in a repo with live store apps. Also for store listings: ASO, keywords, screenshots, preview video, store copy and store promotion. Triggers: \"store app\", \"להעלות לחנות\", \"App Store\", \"Google Play\", \"TestFlight\", \"OTA\", \"TWA\", \"store build\", \"ASO\", \"צילומי מסך לחנות\", \"מילות חיפוש\"."
 ---
 # store-apps
 
@@ -51,6 +51,21 @@ before it too.
    Done when three things hold: the submission (Apple) or release (Play) is in the state you
    meant, read back through the API; the demo sign-in answered HTTP 200 as a non-privileged
    account; and the switch is off once no review is pending.
+
+4b. **Make the store pages top of the market**: facts, keywords, competitor teardown, copy,
+   screenshots, video and upload ([references/listing.md](references/listing.md)); then ratings,
+   free promotion levers and measurement ([references/promotion.md](references/promotion.md)).
+   Every submission and every new app gets this pass, in Hebrew first and real en-GB copy second.
+   Why: Nadav, 7.11.2026: listings must match the best apps on the market, and every claim must be
+   true.
+   Done when:
+   - every claim in every field, caption and video maps to a verified fact-sheet entry approved
+     by Nadav or the owner;
+   - keywords respect the byte limit and the no-repeat rules, and a rank check before and after
+     is saved;
+   - the first three screenshots pass the strip test;
+   - Nadav saw the full listing before upload;
+   - each upload was read back through the API.
 
 5. **End the PWA and move its users** ([references/pwa-to-store.md](references/pwa-to-store.md)).
    - Keep the PWA install on a platform until its listing is public (`rules/store-apps.md`).

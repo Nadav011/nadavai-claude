@@ -54,8 +54,8 @@ Chrome refuses passwords and can be blocked by a password manager's overlay.
 ## Traps
 
 - **Screenshots come from a synthetic backend only.** Never real client data. Look at every image
-  before upload: a 404 page once went into a live listing. Apple's required iPhone set is 6.9"
-  (1320×2868). Play refuses phone screenshots whose long side is more than twice the short side,
+  before upload: a 404 page once went into a live listing. Apple names the 6.1" Dynamic Island set as required and fills it by scaling, so upload one 6.9"
+  set (1320×2868) and confirm in ASC that it was accepted (listing.md, step 5). Play refuses phone screenshots whose long side is more than twice the short side,
   so render Play's set at 2:1 or squarer.
 - **"Ready for Distribution" is not "on sale".** A version with empty availability shows "Removed
   from App Store". Read `/v2/appAvailabilities` before saying an app is live.
