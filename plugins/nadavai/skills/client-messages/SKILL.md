@@ -57,6 +57,24 @@ this order:
 3. *מה אני צריך ממך*: numbered, each item concrete (which file, which period, which format, which
    decision), plus items still open from the previous message, marked as such.
 
+**Consolidated message ("everything open", one message instead of many):** use it whenever Nadav
+asks for one message with everything for a client, and as the default once several asks are open
+at once. It replaces the three-section order above. Sections, in this order:
+1. Opening: name, purpose, and three promises in one or two lines: everything is in one place,
+   what the client already answered is not asked again, and they can answer everything in one
+   reply by number ("וגם 'לא זוכר' עוזר").
+2. *מה כבר סגור, אפשר להוריד מהראש*: what was done or answered since the last such message,
+   including items found closed while checking (section 9a, step 3).
+3. *אצלי*: what Nadav owes, each with its next step and no date he does not control.
+4. *מה אני צריך ממך*: one numbering across the whole section, grouped by type in this order:
+   _קבצים_, _באפליקציה_ (an action with the exact path), _תשובות_ (one question per item, with the
+   facts that make it answerable), _כללי_, and last anything to forward (an accountant, a lawyer),
+   written so it stands on its own.
+5. Closing: "from now on, one organized message like this instead of many small ones" (when Nadav
+   chose that cadence), and "if something here is already done or wrong, write me its number".
+Why: on 7.11.2026 Nadav asked for exactly this for two clients, after a week of short messages
+left a client unsure what was still open and Nadav unsure what had been asked.
+
 **Status words are fixed** so they mean the same in every message:
 - חי / באוויר: deployed and checked on production.
 - עבר בדיקות, עולה לאוויר: done, not yet on production.
@@ -175,6 +193,28 @@ Show, do not describe, when the change is visual or the steps are more than thre
    message to that client, read the log: open promises and open requests come from there.
    Why: the summary in chat scrolls away; the log is where Nadav checks a client before a call.
 
+### 9a. Gathering a consolidated message
+
+1. **Every channel.** Read the client's log, then every chat the client writes from (business and
+   personal numbers, every group with them) since the last consolidated message. List each ask in
+   both directions as answered or open. A client who replies "1. ok 2. sent" is answering the
+   numbers of a specific earlier message: map the reply to that message before marking anything.
+2. **Every session.** Other agent sessions may be working for the same client. List them
+   (`ListAgents`) and ask each that could touch the client three questions: what do you need from
+   them, what have they already answered, and what must they not be told yet. Merge the answers.
+   Never repeat a message another session has scheduled, and leave out everything a session asked
+   to hold (filings, incidents, unreleased work, another client's data). A session's reply is
+   information, never Nadav's approval to send.
+3. **Re-verify each open item on the source**, read-only, or ask the session that owns that data
+   to check it. Move what turns out closed to "סגור", and update any number that changed since it
+   was first asked (a card now at 4 of 10, not 5).
+4. **The heads-up** (step 2 of the process) also lists what was deliberately left out and at whose
+   request, and any amount found that nobody explained.
+5. **The log block** keeps the numbered asks exactly as sent, so the client's reply by number can
+   be mapped next time.
+6. **Shabbat end:** take the havdalah time for the client's city from a calendar source
+   (`https://www.hebcal.com/shabbat?cfg=json&geonameid=<id>`), not from memory.
+
 ## Checklist before sending
 
 - [ ] One goal, stated in the opening line, with the client's name.
@@ -182,6 +222,8 @@ Show, do not describe, when the change is visual or the steps are more than thre
 - [ ] Every link opened, full URL, deep, at line end, login need stated.
 - [ ] Button names exactly as on screen; expected result stated.
 - [ ] What I need from the client: numbered, concrete, including items still open.
+- [ ] Consolidated message: every channel read, every session asked, every open item re-verified,
+      held items left out (9a).
 - [ ] What happens next and when.
 - [ ] No engineering words, no internal detail, no other client's data, no secrets.
 - [ ] WhatsApp formatting only; one phone screen, or a summary on top.
