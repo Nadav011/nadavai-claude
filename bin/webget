@@ -26,7 +26,8 @@ CHAINS = {"youtube": ["youtube"], "reddit": ["browser", "brightdata"], "x": ["br
 STRONG = ("just a moment", "attention required")  # challenge titles
 WEAK = ("captcha", "enable javascript", "enable js")  # challenge words, only on short pages
 TOKEN_RE = re.compile(r"\s*(?:export\s+)?BRIGHTDATA_API_TOKEN=(.*)")
-MARK_RE = re.compile(r"^.*UNTRUSTED_\w*_(?:BEGIN|END).*(?:\n|$)", re.M)
+# Marker tokens, also with markdown-escaped underscores (WEBGET\_UNTRUSTED\_...); the rest of the line stays.
+MARK_RE = re.compile(r"=*(?:\w|\\_)*UNTRUSTED\\?_(?:\w|\\_)*?(?:BEGIN|END)=*")
 CJK_RE = re.compile(r"[　-ヿ㐀-鿿가-힯＀-￯]")
 ENV_TOKEN = ""  # BRIGHTDATA_API_TOKEN taken out of our environment at startup, for mcporter only
 CUR = {}  # the running backend: child pid and work dir, cleaned by run_limited and on signals
@@ -54,15 +55,16 @@ def route(url):
 
 
 def private(url):
-    """True for URLs that must never leave this machine: userinfo, local names, non-global addresses."""
+    """True for URLs that must never leave this machine: userinfo, single-label and local names,
+    hosts that do not resolve here (an intranet name with the VPN down), non-global addresses."""
     u = urlsplit(url)
     h = (u.hostname or "").lower().rstrip(".")
-    if "@" in u.netloc or h == "localhost" or h.endswith((".localhost", ".local", ".internal", ".lan", ".home.arpa")):
+    if "@" in u.netloc or ("." not in h and ":" not in h) or h.endswith((".localhost", ".local", ".internal", ".lan", ".home.arpa")):
         return True
     try:
         ips = [ipaddress.ip_address(ai[4][0].split("%")[0]) for ai in socket.getaddrinfo(h, None)]
     except (OSError, UnicodeError, ValueError):
-        return False  # unresolvable here: the local backends cannot reach it either
+        return True
     return any(not (getattr(ip, "ipv4_mapped", None) or ip).is_global for ip in ips)
 
 
@@ -253,40 +255,44 @@ def fetch_brightdata(url, a):
                         "scrape_as_markdown", "--args", json.dumps({"url": url})],
                        env=env, capture_output=True, text=True, timeout=TIMEOUT)
     out, err = (p.stdout or "").replace(tok, "***"), (p.stderr or "").replace(tok, "***")
-    got = bd_unwrap(out) if not p.returncode else None
-    if got:
-        return {"status": 200, "title": got[0], "content": got[1]}
-    bad = r"Customer is not active|URL rejected|OAuth|Unauthori[sz]ed|\b40[013]\b|^\s*(?:\w*Error|\[mcporter\])"
-    if p.returncode or not out.strip() or re.search(bad, out[:600] + "\n" + err[:600], re.I | re.M):
-        raise RuntimeError("Bright Data: " + one_line(out or err or f"exit {p.returncode}"))
-    m = re.search(r"^#\s+(.+)$", out, re.M)
-    return {"status": 200, "title": one_line(m[1], 200) if m else "", "content": out.strip()}
+    got = bd_unwrap(out)  # success is a reply that unwraps to content; stderr is only diagnostics
+    if not got:
+        raise RuntimeError(f"Bright Data (exit {p.returncode}): " + one_line(out or err or "no reply"))
+    return {"status": 200, "title": got[0], "content": got[1]}
 
 
 BACKENDS = {"http": fetch_http, "browser": fetch_browser, "youtube": fetch_youtube, "brightdata": fetch_brightdata}
 
 
 def proc_table():
-    """{pid: (ppid, state, cmdline bytes)} from /proc."""
+    """{pid: (ppid, state, argv list, environ list)} from /proc; environ is empty where it is not readable."""
     t = {}
     for d in filter(str.isdigit, os.listdir("/proc")):
         with contextlib.suppress(OSError, ValueError, IndexError), open(f"/proc/{d}/stat") as f, \
                 open(f"/proc/{d}/cmdline", "rb") as c:
-            rest = f.read().rsplit(")", 1)[1].split()
-            t[int(d)] = (int(rest[1]), rest[0], c.read())
+            rest, env = f.read().rsplit(")", 1)[1].split(), b""
+            with contextlib.suppress(OSError), open(f"/proc/{d}/environ", "rb") as e:
+                env = e.read()
+            t[int(d)] = (int(rest[1]), rest[0], c.read().split(b"\0"), env.split(b"\0"))
     return t
 
 
-def kill_tree(root, also=b""):
+def kill_tree(root, work=""):
     """SIGKILL root and its descendants (Playwright starts Chromium in a session of its own, so killpg
-    misses it), plus any process whose cmdline mentions `also`; then wait until they are gone."""
+    misses it), plus every process that runs with TMPDIR=<work> or a --user-data-dir=<work>/ argument
+    (backend children and the browsers they started), never this process or its ancestors; then wait."""
     t = proc_table()
     victims, todo = set(), [root] if root else []
     while todo:
         p = todo.pop(); victims.add(p)
-        todo += [c for c, (pp, _, _) in t.items() if pp == p and c not in victims]
-    if also:
-        victims |= {p for p, (_, _, cmd) in t.items() if also in cmd and p != os.getpid()}
+        todo += [c for c, (pp, _, _, _) in t.items() if pp == p and c not in victims]
+    if work:
+        env, udd = b"TMPDIR=" + work.encode(), b"--user-data-dir=" + work.encode() + b"/"
+        victims |= {p for p, (_, _, argv, environ) in t.items()
+                    if env in environ or any(arg.startswith(udd) for arg in argv)}
+    p = os.getpid()
+    while p > 1:  # never ourselves or an ancestor (a shell that ran us)
+        victims.discard(p); p = t.get(p, (1,))[0]
     for p in victims:
         with contextlib.suppress(OSError):
             os.kill(p, signal.SIGKILL)
@@ -298,12 +304,20 @@ def kill_tree(root, also=b""):
         time.sleep(0.05)
 
 
+def remove_dir(d):
+    for _ in range(5):  # a browser that is still dying can write into it while rmtree runs
+        shutil.rmtree(d, ignore_errors=True)
+        if not os.path.exists(d):
+            return
+        time.sleep(0.2)
+
+
 def cleanup():
     pid, work = CUR.pop("pid", None), CUR.pop("work", None)
     if pid or work:
-        kill_tree(pid, work.encode() if work else b"")
+        kill_tree(pid, work or "")
     if work:
-        shutil.rmtree(work, ignore_errors=True)
+        remove_dir(work)
 
 
 def sweep():
@@ -314,10 +328,10 @@ def sweep():
             if not os.path.exists(f"{d}/owner"):
                 if time.time() - os.path.getmtime(d) < 60:
                     continue  # just created, owner file not written yet
-            elif b"webget" in t.get(int(open(f"{d}/owner").read()), (0, "", b""))[2]:
+            elif any(b"webget" in arg for arg in t.get(int(open(f"{d}/owner").read()), (0, "", [], []))[2]):
                 continue  # its webget still runs
-            kill_tree(0, d.encode())
-            shutil.rmtree(d, ignore_errors=True)
+            kill_tree(0, d)
+            remove_dir(d)
 
 
 def child(fn, url, a, work, w):
