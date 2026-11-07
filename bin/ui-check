@@ -112,9 +112,10 @@ function domChecks({ ignores, phone, max }, hold) {
   const flagged = new Set(), offFlagged = new Set(), cutFlagged = new Set(), clippedSet = new Set();
   const inter = [];
   // tabindex=-1 marks a focus target for scripts (carousel slides, regions), not a control; so does an a without href.
-  const isInter = (el) => el.matches('a[href], button, input:not([type="hidden"]), select, textarea, summary, ' +
+  const CTRL = 'a[href], button, input:not([type="hidden"]), select, textarea, summary, ' +
     '[contenteditable]:not([contenteditable="false"]), [role="button"], [role="link"], [role="tab"], [role="checkbox"], ' +
-    '[role="switch"], [role="menuitem"], [tabindex]:not([tabindex^="-"])');
+    '[role="switch"], [role="menuitem"], [tabindex]:not([tabindex^="-"])';
+  const isInter = (el) => el.matches(CTRL);
   const clipsX = (s) => /hidden|clip/.test(s.overflowX), clipsY = (s) => /hidden|clip/.test(s.overflowY);
   const inVp = (r) => r.left >= -1 && r.right <= vw + 1;
   const pad = (a) => { const r = rect(a); const pl = r.left + a.clientLeft, pt = r.top + a.clientTop; return { pl, pt, pr: pl + a.clientWidth, pb: pt + a.clientHeight }; };
@@ -126,13 +127,21 @@ function domChecks({ ignores, phone, max }, hold) {
     return kr.length > 1 && kr.every((r, i) => i === 0 || r.left >= kr[i - 1].right - 1) &&
       kr[kr.length - 1].right - kr[0].left > a.clientWidth + 1 ? kr : null;
   };
-  // A carousel: scroll-snap, a row of slide-sized boxes (each 60% of the width or more) here or one
-  // level down, or a single track moved by a transform (slick, swiper). A row of tabs is not one.
+  // A carousel: scroll-snap on it or its parent, a row of slide-sized boxes (each 60% of the width or
+  // more) here or one level down, or a single track that a script has moved (a non-zero translate) or
+  // that has prev/next controls beside it (slick, swiper). A row of tabs is not one, even on a GPU layer.
   const kinds = new Map(), carousels = new Map();
+  const moved = (p) => {
+    const m = st(p).transform.match(/^matrix(3d)?\(([^)]*)\)/), v = m ? m[2].split(',').map(Number) : [];
+    return m ? (m[1] ? v[12] || v[13] : v[4] || v[5]) !== 0 : false;
+  };
+  const arrows = (a) => [...(a.parentElement || a).querySelectorAll('button, [role="button"], a')].some((b) =>
+    /prev|next|arrow|הקודם|הבא/i.test(`${b.getAttribute('aria-label') || ''} ${typeof b.className === 'string' ? b.className : ''}`));
   const carousel = (a) => carousels.has(a) ? carousels.get(a) : carousels.set(a, st(a).scrollSnapType !== 'none' ||
+    (a.parentElement && a.parentElement !== html && st(a.parentElement).scrollSnapType !== 'none') ||
     [a, a.children.length === 1 ? a.children[0] : null].some((p) => {
       const kr = p && rowOf([...p.children], a);
-      return kr && (kr.every((r) => r.width >= 0.6 * a.clientWidth) || (p !== a && st(p).transform !== 'none'));
+      return kr && (kr.every((r) => r.width >= 0.6 * a.clientWidth) || (p !== a && (moved(p) || arrows(a))));
     })).get(a);
   // Built to scroll sideways: overflow-x auto/scroll and either overflow-y hidden, its own children in a
   // row past its width (a chip row), or a carousel. A vertical shell that also scrolls sideways is not.
@@ -174,8 +183,10 @@ function domChecks({ ignores, phone, max }, hold) {
     if (!visible(el, r) || ignored(el)) continue;
     const cs = st(el);
     const own = ownText(el), ctl = isInter(el);
-    // A fixed or sticky bar, with or without controls in it (the outermost one).
-    if (/fixed|sticky/.test(cs.position) && r.height >= 24 && r.width >= vw / 2 && !barEls.some((b) => b.contains(el))) barEls.push(el);
+    // A fixed or sticky layer (the outermost one): any size when it is or holds a control (a floating
+    // chat button), else a bar at least 24px high and half the viewport wide (a text banner).
+    if (/fixed|sticky/.test(cs.position) && (ctl || el.querySelector(CTRL) || (r.height >= 24 && r.width >= vw / 2)) &&
+        !barEls.some((b) => b.contains(el))) barEls.push(el);
     // Walk the boxes that clip this one: a positioned box skips those below its containing block.
     // A box clipped away whole is fine inside a scroller or carousel; elsewhere a control there is a defect.
     let mode = cs.position, scroller = false, hiddenVp = false, cutAway = false, awayBad = null, cut = null;

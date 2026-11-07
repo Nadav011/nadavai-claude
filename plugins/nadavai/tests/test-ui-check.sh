@@ -104,6 +104,21 @@ for f in menu label rowlabel; do
 done
 "$UI" "$FX/chips.html" --width 375 --json >"$tmp/chips.json"; rc=$?
 expect "scrollable chip row is clean"  0 "$rc"
+# round 3: a small floating button is a bar too; a track on a GPU layer is not a carousel
+"$UI" "$FX/fab.html" --width 375 --json >"$tmp/fab.json"
+expect "footer link under a floating button" True "$(q "$tmp/fab.json" 'any(e.get("fixedBar") and "footer" in e["selector"] and "fab" in e["other"] for e in v["overlap"]["examples"])')"
+"$UI" "$FX/tabsT.html" --width 375 --json >"$tmp/tt.json"
+expect "tab cut in an unmoved track"   True "$(q "$tmp/tt.json" 'v["offscreen"]["count"] + v["clippedByAncestor"]["count"] >= 1')"
+# controls: the same track moved by a script, or with a next button beside it, is a carousel
+sed 's/translateX(0)/translateX(-50px)/' "$here/fixtures/ui-check/tabsT.html" >"$tmp/tmoved.html"
+sed 's#</nav>#</nav><button aria-label="הבא">›</button>#' "$here/fixtures/ui-check/tabsT.html" >"$tmp/tarrow.html"
+for f in tmoved tarrow; do
+  "$UI" "file://$tmp/$f.html" --width 375 --json >"$tmp/$f.json"
+  expect "$f track is a carousel"      0 "$(q "$tmp/$f.json" 'v["offscreen"]["count"] + v["clippedByAncestor"]["count"]')"
+done
+"$UI" "$FX/sticky.html" --width 375 >/dev/null 2>&1; rc=$?
+expect "sticky bar mid-page is clean"  0 "$rc"
+
 # --json escapes C1 controls and bidi overrides; the value survives a parse
 printf '<!doctype html><html lang="en"><meta name="viewport" content="width=device-width"><title>t</title><main><h1>x</h1></main><script>console.error("a\\x85b\\x9bc\\u202ed\\u2066e")</script></html>' >"$tmp/c1.html"
 "$UI" "file://$tmp/c1.html" --width 375 --json >"$tmp/c1.json"
