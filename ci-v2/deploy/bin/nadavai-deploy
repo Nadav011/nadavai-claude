@@ -16,6 +16,10 @@
 #   nadavai-deploy auto                              the timer's pass: deploys main's new head of each
 #                                                    repo with state/<repo>.auto (none by default)
 #   nadavai-deploy repos                             the repos and how each deploys
+#   nadavai-deploy ota <repo> <sha> [--dry-run]      the OTA step alone, for the commit production serves
+#   nadavai-deploy ota-status <repo>                 the store apps' manifests, policy and last bundles
+#   nadavai-deploy ota-rollback <repo> <app> <android|ios> <bundleId|reset> [--runtime runtime-<fp12>]
+#   nadavai-deploy ota-min <repo> <app> <android|ios> <build> [--message "<text>"]
 #
 # A deploy goes only to a sha that is on main (main's head or behind it) AND is the merge commit of
 # a PR into main whose head has every ci/woodpecker/pr/* status and nadavai-security green (rule 7:
@@ -25,6 +29,16 @@
 # reads the repo's token. Then it health-checks production, rolls back to the deployment that was
 # live before on a failed check, appends a line with "live before deploy" to logs/deploys.log, and
 # posts the nadavai-deploy status on the sha ("live: ..." on success).
+#
+# The store apps (therapy-flow-v2 only, 2026-11-07, planning/native-apps-2026-11-06/OTA.md 9.6): after
+# a deploy went live, the same process runs the OTA step for that sha, outside the repo lock (under
+# state/<repo>.ota.lock, and only while the sha is what production serves and the repo is not held).
+# Each app of the sha's native/apps.json builds its bundle in the build sandbox, with its public env
+# (OTA_ENV) only; then tools/ota-step.mjs, as nadavai-upload in a fresh clone of the sha with that
+# bundle copied in, holding secrets/r2-ota.env and the app's secrets/ota-<app>.pem, publishes it to
+# each platform whose runtime already has a production manifest. A runtime with none is a native
+# change: nothing is published and the status says a store build is needed. The nadavai-ota status
+# on the sha says what happened; an OTA failure never touches the web deploy or its exit code.
 #
 # Two more gates run before anything is built (2026-11-04), without the repo lock (a rollback is
 # never kept waiting behind them); under the lock the live commit, the migrations, the hold and the
@@ -89,6 +103,11 @@ declare -A VPROJECT=(
   [sportchat-web]=prj_kEYOco2uR2mGqH0xVQZDlBgXyZQo
 )
 declare -A HOST=([therapy-flow-v2]=medizen.nadavc.ai [cash-next-app]=cash.nadavc.ai [snooker-smart]=greenroom.nadavc.ai [sportchat-web]=www.sporchat.app)
+# The repo whose store apps follow its web deploys over the air, and each app's public build env
+# in secrets/ (the same one its store builds use; fixed here, so a commit cannot pick another file).
+OTA_REPO=therapy-flow-v2
+declare -A OTA_ENV=([medizen]=therapy-flow-v2.build.env [retrobarber]=vitlana-salon-public.env)
+OTA_BUCKET=nadavai-app-updates
 declare -A HEALTH_PATH=([cash-next-app]=/login [snooker-smart]=/ [sportchat-web]=/he)
 # "<code> <redirect url>" when one exact answer is the healthy one; otherwise any 2xx or 3xx.
 declare -A HEALTH_WANT=([cash-next-app]="307 https://cash.nadavc.ai/deliveries")
@@ -106,7 +125,7 @@ MIGRATION_RE='^(.*/)?(supabase/migrations|migrations[^/]*|supabase/release-candi
 
 say() { printf '%s\n' "$*"; }
 err() { printf 'nadavai-deploy: %s\n' "$*" >&2; }
-usage() { sed -n '4,18p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2; exit 2; }
+usage() { sed -n '4,22p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2; exit 2; }
 known() { [ -n "${1:-}" ] && [ -n "${KIND[$1]:-}" ]; }
 # A secrets file is used only when it is this user's and mode 600 (the contract for ~/deploy/secrets).
 secret_ok() { [ -f "$1" ] && [ "$(stat -c '%a %u' "$1" 2>/dev/null)" = "600 $(id -u)" ] || { err "$1 is missing, or not mode 600 and owned by $(id -un)"; return 1; }; }
@@ -122,14 +141,14 @@ ghr() { # gh with three tries: a reset connection must not read as "no such comm
   done
   return 1
 }
-status() { # repo sha state description
-  local d=$4 i
+status() { # repo sha state description [context, default nadavai-deploy]
+  local d=$4 c=${5:-nadavai-deploy} i
   for i in 1 2 3; do
-    ghx api -X POST "repos/$OWNER/$1/statuses/$2" -f state="$3" -f context=nadavai-deploy \
+    ghx api -X POST "repos/$OWNER/$1/statuses/$2" -f state="$3" -f context="$c" \
       -f description="${d:0:140}" >/dev/null 2>&1 && return 0
     [ "$i" = 3 ] || sleep "$RETRY_SLEEP"
   done
-  err "could not post nadavai-deploy=$3 on $1@${2:0:7}"
+  err "could not post $c=$3 on $1@${2:0:7}"
   return 1
 }
 
@@ -699,6 +718,136 @@ clean_exec() {
   exec "$@" 9>&- 8>&-
 }
 
+# ---------------------------------------------------------------- OTA: the store apps
+# The signing and R2 step as nadavai-upload: the upload's hardening, secrets/r2-ota.env as its
+# environment (systemd reads it), and with an app that app's signing key as a systemd credential
+# only this unit reads (OTA_SIGNING_KEY is its path). The bucket is fixed to production and the
+# publisher's other overrides are dropped.
+ota_sandbox() { # app|'' dir -- cmd...: runs in dir/src, writes only under dir
+  local app=$1 d=$2 key=(); shift 3
+  secret_ok "$SECRETS/r2-ota.env" || return 1
+  if [ -n "$app" ]; then secret_ok "$SECRETS/ota-$app.pem" || return 1; key=(-p "LoadCredential=ota-key:$SECRETS/ota-$app.pem"); fi
+  UNIT_N=$((UNIT_N + 1))
+  sudo -n systemd-run --quiet --wait --pipe --collect --service-type=exec --unit="nadavai-deploy-ota-$$-$UNIT_N" \
+    -p User=$UPLOAD_USER -p Group=$UPLOAD_USER -p "WorkingDirectory=$d/src" "${HARDEN[@]}" "${key[@]}" \
+    -p "ReadWritePaths=$d" -p MemoryMax=2G -p RuntimeMaxSec=1200 -p "EnvironmentFile=$SECRETS/r2-ota.env" \
+    -p "Environment=HOME=$d/home PATH=$TOOLS/node/bin:/usr/bin:/bin" \
+    -- /bin/sh -c 'unset OTA_SIGNING_KEY OTA_KEY_DIR OTA_PUBLIC_BASE; export R2_BUCKET='"$OTA_BUCKET"'
+      [ -z "${CREDENTIALS_DIRECTORY:-}" ] || export OTA_SIGNING_KEY="$CREDENTIALS_DIRECTORY/ota-key"; exec "$@"' sh "$@" </dev/null
+}
+ota_registry() { "${GIT[@]}" -C "$MIRROR/$1.git" show "$2:native/apps.json" 2>/dev/null; } # repo rev
+# A fresh clone of sha for the signing step (the build's tree and node_modules never reach it),
+# with the publisher's one dependency, aws4fetch, from the service's pinned tools.
+ota_tree() { # repo sha -> dir (dir/src the clone, dir/home); prints dir on a failure too
+  local d
+  d=$(new_workdir "$1" "$2") || { say "$d"; return 1; }
+  mkdir -p "$d/home" "$d/src/node_modules" && cp -R "$CLI/aws4fetch" "$d/src/node_modules/" || { say "$d"; return 1; }
+  say "$d"
+}
+ota_join() { local IFS=,; say "${*:--}"; }
+# The OTA step of a live commit, in the web build's workdir (installed, owned by the build user):
+# each app's bundle builds there, is copied into a fresh clone and published from it. Posts
+# nadavai-ota and appends one ota line to deploys.log. 0 when no app or platform failed (a native
+# change is not a failure of the step), 1 otherwise.
+ota_step() { # repo sha workdir dry
+  local repo=$1 sha=$2 w=$3 dry=$4 reg apps='' app cmd web d='' ctime out rc res lines r_app r_pf r_res _r state desc
+  local pub=() cur=() kept=() native=() would=() failed=() built=()
+  say "--- OTA: the store apps of ${sha:0:7} (native/apps.json)"
+  if ! reg=$(ota_registry "$repo" "$sha") || ! apps=$(jq -r '.apps | keys[]' <<<"$reg" 2>/dev/null) || [ -z "$apps" ]; then
+    err "OTA: ${sha:0:7} has no readable native/apps.json"; failed+=(apps.json); apps=''
+  fi
+  ctime=$("${GIT[@]}" -C "$MIRROR/$repo.git" show -s --format=%cI "$sha" 2>/dev/null)
+  if [ -n "$apps" ]; then
+    d=$(ota_tree "$repo" "$sha") || { err "OTA: could not make the clone for signing"; failed+=(clone); apps=''; }
+    CUR_UP=$d
+    [ -d "$w/home" ] || sudo -n install -d -o "$BUILD_USER" -g "$BUILD_USER" -m 755 "$w/home" || true
+  fi
+  for app in $apps; do
+    cmd=$(jq -r --arg a "$app" '.apps[$a].buildCommand // empty' <<<"$reg") web=$(jq -r --arg a "$app" '.apps[$a].webDir // empty' <<<"$reg")
+    if ! [[ $app =~ ^[a-z0-9-]+$ ]] || [ -z "${OTA_ENV[$app]:-}" ]; then err "OTA: app '$app' has no build env in OTA_ENV (nadavai-deploy); add one before it can publish"; failed+=("$app"); continue; fi
+    if ! [[ $web =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || [ -z "$cmd" ]; then err "OTA: $app has no buildCommand or an odd webDir ($web)"; failed+=("$app"); continue; fi
+    secret_ok "$SECRETS/${OTA_ENV[$app]}" || { failed+=("$app"); continue; }
+    say "--- OTA: build $app ($cmd) as $BUILD_USER in a sandbox (its public env only)"
+    ( flock 8; sandbox "$w" "$SECRETS/${OTA_ENV[$app]}" -- /bin/bash -c "$cmd" ) 8>"$STATE/build.lock" ||
+      { err "OTA: the $app build failed"; failed+=("$app"); continue; }
+    if ! [ -f "$w/src/$web/index.html" ] || [ -e "$d/src/$web" ] || ! cp -R --no-dereference "$w/src/$web" "$d/src/$web" ||
+      [ -n "$(find "$d/src/$web" ! -type f ! -type d -print -quit)" ]; then
+      err "OTA: $app's $web has no index.html, is tracked in git, or holds a symlink or special file"; failed+=("$app"); continue
+    fi
+    built+=("$app")
+  done
+  if [ "${#built[@]}" -gt 0 ] && ! give_to "$UPLOAD_USER" "$d"; then
+    err "OTA: could not hand the clone to $UPLOAD_USER"; failed+=("${built[@]}"); built=()
+  fi
+  for app in "${built[@]}"; do
+    say "--- OTA: ${dry:+dry run: }sign and publish $app as $UPLOAD_USER (r2-ota.env, ota-$app.pem)"
+    rc=0; out=$(ota_sandbox "$app" "$d" -- "$NODE" "$TOOLS/ota-step.mjs" "$d/src" "$app" "$sha" "$ctime" ${dry:+--dry-run} 2>&1) || rc=$?
+    say "$out" | sed 's/^/  /'
+    lines=$(grep "^RESULT $app " <<<"$out")
+    [ -n "$lines" ] || { err "OTA: the $app step ended $rc before deciding anything"; failed+=("$app"); continue; }
+    while read -r _r r_app r_pf _r r_res _r; do
+      case $r_res in
+        published) pub+=("$r_app/$r_pf") ;; current) cur+=("$r_app/$r_pf") ;; kept) kept+=("$r_app/$r_pf") ;;
+        native-change) native+=("$r_app/$r_pf") ;; would-publish) would+=("$r_app/$r_pf") ;; *) failed+=("$r_app/$r_pf") ;;
+      esac
+    done <<<"$lines"
+  done
+  drop_dir "$d"; CUR_UP=''
+  if [ "${#failed[@]}" -gt 0 ]; then
+    state=failure res=ota-failed desc="OTA failed: $(ota_join "${failed[@]}") (log on the Oracle VM)"
+    [ "${#native[@]}" = 0 ] || desc+="; native change: $(ota_join "${native[@]}")"
+  elif [ "${#native[@]}" -gt 0 ]; then
+    state=failure res=ota-native-change desc="native change: store build needed: $(ota_join "${native[@]}")"
+  else
+    state=success res=ota desc="store apps on ${sha:0:7}"
+  fi
+  [ "${#pub[@]}" = 0 ] || desc+="; published $(ota_join "${pub[@]}")"
+  [ "${#would[@]}" = 0 ] || desc+="; would publish $(ota_join "${would[@]}")"
+  [ "${#cur[@]}" = 0 ] || desc+="; current $(ota_join "${cur[@]}")"
+  [ "${#kept[@]}" = 0 ] || desc+="; a person's rollback kept: $(ota_join "${kept[@]}")"
+  case $res in ota-failed) say "OTA: FAILED: $desc" ;; ota-native-change) say "OTA: STORE BUILD NEEDED: $desc" ;; *) say "OTA: $desc" ;; esac
+  [ -z "$dry" ] || res=ota-dry-run
+  printf '%s\t%s\t%s\t%s\t%s\n' "$(date -u +%FT%TZ)" "$repo" "$sha" "$res" "$desc" >>"$LOGS/deploys.log"
+  [ -n "$dry" ] || status "$repo" "$sha" "$state" "$desc" nadavai-ota
+  [ "${#failed[@]}" = 0 ]
+}
+# The OTA step under state/<repo>.ota.lock, only for the commit production serves and only while
+# the repo is not held or off, so an older deploy's step never publishes over a newer one's. With
+# no workdir (the ota command) it checks out and installs the sha first.
+ota_run() { # repo sha workdir|'' dry
+  local repo=$1 sha=$2 w=$3 dry=$4 live rc
+  trap 'drop_dir "${CUR_UP:-}"; drop_dir "${CUR_WORK:-}"' EXIT
+  { exec 7>"$STATE/$repo.ota.lock" && flock 7; } || { err "OTA: could not take the $repo OTA lock"; return 1; }
+  hold_gate "$repo" "$dry" '' || { err "OTA: no OTA step while deploys of $repo are held or off"; return 3; }
+  live=$(live_of "$repo") && [ -n "$live" ] || { err "OTA: cannot read what production serves; no OTA step"; return 1; }
+  [ "${live#* }" = "$sha" ] || { err "OTA: production serves ${live#* }, not ${sha:0:7}; the OTA step follows only the live commit"; return 4; }
+  if [ -z "$w" ]; then
+    w=$(new_workdir "$repo" "$sha"); rc=$?; CUR_WORK=$w
+    [ "$rc" = 0 ] || { err "OTA: could not check out ${sha:0:7}"; return 1; }
+    secret_ok "$SECRETS/$repo.build.env" && give_to "$BUILD_USER" "$w/src" &&
+      sudo -n install -d -o "$BUILD_USER" -g "$BUILD_USER" -m 755 "$w/home" || { err "could not hand the checkout to $BUILD_USER"; return 1; }
+    say "--- install ${sha:0:7} as $BUILD_USER in a sandbox (no token)"
+    ( flock 8; sandbox "$w" "$SECRETS/$repo.build.env" -- "$TOOLS/bin/pnpm" install --frozen-lockfile ) 8>"$STATE/build.lock" ||
+      { err "the install failed"; return 1; }
+  fi
+  ota_step "$repo" "$sha" "$w" "$dry"
+}
+# The commit's own publisher (scripts/native/ota-publish.mjs) at main's head, in a fresh clone,
+# as nadavai-upload against the production bucket; with an app, holding its signing key.
+ota_cli() { # app|'' -- cmd...
+  local app=$1 d head rc=0; shift 2
+  mkdir -p "$STATE" "$LOGS"
+  mirror_fetch "$OTA_REPO" main || { err "could not fetch main of $OTA_REPO into the mirror"; return 1; }
+  head=$(main_head_of_mirror "$OTA_REPO")
+  say "ota: $OTA_REPO main ${head:0:7}, bucket $OTA_BUCKET" >&2
+  if ! d=$(ota_tree "$OTA_REPO" "$head") || ! give_to "$UPLOAD_USER" "$d"; then
+    err "could not make a clone of main for the OTA publisher"; drop_dir "$d"; return 1
+  fi
+  ota_sandbox "$app" "$d" -- "$@" || rc=$?
+  drop_dir "$d"
+  return "$rc"
+}
+
 # ---------------------------------------------------------------- commands
 main_head_of_mirror() { "${GIT[@]}" -C "$MIRROR/$1.git" rev-parse -q --verify refs/heads/main 2>/dev/null; }
 
@@ -810,7 +959,7 @@ cmd_deploy() { # repo sha [--dry-run] [--auto] [--migration-approved key:reason]
     fi
   fi
   trap - TERM INT HUP PIPE
-  drop_dir "${CUR_UP:-}"; drop_dir "${CUR_WORK:-}"; CUR_WORK='' CUR_UP=''
+  drop_dir "${CUR_UP:-}"; CUR_UP=''
   [ -z "$dry" ] || [ -z "$refused" ] || result="$result ($refused)"
   printf '%s\t%s\t%s\t%s\tlive before deploy: %s\tlive after: %s\tPR #%s\t%ss%s\n' "$(date -u +%FT%TZ)" "$repo" "$sha" \
     "$result" "${live:--}" "${LIVE_AFTER:--}" "${GATE_PR:-?}" "$((SECONDS - t0))" "${approved:+$'\t'migration approved: $approved}" >>"$LOGS/deploys.log"
@@ -832,6 +981,13 @@ cmd_deploy() { # repo sha [--dry-run] [--auto] [--migration-approved key:reason]
       *) status "$repo" "$sha" failure "deploy failed before going live; production unchanged (log on the Oracle VM)" ;;
     esac
   fi
+  # The store apps follow the live web (OTA.md 9.6), in the same checkout, after its status, outside
+  # the repo lock (fd 9). Its result is nadavai-ota; it never undoes the web or changes this exit code.
+  if [ "$result" = live ] && [ "$repo" = "$OTA_REPO" ]; then
+    exec 9>&-
+    ( ota_run "$repo" "$sha" "$CUR_WORK" '' ) || err "OTA: the step ended $?; the web deploy of ${sha:0:7} stands (see nadavai-ota on the commit)"
+  fi
+  drop_dir "${CUR_WORK:-}"; CUR_WORK=''
   exec 1>&3 2>&4
   # A dry run's refusal decides its exit code even when its build failed: a real deploy would
   # have stopped there.
@@ -913,6 +1069,53 @@ cmd_rollback() { # repo id
   printf '%s\t%s\t-\trollback\tlive before deploy: %s\tlive after: %s\n' "$(date -u +%FT%TZ)" "$repo" "${before:--}" "$id" >>"$LOGS/deploys.log"
 }
 
+cmd_ota() { # repo sha [--dry-run]: the OTA step alone, for the commit production serves
+  local repo=${1:-} ref=${2:-} dry='' sha
+  if [ "$repo" != "$OTA_REPO" ] || ! [[ $ref =~ ^[0-9a-f]{7,40}$ ]] || [ $# -gt 3 ] || { [ $# = 3 ] && [ "$3" != --dry-run ]; }; then
+    err "usage: nadavai-deploy ota $OTA_REPO <sha> [--dry-run]"; return 2
+  fi
+  [ -z "${3:-}" ] || dry=1
+  mkdir -p "$STATE" "$LOGS"
+  sha=$(ghr api "repos/$OWNER/$repo/commits/$ref" | jq -r '.sha // empty')
+  [[ $sha =~ ^[0-9a-f]{40}$ ]] || { err "cannot resolve $ref in $OWNER/$repo"; return 75; }
+  mirror_fetch "$repo" "$sha" || { err "could not fetch ${sha:0:7} into the mirror"; return 1; }
+  CUR_WORK='' CUR_UP=''
+  ota_run "$repo" "$sha" '' "$dry"
+}
+cmd_ota_tool() { # ota-status|ota-rollback|ota-min repo [app platform arg [--runtime|--message value]]
+  local what=$1 repo=${2:-} app=${3:-} pf=${4:-} arg=${5:-} opt=() rc=0 apps
+  [ "$repo" = "$OTA_REPO" ] || { err "usage: nadavai-deploy $what $OTA_REPO ... (the one repo with store apps)"; return 2; }
+  if [ "$what" = ota-status ]; then
+    [ $# = 2 ] || { err "usage: nadavai-deploy ota-status $OTA_REPO"; return 2; }
+    mirror_fetch "$repo" main || { err "could not fetch main of $repo into the mirror"; return 1; }
+    apps=$(ota_registry "$repo" main | jq -r '.apps | keys[] | select(test("^[a-z0-9-]+$"))' 2>/dev/null)
+    [ -n "$apps" ] || { err "main of $repo has no readable native/apps.json"; return 1; }
+    # shellcheck disable=SC2016,SC2086  # the loop runs in the sandbox; the app names are checked above
+    ota_cli '' -- /bin/sh -c 'r=0; for a; do "$0" scripts/native/ota-publish.mjs status "$a" --production || r=1; done; exit $r' "$NODE" $apps
+    return
+  fi
+  case $what:$# in
+    ota-rollback:5) [[ $arg =~ ^[A-Za-z0-9._-]{1,128}$ ]] || rc=2 ;;
+    ota-rollback:7) [[ $arg =~ ^[A-Za-z0-9._-]{1,128}$ && $6 = --runtime && $7 =~ ^runtime-[0-9a-f]{12}$ ]] && opt=(--runtime "$7") || rc=2 ;;
+    ota-min:5) [[ $arg =~ ^[0-9]{1,9}$ ]] || rc=2 ;;
+    ota-min:7) [[ $arg =~ ^[0-9]{1,9}$ && $6 = --message && -n ${7// /} ]] && opt=(--message "$7") || rc=2 ;;
+    *) rc=2 ;;
+  esac
+  [ -n "${OTA_ENV[$app]:-}" ] && [[ $pf =~ ^(android|ios)$ ]] || rc=2
+  if [ "$rc" = 2 ]; then
+    err "usage: nadavai-deploy ota-rollback $OTA_REPO <app> <android|ios> <bundleId|reset> [--runtime runtime-<fp12>]"
+    err "       nadavai-deploy ota-min $OTA_REPO <app> <android|ios> <build> [--message \"<text>\"]   (apps: ${!OTA_ENV[*]})"
+    return 2
+  fi
+  mkdir -p "$STATE" "$LOGS"
+  # Never beside a deploy's OTA step; a hold does not stop it (a rollback is what a person does then).
+  { exec 7>"$STATE/$repo.ota.lock" && flock 7; } || { err "could not take the $repo OTA lock"; return 1; }
+  ota_cli "$app" -- "$NODE" scripts/native/ota-publish.mjs "${what#ota-}" "$app" "$pf" "$arg" "${opt[@]}" --production || rc=$?
+  printf '%s\t%s\t-\t%s\t%s %s%s\texit %s\n' "$(date -u +%FT%TZ)" "$repo" "$what" "$app/$pf" "$arg" \
+    "${opt[1]:+ ${opt[0]} ${opt[1]//[$'\t\r\n']/ }}" "$rc" >>"$LOGS/deploys.log"
+  return "$rc"
+}
+
 cmd_auto() {
   local repo head rc
   mkdir -p "$STATE" "$LOGS"
@@ -952,6 +1155,8 @@ main() {
       live_of "$2" || { err "could not read the live deployment and its commit of $2"; return 1; } ;;
     rollback) shift; cmd_rollback "$@" ;;
     auto) cmd_auto ;;
+    ota) shift; cmd_ota "$@" ;;
+    ota-status|ota-rollback|ota-min) cmd_ota_tool "$@" ;;
     repos)
       local r
       for r in $(printf '%s\n' "${!KIND[@]}" | sort); do

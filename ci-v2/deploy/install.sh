@@ -51,6 +51,8 @@ printf '#!/bin/sh\nexec %s/node/bin/node %s/cli/node_modules/pnpm/bin/pnpm.cjs "
 sudo chmod 755 "$T/bin/pnpm"
 
 install -m 755 "$src/bin/nadavai-deploy" ~/deploy/bin/nadavai-deploy
+# The OTA step's driver, run as nadavai-upload (which cannot read /home), so it lives with the tools.
+sudo install -o root -g root -m 644 "$src/tools/ota-step.mjs" "$T/ota-step.mjs"
 sudo ln -sfn /home/ubuntu/deploy/bin/nadavai-deploy /usr/local/bin/nadavai-deploy
 install -d ~/.config/systemd/user
 install -m 644 "$src/systemd/nadavai-deploy-auto.service" "$src/systemd/nadavai-deploy-auto.timer" ~/.config/systemd/user/
@@ -58,4 +60,5 @@ systemctl --user daemon-reload
 # The timer runs every 5 minutes and deploys nothing until a state/<repo>.auto file exists.
 systemctl --user enable --now nadavai-deploy-auto.timer >/dev/null
 echo "installed: node $("$T/node/bin/node" -v), $("$T/gh/bin/gh" --version | head -1), pnpm $("$T/bin/pnpm" -v)," \
-  "wrangler $(jq -r .version "$T/cli/node_modules/wrangler/package.json"), vercel $(jq -r .version "$T/cli/node_modules/vercel/package.json")"
+  "wrangler $(jq -r .version "$T/cli/node_modules/wrangler/package.json"), vercel $(jq -r .version "$T/cli/node_modules/vercel/package.json")," \
+  "aws4fetch $(jq -r .version "$T/cli/node_modules/aws4fetch/package.json")"

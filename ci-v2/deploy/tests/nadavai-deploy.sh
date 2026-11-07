@@ -3,9 +3,9 @@
 # Offline tests of nadavai-deploy. The 37 checks of nadavai-ci's tests/nadavai-ci-hold.sh (9ca934d:
 # lock order, hold, release, hold-status, rollback refusals, pages-live), ported to this service,
 # plus the gate, the dry run, the auto pass, the clean upload environment, and (2026-11-04) the
-# migration gate (on a real git mirror built here) and the nightly gate (stub Woodpecker). A scratch
-# HOME, stub gh, curl and sudo: nothing reaches GitHub, Cloudflare, Vercel, Woodpecker or a real
-# ~/deploy.
+# migration gate (on a real git mirror built here), the nightly gate (stub Woodpecker), and
+# (2026-11-07) the OTA step (stub publisher and stub R2). A scratch HOME, stub gh, curl and sudo:
+# nothing reaches GitHub, Cloudflare, Vercel, Woodpecker, R2 or a real ~/deploy.
 #   tests/nadavai-deploy.sh [path to nadavai-deploy, default ../bin/nadavai-deploy]
 set -u
 umask 077
@@ -498,6 +498,134 @@ check "secrets: a file that is not mode 600 is refused before any call" "1 0" "$
 # The upload tools get only the named variables, never the rest of this process's environment.
 out=$( unset CLOUDFLARE_ACCOUNT_ID; export LEAKY_SECRET=x CLOUDFLARE_API_TOKEN=y HOME=/h PATH=/usr/bin:/bin; clean_exec /usr/bin/env )
 check "clean_exec: only the allowed variables reach the tool" "CLOUDFLARE_API_TOKEN HOME PATH" "$(cut -d= -f1 <<<"$out" | grep -v '^_$\|^PWD$\|^SHLVL$\|^OLDPWD$' | sort | paste -sd' ')"
+
+# ---- OTA: the store apps follow a live deploy. The real ota_step and tools/ota-step.mjs, against
+# a stub publisher in the commit (fixtures/ota: scripts/native/ota-publish.mjs and fingerprint.mjs,
+# native/apps.json, native/runtimes.json) and a stub R2 (files under ~/r2). A stub sudo runs each
+# sandboxed unit in place with env -i, only its Environment=, EnvironmentFile= and credential.
+cat >"$t/bin/sudo" <<'SUDO'
+#!/usr/bin/env bash
+[ "$1" = -n ] && shift
+case $1 in
+  systemd-run) shift; echo "$*" >>"$HOME/sudo.log"
+    wd=/ envf='' cred='' e=()
+    while [ "$1" != -- ]; do
+      if [ "$1" = -p ]; then
+        case $2 in
+          WorkingDirectory=*) wd=${2#*=} ;; EnvironmentFile=*) envf=${2#*=} ;; LoadCredential=*) cred=${2#*=} ;;
+          Environment=*) read -ra x <<<"${2#Environment=}"; e+=("${x[@]}") ;;
+        esac
+        shift
+      fi
+      shift
+    done
+    shift
+    [ -z "$envf" ] || while IFS= read -r l; do case $l in ''|'#'*) ;; *=*) e+=("$l") ;; esac; done <"$envf"
+    if [ -n "$cred" ]; then c=$(mktemp -d "$HOME/cred.XXXXXX"); cp "${cred#*:}" "$c/${cred%%:*}"; e+=("CREDENTIALS_DIRECTORY=$c"); fi
+    cd "$wd" && exec env -i "${e[@]}" "$@" ;;
+  chown|systemctl) exit 0 ;;
+  install) a=(); while [ $# -gt 0 ]; do case $1 in -o|-g) shift ;; *) a+=("$1") ;; esac; shift; done; exec "${a[@]}" ;;
+  chmod|rm) exec "$@" ;;
+  *) exit 1 ;;
+esac
+SUDO
+chmod +x "$t/bin/sudo"
+mkdir -p "$t/tools/node/bin" "$t/tools/bin" "$t/tools/cli/node_modules/aws4fetch" "$t/r2"
+ln -s "$(command -v node)" "$t/tools/node/bin/node"; printf '#!/bin/sh\nexit 0\n' >"$t/tools/bin/pnpm"; chmod +x "$t/tools/bin/pnpm"
+echo '{"name":"aws4fetch","version":"0.0.0-stub"}' >"$t/tools/cli/node_modules/aws4fetch/package.json"
+cp "$(dirname "$0")/../tools/ota-step.mjs" "$t/tools/ota-step.mjs"
+printf 'R2_ACCOUNT_ID=acc\nR2_ACCESS_KEY_ID=zz-fake-r2-id\nR2_SECRET_ACCESS_KEY=zz-fake-r2-secret\nR2_BUCKET=nadavai-app-updates-staging\nOTA_STUB_R2=%s\n' "$t/r2" >"$SECRETS/r2-ota.env"
+for a in medizen retrobarber; do echo "zz-fake-key-$a" >"$SECRETS/ota-$a.pem"; done
+echo 'VITE_APP=medizen-public' >"$SECRETS/$R.build.env"; echo 'VITE_APP=salon-public' >"$SECRETS/vitlana-salon-public.env"
+cp -R "$(dirname "$0")/fixtures/ota/." "$fx/"; git -C "$fx" add -A
+git -C "$fx" -c user.name=t -c user.email=t@t.invalid commit -qm ota; c5=$(git -C "$fx" rev-parse HEAD)
+git -C "$MIRROR/$R.git" fetch -q --update-head-ok "$fx" +main:main
+r2m() { # app platform runtime seq commit action published-at: a production manifest in the stub R2
+  local f=$t/r2/nadavai-app-updates/$1/$2/$3/manifest.json body
+  mkdir -p "$(dirname "$f")"
+  body=$(jq -cn --arg a "$1" --arg p "$2" --argjson s "$4" --arg c "$5" --arg act "$6" --arg at "$7" \
+    '{schema:1, app:$a, platform:$p, seq:$s, action:$act, bundleId:"old", commit:(if $c == "" then null else $c end), publishedAt:$at}')
+  jq -cn --arg b "$body" '{alg:"stub", body:$b, signature:"stub"}' >"$f"
+}
+m2() { local f=$t/r2/nadavai-app-updates/$1/$2/$3/manifest.json; [ -f "$f" ] && jq -r .body "$f" | jq -r '"\(.seq) \(.action) \(.commit)"' || echo none; }
+ostatus() { grep "statuses/$1 .*context=nadavai-ota .*description=$2" "$HOME/gh.log" | grep -c "state=$3"; }
+pubs() { grep -c . "$t/r2/publish.log" 2>/dev/null || echo 0; }
+. "$src"; real_nw=$(declare -f new_workdir); stubs; eval "$real_nw"
+live_of() { echo "live-x $c5"; }
+deploy_pages() { echo "deployed $2" >>"$HOME/deployed"; LIVE_AFTER="new-$2 $2"; return 0; }
+# The store shells out there: medizen android and retrobarber android on an older commit;
+# retrobarber ios behind a person's rollback made after this commit; medizen ios has no manifest
+# for the commit's runtime (its shell changed).
+r2m medizen android runtime-aaaaaaaaaaa1 1 "$c0" apply 2026-11-06T00:00:00Z
+r2m retrobarber android runtime-bbbbbbbbbbb1 1 "$c0" apply 2026-11-06T00:00:00Z
+r2m retrobarber ios runtime-bbbbbbbbbbb2 3 "${c0:0:12}" rollback 2999-01-01T00:00:00Z
+: >"$HOME/deployed"; : >"$HOME/gh.log"; : >"$HOME/sudo.log"
+( cmd_deploy $R "$c5" ) >"$t/ota.out" 2>&1; rc=$?
+check "ota: the deploy goes live and exits 0" "0 deployed $c5 1" "$rc $(cat "$HOME/deployed") $(dstatus "$c5" "live: new-")"
+check "ota: publishes where the runtime has a production manifest" "2 apply $c5|2 apply $c5" "$(m2 medizen android runtime-aaaaaaaaaaa1)|$(m2 retrobarber android runtime-bbbbbbbbbbb1)"
+check "ota: no manifest for the runtime is a native change: nothing published there" "none 0" "$(m2 medizen ios runtime-aaaaaaaaaaa2) $(grep -c 'medizen ios' "$t/r2/publish.log")"
+check "ota: a person's rollback newer than the commit is kept" "3 rollback ${c0:0:12} 0" "$(m2 retrobarber ios runtime-bbbbbbbbbbb2) $(grep -c 'retrobarber ios' "$t/r2/publish.log")"
+check "ota: nadavai-ota says a store build is needed, after the live nadavai-deploy" "1 yes" \
+  "$(ostatus "$c5" "native change: store build needed: medizen/ios; published medizen/android,retrobarber/android" failure) $(
+    [ "$(grep -n 'context=nadavai-deploy .*description=live: ' "$HOME/gh.log" | cut -d: -f1)" -lt "$(grep -n 'context=nadavai-ota' "$HOME/gh.log" | cut -d: -f1)" ] && echo yes)"
+check "ota: the deploy log names it, and deploys.log has an ota line" "1 1" \
+  "$(grep -c 'OTA: STORE BUILD NEEDED: native change' "$t/ota.out") $(grep -c "$c5"$'\tota-native-change\tnative change: store build needed: medizen/ios' "$LOGS/deploys.log")"
+bundle=$t/r2/nadavai-app-updates/medizen/bundles/${c5:0:12}-stub
+check "ota: the bundle built with its public env only, no R2 or GitHub secret" "1 0 0" \
+  "$(grep -c '^VITE_APP=medizen-public$' "$bundle/build-env.txt") $(grep -c 'zz-fake' "$bundle/build-env.txt") $(grep -c 'OTA_STUB_R2\|CREDENTIALS_DIRECTORY' "$bundle/build-env.txt")"
+check "ota: the salon bundle built with the salon env" 1 "$(grep -c '^VITE_APP=salon-public$' "$t/r2/nadavai-app-updates/retrobarber/bundles/${c5:0:12}-stub/build-env.txt")"
+check "ota: the build units get no R2 env and no key; each publish unit gets r2-ota.env and only its app's key" "0 1 1 2" \
+  "$(grep 'nadavai-deploy-build-' "$HOME/sudo.log" | grep -c 'r2-ota\|ota-medizen\|ota-retrobarber\|LoadCredential') $(grep 'nadavai-deploy-ota-' "$HOME/sudo.log" | grep -c "LoadCredential=ota-key:$SECRETS/ota-medizen.pem") $(grep 'nadavai-deploy-ota-' "$HOME/sudo.log" | grep -c "LoadCredential=ota-key:$SECRETS/ota-retrobarber.pem") $(grep 'nadavai-deploy-ota-' "$HOME/sudo.log" | grep -c "EnvironmentFile=$SECRETS/r2-ota.env")"
+check "ota: the publisher writes to the production bucket" 2 "$(grep -c ' nadavai-app-updates$' "$t/r2/publish.log")"
+check "ota: the clones are removed" "" "$(find "$WORK" -mindepth 1 -maxdepth 1 -name "$R-*")"
+
+# Idempotent: the same commit again publishes nothing.
+: >"$HOME/gh.log"
+( cmd_ota $R "$c5" ) >"$t/ota.out" 2>&1; rc=$?
+check "ota: the same commit again is current everywhere and publishes nothing" "0 2 2" "$rc $(pubs) $(grep -c ' current seq 2 apply' "$t/ota.out")"
+check "ota: and posts current on nadavai-ota" 1 "$(ostatus "$c5" "native change: store build needed: medizen/ios; current medizen/android,retrobarber/android" failure)"
+# Dry run: an older manifest would be published over, but nothing is written or posted.
+r2m medizen android runtime-aaaaaaaaaaa1 2 "$c0" apply 2026-11-06T00:00:00Z; : >"$HOME/gh.log"
+( cmd_ota $R "$c5" --dry-run ) >"$t/ota.out" 2>&1; rc=$?
+check "ota: a dry run says it would publish, writes nothing, posts nothing" "0 1 2 2 0" \
+  "$rc $(grep -c 'medizen android runtime-aaaaaaaaaaa1 would-publish over seq 2' "$t/ota.out") $(pubs) $(m2 medizen android runtime-aaaaaaaaaaa1 | cut -d' ' -f1) $(grep -c 'statuses/' "$HOME/gh.log")"
+# An R2 failure: reported loudly, the web deploy stands (no rollback, exit 0, live status).
+: >"$t/r2/fail-medizen"; : >"$HOME/deployed"; : >"$HOME/gh.log"
+( cmd_deploy $R "$c5" ) >"$t/ota.out" 2>&1; rc=$?
+check "ota: a failed publish does not undo the web deploy" "0 deployed $c5 1 0" \
+  "$rc $(cat "$HOME/deployed") $(dstatus "$c5" "live: new-") $(grep -c 'rolled-back\|rolling back' "$t/ota.out")"
+check "ota: the failure is on nadavai-ota, in the log and in deploys.log" "1 1 1" \
+  "$(ostatus "$c5" "OTA failed: medizen/android (log on the Oracle VM); native change: medizen/ios" failure) $(grep -c 'OTA: FAILED' "$t/ota.out") $(grep -c "$c5"$'\tota-failed\t' "$LOGS/deploys.log")"
+rm -f "$t/r2/fail-medizen"
+# A held repo: no deploy, so no OTA step; the ota command refuses too.
+bash "$src" hold $R "ota hold test" >/dev/null 2>&1; : >"$HOME/sudo.log"; : >"$HOME/gh.log"
+( cmd_deploy $R "$c5" ) >/dev/null 2>&1; rc=$?
+( cmd_ota $R "$c5" ) >"$t/ota.out" 2>&1; rc2=$?
+check "ota: held, neither deploy nor ota builds or publishes anything" "3 3 0 2 0" \
+  "$rc $rc2 $(grep -c . "$HOME/sudo.log") $(pubs) $(grep -c 'context=nadavai-ota' "$HOME/gh.log")"
+bash "$src" release $R >/dev/null 2>&1
+( cmd_ota $R "$c4" ) >"$t/ota.out" 2>&1; rc=$?
+check "ota: a commit production does not serve is refused (4), nothing built" "4 0 1" "$rc $(grep -c . "$HOME/sudo.log") $(grep -c 'follows only the live commit' "$t/ota.out")"
+bash "$src" ota cash-next-app "$c5" >/dev/null 2>&1; rc=$?
+check "ota: a repo without store apps is a usage error" 2 "$rc"
+
+# The wrappers: the publisher CLI of main's head, production bucket, the key only where it signs.
+out=$(cmd_ota_tool ota-status $R 2>/dev/null); rc=$?
+check "ota-status: each app's status, production bucket, no key" "0 1 1" \
+  "$rc $(grep -c '^stub status medizen --production bucket=nadavai-app-updates key=none$' <<<"$out") $(grep -c '^stub status retrobarber --production bucket=nadavai-app-updates key=none$' <<<"$out")"
+out=$(cmd_ota_tool ota-rollback $R medizen ios reset 2>/dev/null); rc=$?
+check "ota-rollback: the app's key, production, and a deploys.log line" "0 1 1" \
+  "$rc $(grep -c '^stub rollback medizen ios reset --production bucket=nadavai-app-updates key=zz-fake-key-medizen$' <<<"$out") $(grep -c $'\tota-rollback\tmedizen/ios reset\texit 0$' "$LOGS/deploys.log")"
+out=$(cmd_ota_tool ota-rollback $R retrobarber android 4c1e2d3f4a5b-0f1e2d3c --runtime runtime-bbbbbbbbbbb1 2>/dev/null)
+check "ota-rollback: --runtime is passed on" 1 "$(grep -c '^stub rollback retrobarber android 4c1e2d3f4a5b-0f1e2d3c --runtime runtime-bbbbbbbbbbb1 --production ' <<<"$out")"
+out=$(cmd_ota_tool ota-min $R retrobarber ios 7 --message "update the app" 2>/dev/null); rc=$?
+check "ota-min: the build and the message, with the app's key" "0 1" "$rc $(grep -c '^stub min retrobarber ios 7 --message update the app --production bucket=nadavai-app-updates key=zz-fake-key-retrobarber$' <<<"$out")"
+for a in "ota-rollback $R medizen windows reset" "ota-rollback $R nosuch ios reset" "ota-rollback $R medizen ios ../x" "ota-min $R medizen ios seven" \
+  "ota-min $R medizen ios 7 --runtime x" "ota-status $R extra" "ota-status cash-next-app"; do
+  bash "$src" $a >/dev/null 2>&1; rc=$?
+  check "ota wrappers: '$a' is a usage error" 2 "$rc"
+done
+printf '#!/bin/sh\nexit 1\n' >"$t/bin/sudo"
 
 echo "-- $n checks in all"
 [ "$fail" = 0 ] && echo "all passed"

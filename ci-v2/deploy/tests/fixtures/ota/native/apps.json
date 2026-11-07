@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "updates": {
+    "nadavai-app-updates": "https://updates.test",
+    "nadavai-app-updates-staging": "https://staging.test"
+  },
+  "apps": {
+    "medizen": {
+      "vertical": "clinic",
+      "webDir": "dist",
+      "buildCommand": "mkdir -p dist && echo medizen >dist/index.html && env >dist/build-env.txt",
+      "publicKey": "native/keys/medizen.pub.pem",
+      "platforms": { "android": { "path": "native/medizen/android" }, "ios": { "path": "ios" } }
+    },
+    "retrobarber": {
+      "vertical": "salon",
+      "webDir": "dist-salon-client",
+      "buildCommand": "mkdir -p dist-salon-client && echo retrobarber >dist-salon-client/index.html && env >dist-salon-client/build-env.txt",
+      "publicKey": "native/keys/retrobarber.pub.pem",
+      "platforms": { "android": { "path": "android" }, "ios": { "path": "native/salon/ios" } }
+    }
+  }
+}
