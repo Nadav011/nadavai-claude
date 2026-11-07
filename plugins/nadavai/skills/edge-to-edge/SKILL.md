@@ -8,13 +8,7 @@ license: Complete terms in LICENSE.txt
 metadata:
   author: Google LLC
   last-updated: '2026-08-24'
-  keywords:
-  - android
-  - compose
-  - system bars
-  - edge-to-edge
-  - status bar
-  - navigation bar
+  keywords: android, compose, system bars, edge-to-edge, status bar, navigation bar
 ---
 
 ## Prerequisites

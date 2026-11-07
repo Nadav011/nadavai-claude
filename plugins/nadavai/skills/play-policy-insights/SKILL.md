@@ -5,38 +5,7 @@ license: Complete terms in LICENSE.txt
 metadata:
   author: Google LLC
   last-updated: '2026-07-13'
-  keywords:
-  - account deletion
-  - accessibility api
-  - all files access
-  - audio recording
-  - audit
-  - compliance
-  - contacts access
-  - data disclosure
-  - data safety
-  - data safety label
-  - data transmission
-  - demo credentials
-  - exact alarm
-  - foreground services
-  - location access
-  - login credentials
-  - manifest hygiene
-  - package visibility
-  - permissions hygiene
-  - photo and video access
-  - photopicker
-  - play policy
-  - pre-submission audit
-  - privacy policy
-  - prominent disclosure
-  - restricted permissions
-  - scoped storage
-  - sms and call log
-  - static analysis
-  - target sdk
-  - user consent
+  keywords: account deletion, accessibility api, all files access, audio recording, audit, compliance, contacts access, data disclosure, data safety, data safety label, data transmission, demo credentials, exact alarm, foreground services, location access, login credentials, manifest hygiene, package visibility, permissions hygiene, photo and video access, photopicker, play policy, pre-submission audit, privacy policy, prominent disclosure, restricted permissions, scoped storage, sms and call log, static analysis, target sdk, user consent
 ---
 
 # Play Policy Insights: data safety, login credentials, and restricted permissions

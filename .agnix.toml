@@ -1,0 +1,28 @@
+# agnix config for nadavai. Each override names a rule that misfires on a file here, and why.
+# Run: agnix <paths you touched>  (rules/nadavai.md)
+
+# hooks/hooks.json is Claude Code's format (event -> groups with matcher). Antigravity reads the
+# root plugins/nadavai/hooks.json, which already uses its own shape (handlers straight under
+# SessionStart and Stop, per https://antigravity.google/docs/hooks). Same for the Claude manifest.
+[[overrides]]
+paths = ["plugins/nadavai/hooks/hooks.json"]
+disabled_rules = ["AGY-HK-001"]
+
+[[overrides]]
+paths = ["plugins/nadavai/.claude-plugin/plugin.json"]
+disabled_rules = ["AGY-PL-002"]
+
+# The Vercel skills ship a compiled AGENTS.md inside the skill folder. Codex's project_doc limit
+# applies to AGENTS.md on the path from the repo root to the cwd, not to skill references, and
+# the wording ("often", "sometimes") is upstream's.
+[[overrides]]
+paths = ["plugins/nadavai/skills/vercel-react-*/AGENTS.md"]
+disabled_rules = ["CDX-AG-009", "CDX-AG-010", "PE-004"]
+
+# Example paths, not author paths: a glob over Orca profiles, and Next's app/home/page.tsx.
+[[overrides]]
+paths = [
+  "plugins/nadavai/skills/machine-provision/**",
+  "plugins/nadavai/skills/nadav-design/**",
+]
+disabled_rules = ["XP-SK-002"]

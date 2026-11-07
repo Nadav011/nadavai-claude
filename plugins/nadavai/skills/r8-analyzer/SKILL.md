@@ -9,15 +9,7 @@ license: Complete terms in LICENSE.txt
 metadata:
   author: Google LLC
   last-updated: '2026-10-24'
-  keywords:
-  - R8
-  - proguard
-  - keep rules
-  - app size
-  - optimization
-  - shrinking
-  - minification
-  - obfuscation
+  keywords: R8, proguard, keep rules, app size, optimization, shrinking, minification, obfuscation
 ---
 
 ## Step 1. Setup and configuration check

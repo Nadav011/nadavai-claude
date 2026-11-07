@@ -7,13 +7,7 @@ license: Complete terms in LICENSE.txt
 metadata:
   author: Google LLC
   last-updated: '2026-09-18'
-  keywords:
-  - Android Gradle Plugin 9
-  - AGP 9
-  - AGP Upgrade
-  - AGP Migration
-  - New AGP DSL
-  - Migrate to built-in Kotlin
+  keywords: Android Gradle Plugin 9, AGP 9, AGP Upgrade, AGP Migration, New AGP DSL, Migrate to built-in Kotlin
 ---
 
 ## Migration guide

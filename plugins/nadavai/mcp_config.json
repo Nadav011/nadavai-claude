@@ -5,11 +5,11 @@
     },
     "nadavai-playwright": {
       "command": "npx",
-      "args": ["@playwright/mcp@latest"]
+      "args": ["@playwright/mcp@0.0.84"]
     },
     "nadavai-chrome-devtools": {
       "command": "npx",
-      "args": ["-y", "chrome-devtools-mcp@latest"]
+      "args": ["-y", "chrome-devtools-mcp@1.12.0"]
     },
     "nadavai-scrapling": {
       "command": "scrapling",
