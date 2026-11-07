@@ -747,8 +747,8 @@ check "ota-rollback: --runtime is passed on" "0 1" "$rc $(grep -c '^rollback ret
 # say that the next deploy's step would publish over it.
 mkdir "$S/$R.ota-hold.retrobarber.ios"
 ( cmd_ota_tool ota-rollback $R retrobarber ios reset --runtime runtime-bbbbbbbbbbb2 ) >"$t/ota.out" 2>&1; rc=$?
-check "ota-rollback: a hold file that cannot be written fails (1) and says why it matters" "1 1 1" \
-  "$rc $(grep -c '^rollback retrobarber ios reset runtime-bbbbbbbbbbb2 ' "$t/r2/publish.log") $(grep -c "could not be written, so the next deploy's OTA step would publish over it" "$t/ota.out")"
+check "ota-rollback: a hold file that cannot be written exits 4 (published, not held) with its cause and why it matters" "4 1 1" \
+  "$rc $(grep -c '^rollback retrobarber ios reset runtime-bbbbbbbbbbb2 ' "$t/r2/publish.log") $(grep -c "could not be written (.*Is a directory.*), so the next deploy's OTA step would publish over it" "$t/ota.out")"
 rmdir "${S:?}/$R.ota-hold.retrobarber.ios"
 rm -f "${S:?}/$R.ota-hold."*
 out=$(cmd_ota_tool ota-min $R retrobarber ios 7 --message "update the app" 2>/dev/null); rc=$?
@@ -782,6 +782,25 @@ check "rollback: with no OTA step recorded it says OTA unknown and points at ota
 echo "$(uuid 1)" >"$t/cf/canonical"; n0=$(pubs)
 ( cmd_rollback $R "$tgt" --with-ota ) >"$t/ota.out" 2>&1; rc=$?
 check "rollback --with-ota: with nothing recorded it fails (1) and runs no ota-rollback" "1 $n0" "$rc $(pubs)"
+# Part of the state lost: production serves c5 again (its registry has four platforms), and only
+# medizen/android has a record. The other three are unknown, never "need no rollback".
+tgt2=$(uuid 42); echo "$c5" >"$t/cf/commit-$tgt2"; echo runtime-aaaaaaaaaaa1 >"$S/$R.ota-runtime.medizen.android"
+printf 'medizen android runtime-aaaaaaaaaaa1 %s-c5b %s\nmedizen android runtime-aaaaaaaaaaa1 %s-c0b %s\n' "${c5:0:12}" "$c5" "${c0:0:12}" "$c0" >"$S/$R.ota-bundles"
+echo "$(uuid 1)" >"$t/cf/canonical"
+( cmd_rollback $R "$tgt2" ) >"$t/ota.out" 2>&1; rc=$?
+check "rollback: a platform with no record is unknown; the recorded one still gets its ota-rollback" "0 3 1 0" \
+  "$rc $(grep -c "^OTA: unknown for \(medizen/ios\|retrobarber/android\|retrobarber/ios\), no OTA step recorded" "$t/ota.out") $(grep -c "^  nadavai-deploy ota-rollback $R medizen android ${c5:0:12}-c5b --runtime runtime-aaaaaaaaaaa1$" "$t/ota.out") $(grep -c 'need no rollback' "$t/ota.out")"
+# --with-ota: the recorded platform is published but its hold cannot be written (exit 4 from
+# ota-rollback), so it must not be published again; the unknown ones make it exit 1.
+mkdir "$S/$R.ota-hold.medizen.android"; echo "$(uuid 1)" >"$t/cf/canonical"
+( cmd_rollback $R "$tgt2" --with-ota ) >"$t/ota.out" 2>&1; rc=$?
+check "rollback --with-ota: unknown platforms fail it; a published rollback without its hold says not to run it again" "1 1 1 1 0" \
+  "$rc $(grep -c "^rollback medizen android ${c5:0:12}-c5b runtime-aaaaaaaaaaa1 " "$t/r2/publish.log") $(grep -c 'cannot cover medizen/ios,retrobarber/android,retrobarber/ios' "$t/ota.out") $(grep -c 'was published, but its hold was not written: do not run it again' "$t/ota.out") $(grep -c 'run it again by hand' "$t/ota.out")"
+rmdir "${S:?}/$R.ota-hold.medizen.android"
+printf 'medizen android runtime-aaaaaaaaaaa1 %s-c5b %s\n' "${c5:0:12}" "$c5" >"$S/$R.ota-bundles"; echo "$(uuid 1)" >"$t/cf/canonical"
+( cmd_rollback $R "$tgt2" ) >"$t/ota.out" 2>&1; rc=$?
+check "rollback: nothing recorded to roll back, but platforms unknown: says so, not 'need no rollback'" "0 1 0" \
+  "$rc $(grep -c 'no recorded platform needs a rollback' "$t/ota.out") $(grep -c 'need no rollback' "$t/ota.out")"
 rm -f "${S:?}/$R.ota-hold."*; stubs; eval "$real_nw"; live_of() { echo "live-x $(cat "$HOME/live-commit")"; }
 
 # A TERM during the OTA step: its units are stopped, nadavai-ota says it was interrupted.
@@ -840,6 +859,22 @@ check "real publisher: a public key that is a symlink is refused" 1 "$(rp "$rt/a
 rm -f "${rr:?}/native/keys/medizen.pub.pem"; cp "$rt/a.pub.pem" "$rr/native/keys/medizen.pub.pem"
 ln -s /etc/hostname "$rr/native/medizen/android/leak.gradle"; git -C "$rr" add native/medizen/android/leak.gradle
 check "real publisher: a tracked symlink in the native project is refused" 1 "$(rp "$rt/a.pem" | grep -c 'failed - native/medizen/android/leak.gradle is a symlink, sits under one')"
+git -C "$rr" rm -q --cached native/medizen/android/leak.gradle; rm -f "${rr:?}/native/medizen/android/leak.gradle"
+for p in ':(glob)**' 'native/*' 'native/medizen/andr?id' 'native/[m]edizen/android'; do
+  reg ".apps.medizen.platforms.android.path = \"$p\""
+  check "real publisher: pathspec magic in a platform path ('$p') is refused" 1 "$(rp "$rt/a.pem" | grep -c 'failed - medizen android path .* is not a plain path inside the repo')"
+done
+reg .
+for f in pnpm-lock.yaml native/apps.json; do
+  mv "$rr/$f" "$rr/$f.real"; ln -s "$(basename "$f").real" "$rr/$f"
+  check "real publisher: a symlinked $f is refused" 1 "$(rp "$rt/a.pem" | grep -c "failed - $f is a symlink, sits under one")"
+  check "real publisher: status refuses a symlinked $f before R2 too" 1 \
+    "$(env -i PATH="$PATH" HOME="$t" node "$rt/tools/ota-step.mjs" status "$rr" medizen 2>&1 | grep -c "^$f is a symlink, sits under one")"
+  rm -f "${rr:?}/$f"; mv "$rr/$f.real" "$rr/$f"
+done
+mkdir -p "$rr/.appstore"; echo '{}' >"$rt/salon.json"; ln -s "$rt/salon.json" "$rr/.appstore/salon.json"; reg '.apps.medizen.vertical = "salon"'
+check "real publisher: a salon app whose salon profile is a symlink is refused" 1 "$(rp "$rt/a.pem" | grep -c 'failed - .appstore/salon.json is a symlink, sits under one')"
+reg .
 
 echo "-- $n checks in all"
 [ "$fail" = 0 ] && echo "all passed"

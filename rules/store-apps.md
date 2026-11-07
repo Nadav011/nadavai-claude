@@ -3,14 +3,14 @@
 For any native, store, OTA, TestFlight, App Review, Play Console, TWA or PWA-to-store work, load
 `nadavai:store-apps`. If the catalog cannot load it, read
 `${NADAVAI_HOME:-$HOME/nadavai}/plugins/nadavai/skills/store-apps/SKILL.md`. That skill holds the
-model choice, the steps and the traps; this rule never restates them. Why: Nadav approved one
-global way to move web apps into the stores on 2026-11-07, after MediZen, RetroBarber and The
-Green Room were moved.
+model choice, the steps and the traps; this rule holds only the four invariants below, which hold
+whether or not the skill is loaded. Why: Nadav approved one global way to move web apps into the
+stores on 2026-11-07, after MediZen, RetroBarber and The Green Room were moved.
 
 - In a repo with live store apps, every web deploy also reaches the apps: through the deploy
-  service's OTA step (bundled apps), or through the live URL (remote shells). A deploy is done only
-  when its `nadavai-ota` status is success or has been handled. Why: phones that silently stay on
-  an old bundle run code nobody tests any more.
+  service's OTA step (bundled apps), or through the live URL (remote shells). For a bundled app, a
+  deploy is done only when its `nadavai-ota` status is success or has been handled. Why: phones
+  that silently stay on an old bundle run code nobody tests any more.
 - A change to a native project, a native plugin or the OTA key needs a new store build of each
   affected platform. A web change never does. Why: the runtime fingerprint keeps a bundle away
   from a shell it was not built against, so a native change without a store build ships to nobody.

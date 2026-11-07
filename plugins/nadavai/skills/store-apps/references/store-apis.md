@@ -8,13 +8,12 @@ gate: ask Nadav at that moment.
 
 | Helper | Use | Credentials |
 |---|---|---|
-| `node scripts/asc.mjs <METHOD> <path> [json]` | App Store Connect API. Prints the HTTP status, then the body. | The team API key from `~/.claude/secrets/sporchat-asc.env` (`ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_PATH`). |
+| `node scripts/asc.mjs <METHOD> <path> [json\|@-]` | App Store Connect API. Prints the HTTP status, then the body with `demoAccountPassword` shown only as `<set>` or `<empty>`. `@-` reads the body from stdin. | The team API key from `~/.claude/secrets/sporchat-asc.env` (`ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_PATH`). |
 | `node scripts/play.mjs tracks <pkg>` / `upload <pkg> <aab> <track> [--status draft\|completed] [--name …] [--notes-he …]` / `raw <METHOD> <path> [json]` | Google Play Developer API (androidpublisher v3), one edit per call, committed at the end. | The service account `~/.claude/secrets/play-publisher-service-account.json` (or `PLAY_SA_KEY`). |
 
-A request that carries a secret (the demo account's password) goes through a small script that
-reads the vault, calls `asc.mjs` with `execFileSync`, and prints only `passwordSet: true`. Why:
-the request's command line and the `appStoreReviewDetails` response both carry the password, and
-`rules/acting-on-behalf.md` keeps passwords out of the transcript.
+A body that carries a secret (the demo account's password) is built by a command that reads the
+vault and pipes the JSON into `asc.mjs ... @-`. Why: a command line lands in the transcript, and
+`rules/acting-on-behalf.md` keeps passwords out of it.
 
 ## App Store Connect recipes
 
@@ -60,6 +59,13 @@ Chrome refuses passwords and can be blocked by a password manager's overlay.
   so render Play's set at 2:1 or squarer.
 - **"Ready for Distribution" is not "on sale".** A version with empty availability shows "Removed
   from App Store". Read `/v2/appAvailabilities` before saying an app is live.
+- **A stale demo password fails the review.** The MediZen reviewer password had been rotated
+  since it was entered, and Apple's reviewers would have been refused. Before each submission,
+  sign in with the demo account against production and check two things: HTTP 200, and that the
+  account is not a super user.
+- **Personal Play developer accounts** must run a closed test with 12 testers for 14 days before
+  their first production release. Nadav's account is an organization account, so this did not
+  apply on 7.11. Check the account type in the console before planning a release date.
 - **Holding a version until approval:** set `releaseType: MANUAL`, keep the old version's
   availability as decided, and install a release-on-approval timer: an hourly systemd user timer
   (`Persistent=true`) whose script reads `appStoreState`. On `PENDING_DEVELOPER_RELEASE` it

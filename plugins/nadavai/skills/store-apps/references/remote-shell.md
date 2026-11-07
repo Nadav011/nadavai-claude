@@ -31,7 +31,7 @@ and PR #145.
 
 ## After a shell change
 
-Ship the store build, wait until it reaches everyone (a 100% Play rollout, the App Store version
-live), and only then set the minimum build env var and deploy. Why: a minimum above the build the
+Ship the store build, and wait 7 days after it reaches 100% of its store (a full Play rollout, the
+App Store version live). Only then set the minimum-build env var and deploy. Why: a minimum above the build the
 store serves walls current users out. Done when the env var holds the new build and a shell one
 build below sees the gate.

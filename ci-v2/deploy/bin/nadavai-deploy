@@ -24,6 +24,8 @@
 #   nadavai-deploy ota-rollback <repo> <app> <android|ios> <bundleId|reset> [--runtime runtime-<fp12>]
 #                                                    (default runtime: the one the last OTA step reached);
 #                                                    holds that app/platform's OTA until ota-release
+#                                                    (exit 4 here: published, but the hold could not be
+#                                                    written; never run it again, run ota-off)
 #   nadavai-deploy ota-release <repo> <app> <android|ios>   the OTA step publishes there again
 #   nadavai-deploy ota-min <repo> <app> <android|ios> <build> [--message "<text>"]
 #   nadavai-deploy ota-off <repo> <reason> | ota-on <repo>   the OTA step publishes nothing (web deploys go
@@ -1214,7 +1216,7 @@ cmd_rollback() { # repo id [--with-ota]
 # The web is back; the store apps are still on the bundle the rolled-back deploy's OTA step
 # published. Prints the exact ota-rollback per platform, or runs them with --with-ota.
 ota_after_rollback() { # repo with_ota
-  local repo=$1 now commit plan=() p app pf target rt note rc=0
+  local repo=$1 now commit plan=() pairs=() unknown=() pair p app pf target rt note rc=0
   now=$(live_of "$repo") && commit=${now#* } && [[ $commit =~ ^[0-9a-f]{40}$ ]] ||
     { err "OTA: cannot read the commit production serves now; see nadavai-deploy ota-status $repo"; return 1; }
   # No record of any OTA step (state lost, or none ran yet) says nothing about the phones.
@@ -1223,14 +1225,33 @@ ota_after_rollback() { # repo with_ota
     [ -z "$2" ] || { err "OTA: --with-ota has nothing to run: no OTA step is recorded; roll back by hand from nadavai-deploy ota-status $repo"; return 1; }
     return 0
   fi
+  # A platform of the live commit's registry with no record (lost, or added after the last OTA
+  # step) is unknown too, and never counted as needing no rollback.
+  mapfile -t pairs < <(ota_registry "$repo" "$commit" | jq -r '.apps | to_entries[] | .key as $a | .value.platforms | keys[] | select(. == "android" or . == "ios") | "\($a)/\(.)"' 2>/dev/null)
+  [ "${#pairs[@]}" -gt 0 ] || err "OTA: cannot read native/apps.json of ${commit:0:7}; only the recorded platforms are checked"
+  for pair in "${pairs[@]}"; do
+    [[ $pair =~ ^[a-z0-9-]+/(android|ios)$ ]] && [ ! -f "$STATE/$repo.ota-runtime.${pair%/*}.${pair#*/}" ] && unknown+=("$pair")
+  done
+  for pair in "${unknown[@]}"; do say "OTA: unknown for $pair, no OTA step recorded; check \`nadavai-deploy ota-status $repo\`"; done
+  [ -z "$2" ] || [ "${#unknown[@]}" = 0 ] || { rc=1; err "OTA: --with-ota cannot cover $(ota_join "${unknown[@]}"): no OTA step is recorded there; roll back by hand from nadavai-deploy ota-status $repo"; }
   mapfile -t plan < <(ota_rollback_plan "$repo" "$commit")
-  if [ "${#plan[@]}" = 0 ]; then say "OTA: the store apps need no rollback (no platform reached past ${commit:0:7})"; return 0; fi
+  if [ "${#plan[@]}" = 0 ]; then
+    if [ "${#unknown[@]}" = 0 ]; then say "OTA: the store apps need no rollback (no platform reached past ${commit:0:7})"
+    else say "OTA: no recorded platform needs a rollback (none reached past ${commit:0:7})"; fi
+    return "$rc"
+  fi
   say "OTA: the store apps still run the bundle of the rolled-back deploy. Back to ${commit:0:7} over the air${2:+ (--with-ota: running them now)}:"
   for p in "${plan[@]}"; do
     read -r app pf target rt <<<"$p"
     note=''; [ "$target" != reset ] || note="   (no bundle of ${commit:0:7} on this runtime: reset = the store build's own bundle)"
     say "  nadavai-deploy ota-rollback $repo $app $pf $target --runtime $rt$note"
-    [ -z "$2" ] || ( cmd_ota_tool ota-rollback "$repo" "$app" "$pf" "$target" --runtime "$rt" ) || { rc=1; err "OTA: the ota-rollback of $app/$pf failed; run it again by hand"; }
+    [ -z "$2" ] && continue
+    p=0; ( cmd_ota_tool ota-rollback "$repo" "$app" "$pf" "$target" --runtime "$rt" ) || p=$?
+    case $p in
+      0) ;;
+      4) rc=1; err "OTA: the ota-rollback of $app/$pf was published, but its hold was not written: do not run it again; run nadavai-deploy ota-off $repo <reason> now" ;;
+      *) rc=1; err "OTA: the ota-rollback of $app/$pf failed; run it again by hand" ;;
+    esac
   done
   return "$rc"
 }
@@ -1249,7 +1270,7 @@ cmd_ota() { # repo sha [--dry-run]: the OTA step alone, for the commit productio
   ota_run "$repo" "$sha" '' "$dry"
 }
 cmd_ota_tool() { # ota-status|ota-rollback|ota-min repo [app platform arg [--runtime|--message value]]
-  local what=$1 repo=${2:-} app=${3:-} pf=${4:-} arg=${5:-} opt=() rc=0 apps=() rt=''
+  local what=$1 repo=${2:-} app=${3:-} pf=${4:-} arg=${5:-} opt=() rc=0 apps=() rt='' why
   [ "$repo" = "$OTA_REPO" ] || { err "usage: nadavai-deploy $what $OTA_REPO ... (the one repo with store apps)"; return 2; }
   if [ "$what" = ota-status ]; then
     [ $# = 2 ] || { err "usage: nadavai-deploy ota-status $OTA_REPO"; return 2; }
@@ -1285,10 +1306,11 @@ cmd_ota_tool() { # ota-status|ota-rollback|ota-min repo [app platform arg [--run
     ota_cli "$app" rollback "$app" "$pf" "$arg" "$rt" || rc=$?
     if [ "$rc" = 0 ]; then
       # A person's rollback stands until a person lifts it: the next deploy's OTA step skips this platform.
-      if printf '%s\n%s\n' "ota-rollback to $arg on $rt" "set $(date -Is)" 2>/dev/null >"$(ota_holdfile "$repo" "$app" "$pf")"; then
+      # Exit 4: published, but not held (the caller must not publish it again).
+      if why=$({ printf '%s\n%s\n' "ota-rollback to $arg on $rt" "set $(date -Is)" >"$(ota_holdfile "$repo" "$app" "$pf")"; } 2>&1); then
         say "ota-rollback: $app/$pf is held for the OTA step until nadavai-deploy ota-release $repo $app $pf" >&2
       else
-        rc=1; err "ota-rollback: published, but the hold file $(ota_holdfile "$repo" "$app" "$pf") could not be written, so the next deploy's OTA step would publish over it: fix the file, or run nadavai-deploy ota-off $repo <reason> now"
+        rc=4; err "ota-rollback: published, but the hold file $(ota_holdfile "$repo" "$app" "$pf") could not be written (${why//[$'\n']/ }), so the next deploy's OTA step would publish over it: fix the file, or run nadavai-deploy ota-off $repo <reason> now"
       fi
     fi
     opt=(--runtime "$rt")

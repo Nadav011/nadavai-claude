@@ -43,9 +43,13 @@ const usage = () => {
 // them can be a symlink. Every path is checked here first (the vendored files stay byte for byte the
 // reviewed copies), so the signing user never reads outside the clone: a registry path is plain and
 // relative, and a file read is a regular file reached through no symlink at any level.
-/** Refuses a registry path that is absolute, has a `..` (or empty, or `.`) part, or odd characters. */
+/**
+ * Refuses a registry path that is absolute, has a `..` (or empty, or `.`) part, or odd characters:
+ * a backslash, NUL, or git pathspec magic (a leading `:`, `*`, `?`, `[`), which would let a
+ * platform path make `git ls-files` hash more of the repo than the platform's directory.
+ */
 export function assertRepoPath(what, path) {
-  if (typeof path !== 'string' || !path || isAbsolute(path) || /[\\\0]/.test(path) ||
+  if (typeof path !== 'string' || !path || isAbsolute(path) || /[\\\0*?[]/.test(path) || path.startsWith(':') ||
     path.split('/').some((part) => part === '' || part === '.' || part === '..')) {
     throw new Error(`${what} ${JSON.stringify(path)} in native/apps.json is not a plain path inside the repo`);
   }
@@ -202,11 +206,13 @@ async function main(argv) {
     return out[1] === 'failed' ? 1 : 0;
   }
   if (command === 'status') {
-    const r2 = await store();
+    let r2 = null;
     for (const name of [app, platform, ...rest].filter(Boolean)) {
       if (!/^[a-z0-9-]+$/.test(name)) usage();
+      // The clone's files are checked before the first R2 read.
       const { registry, entry, publicKeyPem } = appOf(root, name);
       const currentRuntimes = Object.fromEntries(fpm.PLATFORMS.map((p) => [p, fingerprintOf(root, registry, entry, name, p).runtime]));
+      r2 ??= await store();
       console.log(await ota.status({ app: name, store: r2, publicKeyPem, currentRuntimes }));
     }
     return 0;

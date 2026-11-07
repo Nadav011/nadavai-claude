@@ -9,7 +9,7 @@ builds). Store uploads are a publishing step: ask Nadav before each upload.
 | Platform | Build number | Why |
 |---|---|---|
 | iOS | UTC `YYYYMMDDHHMM`, written into `project.pbxproj` on the build machine only. The marketing version moves up whenever the previous one is `READY_FOR_SALE` (its train is closed). | Apple refuses a build number it has seen on that version, and a closed train takes no new builds. |
-| Android | HEAD's committer time in whole minutes since the Unix epoch, read by Gradle; `-PversionCode=<n>` only for a re-upload. | It rises with every commit, is identical for every build of one commit, and is far above a TWA's `1`. Play refuses any code it has seen. |
+| Android | HEAD's committer time in whole minutes since the Unix epoch, read by Gradle; `-PversionCode=<n>` only for a re-upload. This is MediZen's `native/medizen/android/app/build.gradle`. RetroBarber's `android/app/build.gradle` still has a hand-raised `versionCode 1`: move it to the same scheme before its second upload. | It rises with every commit, is identical for every build of one commit, and is far above a TWA's `1`. Play refuses any code it has seen. |
 
 The numbers only ever go up, on every track, because the minimum-build gates compare against them.
 

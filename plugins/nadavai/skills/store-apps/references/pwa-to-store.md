@@ -9,8 +9,10 @@ Reference: therapy-flow-v2 `src/lib/storeAvailability.ts` and
 One switch per app × platform (`STORE_LIVE[app][platform]`, all false while the apps are in
 review). Flipping one value is the whole release step for that platform: the move notice turns on
 for its installed-PWA users, and every "add to home screen" offer for that app becomes a store
-link. Flip it in the same PR that fills that platform's `storeUrl` in `native/apps.json`; a unit
-test keeps the two equal.
+link. Flip it in the same PR that fills that platform's `storeUrl` in `native/apps.json`. Why: a
+store URL there arms the minimum-build gate. therapy-flow-v2's `storeAvailability.test.ts` checks
+only one direction: a live switch needs its URL, and a URL must equal the switch's link. It does
+not refuse a URL whose switch is still off, so check that direction by eye in the PR.
 
 Flip only after the listing is public. The check: the store URL, opened signed out, shows the
 listing. Why: a notice that sends people to a listing they cannot open strands them between an
