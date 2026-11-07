@@ -11,7 +11,7 @@ Health rubric and rules adapted from gstack `qa-only` (MIT, Garry Tan). Browser 
 
 ## Delegation (mandatory)
 
-The main agent does not drive the browser. It spawns ONE `general-purpose` subagent with this skill's instructions, the parameters below, and the report path, then relays the finished report to the user with the screenshots shown inline (Read tool on each image). If the target is not local and the run may submit forms, create, delete, or pay, ask the user once (AskUserQuestion) before spawning.
+The main agent does not drive the browser. It spawns ONE `general-purpose` subagent with this skill's instructions, the parameters below, and the report path, then relays the finished report to the user with the screenshots shown inline (all of them read in ONE turn, as parallel Read calls, never one image per turn). If the target is not local and the run may submit forms, create, delete, or pay, ask the user once (AskUserQuestion) before spawning.
 
 ## Parameters
 
