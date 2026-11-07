@@ -116,6 +116,13 @@ for f in tmoved tarrow; do
   "$UI" "file://$tmp/$f.html" --width 375 --json >"$tmp/$f.json"
   expect "$f track is a carousel"      0 "$(q "$tmp/$f.json" 'v["offscreen"]["count"] + v["clippedByAncestor"]["count"]')"
 done
+# a next button elsewhere on the page or a "preview" class is no carousel arrow; one beside the row is
+for f in wizard preview; do
+  "$UI" "$FX/$f.html" --width 375 --json >"$tmp/$f.json"
+  expect "$f: tab still cut"           True "$(q "$tmp/$f.json" 'v["offscreen"]["count"] + v["clippedByAncestor"]["count"] >= 1')"
+done
+"$UI" "$FX/tabsArrow.html" --width 375 >/dev/null 2>&1; rc=$?
+expect "tab row with a next arrow is clean" 0 "$rc"
 "$UI" "$FX/sticky.html" --width 375 >/dev/null 2>&1; rc=$?
 expect "sticky bar mid-page is clean"  0 "$rc"
 

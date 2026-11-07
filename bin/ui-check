@@ -135,13 +135,17 @@ function domChecks({ ignores, phone, max }, hold) {
     const m = st(p).transform.match(/^matrix(3d)?\(([^)]*)\)/), v = m ? m[2].split(',').map(Number) : [];
     return m ? (m[1] ? v[12] || v[13] : v[4] || v[5]) !== 0 : false;
   };
-  const arrows = (a) => [...(a.parentElement || a).querySelectorAll('button, [role="button"], a')].some((b) =>
-    /prev|next|arrow|הקודם|הבא/i.test(`${b.getAttribute('aria-label') || ''} ${typeof b.className === 'string' ? b.className : ''}`));
+  // Prev/next controls: the box's own siblings and its children outside the track, by aria-label or by
+  // a class token as a whole word (slick-next, swiperButtonPrev; not preview-card).
+  const ARROW = /\b(prev(ious)?|next|arrow)\b|הקודם|הבא/i;
+  const arrows = (a, track) => [...(a.parentElement ? a.parentElement.children : []), ...a.children].some((b) =>
+    b !== a && b !== track && b.matches('button, [role="button"], a') && (ARROW.test(b.getAttribute('aria-label') || '') ||
+      [...b.classList].some((c) => ARROW.test(c.replace(/([a-z])([A-Z])/g, '$1 $2')))));
   const carousel = (a) => carousels.has(a) ? carousels.get(a) : carousels.set(a, st(a).scrollSnapType !== 'none' ||
     (a.parentElement && a.parentElement !== html && st(a.parentElement).scrollSnapType !== 'none') ||
     [a, a.children.length === 1 ? a.children[0] : null].some((p) => {
       const kr = p && rowOf([...p.children], a);
-      return kr && (kr.every((r) => r.width >= 0.6 * a.clientWidth) || (p !== a && (moved(p) || arrows(a))));
+      return kr && (kr.every((r) => r.width >= 0.6 * a.clientWidth) || (p !== a && (moved(p) || arrows(a, p))));
     })).get(a);
   // Built to scroll sideways: overflow-x auto/scroll and either overflow-y hidden, its own children in a
   // row past its width (a chip row), or a carousel. A vertical shell that also scrolls sideways is not.
