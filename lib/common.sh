@@ -438,6 +438,8 @@ maestro|command -v maestro|mobile flows: curl -fsSL https://get.maestro.mobile.d
 bubblewrap|command -v bubblewrap|TWA: npm i -g @bubblewrap/cli
 sox|command -v sox|/voice input
 scrapling|command -v scrapling|free scraper MCP: uv tool install "scrapling[ai]==0.5.1" && scrapling install (on Arch its apt step fails after Chromium is in; then touch scrapling/.scrapling_dependencies_installed in its site-packages)
+skillspector|command -v skillspector|scan skills before adding them: uv tool install "git+https://github.com/NVIDIA/skillspector.git@e48d771"
+agnix|command -v agnix|lint CLAUDE.md, SKILL.md, hooks: uv tool install "agnix==0.61.0" (not npm: npm 12 blocks its install script)
 brightdata-token|grep -q BRIGHTDATA_API_TOKEN "$CFG/settings.json"|add {"env":{"BRIGHTDATA_API_TOKEN":"..."}} to ~/.claude/settings.json (README, Secrets)
 LIST
 }
