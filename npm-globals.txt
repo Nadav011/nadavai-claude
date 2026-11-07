@@ -26,6 +26,7 @@ squawk-cli               # postgres migration linter
 size-limit               # bundle budget
 mega-linter-runner
 @axe-core/cli            # accessibility, used by the DoD gate
+dembrandt                # a site's colors, type, spacing as JSON (competitor captures); then `dembrandt install-browser`
 
 # Testing and performance
 lighthouse
