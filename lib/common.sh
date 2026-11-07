@@ -295,6 +295,24 @@ refresh_running_guards() {
 }
 
 AGENT_BROWSER_VERSION=0.41.1
+ensure_research_tools() {
+  # Scrapling is the plugin's stdio MCP (plugins/nadavai/mcp.json), so without the command the
+  # server fails at session start with no message. SkillSpector and agnix back rules/nadavai.md.
+  # All three are pinned uv tools; npm is avoided for agnix because npm 12 blocks its install script.
+  command -v uv >/dev/null 2>&1 || { warn "uv missing: cannot install scrapling, skillspector, agnix (https://docs.astral.sh/uv/)"; return 0; }
+  if ! command -v scrapling >/dev/null 2>&1; then
+    log "installing scrapling[ai]==0.5.1 (uv tool)"
+    uv tool install "scrapling[ai]==0.5.1" || { warn "could not install scrapling"; }
+  fi
+  if command -v scrapling >/dev/null 2>&1; then
+    # Downloads Chromium once. Its last step (playwright install-deps) uses apt and fails on
+    # Arch after Chromium is in; that failure is harmless, the MCP does not need it.
+    scrapling install >/dev/null 2>&1 || log "scrapling install: apt step failed (expected on Arch; Chromium is in place)"
+  fi
+  command -v skillspector >/dev/null 2>&1 || uv tool install "git+https://github.com/NVIDIA/skillspector.git@e48d771" || warn "could not install skillspector"
+  command -v agnix >/dev/null 2>&1 || uv tool install "agnix==0.61.0" || warn "could not install agnix"
+}
+
 ensure_agent_browser() {
   # agent-browser drives a separate Chrome for agents; its "vault" credential plugin
   # (bin/agent-browser-vault) fills logins from ~/.claude/secrets without the password
@@ -437,9 +455,10 @@ android-sdk|[ -d "${ANDROID_HOME:-$HOME/Android/Sdk}" ]|Capacitor Android builds
 maestro|command -v maestro|mobile flows: curl -fsSL https://get.maestro.mobile.dev | bash
 bubblewrap|command -v bubblewrap|TWA: npm i -g @bubblewrap/cli
 sox|command -v sox|/voice input
-scrapling|command -v scrapling|free scraper MCP: uv tool install "scrapling[ai]==0.5.1" && scrapling install (on Arch its apt step fails after Chromium is in; then touch scrapling/.scrapling_dependencies_installed in its site-packages)
-skillspector|command -v skillspector|scan skills before adding them: uv tool install "git+https://github.com/NVIDIA/skillspector.git@e48d771"
-agnix|command -v agnix|lint CLAUDE.md, SKILL.md, hooks: uv tool install "agnix==0.61.0" (not npm: npm 12 blocks its install script)
+uv|command -v uv|https://docs.astral.sh/uv/ (update.sh installs scrapling, skillspector, agnix with it)
+scrapling|command -v scrapling|free scraper MCP: ./update.sh installs it (uv tool scrapling[ai]==0.5.1, then scrapling install; its apt step fails on Arch, harmless)
+skillspector|command -v skillspector|scan skills before adding them: ./update.sh installs it
+agnix|command -v agnix|lint CLAUDE.md, SKILL.md, hooks: ./update.sh installs it
 brightdata-token|grep -q BRIGHTDATA_API_TOKEN "$CFG/settings.json"|add {"env":{"BRIGHTDATA_API_TOKEN":"..."}} to ~/.claude/settings.json (README, Secrets)
 LIST
 }

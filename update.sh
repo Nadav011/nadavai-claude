@@ -63,6 +63,9 @@ ensure_ts_lsp
 step "agent-browser"
 ensure_agent_browser
 
+step "Research and skill-check tools"
+ensure_research_tools
+
 step "npm install-script approvals"
 ensure_npm_script_approvals
 

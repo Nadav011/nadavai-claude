@@ -11,6 +11,11 @@
       "command": "npx",
       "args": ["-y", "chrome-devtools-mcp@latest"]
     },
+    "nadavai-scrapling": {
+      "command": "scrapling",
+      "args": ["mcp"],
+      "env": { "TMPDIR": "/dev/shm" }
+    },
     "nadavai-posthog": {
       "url": "https://mcp.posthog.com/mcp"
     },

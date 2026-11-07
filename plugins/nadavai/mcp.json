@@ -8,7 +8,10 @@
       "command": "scrapling",
       "args": [
         "mcp"
-      ]
+      ],
+      "env": {
+        "TMPDIR": "/dev/shm"
+      }
     },
     "rea": {
       "command": "npx",

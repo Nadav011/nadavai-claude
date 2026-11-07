@@ -41,14 +41,14 @@ metadata:
 
 ### Path A: Standalone Gradle task (AGP \>= 9.3.0)
 
-- **Step 1: Check requirements** : Python and the `protobuf` package 6.33.4 or later are mandatory (used by [`scripts/keep_radius_pb2.py`](scripts/keep_radius_pb2.py)). Install it with `pip install "protobuf>=6.33.4"`; versions lower than 6.33.4 fail on import with a `VersionError` or `ImportError`.
+- **Step 1: Check requirements** : Python and the `protobuf` package 6.33.4 or later are mandatory (used by [`scripts/keep_radius_pb2.py`](scripts/keep_radius_pb2.py)). Do not pip-install it into the system Python (Arch blocks that, PEP 668); run each script as `uv run --with "protobuf>=6.33.4" python3 <script>`; versions lower than 6.33.4 fail on import with a `VersionError` or `ImportError`.
 - **Step 2: Run standalone task on R8-enabled build** : For the module and variant you found during path selection, run `./gradlew :<module>:analyze<Variant>R8Config` (for example, `./gradlew :app:analyzeReleaseR8Config`). It generates the report in `<module>/build/reports/r8/` (for example, `app/build/reports/r8/r8-config-analyzer-release.pb`). You must wait for this command to finish before proceeding.
 - **Step 3: Convert to JSON** : You must explicitly run the conversion script [`scripts/convert_pb_to_json.py`](scripts/convert_pb_to_json.py) as `python3 <skill_dir>/scripts/convert_pb_to_json.py` with arguments `<module>/build/reports/r8` and `tmp/keepradius/keepruleradius.json`. Wait for this command to finish.
 - **Step 4: Analyze** : You must explicitly run the analysis script [`scripts/analyze.py`](scripts/analyze.py) by executing `python3 <skill_dir>/scripts/analyze.py tmp/keepradius/keepruleradius.json`. This outputs `tmp/keepradius/analysis_result.txt`. Wait for this command to finish.
 
 ### Path B: Invoke R8 release build (AGP \< 9.3.0)
 
-- **Step 1: Check requirements** : Python and the `protobuf` package 6.33.4 or later are mandatory: `pip install "protobuf>=6.33.4"`.
+- **Step 1: Check requirements** : Python and the `protobuf` package 6.33.4 or later are mandatory: run the scripts as `uv run --with "protobuf>=6.33.4" python3 <script>`.
 - **Step 2: Generate and analyze** : You must run the shell commands described in [references/FULL_BUILD_CONFIG_ANALYZER.md](references/FULL_BUILD_CONFIG_ANALYZER.md) to temporarily update the R8 version in `settings.gradle(.kts)` to 9.4.34 or later (so R8 generates the report), generate the proto report in `tmp/r8analysis/`, convert it to `tmp/r8analysis/keepruleradius.json`, analyze the result, and revert the temporary `settings.gradle(.kts)` change.
 - **Step 3: Analyze** : Verify that the analysis outputs `tmp/r8analysis/analysis_result.txt` for scores and rule impact metrics.
 
