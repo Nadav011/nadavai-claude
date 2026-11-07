@@ -89,6 +89,33 @@ printf '<!doctype html><html lang="en"><meta name="viewport" content="width=devi
 "$UI" "file://$tmp/ctl.html" --width 375 --json >"$tmp/ctl.json"
 expect "a without href not a control"  False "$(q "$tmp/ctl.json" 'any("nohref" in e["selector"] for e in v["touch"]["examples"])')"
 expect "role=switch and summary are controls" True "$(q "$tmp/ctl.json" 'sum(("sw" in e["selector"]) + ("sum" in e["selector"]) for e in v["touch"]["examples"]) == 2')"
+# round 2: a clipped-away menu, cut tabs, a sheet that hides a button sideways, a text-only fixed banner
+"$UI" "$FX/menuclip.html" --width 375 --json >"$tmp/mc.json"
+expect "menu clipped away by overflow-x:hidden" True "$(q "$tmp/mc.json" 'any("menu" in e["selector"] for e in v["offscreen"]["examples"] + v["clippedByAncestor"]["examples"])')"
+"$UI" "$FX/navcut.html" --width 375 --json >"$tmp/nc.json"
+expect "tab cut by a hidden tab row"   True "$(q "$tmp/nc.json" 'v["offscreen"]["count"] + v["clippedByAncestor"]["count"] >= 1')"
+"$UI" "$FX/sheet.html" --width 375 --json >"$tmp/sh.json"
+expect "button hidden sideways in a sheet" True "$(q "$tmp/sh.json" 'any("button" in e["selector"] for e in v["overflow"]["examples"])')"
+"$UI" "$FX/banner.html" --width 375 --json >"$tmp/bn.json"
+expect "button under a text-only fixed banner" True "$(q "$tmp/bn.json" 'any(e.get("fixedBar") and "banner" in e["other"] for e in v["overlap"]["examples"])')"
+for f in menu label rowlabel; do
+  "$UI" "$FX/$f.html" --width 375 >/dev/null 2>&1; rc=$?
+  expect "$f.html still reports"       1 "$rc"
+done
+"$UI" "$FX/chips.html" --width 375 --json >"$tmp/chips.json"; rc=$?
+expect "scrollable chip row is clean"  0 "$rc"
+# --json escapes C1 controls and bidi overrides; the value survives a parse
+printf '<!doctype html><html lang="en"><meta name="viewport" content="width=device-width"><title>t</title><main><h1>x</h1></main><script>console.error("a\\x85b\\x9bc\\u202ed\\u2066e")</script></html>' >"$tmp/c1.html"
+"$UI" "file://$tmp/c1.html" --width 375 --json >"$tmp/c1.json"
+expect "json has no raw C1 or bidi"    True "$(python3 -c 'import re,sys; t=open(sys.argv[1],encoding="utf-8").read(); print(not re.search("[\x7f-\x9f‪-‮⁦-⁩]", t))' "$tmp/c1.json")"
+expect "json keeps the escaped value"  True "$(q "$tmp/c1.json" 'v["console"]["messages"][0] == "a\x85b\x9bc‮d⁦e"')"
+# a timeout keeps the viewports already done: 1440 finishes, 375 hangs
+"$UI" "$FX/hangphone.html" --width 1440,375 --timeout 5 --json >"$tmp/hp.json" 2>/dev/null; rc=$?
+expect "partial timeout exits 2"       2 "$rc"
+expect "finished viewport kept, hung one marked" True "$(q "$tmp/hp.json" 'd["timedOut"] and "axe" in d["viewports"][0] and d["viewports"][1]["timedOut"] and d["viewports"][1]["width"] == 375')"
+"$UI" "$FX/hangphone.html" --width 1440,375 --timeout 5 >"$tmp/hp.txt" 2>/dev/null
+expect "summary shows both viewports"  True "$(grep -q '^1440 light .*clean' "$tmp/hp.txt" && grep -q '^375 light .*timed out' "$tmp/hp.txt" && grep -q 'exit 2' "$tmp/hp.txt" && echo True || echo False)"
+
 # a page that never yields: exit 2 within the timeout, with a clear message
 start=$SECONDS
 "$UI" "$FX/hang.html" --width 375 --timeout 5 >/dev/null 2>"$tmp/hang.err"; rc=$?

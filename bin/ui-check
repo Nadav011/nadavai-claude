@@ -14,8 +14,10 @@ const USAGE = 'usage: ui-check <url> [--width 375,1440] [--theme light,dark] [--
   '                [--ignore <css selector>]... [--wait <ms>] [--timeout <s per viewport, 60>] [--json]\n' +
   'exit: 0 clean, 1 findings, 2 usage, navigation, timeout or internal error';
 const MAX = 5;
-// Page strings are data: control characters never reach the terminal.
-const CTL = /[\x00-\x1f\x7f-\x9f]/g;
+// Page strings are data: control characters and bidi overrides never reach the terminal, and
+// --json escapes the ones JSON.stringify leaves raw.
+const CTL = /[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/g;
+const RAW = /[\x7f-\x9f\u202a-\u202e\u2066-\u2069]/g;
 
 function fail(msg) { process.stderr.write(`ui-check: ${msg}\n`); process.exit(2); }
 
@@ -117,20 +119,25 @@ function domChecks({ ignores, phone, max }, hold) {
   const inVp = (r) => r.left >= -1 && r.right <= vw + 1;
   const pad = (a) => { const r = rect(a); const pl = r.left + a.clientLeft, pt = r.top + a.clientTop; return { pl, pt, pr: pl + a.clientWidth, pb: pt + a.clientHeight }; };
   const past = (t, c, x, y) => (x && (t.left < c.pl - 1 || t.right > c.pr + 1)) || (y && (t.top < c.pt - 1 || t.bottom > c.pb + 1));
-  // Built to scroll sideways: overflow-x auto/scroll and either overflow-y hidden, or a row of side-by-side
-  // children running past its width (a carousel, a chip row). A vertical shell that also scrolls sideways is not.
-  const kinds = new Map(), rows = new Map();
-  const row = (a) => rows.has(a) ? rows.get(a) : rows.set(a, isRow(a)).get(a);
-  const isRow = (a) => {
-    let els = [...a.children];
-    if (els.length === 1) els = [...els[0].children];
+  // A row: side-by-side boxes running past the container's width; null when they do not.
+  const rowOf = (els, a) => {
     const kr = els.filter((e) => !/absolute|fixed/.test(st(e).position)).map(rect)
       .filter((r) => r.width > 1 && r.height > 1).sort((p, q) => p.left - q.left);
     return kr.length > 1 && kr.every((r, i) => i === 0 || r.left >= kr[i - 1].right - 1) &&
-      kr[kr.length - 1].right - kr[0].left > a.clientWidth + 1;
+      kr[kr.length - 1].right - kr[0].left > a.clientWidth + 1 ? kr : null;
   };
+  // A carousel: scroll-snap, a row of slide-sized boxes (each 60% of the width or more) here or one
+  // level down, or a single track moved by a transform (slick, swiper). A row of tabs is not one.
+  const kinds = new Map(), carousels = new Map();
+  const carousel = (a) => carousels.has(a) ? carousels.get(a) : carousels.set(a, st(a).scrollSnapType !== 'none' ||
+    [a, a.children.length === 1 ? a.children[0] : null].some((p) => {
+      const kr = p && rowOf([...p.children], a);
+      return kr && (kr.every((r) => r.width >= 0.6 * a.clientWidth) || (p !== a && st(p).transform !== 'none'));
+    })).get(a);
+  // Built to scroll sideways: overflow-x auto/scroll and either overflow-y hidden, its own children in a
+  // row past its width (a chip row), or a carousel. A vertical shell that also scrolls sideways is not.
   const sideScroller = (a) => kinds.has(a) ? kinds.get(a) : kinds.set(a, /auto|scroll/.test(st(a).overflowX) &&
-    (clipsY(st(a)) || (a.scrollWidth > a.clientWidth + 1 && row(a)))).get(a);
+    (clipsY(st(a)) || (a.scrollWidth > a.clientWidth + 1 && (!!rowOf([...a.children], a) || carousel(a))))).get(a);
   const range = document.createRange();
   const textRect = (n) => { range.selectNodeContents(n); return range.getBoundingClientRect(); };
   // Text this element cuts itself; text inside a control or a nested clipping box is left to those.
@@ -151,8 +158,8 @@ function domChecks({ ignores, phone, max }, hold) {
     return false;
   };
   // A skip link is off screen until focused; measure it focused, with no transition in the way.
-  const skipLink = (el) => {
-    if (!el.matches('a[href^="#"]')) return false;
+  // Run only after every box is measured, since focus can move things.
+  const shownOnFocus = (el) => {
     const prev = document.activeElement, tr = el.style.transition;
     el.style.transition = 'none'; el.focus({ preventScroll: true });
     const fr = el.getBoundingClientRect(); el.style.transition = tr;
@@ -160,14 +167,18 @@ function domChecks({ ignores, phone, max }, hold) {
     return fr.right > 0 && fr.left < vw;
   };
   const bodyIsViewport = st(html).overflowX === 'visible' && st(html).overflowY === 'visible';
+  const probes = [], barEls = [];
   for (const el of document.body.querySelectorAll('*')) {
     if (el.closest('svg') && el.localName !== 'svg') continue;
     const r = rect(el);
     if (!visible(el, r) || ignored(el)) continue;
     const cs = st(el);
     const own = ownText(el), ctl = isInter(el);
+    // A fixed or sticky bar, with or without controls in it (the outermost one).
+    if (/fixed|sticky/.test(cs.position) && r.height >= 24 && r.width >= vw / 2 && !barEls.some((b) => b.contains(el))) barEls.push(el);
     // Walk the boxes that clip this one: a positioned box skips those below its containing block.
-    let mode = cs.position, scroller = false, hiddenVp = false, cutAway = false, cut = null;
+    // A box clipped away whole is fine inside a scroller or carousel; elsewhere a control there is a defect.
+    let mode = cs.position, scroller = false, hiddenVp = false, cutAway = false, awayBad = null, cut = null;
     let underPast = false, underOff = false, underCut = false;
     for (let a = el.parentElement; a && a !== html; a = a.parentElement) {
       if (flagged.has(a)) underPast = true;
@@ -181,9 +192,12 @@ function domChecks({ ignores, phone, max }, hold) {
       const side = sideScroller(a), x = clipsX(s), y = clipsY(s), ar = rect(a), c = pad(a);
       if (side && inVp(ar)) scroller = true;
       if (x && inVp(ar)) hiddenVp = true;
-      if (((x || side) && (r.right <= c.pl + 1 || r.left >= c.pr - 1)) || (y && (r.bottom <= c.pt + 1 || r.top >= c.pb - 1))) cutAway = true;
-      // A hidden box holding a row of slides is a script carousel: slides peek at its edges by design.
-      else if (!cut && past(r, c, x && !row(a), y)) cut = { a, c, x: x && !row(a), y };
+      if (((x || side) && (r.right <= c.pl + 1 || r.left >= c.pr - 1)) || (y && (r.bottom <= c.pt + 1 || r.top >= c.pb - 1))) {
+        // The innermost box that clips it away decides: a carousel's slides stay fine in outer clippers.
+        if (!cutAway && !side && !carousel(a)) awayBad = a;
+        cutAway = true;
+      // A hidden box holding a carousel: slides peek at its edges by design.
+      } else if (!cut && past(r, c, x && !carousel(a), y)) cut = { a, c, x: x && !carousel(a), y };
     }
     const onScreen = r.right > 0 && r.left < vw;
     // Past the viewport, partly visible, and not inside a sideways scroller or a clipping box that fits.
@@ -191,16 +205,18 @@ function domChecks({ ignores, phone, max }, hold) {
       flagged.add(el); add(out.overflow, { selector: sel(el), box: box(r) });
     }
     // Wholly beyond the viewport sideways: a control or text nobody can reach. Report the outermost
-    // such box once. Carousel slides, clipped-away boxes, skip links and screen-reader-only text far off are fine.
+    // such box once. Carousel slides, clipped-away text, skip links and screen-reader-only text far off are fine.
     if (!onScreen) {
-      if ((ctl || own) && !underPast && !underOff && !scroller && !cutAway &&
-          (ctl || (r.right > -999 && r.left < vw + 999)) && !skipLink(el)) {
+      if ((ctl || own) && (ctl ? !cutAway || awayBad : !cutAway && r.right > -999 && r.left < vw + 999) && !underPast && !underOff && !(scroller && !awayBad)) {
         let top = el;
         for (let p = el.parentElement, pr; p && p !== document.body && visible(p, pr = rect(p)) && (pr.right <= 0 || pr.left >= vw); p = p.parentElement) top = p;
-        if (!offFlagged.has(top)) { offFlagged.add(top); add(out.offscreen, { selector: sel(top), box: box(rect(top)) }); }
+        if (el.matches('a[href^="#"]')) probes.push({ el, top });
+        else if (!offFlagged.has(top)) { offFlagged.add(top); add(out.offscreen, { selector: sel(top), box: box(rect(top)) }); }
       }
       continue;
     }
+    // On screen but clipped away whole by a box that is no scroller: a control nobody sees, still in the tab order.
+    if (ctl && awayBad && !underCut) { cutFlagged.add(el); add(out.clippedByAncestor, { selector: sel(el), box: box(r), by: sel(awayBad) }); }
     const cx = clipsX(cs) || (cs.textOverflow !== 'clip' && cs.overflowX !== 'visible'), cy = clipsY(cs);
     if (((cx && el.scrollWidth > el.clientWidth + 1) || (cy && el.scrollHeight > el.clientHeight + 1)) &&
         el.clientWidth > 0 && el.textContent.trim() && textCut(el, cx, cy)) {
@@ -223,18 +239,17 @@ function domChecks({ ignores, phone, max }, hold) {
     if (own && rtl && cs.textAlign === 'left' && cs.direction === 'rtl') add(out.rtlTextLeft, { selector: sel(el), box: box(r) });
     if (ctl) {
       // For overlap: the part left after every clipping ancestor, and whether it sits on a fixed layer.
-      let fixed = /fixed|sticky/.test(cs.position), root = cs.position === 'fixed' ? el : null;
+      let fixed = /fixed|sticky/.test(cs.position);
       const v = { left: r.left, top: r.top, right: r.right, bottom: r.bottom };
       for (let a = el.parentElement; a && a !== html; a = a.parentElement) {
         const s = st(a);
         if (/fixed|sticky/.test(s.position)) fixed = true;
-        if (s.position === 'fixed') root = a;
         if (s.overflowX !== 'visible' || s.overflowY !== 'visible') {
           const ar = rect(a);
           Object.assign(v, { left: Math.max(v.left, ar.left), top: Math.max(v.top, ar.top), right: Math.min(v.right, ar.right), bottom: Math.min(v.bottom, ar.bottom) });
         }
       }
-      if (v.right - v.left > 0 && v.bottom - v.top > 0) inter.push({ el, r: v, rr: r, box: box(r), fixed, root });
+      if (v.right - v.left > 0 && v.bottom - v.top > 0) inter.push({ el, r: v, rr: r, box: box(r), fixed });
       // A link inside a sentence is exempt (WCAG 2.5.8 inline exception).
       const inline = cs.display === 'inline' && el.parentElement && ownText(el.parentElement);
       if (phone && !inline && (r.width < 44 || r.height < 44)) add(out.touch, { selector: sel(el), box: box(r) });
@@ -258,8 +273,8 @@ function domChecks({ ignores, phone, max }, hold) {
   // ...unless the content can never scroll clear of the bar: under a bottom bar even at the deepest
   // scroll the page and its scroll boxes allow, or under a top bar already at scroll 0.
   const se = document.scrollingElement || html;
-  const bars = [...new Set(inter.map((c) => c.root).filter(Boolean))].map((el) => ({ el, r: rect(el) }))
-    .filter(({ r }) => r.width > 1 && r.height < vh / 2 && (r.top >= vh / 2 || r.bottom <= vh / 2));
+  const bars = barEls.map((el) => ({ el, r: rect(el) }))
+    .filter(({ r }) => r.top >= -1 && r.bottom <= vh + 1 && r.height < vh / 2 && (r.top >= vh / 2 || r.bottom <= vh / 2));
   for (const bar of bars) {
     const bottom = bar.r.top >= vh / 2;
     for (const c of inter) {
@@ -279,6 +294,9 @@ function domChecks({ ignores, phone, max }, hold) {
       const hit = document.elementFromPoint(Math.max(c.rr.left, bar.r.left) + ox / 2, Math.max(top, bar.r.top) + oy / 2);
       if (hit && bar.el.contains(hit)) add(out.overlap, { selector: sel(c.el), box: c.box, other: sel(bar.el), otherBox: box(bar.r), fixedBar: true });
     }
+  }
+  for (const { el, top } of probes) {
+    if (!offFlagged.has(top) && !shownOnFocus(el)) { offFlagged.add(top); add(out.offscreen, { selector: sel(top), box: box(rect(top)) }); }
   }
   return out;
 }
@@ -353,7 +371,7 @@ async function checkViewport(browser, deps, o, width, theme) {
   run.catch(() => {});
   let timer, hung = false;
   const limit = new Promise((_, reject) => { timer = setTimeout(() => { hung = true; reject(Object.assign(
-    new Error(`timed out after ${o.timeout}s at ${width} ${theme}: the page is busy or hung (raise --timeout)`), { nav: true })); }, o.timeout * 1000); });
+    new Error(`timed out after ${o.timeout}s at ${width} ${theme}: the page is busy or hung (raise --timeout)`), { nav: true, timeout: true })); }, o.timeout * 1000); });
   try {
     return await Promise.race([run, limit]);
   } finally {
@@ -372,6 +390,7 @@ function human(o, vps) {
   const row = (name, c, f) => { if (c && c.count) lines.push(clip(`  ${name} ${c.count}: ${c.examples.slice(0, 3).map(f).join('; ')}`)); };
   const plain = (e) => `${e.selector} ${fmtBox(e.box)}`;
   for (const v of vps) {
+    if (v.timedOut) { lines.push(clip(`${v.width} ${v.theme}  ${v.error}`)); continue; }
     const po = v.pageOverflow ? `  page-overflow ${v.pageOverflow.scrollWidth}>${v.pageOverflow.clientWidth}` : '';
     lines.push(`${v.width} ${v.theme}  dir=${clip(v.dir || '-', 20)} lang=${clip(v.lang || '-', 20)}${po}  ${v.findings ? `findings ${v.findings}` : 'clean'}`);
     if (v.viewportMeta) lines.push(clip(`  viewport-meta ${v.viewportMeta.problem}${v.viewportMeta.content !== undefined ? ` "${v.viewportMeta.content}"` : ''}`));
@@ -393,7 +412,7 @@ function human(o, vps) {
     }
   }
   const total = vps.reduce((n, v) => n + v.findings, 0);
-  lines.push(`total findings ${total} -> exit ${total ? 1 : 0}${o.json ? '' : '  (--json for all fields)'}`);
+  lines.push(`total findings ${total} -> exit ${vps.some((v) => v.timedOut) ? 2 : total ? 1 : 0}${o.json ? '' : '  (--json for all fields)'}`);
   return lines.map((l) => l.replace(CTL, '')).join('\n');
 }
 
@@ -404,7 +423,11 @@ async function main() {
   const vps = [];
   try {
     browser = await deps.chromium.launch({ headless: true, chromiumSandbox: true, ignoreDefaultArgs: ['--disable-dev-shm-usage'] });
-    for (const w of o.widths) for (const t of o.themes) vps.push(await checkViewport(browser, deps, o, w, t));
+    viewports: for (const w of o.widths) for (const t of o.themes) {
+      // A timeout keeps the viewports already done and is reported with them; the rest are skipped.
+      try { vps.push(await checkViewport(browser, deps, o, w, t)); }
+      catch (e) { if (!e.timeout) throw e; vps.push({ width: w, theme: t, timedOut: true, error: e.message, findings: 0 }); break viewports; }
+    }
   } catch (e) {
     process.stderr.write(`ui-check: ${e.nav ? clip(e.message, 400) : (e.stack || e)}\n`);
     process.exitCode = 2;
@@ -413,8 +436,11 @@ async function main() {
     if (browser) await Promise.race([browser.close().catch(() => {}), new Promise((r) => setTimeout(r, 3000).unref())]);
   }
   const total = vps.reduce((n, v) => n + v.findings, 0);
-  process.stdout.write((o.json ? JSON.stringify({ url: o.url, findings: total, viewports: vps }, null, 2) : human(o, vps)) + '\n');
-  process.exitCode = total ? 1 : 0;
+  const timedOut = vps.find((v) => v.timedOut);
+  process.stdout.write((o.json ? JSON.stringify({ url: o.url, findings: total, timedOut: !!timedOut, viewports: vps }, null, 2)
+    .replace(RAW, (c) => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0')) : human(o, vps)) + '\n');
+  if (timedOut) process.stderr.write(`ui-check: ${clip(timedOut.error, 400)}\n`);
+  process.exitCode = timedOut ? 2 : total ? 1 : 0;
 }
 
 main().catch((e) => { process.stderr.write(`ui-check: internal error: ${e && e.stack || e}\n`); process.exit(2); });
