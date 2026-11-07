@@ -28,9 +28,11 @@ Each row is written `- [ ] <ID> <what> · evidence: <path or commit>`. A row is 
 - [ ] C1 Client-asks coverage: no gap left unhandled
 - [ ] C2 Close-all ledger: no doc_fix and no needs_nadav rows
 - [ ] C3 Bugs found in the app code handed to the app session in a file
-- [ ] C4 Launch gates named: sign-up timed with a real person, a real paper print, core screens timed
+- [ ] C4 Launch gates named: sign-up timed with a real person, a real paper print (when the product prints), core screens timed
+- [ ] C5 Cross-system amendments confirmed by review and delivered to each host session (when the system embeds or is embedded)
 
 ## Plan
 - [ ] P1 Build plan: Phase 0 spikes, units with gates, a calibrated estimate
 - [ ] P2 Second-model pre-mortem and fresh-Opus APPROVE recorded
 - [ ] P3 `Status: OWNER-APPROVED answer <N> commit <sha>`
+- [ ] P4 Outside-approvals register: lead times, gated features, signer and entity; owner-time line; dated stop rule

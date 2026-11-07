@@ -8,10 +8,11 @@ One row per capability:
 - status: designed, partly or missing
 - the surfaces that reach it
 - the owning spec block (exactly one)
-- the wave: launch or after
+- build order: a wave or a milestone
+- release: launch or after launch. The release rule is a decision recorded in `SCOPE.md`. In a one-full-release system, every row is "launch" and the waves are build order only.
 - "lost if we stopped here"
 - "replaced on purpose" (Nadav confirms each such row)
-- full-access gaps
+- one Y/N full-access column per surface named in `SCOPE.md` (for example: owner in a host, operator, direct client), plus a "full-access gaps" section
 
 **Rules:**
 - A split id names its other half, by id, in both specs.
@@ -19,7 +20,7 @@ One row per capability:
 - A script checks the table after every round: every id has one owner, nothing is duplicated, and every split names its other half.
 
 ## Domains
-Split the product into 10-20 domains. MediZen had 16:
+Split the product into 10-20 domains, by what the users do. The social studio split the work its own way: creation, approval and publishing, footprint (SEO and listings), host embedding, and go-to-market. MediZen had these 16:
 1. shell and help
 2. calendar
 3. public booking
@@ -45,7 +46,7 @@ Every product also needs go-to-market. File names: `spec/NN-domain.md`, plus `00
 Source: CAPABILITIES ids · decisions #N · law
 States: empty · loading · normal · error · offline · permission · edge cases
 Defaults: each with DECIDED (#N) / LAW / ASSUMPTION / PROPOSED
-Wording: the exact Hebrew strings (generic masculine, calm, no exclamation marks)
+Wording: the exact Hebrew strings, in the Hebrew form recorded in SCOPE.md (generic masculine or gender-neutral), calm, no exclamation marks
 Action-safety: for each outside effect, the contract from `nadavai:action-safety new`. One approval binds one exact version.
 Acceptance tests: numbered, each observable
 Measures: what we count after launch, with an ESTIMATE label when it is a target
@@ -54,6 +55,7 @@ Measures: what we count after launch, with an ESTIMATE label when it is a target
 ## Per file
 - `## Open questions`: Q-NNN rows, each with its options and a recommendation. Q-ids map to rows in the triage JSON.
 - `## Review log`: one line per critic round or decision pass, such as "decisions 7.11: #N applied".
+- `00-INDEX.md` records the sha256 of `DECISIONS-ANSWERED.md` and the highest decision number the specs were written against. A spec index with an older hash is stale: the decisions that came after it are not in the specs yet.
 
 ## Rounds
 1. A pre-mortem by a second model on the domain split.

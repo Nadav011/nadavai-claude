@@ -1,7 +1,7 @@
 # Closing (stages 6-7)
 
 ## 1. Client-asks coverage
-**Input:** every chat with the clients (business and personal), the group with them, questionnaires and support threads.
+**Input:** the channels where the system's users talk to Nadav. In MediZen these were the clients' business and personal chats and the group with them. In the social lane they are the business owners in each host app. Add questionnaires and support threads.
 - Read through `wacli`, read-only.
 - Read the full text, and every image at full size.
 - Transcribe voice notes locally. When the media has expired (403), rebuild the content from the summaries Nadav wrote back, and say so.
@@ -60,7 +60,9 @@
 
 ## 3. Exit checklist rows that every rebuild needs
 - sign-up timed with a real person
-- a real paper print of every printable document
+- a real paper print of every printable document, when the product prints
+- cross-system amendments confirmed by a review and delivered to each host session, when the system embeds or is embedded
+- the outside-approvals register: every review or filing started, with its date
 - core screens timed on a synthetic backend
 - Nadav's mark on every CHANGES file
 - client-asks coverage done

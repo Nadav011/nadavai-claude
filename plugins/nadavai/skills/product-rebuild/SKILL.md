@@ -13,11 +13,32 @@ This skill owns evidence, research, specs, decisions and closing. It calls `nada
 
 ## Invocation
 
-`/nadavai:product-rebuild [system] [stage]`. With no stage, run `status`: read the output repo and print, in Hebrew, which stage each lane is at, what is open, and the next one to three steps.
+`/nadavai:product-rebuild [system] [stage]`. With no stage, run `status`. It reads `plan/EXIT-CHECKLIST.md` and derives each stage from its rows:
+
+| Stage | Rows |
+|---|---|
+| 1 | E* |
+| 2 | R* |
+| 3-4 | S* |
+| 5 | D* |
+| 6-7 | C* |
+| 8 | P* |
+
+A stage is done when all of its rows are ticked with evidence. Print, in Hebrew, the first unticked row per lane and the next one to three steps. With no checklist yet, the system is at stage 0.
+
+**Modes.** `SCOPE.md` sets the mode:
+- `redesign`: one existing app.
+- `new product`: there is no app yet. Stage 1 measures the systems it replaces or absorbs.
+- `extract + merge`: capabilities come from N existing systems, possibly on several machines.
+
+**Before any workflow,** tell Nadav in one Hebrew line what it does and how many agents it runs. Examples: triage is 2 per group plus 1; apply is 1 per domain plus 1; close-all is the finders plus 1, plus the closers, plus 1.
 
 ## Hard rules (every stage)
 
-- **Separate output repo.** It lives at `~/design-redesign/<app folder>/` (or the path Nadav gives) and is under git from the first minute. The app repo is never written in this skill: not code, not `planning/`, not docs. The app is pinned to one commit (`rev-parse`, recorded in `RUN-LOG.md`). One worktree per parallel lane (`tf2-spec`, `tf2-rN` in MediZen). Run `git status` after every workflow, because read-only agents still write.
+- **Separate output repo.**
+  - **Where it lives:** `~/design-redesign/<app folder>/` for a redesign, or any folder Nadav names. It is under git from the first minute; run a secrets check first when the folder already holds other tools.
+  - **Source repos are never written:** not the app, not a host, not a system being absorbed. That covers code, `planning/` and docs.
+  - **Pinning:** every source repo is pinned in `RUN-LOG.md` with its machine and sha (`rev-parse`). One worktree per parallel lane (`tf2-spec`, `tf2-rN` in MediZen). Run `git status` after every workflow, because read-only agents still write.
 - **The gate.** `plan/EXIT-CHECKLIST.md` lists every row that must be closed before the build. The build plan carries `Status: DRAFT` until Nadav approves, then `Status: OWNER-APPROVED answer <N> commit <sha>`. Nothing is built before that line.
 - **Safety, from the global rules, never restated here:** money (`acting-on-behalf.md`), sends to real people (`whatsapp.md`, `client-messages.md`), passwords in the vault only, no CAPTCHA, approval gates (`working-style.md`). In this skill they mean:
   - Stop at any card screen. Every trial goes into the trials ledger.
@@ -30,7 +51,13 @@ This skill owns evidence, research, specs, decisions and closing. It calls `nada
 - **Self-made changes (MediZen #422).** Every change an agent makes on its own, beyond what a decision or the law says, is reported to Nadav as one Hebrew line in its return and in the round's CHANGES file.
 - **Evidence labels.**
   - Every spec statement is `DECIDED (#N)`, `LAW (source)`, `ASSUMPTION` or `PROPOSED`. Every number is a measurement or an `ESTIMATE`.
-  - Every external fact has a source tag: `[V]` the vendor's page opened, `[3P]` a third party, `[S]` a search snippet only. Each tag carries a URL and a date.
+  - Every external fact has a source tag:
+    - `[V-raw]` the official page text was read raw (curl, or a fetch without a summarizer)
+    - `[V]` the official page was opened through a summarizing fetch
+    - `[3P]` a third party
+    - `[S]` a search snippet only
+
+    Each tag carries a URL and a date. A design decision that depends on an outside fact needs `[V-raw]`, or two `[V]` readings that agree.
   - "Sent", "done" and "fixed" are said only after the system confirmed it.
 
 ## Stages
@@ -40,17 +67,23 @@ Each stage ends with evidence shown to Nadav (files, counts, shots) and a line i
 ### 0. Frame
 1. Create the output repo from `templates/` (EXIT-CHECKLIST, RUN-LOG, DECISIONS-ANSWERED, ACCOUNTS, TRIALS) plus `nadav-design/redesign/templates`. Pin the app commit.
 2. Write `SCOPE.md`:
+   - the mode
+   - every source repo, with its machine
    - the system and its verticals
-   - who uses it today (clients, by role, no names)
+   - who uses it today (roles, no names)
    - the country and the law
    - the language and direction
-   - the competitor list (a first guess, widened in stage 2)
+   - **the Hebrew form**, which is a decision: generic masculine (MediZen) or gender-neutral (social)
+   - **the release rule**, which is a decision: waves, or one full release
+   - the surfaces: owner in a host, operator, direct client
+   - **the core work unit** at 1280x648: MediZen counts 4 calendar hours and 4 chat messages
+   - the competitor list, a first guess widened in stage 2
    - anything this system embeds in, or that embeds it
 3. Second model pre-mortem on the scope (`working-style.md`, Second model). Record each point and what changed.
 
 ### 1. Evidence on the current system
-- **Usage.** Analytics (PostHog) per route, user and day, plus database counts per feature table and per tenant. Both are read-only: `BEGIN READ ONLY`, `statement_timeout`, `count` only, pseudonyms in committed files. Name the limits: how many days, what is not tracked, and which screens are "unknown".
-- **Voice of customers.** WhatsApp chats and groups through `wacli` (read-only, `nadavai:wacli`), questionnaires, support asks and complaints. Every ask becomes a row with a date and a message id, never a name. Voice notes are transcribed locally, then the media is deleted.
+- **Usage.** The product's analytics (PostHog where it is installed; when there is none, say so as a limit) per route, user and day, plus database counts per feature table and per tenant. Both are read-only: `BEGIN READ ONLY`, `statement_timeout`, `count` only, pseudonyms in committed files. Name the limits: how many days, what is not tracked, and which screens are "unknown".
+- **Voice of customers.** Read the channels where the system's users talk to Nadav: WhatsApp chats and groups through `wacli` (read-only, `nadavai:wacli`), questionnaires, support asks and complaints. Every ask becomes a row with a date and a message id, never a name. Voice notes are transcribed locally, then the media is deleted.
 - **Inventory.** Every screen and state, with "today" shots (`nadav-design/redesign` steps 2-3). Run a real-name check on every shot before anything is published.
 - **Portability map** (when an existing system is extracted or merged): how each capability moves, what stays behind, and what is replaced on purpose. Nadav confirms each "replaced on purpose" row.
 
@@ -67,7 +100,7 @@ The tracks:
 - **Open source.** Structure and interaction patterns only. AGPL code never enters.
 - **Local market, growth and marketing tools.** Platform-policy facts that change the design are cited from official pages.
 - **Outside agents (optional).** Run Grok or another CLI per site, with a written brief that carries the same gates.
-- **Law and tax per country.** Make a list of questions for counsel and for a CPA. When a peer session already owns tax filings (the 513 session for MediZen), ask it and record its answers as decisions.
+- **Law and tax per country.** Make a list of questions for counsel and for a CPA. When a peer session already owns tax filings, ask that session and record its answers as decisions.
 
 ### 3. Capability inventory and specs
 Follow `references/spec-standard.md`.
@@ -83,6 +116,8 @@ Follow `references/spec-standard.md`.
 - **One spec per domain.** Every block has states, defaults, wording and acceptance tests, the evidence labels, an action-safety contract for each outside effect, `## Open questions` and `## Review log`.
 - **Critic rounds on the specs.** A pre-mortem first, then numbered rounds, each with a response table. After each round, recount `00-INDEX.md` and `GAPS.md` until nothing is missing or duplicated.
 - **Go-to-market domain.** Positioning, pricing options, onboarding funnel, launch plan and legal. Every product needs one.
+- **Cross-system contracts** (when the system embeds in others, or is embedded): an embed contract covering the frame, the SDK, the look tokens, quotas and step-up. Each host also gets a numbered amendment list. It goes to that host's session only after a review confirms it, and the host repo is never written from this lane.
+- **Proof harness** (optional, when a generative or rendering capability is the core): a working validator, renderer and verifier, run on real assets before the spec is trusted. In the social lane it decided that code draws all text.
 
 ### 4. Decisions
 Follow `references/decisions.md`.
@@ -104,7 +139,7 @@ Follow `references/decisions.md`.
   - 4 widths, light and dark, axe
   - Firefox, and WebKit in Docker
   - text zoom at 112.5% and 125%
-  - a small laptop work area (1280x648: the calendar shows 4 hours, the chats show 4 messages)
+  - a small laptop work area: at 1280x648 the main work view still shows the core unit set in `SCOPE.md`
   - forbidden words, and a Hebrew check of agent strings
 - Publish the demo only after the critics approve and the real-name check passes.
 
@@ -126,7 +161,9 @@ Repeat stages 4-7 until the ledger has no `doc_fix` and no `needs_nadav` rows. E
 - Add:
   - **Phase 0 spikes** with a fallback each, before any expensive build.
   - **A concierge test** when the product's value is a judgment call: real businesses, a fixed number of proposals, and pass, middle and stop branches.
-  - **An estimate calibrated** on Nadav's own measured git throughput (`tools/calib.sh`), split into build time, external waits and owner time.
+  - **An estimate calibrated** on Nadav's own measured git throughput (`tools/calib.sh`). Split it into build time, external waits and owner time, each on its own line.
+  - **An outside-approvals register.** List the platform reviews and filings: Meta App Review, TikTok audit, Google OAuth verification, API access levels, tax or registry filings. Give each its lead time, the features it gates, who signs, and the entity it is filed under. These often set the date more than the build does.
+  - **A dated stop rule.** If the plan is not at milestone X by date Y, stop and replan with a menu of options. Never "cut scope" silently.
 - A second model runs a pre-mortem on the plan, and a fresh Opus reviews it until APPROVE.
 - Nadav answers, and the `OWNER-APPROVED` line is written. The build runs in a separate session (`START-BUILD.md`).
 

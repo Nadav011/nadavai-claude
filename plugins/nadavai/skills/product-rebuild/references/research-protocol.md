@@ -37,6 +37,8 @@ A tool is not "studied" until its depth row is filled.
 - `research/TRIALS-TO-CANCEL.md` lists every trial: the plan, the charge if it is not cancelled, the date, the cancel rule, the cancel time and the proof shot. The orchestrating session checks every row before the day ends.
 - **Card trials.** Cancel first, before any use. Some vendors end access when you cancel; in that case the rule cannot hold, so ask Nadav before you open the trial. Any card screen stops the agent: money is asked every time (`acting-on-behalf.md`).
 - **Sign-ups and logins** follow `acting-on-behalf.md`: agent-browser with the vault, never a typed password. A CAPTCHA, an SMS code or a phone check goes to Nadav.
+- **One account per site,** even when Nadav offers more emails.
+- **Changes on the vendor account:** record every change a research pass makes there. A wizard pass can overwrite the test brand you set up.
 
 ## REA
 - Load `nadavai:reverse-engineer-anything`.
@@ -55,7 +57,14 @@ A tool is not "studied" until its depth row is filled.
 - Email codes: only the mailbox the task names. Verify the account in the page title before you search. Never iterate through accounts.
 
 ## Sources
-- `[V]` the vendor page was opened. `[3P]` a third party. `[S]` a search snippet only, not opened. Each tag carries a URL and a date. A claim without a path or a URL is not evidence.
+- **Tags:**
+  - `[V-raw]` the official page text was read raw (curl, or a fetch without a summarizer)
+  - `[V]` the official page was opened through a summarizing fetch
+  - `[3P]` a third party
+  - `[S]` a search snippet only, not opened
+
+  Each tag carries a URL and a date. A claim without a path or a URL is not evidence.
+- **Facts that change the design** need `[V-raw]`, or two `[V]` readings that agree. In the social review, two summarized "official" readings of Google Ads contradicted each other.
 - When a research MCP goes inactive mid-run (Bright Data "Customer is not active"), fall back to official pages and tag the source type. Never fill the gap from memory.
 
 ## Law and tax

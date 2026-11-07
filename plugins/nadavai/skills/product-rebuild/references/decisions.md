@@ -34,6 +34,9 @@ The remaining asks are grouped into at most 12-15 questions:
 - each has a Hebrew title, one plain line, 2-4 full options with the recommended one first, the why, and the ids it answers
 - facts go into one free-text question
 
+## The light path (a small run, no workflow)
+When there are few questions, the orchestrator may make rulings by evidence on the same three bases. Each ruling is listed for Nadav and confirmed in the next question round. It is not final until he has seen it.
+
 ## Asking
 - **Format.** AskUserQuestion, up to 4 questions per call. Every field is in Hebrew, and each question stands on its own: Nadav may not see earlier text.
 - **Many questions.** Use the questionnaire artifact, with `db` and `user`, rules admin-only, and collections `answers` and `overrides`. Read the answers back with ArtifactData.

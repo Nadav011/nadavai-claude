@@ -21,7 +21,13 @@
 - **Few questions, grouped, with the recommendation first.** Decide what the law or a decision settles. A "what is X?" answer means: explain, then ask again.
 - **Every self-made change is reported**, one Hebrew line each (#422).
 
+## Outside agents
+- **Grok and other CLI agents** opened tabs in Nadav's working Orca workspace. Run them in their own floating workspace, and pre-trust their folder.
+- **An outside agent's weekly quota can end mid-run.** Plan a hand-off to Claude agents, with the brief and the partial output on disk.
+
 ## Research
+- Two summarizing fetches of the same official page can contradict each other. Use `[V-raw]` for facts that drive the design.
+- A REA wizard pass can overwrite the vendor-side test brand. Record what changed on the vendor account.
 - Vendors that end access when a trial is cancelled break the "cancel first" rule. Ask before opening.
 - A research MCP can go inactive mid-run. Fall back to official pages and label the source type.
 - A client's voice notes expire (403). Rebuild their content from Nadav's written replies, and label it.
