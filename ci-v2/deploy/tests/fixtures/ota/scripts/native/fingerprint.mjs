@@ -1,5 +1,6 @@
-// Test stub of therapy-flow-v2's scripts/native/fingerprint.mjs: only the exports ota-step.mjs uses.
-// The runtime of each app/platform is native/runtimes.json of the commit.
+// Test stub of the vendored fingerprint.mjs (therapy-flow-v2 scripts/native/): only the exports
+// tools/ota-step.mjs uses. The runtime of each app/platform is native/runtimes.json of the commit.
+// Installed as tools/ota/fingerprint.mjs and committed into the fixture repo, like ota-publish.mjs.
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 

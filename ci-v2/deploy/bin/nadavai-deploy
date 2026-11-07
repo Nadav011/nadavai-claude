@@ -12,14 +12,22 @@
 #   nadavai-deploy release <repo>                    end the hold
 #   nadavai-deploy hold-status <repo>                one word: held | off | auto | manual
 #   nadavai-deploy pages-live <repo>                 "<deployment id> <commit>" production serves
-#   nadavai-deploy rollback <repo> <deployment id>   back to a production deployment of the project
+#   nadavai-deploy rollback <repo> <deployment id> [--with-ota]
+#                                                    back to a production deployment of the project;
+#                                                    therapy-flow-v2 prints (or with --with-ota runs) the
+#                                                    ota-rollback of each store-app runtime too
 #   nadavai-deploy auto                              the timer's pass: deploys main's new head of each
 #                                                    repo with state/<repo>.auto (none by default)
 #   nadavai-deploy repos                             the repos and how each deploys
 #   nadavai-deploy ota <repo> <sha> [--dry-run]      the OTA step alone, for the commit production serves
 #   nadavai-deploy ota-status <repo>                 the store apps' manifests, policy and last bundles
 #   nadavai-deploy ota-rollback <repo> <app> <android|ios> <bundleId|reset> [--runtime runtime-<fp12>]
+#                                                    (default runtime: the one the last OTA step reached);
+#                                                    holds that app/platform's OTA until ota-release
+#   nadavai-deploy ota-release <repo> <app> <android|ios>   the OTA step publishes there again
 #   nadavai-deploy ota-min <repo> <app> <android|ios> <build> [--message "<text>"]
+#   nadavai-deploy ota-off <repo> <reason> | ota-on <repo>   the OTA step publishes nothing (web deploys go
+#                                                    on); ota-off returns once a step in flight stopped
 #
 # A deploy goes only to a sha that is on main (main's head or behind it) AND is the merge commit of
 # a PR into main whose head has every ci/woodpecker/pr/* status and nadavai-security green (rule 7:
@@ -34,11 +42,16 @@
 # a deploy went live, the same process runs the OTA step for that sha, outside the repo lock (under
 # state/<repo>.ota.lock, and only while the sha is what production serves and the repo is not held).
 # Each app of the sha's native/apps.json builds its bundle in the build sandbox, with its public env
-# (OTA_ENV) only; then tools/ota-step.mjs, as nadavai-upload in a fresh clone of the sha with that
-# bundle copied in, holding secrets/r2-ota.env and the app's secrets/ota-<app>.pem, publishes it to
-# each platform whose runtime already has a production manifest. A runtime with none is a native
-# change: nothing is published and the status says a store build is needed. The nadavai-ota status
-# on the sha says what happened; an OTA failure never touches the web deploy or its exit code.
+# (OTA_ENV) only; then tools/ota-step.mjs, as nadavai-ota (its own user) in a fresh clone of the sha
+# with that bundle copied in, holding secrets/r2-ota.env and the app's secrets/ota-<app>.pem,
+# publishes it to each platform whose runtime already has a production manifest. Only trusted code
+# holds the key: ota-step.mjs and the publisher vendored beside it (tools/ota), never the commit's
+# own scripts; a commit whose scripts/native/ota-publish.mjs or fingerprint.mjs differ from the
+# vendored blobs is refused ("publisher changed in the commit"). The hold, the OTA switch and the
+# live commit are read again right before each platform's publish. A runtime with no manifest is
+# a native change (store build needed) when the platform has manifests on another runtime, and
+# "not released yet" when it has none. The nadavai-ota status on the sha says what happened; an
+# OTA failure never touches the web deploy or its exit code.
 #
 # Two more gates run before anything is built (2026-11-04), without the repo lock (a rollback is
 # never kept waiting behind them); under the lock the live commit, the migrations, the hold and the
@@ -79,7 +92,7 @@ STATE=$ROOT/state LOGS=$ROOT/logs SECRETS=$ROOT/secrets MIRROR=$ROOT/mirror
 TOOLS=${NADAVAI_DEPLOY_TOOLS:-/opt/nadavai-deploy/tools}
 WORK=${NADAVAI_DEPLOY_WORK:-/srv/nadavai-deploy/work}
 CACHE=${NADAVAI_DEPLOY_CACHE:-/srv/nadavai-deploy/cache}
-BUILD_USER=nadavai-build UPLOAD_USER=nadavai-upload
+BUILD_USER=nadavai-build UPLOAD_USER=nadavai-upload OTA_USER=nadavai-ota
 NODE=$TOOLS/node/bin/node
 CLI=$TOOLS/cli/node_modules
 RETRY_SLEEP=${NADAVAI_DEPLOY_RETRY_SLEEP:-3}
@@ -108,6 +121,12 @@ declare -A HOST=([therapy-flow-v2]=medizen.nadavc.ai [cash-next-app]=cash.nadavc
 OTA_REPO=therapy-flow-v2
 declare -A OTA_ENV=([medizen]=therapy-flow-v2.build.env [retrobarber]=vitlana-salon-public.env)
 OTA_BUCKET=nadavai-app-updates
+# The publisher files vendored in tools/ota (from therapy-flow-v2 scripts/native/): a commit runs the
+# OTA step only while its own copies are these blobs. Re-vendor them after reviewing a change.
+OTA_VENDORED=(ota-publish.mjs fingerprint.mjs)
+# Apps whose bundle carries the commit in dist/sw.js (the tf-shell stamp, as the web's): checked
+# before signing. The salon bundle has no commit marker (salon-client-build.json holds the profile).
+declare -A OTA_STAMP=([medizen]=sw.js)
 declare -A HEALTH_PATH=([cash-next-app]=/login [snooker-smart]=/ [sportchat-web]=/he)
 # "<code> <redirect url>" when one exact answer is the healthy one; otherwise any 2xx or 3xx.
 declare -A HEALTH_WANT=([cash-next-app]="307 https://cash.nadavc.ai/deliveries")
@@ -125,7 +144,7 @@ MIGRATION_RE='^(.*/)?(supabase/migrations|migrations[^/]*|supabase/release-candi
 
 say() { printf '%s\n' "$*"; }
 err() { printf 'nadavai-deploy: %s\n' "$*" >&2; }
-usage() { sed -n '4,22p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2; exit 2; }
+usage() { sed -n '4,30p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2; exit 2; }
 known() { [ -n "${1:-}" ] && [ -n "${KIND[$1]:-}" ]; }
 # A secrets file is used only when it is this user's and mode 600 (the contract for ~/deploy/secrets).
 secret_ok() { [ -f "$1" ] && [ "$(stat -c '%a %u' "$1" 2>/dev/null)" = "600 $(id -u)" ] || { err "$1 is missing, or not mode 600 and owned by $(id -un)"; return 1; }; }
@@ -719,50 +738,93 @@ clean_exec() {
 }
 
 # ---------------------------------------------------------------- OTA: the store apps
-# The signing and R2 step as nadavai-upload: the upload's hardening, secrets/r2-ota.env as its
-# environment (systemd reads it), and with an app that app's signing key as a systemd credential
-# only this unit reads (OTA_SIGNING_KEY is its path). The bucket is fixed to production and the
-# publisher's other overrides are dropped.
+# The signing and R2 step as nadavai-ota, a user no other step runs as (the upload units run repo
+# code as nadavai-upload, so a shared uid could read this unit's environment): the upload's
+# hardening, secrets/r2-ota.env as its environment (systemd reads it), and with an app that app's
+# signing key as a systemd credential only this unit reads (OTA_SIGNING_KEY is its path). It runs
+# only tools/ota-step.mjs, which pins the bucket and the public host.
 ota_sandbox() { # app|'' dir -- cmd...: runs in dir/src, writes only under dir
   local app=$1 d=$2 key=(); shift 3
   secret_ok "$SECRETS/r2-ota.env" || return 1
   if [ -n "$app" ]; then secret_ok "$SECRETS/ota-$app.pem" || return 1; key=(-p "LoadCredential=ota-key:$SECRETS/ota-$app.pem"); fi
   UNIT_N=$((UNIT_N + 1))
   sudo -n systemd-run --quiet --wait --pipe --collect --service-type=exec --unit="nadavai-deploy-ota-$$-$UNIT_N" \
-    -p User=$UPLOAD_USER -p Group=$UPLOAD_USER -p "WorkingDirectory=$d/src" "${HARDEN[@]}" "${key[@]}" \
+    -p User=$OTA_USER -p Group=$OTA_USER -p "WorkingDirectory=$d/src" "${HARDEN[@]}" "${key[@]}" \
     -p "ReadWritePaths=$d" -p MemoryMax=2G -p RuntimeMaxSec=1200 -p "EnvironmentFile=$SECRETS/r2-ota.env" \
     -p "Environment=HOME=$d/home PATH=$TOOLS/node/bin:/usr/bin:/bin" \
-    -- /bin/sh -c 'unset OTA_SIGNING_KEY OTA_KEY_DIR OTA_PUBLIC_BASE; export R2_BUCKET='"$OTA_BUCKET"'
+    -- /bin/sh -c 'unset OTA_SIGNING_KEY OTA_KEY_DIR OTA_PUBLIC_BASE R2_BUCKET
       [ -z "${CREDENTIALS_DIRECTORY:-}" ] || export OTA_SIGNING_KEY="$CREDENTIALS_DIRECTORY/ota-key"; exec "$@"' sh "$@" </dev/null
 }
 ota_registry() { "${GIT[@]}" -C "$MIRROR/$1.git" show "$2:native/apps.json" 2>/dev/null; } # repo rev
-# A fresh clone of sha for the signing step (the build's tree and node_modules never reach it),
-# with the publisher's one dependency, aws4fetch, from the service's pinned tools.
+# A fresh clone of sha for the signing step: data only (the build's tree and node_modules never
+# reach it, and nothing in it runs).
 ota_tree() { # repo sha -> dir (dir/src the clone, dir/home); prints dir on a failure too
   local d
   d=$(new_workdir "$1" "$2") || { say "$d"; return 1; }
-  mkdir -p "$d/home" "$d/src/node_modules" && cp -R "$CLI/aws4fetch" "$d/src/node_modules/" || { say "$d"; return 1; }
+  mkdir -p "$d/home" || { say "$d"; return 1; }
   say "$d"
 }
 ota_join() { local IFS=,; say "${*:--}"; }
+take_ota_lock() { # repo: fd 7 holds the repo's OTA lock until this process exits
+  exec 7>"$STATE/$1.ota.lock" || return 1
+  flock -n 7 && return 0
+  err "waiting for the $1 OTA lock (a store-app step holds it; it stops before its next publish)"
+  flock 7
+}
+ota_holdfile() { printf '%s/%s.ota-hold.%s.%s' "$STATE" "$1" "$2" "$3"; } # repo app platform
+ota_offfile() { printf '%s/%s.ota-off' "$STATE" "$1"; }
+ota_first() { local r; r=$(head -1 "$1" 2>/dev/null); say "${r:-no reason given}"; }
+# The commit's scripts/native/<file> must be the blob vendored in tools/ota.
+ota_publisher_ok() { # repo sha
+  local f want have bad=()
+  for f in "${OTA_VENDORED[@]}"; do
+    want=$("${GIT[@]}" hash-object "$TOOLS/ota/$f" 2>/dev/null)
+    have=$("${GIT[@]}" -C "$MIRROR/$1.git" rev-parse -q --verify "$2:scripts/native/$f" 2>/dev/null)
+    [ -n "$want" ] && [ "$want" = "$have" ] || bad+=("$f")
+  done
+  [ "${#bad[@]}" = 0 ] && return 0
+  err "OTA: scripts/native/ $(ota_join "${bad[@]}") of ${2:0:7} differ from the publisher vendored in nadavai ($TOOLS/ota): review the change and re-vendor it"
+  return 1
+}
+# Right before each platform's publish: no hold or off, OTA on, and production still on sha.
+ota_gate() { # repo sha dry -> 0 go on; otherwise prints why not
+  local live hs
+  if [ -z "$3" ]; then
+    hs=$(hold_status "$1")
+    case $hs in held|off) say "deploys of $1 are $hs"; return 1 ;; esac
+    [ ! -e "$(ota_offfile "$1")" ] || { say "OTA is off: $(ota_first "$(ota_offfile "$1")")"; return 1; }
+  fi
+  live=$(live_of "$1") && [ -n "$live" ] || { say "cannot read what production serves"; return 1; }
+  [ "${live#* }" = "$2" ] || { say "production now serves ${live#* }"; return 1; }
+}
+# What a later web rollback needs: the runtime each platform's phones are on, and the bundle each
+# OTA step put there per commit.
+ota_record() { # repo app platform runtime bundle sha result
+  [[ $4 =~ ^runtime-[0-9a-f]{12}$ ]] || return 0
+  echo "$4" >"$STATE/$1.ota-runtime.$2.$3"
+  case $7 in published|current) [ "$5" = - ] || printf '%s %s %s %s %s\n' "$2" "$3" "$4" "$5" "$6" >>"$STATE/$1.ota-bundles" ;; esac
+}
 # The OTA step of a live commit, in the web build's workdir (installed, owned by the build user):
-# each app's bundle builds there, is copied into a fresh clone and published from it. Posts
-# nadavai-ota and appends one ota line to deploys.log. 0 when no app or platform failed (a native
-# change is not a failure of the step), 1 otherwise.
+# each app's bundle builds there, is copied into a fresh clone and published from it, one unit per
+# platform. Posts nadavai-ota (pending first) and appends one ota line to deploys.log. 0 when no
+# app or platform failed (a native change is not a failure of the step), 1 otherwise.
 ota_step() { # repo sha workdir dry
-  local repo=$1 sha=$2 w=$3 dry=$4 reg apps='' app cmd web d='' ctime out rc res lines r_app r_pf r_res _r state desc
-  local pub=() cur=() kept=() native=() would=() failed=() built=()
+  local repo=$1 sha=$2 w=$3 dry=$4 reg app cmd web d='' ctime out rc res line pf r_rt r_res r_bid _r state desc stop='' why stamp sfx refused=''
+  local apps=() pfs=() pub=() cur=() kept=() native=() unreleased=() would=() held=() stopped=() failed=() built=()
   say "--- OTA: the store apps of ${sha:0:7} (native/apps.json)"
-  if ! reg=$(ota_registry "$repo" "$sha") || ! apps=$(jq -r '.apps | keys[]' <<<"$reg" 2>/dev/null) || [ -z "$apps" ]; then
-    err "OTA: ${sha:0:7} has no readable native/apps.json"; failed+=(apps.json); apps=''
+  [ -n "$dry" ] || status "$repo" "$sha" pending "publishing the store apps over the air (nadavai-deploy)" nadavai-ota
+  if ! reg=$(ota_registry "$repo" "$sha") || ! mapfile -t apps < <(jq -r '.apps | keys[]' <<<"$reg" 2>/dev/null) || [ "${#apps[@]}" = 0 ]; then
+    err "OTA: ${sha:0:7} has no readable native/apps.json"; failed+=(apps.json); apps=()
+  elif ! ota_publisher_ok "$repo" "$sha"; then
+    refused=1; apps=()
   fi
   ctime=$("${GIT[@]}" -C "$MIRROR/$repo.git" show -s --format=%cI "$sha" 2>/dev/null)
-  if [ -n "$apps" ]; then
-    d=$(ota_tree "$repo" "$sha") || { err "OTA: could not make the clone for signing"; failed+=(clone); apps=''; }
+  if [ "${#apps[@]}" -gt 0 ]; then
+    d=$(ota_tree "$repo" "$sha") || { err "OTA: could not make the clone for signing"; failed+=(clone); apps=(); }
     CUR_UP=$d
     [ -d "$w/home" ] || sudo -n install -d -o "$BUILD_USER" -g "$BUILD_USER" -m 755 "$w/home" || true
   fi
-  for app in $apps; do
+  for app in "${apps[@]}"; do
     cmd=$(jq -r --arg a "$app" '.apps[$a].buildCommand // empty' <<<"$reg") web=$(jq -r --arg a "$app" '.apps[$a].webDir // empty' <<<"$reg")
     if ! [[ $app =~ ^[a-z0-9-]+$ ]] || [ -z "${OTA_ENV[$app]:-}" ]; then err "OTA: app '$app' has no build env in OTA_ENV (nadavai-deploy); add one before it can publish"; failed+=("$app"); continue; fi
     if ! [[ $web =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || [ -z "$cmd" ]; then err "OTA: $app has no buildCommand or an odd webDir ($web)"; failed+=("$app"); continue; fi
@@ -774,51 +836,102 @@ ota_step() { # repo sha workdir dry
       [ -n "$(find "$d/src/$web" ! -type f ! -type d -print -quit)" ]; then
       err "OTA: $app's $web has no index.html, is tracked in git, or holds a symlink or special file"; failed+=("$app"); continue
     fi
+    if [ -n "${OTA_STAMP[$app]:-}" ]; then
+      stamp=$(grep -o 'tf-shell-[a-z0-9-]*' "$d/src/$web/${OTA_STAMP[$app]}" 2>/dev/null | head -1); sfx=${stamp##*-}
+      [ "${#sfx}" -ge 7 ] && [ "${sha:0:${#sfx}}" = "$sfx" ] ||
+        { err "OTA: $app's $web/${OTA_STAMP[$app]} carries '${stamp:-no stamp}', not ${sha:0:7}: not this commit's bundle"; failed+=("$app"); continue; }
+    fi
     built+=("$app")
   done
-  if [ "${#built[@]}" -gt 0 ] && ! give_to "$UPLOAD_USER" "$d"; then
-    err "OTA: could not hand the clone to $UPLOAD_USER"; failed+=("${built[@]}"); built=()
+  if [ "${#built[@]}" -gt 0 ] && ! give_to "$OTA_USER" "$d"; then
+    err "OTA: could not hand the clone to $OTA_USER"; failed+=("${built[@]}"); built=()
   fi
   for app in "${built[@]}"; do
-    say "--- OTA: ${dry:+dry run: }sign and publish $app as $UPLOAD_USER (r2-ota.env, ota-$app.pem)"
-    rc=0; out=$(ota_sandbox "$app" "$d" -- "$NODE" "$TOOLS/ota-step.mjs" "$d/src" "$app" "$sha" "$ctime" ${dry:+--dry-run} 2>&1) || rc=$?
-    say "$out" | sed 's/^/  /'
-    lines=$(grep "^RESULT $app " <<<"$out")
-    [ -n "$lines" ] || { err "OTA: the $app step ended $rc before deciding anything"; failed+=("$app"); continue; }
-    while read -r _r r_app r_pf _r r_res _r; do
+    mapfile -t pfs < <(jq -r --arg a "$app" '.apps[$a].platforms | keys[] | select(. == "android" or . == "ios")' <<<"$reg")
+    for pf in "${pfs[@]}"; do
+      if [ -n "$stop" ]; then stopped+=("$app/$pf"); continue; fi
+      if [ -e "$(ota_holdfile "$repo" "$app" "$pf")" ]; then
+        say "--- OTA: $app/$pf is held: $(ota_first "$(ota_holdfile "$repo" "$app" "$pf")") (nadavai-deploy ota-release $repo $app $pf resumes it)"
+        held+=("$app/$pf"); continue
+      fi
+      if ! why=$(ota_gate "$repo" "$sha" "$dry"); then
+        err "OTA: stopped before $app/$pf: $why"; stop=$why; stopped+=("$app/$pf"); continue
+      fi
+      say "--- OTA: ${dry:+dry run: }sign and publish $app $pf as $OTA_USER (r2-ota.env, ota-$app.pem)"
+      rc=0; out=$(ota_sandbox "$app" "$d" -- "$NODE" "$TOOLS/ota-step.mjs" publish "$d/src" "$app" "$pf" "$sha" "$ctime" ${dry:+--dry-run} 2>&1) || rc=$?
+      say "$out" | sed 's/^/  /'
+      line=$(grep -m1 "^RESULT $app $pf " <<<"$out")
+      [ -n "$line" ] || { err "OTA: the $app $pf step ended $rc before deciding anything"; failed+=("$app/$pf"); continue; }
+      read -r _r _r _r r_rt r_res r_bid _r <<<"$line"
+      [ -n "$dry" ] || case $r_res in published|current|kept) ota_record "$repo" "$app" "$pf" "$r_rt" "$r_bid" "$sha" "$r_res" ;; esac
       case $r_res in
-        published) pub+=("$r_app/$r_pf") ;; current) cur+=("$r_app/$r_pf") ;; kept) kept+=("$r_app/$r_pf") ;;
-        native-change) native+=("$r_app/$r_pf") ;; would-publish) would+=("$r_app/$r_pf") ;; *) failed+=("$r_app/$r_pf") ;;
+        published) pub+=("$app/$pf") ;; current) cur+=("$app/$pf") ;; kept) kept+=("$app/$pf") ;;
+        native-change) native+=("$app/$pf") ;; not-released) unreleased+=("$app/$pf") ;; would-publish) would+=("$app/$pf") ;;
+        *) failed+=("$app/$pf") ;;
       esac
-    done <<<"$lines"
+    done
   done
   drop_dir "$d"; CUR_UP=''
-  if [ "${#failed[@]}" -gt 0 ]; then
+  if [ -n "$refused" ]; then
+    state=failure res=ota-publisher-changed desc="OTA refused: publisher changed in the commit: review and re-vendor (nadavai ci-v2/deploy/tools/ota)"
+  elif [ "${#failed[@]}" -gt 0 ]; then
     state=failure res=ota-failed desc="OTA failed: $(ota_join "${failed[@]}") (log on the Oracle VM)"
     [ "${#native[@]}" = 0 ] || desc+="; native change: $(ota_join "${native[@]}")"
   elif [ "${#native[@]}" -gt 0 ]; then
     state=failure res=ota-native-change desc="native change: store build needed: $(ota_join "${native[@]}")"
+  elif [ "${#stopped[@]}" -gt 0 ]; then
+    state=failure res=ota-stopped desc="OTA stopped before $(ota_join "${stopped[@]}"): $stop"
   else
     state=success res=ota desc="store apps on ${sha:0:7}"
   fi
+  [ "${#stopped[@]}" = 0 ] || [ "$res" = ota-stopped ] || desc+="; stopped before $(ota_join "${stopped[@]}"): $stop"
   [ "${#pub[@]}" = 0 ] || desc+="; published $(ota_join "${pub[@]}")"
   [ "${#would[@]}" = 0 ] || desc+="; would publish $(ota_join "${would[@]}")"
   [ "${#cur[@]}" = 0 ] || desc+="; current $(ota_join "${cur[@]}")"
-  [ "${#kept[@]}" = 0 ] || desc+="; a person's rollback kept: $(ota_join "${kept[@]}")"
-  case $res in ota-failed) say "OTA: FAILED: $desc" ;; ota-native-change) say "OTA: STORE BUILD NEEDED: $desc" ;; *) say "OTA: $desc" ;; esac
+  [ "${#kept[@]}" = 0 ] || desc+="; rollback kept: $(ota_join "${kept[@]}")"
+  [ "${#held[@]}" = 0 ] || desc+="; held: $(ota_join "${held[@]}")"
+  [ "${#unreleased[@]}" = 0 ] || desc+="; not released: $(ota_join "${unreleased[@]}")"
+  case $res in ota-failed|ota-publisher-changed|ota-stopped) say "OTA: FAILED: $desc" ;; ota-native-change) say "OTA: STORE BUILD NEEDED: $desc" ;; *) say "OTA: $desc" ;; esac
   [ -z "$dry" ] || res=ota-dry-run
   printf '%s\t%s\t%s\t%s\t%s\n' "$(date -u +%FT%TZ)" "$repo" "$sha" "$res" "$desc" >>"$LOGS/deploys.log"
   [ -n "$dry" ] || status "$repo" "$sha" "$state" "$desc" nadavai-ota
-  [ "${#failed[@]}" = 0 ]
+  [ "${#failed[@]}" = 0 ] && [ -z "$refused" ] && [ "${#stopped[@]}" = 0 ]
+}
+# A TERM, INT, HUP or PIPE during the OTA step: its transient units are system units a signal to
+# this process does not reach, so they are stopped first (a running publish would land after the
+# step said it stopped); then the status says so.
+OTA_RUN_REPO='' OTA_RUN_SHA='' OTA_RUN_DRY=''
+ota_on_term() {
+  trap - TERM INT HUP PIPE
+  trap '' PIPE
+  sudo -n systemctl stop "nadavai-deploy-ota-$$-*.service" "nadavai-deploy-build-$$-*.service" 2>/dev/null
+  err "OTA: interrupted; its units are stopped (nadavai-deploy ota-status shows what each platform serves)"
+  if [ -n "$OTA_RUN_SHA" ] && [ -z "$OTA_RUN_DRY" ]; then
+    status "$OTA_RUN_REPO" "$OTA_RUN_SHA" error "OTA interrupted; nadavai-deploy ota-status shows what each platform serves" nadavai-ota
+    printf '%s\t%s\t%s\tota-interrupted\t-\n' "$(date -u +%FT%TZ)" "$OTA_RUN_REPO" "$OTA_RUN_SHA" >>"$LOGS/deploys.log"
+  fi
+  drop_dir "${CUR_UP:-}"; drop_dir "${CUR_WORK:-}"
+  exit 1
 }
 # The OTA step under state/<repo>.ota.lock, only for the commit production serves and only while
-# the repo is not held or off, so an older deploy's step never publishes over a newer one's. With
-# no workdir (the ota command) it checks out and installs the sha first.
+# the repo is not held or off and its OTA is on, so an older deploy's step never publishes over a
+# newer one's. With no workdir (the ota command) it checks out and installs the sha first.
 ota_run() { # repo sha workdir|'' dry
   local repo=$1 sha=$2 w=$3 dry=$4 live rc
+  OTA_RUN_REPO=$repo OTA_RUN_SHA=$sha OTA_RUN_DRY=$dry
   trap 'drop_dir "${CUR_UP:-}"; drop_dir "${CUR_WORK:-}"' EXIT
-  { exec 7>"$STATE/$repo.ota.lock" && flock 7; } || { err "OTA: could not take the $repo OTA lock"; return 1; }
+  trap ota_on_term TERM INT HUP PIPE
+  take_ota_lock "$repo" || { err "OTA: could not take the $repo OTA lock"; return 1; }
   hold_gate "$repo" "$dry" '' || { err "OTA: no OTA step while deploys of $repo are held or off"; return 3; }
+  if [ -e "$(ota_offfile "$repo")" ]; then
+    if [ -n "$dry" ]; then say "note: the OTA of $repo is off ($(ota_first "$(ota_offfile "$repo")")); a real step would publish nothing"
+    else
+      err "OTA: off for $repo ($(ota_first "$(ota_offfile "$repo")")); nothing published (nadavai-deploy ota-on $repo turns it on)"
+      printf '%s\t%s\t%s\tota-off\t%s\n' "$(date -u +%FT%TZ)" "$repo" "$sha" "$(ota_first "$(ota_offfile "$repo")")" >>"$LOGS/deploys.log"
+      status "$repo" "$sha" failure "not published: the OTA is off on nadavai-deploy: $(ota_first "$(ota_offfile "$repo")")" nadavai-ota
+      return 3
+    fi
+  fi
   live=$(live_of "$repo") && [ -n "$live" ] || { err "OTA: cannot read what production serves; no OTA step"; return 1; }
   [ "${live#* }" = "$sha" ] || { err "OTA: production serves ${live#* }, not ${sha:0:7}; the OTA step follows only the live commit"; return 4; }
   if [ -z "$w" ]; then
@@ -832,20 +945,36 @@ ota_run() { # repo sha workdir|'' dry
   fi
   ota_step "$repo" "$sha" "$w" "$dry"
 }
-# The commit's own publisher (scripts/native/ota-publish.mjs) at main's head, in a fresh clone,
-# as nadavai-upload against the production bucket; with an app, holding its signing key.
-ota_cli() { # app|'' -- cmd...
-  local app=$1 d head rc=0; shift 2
+# The trusted driver (tools/ota-step.mjs <what>) as nadavai-ota against the production bucket, on a
+# fresh clone of main's head as data (the registry, the public key, the tree's runtimes); with an
+# app, holding its signing key.
+ota_cli() { # app|'' what [args...]
+  local app=$1 what=$2 d head rc=0; shift 2
   mkdir -p "$STATE" "$LOGS"
   mirror_fetch "$OTA_REPO" main || { err "could not fetch main of $OTA_REPO into the mirror"; return 1; }
   head=$(main_head_of_mirror "$OTA_REPO")
-  say "ota: $OTA_REPO main ${head:0:7}, bucket $OTA_BUCKET" >&2
-  if ! d=$(ota_tree "$OTA_REPO" "$head") || ! give_to "$UPLOAD_USER" "$d"; then
-    err "could not make a clone of main for the OTA publisher"; drop_dir "$d"; return 1
+  say "ota: $OTA_REPO main ${head:0:7} (data), bucket $OTA_BUCKET" >&2
+  if ! d=$(ota_tree "$OTA_REPO" "$head") || ! give_to "$OTA_USER" "$d"; then
+    err "could not make a clone of main for the OTA tools"; drop_dir "$d"; return 1
   fi
-  ota_sandbox "$app" "$d" -- "$@" || rc=$?
+  ota_sandbox "$app" "$d" -- "$NODE" "$TOOLS/ota-step.mjs" "$what" "$d/src" "$@" || rc=$?
   drop_dir "$d"
   return "$rc"
+}
+# After a web rollback of the store-app repo: for each platform the OTA step reached, the
+# ota-rollback that moves its phones to the bundle of the commit production serves now (reset when
+# no OTA step published one there). One line per platform: "app platform target runtime".
+ota_rollback_plan() { # repo commit
+  local f ap app pf rt last b
+  for f in "$STATE/$1".ota-runtime.*.*; do
+    [ -f "$f" ] || continue
+    ap=${f##*/"$1".ota-runtime.}; app=${ap%.*} pf=${ap##*.}; rt=$(cat "$f")
+    [[ $app =~ ^[a-z0-9-]+$ && $pf =~ ^(android|ios)$ && $rt =~ ^runtime-[0-9a-f]{12}$ ]] || continue
+    last=$(awk -v a="$app" -v p="$pf" -v r="$rt" '$1==a && $2==p && $3==r {c=$5} END {print c}' "$STATE/$1.ota-bundles" 2>/dev/null)
+    [ "$last" = "$2" ] && continue   # already on that commit's bundle
+    b=$(awk -v a="$app" -v p="$pf" -v r="$rt" -v c="$2" '$1==a && $2==p && $3==r && $5==c {b=$4} END {print b}' "$STATE/$1.ota-bundles" 2>/dev/null)
+    say "$app $pf ${b:-reset} $rt"
+  done
 }
 
 # ---------------------------------------------------------------- commands
@@ -1033,6 +1162,9 @@ cmd_hold_release() { # hold|release repo [reason...]
     # returns only after a deploy already in flight has finished.
     printf '%s\n%s\n' "$why" "set $(date -Is)" >"$f.tmp" && mv -f "$f.tmp" "$f" || { err "hold of $repo failed"; return 1; }
     ( take_lock "$repo" ) || { err "held, but could not wait for the $repo lock"; return 1; }
+    # A store-app step in flight (outside the repo lock) reads the hold before its next publish
+    # and stops; hold returns once it has.
+    ( take_ota_lock "$repo" ) || { err "held, but could not wait for the $repo OTA lock"; return 1; }
     say "held: no deploy of $repo starts until nadavai-deploy release $repo"
   else
     ( take_lock "$repo" && rm -f -- "${f:?}" ) || { err "release of $repo failed"; return 1; }
@@ -1040,9 +1172,11 @@ cmd_hold_release() { # hold|release repo [reason...]
   fi
 }
 
-cmd_rollback() { # repo id
-  local repo=${1:-} id=${2:-} rc=0 kind before now
-  known "$repo" || { err "usage: nadavai-deploy rollback <repo> <deployment id>"; return 2; }
+cmd_rollback() { # repo id [--with-ota]
+  local repo=${1:-} id=${2:-} rc=0 kind before now with_ota=''
+  known "$repo" && [ $# -le 3 ] || { err "usage: nadavai-deploy rollback <repo> <deployment id> [--with-ota]"; return 2; }
+  case ${3:-} in '') ;; --with-ota) [ "$repo" = "$OTA_REPO" ] || { err "--with-ota: only $OTA_REPO has store apps"; return 2; }; with_ota=1 ;;
+    *) err "usage: nadavai-deploy rollback <repo> <deployment id> [--with-ota]"; return 2 ;; esac
   kind=${KIND[$repo]}
   if [ "$kind" = pages ]; then
     [[ $id =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] || { err "usage: nadavai-deploy rollback $repo <Pages deployment id (a uuid)>"; return 2; }
@@ -1067,6 +1201,24 @@ cmd_rollback() { # repo id
     now=$(vercel_live "$repo"); say "rolled back: live $now"
   fi
   printf '%s\t%s\t-\trollback\tlive before deploy: %s\tlive after: %s\n' "$(date -u +%FT%TZ)" "$repo" "${before:--}" "$id" >>"$LOGS/deploys.log"
+  [ "$repo" != "$OTA_REPO" ] || ota_after_rollback "$repo" "$with_ota"
+}
+# The web is back; the store apps are still on the bundle the rolled-back deploy's OTA step
+# published. Prints the exact ota-rollback per platform, or runs them with --with-ota.
+ota_after_rollback() { # repo with_ota
+  local repo=$1 now commit plan=() p app pf target rt note rc=0
+  now=$(live_of "$repo") && commit=${now#* } && [[ $commit =~ ^[0-9a-f]{40}$ ]] ||
+    { err "OTA: cannot read the commit production serves now; see nadavai-deploy ota-status $repo"; return 1; }
+  mapfile -t plan < <(ota_rollback_plan "$repo" "$commit")
+  if [ "${#plan[@]}" = 0 ]; then say "OTA: the store apps need no rollback (no platform reached past ${commit:0:7})"; return 0; fi
+  say "OTA: the store apps still run the bundle of the rolled-back deploy. Back to ${commit:0:7} over the air${2:+ (--with-ota: running them now)}:"
+  for p in "${plan[@]}"; do
+    read -r app pf target rt <<<"$p"
+    note=''; [ "$target" != reset ] || note="   (no bundle of ${commit:0:7} on this runtime: reset = the store build's own bundle)"
+    say "  nadavai-deploy ota-rollback $repo $app $pf $target --runtime $rt$note"
+    [ -z "$2" ] || ( cmd_ota_tool ota-rollback "$repo" "$app" "$pf" "$target" --runtime "$rt" ) || { rc=1; err "OTA: the ota-rollback of $app/$pf failed; run it again by hand"; }
+  done
+  return "$rc"
 }
 
 cmd_ota() { # repo sha [--dry-run]: the OTA step alone, for the commit production serves
@@ -1083,20 +1235,19 @@ cmd_ota() { # repo sha [--dry-run]: the OTA step alone, for the commit productio
   ota_run "$repo" "$sha" '' "$dry"
 }
 cmd_ota_tool() { # ota-status|ota-rollback|ota-min repo [app platform arg [--runtime|--message value]]
-  local what=$1 repo=${2:-} app=${3:-} pf=${4:-} arg=${5:-} opt=() rc=0 apps
+  local what=$1 repo=${2:-} app=${3:-} pf=${4:-} arg=${5:-} opt=() rc=0 apps=() rt=''
   [ "$repo" = "$OTA_REPO" ] || { err "usage: nadavai-deploy $what $OTA_REPO ... (the one repo with store apps)"; return 2; }
   if [ "$what" = ota-status ]; then
     [ $# = 2 ] || { err "usage: nadavai-deploy ota-status $OTA_REPO"; return 2; }
     mirror_fetch "$repo" main || { err "could not fetch main of $repo into the mirror"; return 1; }
-    apps=$(ota_registry "$repo" main | jq -r '.apps | keys[] | select(test("^[a-z0-9-]+$"))' 2>/dev/null)
-    [ -n "$apps" ] || { err "main of $repo has no readable native/apps.json"; return 1; }
-    # shellcheck disable=SC2016,SC2086  # the loop runs in the sandbox; the app names are checked above
-    ota_cli '' -- /bin/sh -c 'r=0; for a; do "$0" scripts/native/ota-publish.mjs status "$a" --production || r=1; done; exit $r' "$NODE" $apps
+    mapfile -t apps < <(ota_registry "$repo" main | jq -r '.apps | keys[] | select(test("^[a-z0-9-]+$"))' 2>/dev/null)
+    [ "${#apps[@]}" -gt 0 ] || { err "main of $repo has no readable native/apps.json"; return 1; }
+    ota_cli '' status "${apps[@]}"
     return
   fi
   case $what:$# in
     ota-rollback:5) [[ $arg =~ ^[A-Za-z0-9._-]{1,128}$ ]] || rc=2 ;;
-    ota-rollback:7) [[ $arg =~ ^[A-Za-z0-9._-]{1,128}$ && $6 = --runtime && $7 =~ ^runtime-[0-9a-f]{12}$ ]] && opt=(--runtime "$7") || rc=2 ;;
+    ota-rollback:7) [[ $arg =~ ^[A-Za-z0-9._-]{1,128}$ && $6 = --runtime && $7 =~ ^runtime-[0-9a-f]{12}$ ]] && rt=$7 || rc=2 ;;
     ota-min:5) [[ $arg =~ ^[0-9]{1,9}$ ]] || rc=2 ;;
     ota-min:7) [[ $arg =~ ^[0-9]{1,9}$ && $6 = --message && -n ${7// /} ]] && opt=(--message "$7") || rc=2 ;;
     *) rc=2 ;;
@@ -1108,12 +1259,56 @@ cmd_ota_tool() { # ota-status|ota-rollback|ota-min repo [app platform arg [--run
     return 2
   fi
   mkdir -p "$STATE" "$LOGS"
+  if [ "$what" = ota-rollback ] && [ -z "$rt" ]; then
+    # The runtime the phones are on is the one the last OTA step reached, never main's tree.
+    rt=$(cat "$STATE/$repo.ota-runtime.$app.$pf" 2>/dev/null)
+    [[ $rt =~ ^runtime-[0-9a-f]{12}$ ]] || { err "no OTA step has reached $app/$pf yet, so there is no runtime to default to: pass --runtime runtime-<fp12> (nadavai-deploy ota-status $repo lists them)"; return 2; }
+    say "ota-rollback: $app/$pf runtime $rt (the one the last OTA step reached)" >&2
+  fi
   # Never beside a deploy's OTA step; a hold does not stop it (a rollback is what a person does then).
-  { exec 7>"$STATE/$repo.ota.lock" && flock 7; } || { err "could not take the $repo OTA lock"; return 1; }
-  ota_cli "$app" -- "$NODE" scripts/native/ota-publish.mjs "${what#ota-}" "$app" "$pf" "$arg" "${opt[@]}" --production || rc=$?
+  take_ota_lock "$repo" || { err "could not take the $repo OTA lock"; return 1; }
+  if [ "$what" = ota-rollback ]; then
+    ota_cli "$app" rollback "$app" "$pf" "$arg" "$rt" || rc=$?
+    if [ "$rc" = 0 ]; then
+      # A person's rollback stands until a person lifts it: the next deploy's OTA step skips this platform.
+      printf '%s\n%s\n' "ota-rollback to $arg on $rt" "set $(date -Is)" >"$(ota_holdfile "$repo" "$app" "$pf")" &&
+        say "ota-rollback: $app/$pf is held for the OTA step until nadavai-deploy ota-release $repo $app $pf" >&2
+    fi
+    opt=(--runtime "$rt")
+  else
+    ota_cli "$app" min "$app" "$pf" "$arg" "${opt[@]:1}" || rc=$?
+  fi
   printf '%s\t%s\t-\t%s\t%s %s%s\texit %s\n' "$(date -u +%FT%TZ)" "$repo" "$what" "$app/$pf" "$arg" \
     "${opt[1]:+ ${opt[0]} ${opt[1]//[$'\t\r\n']/ }}" "$rc" >>"$LOGS/deploys.log"
   return "$rc"
+}
+# ota-release (one platform), ota-off and ota-on (the whole repo's OTA step), under the OTA lock:
+# ota-off returns once a step in flight has stopped (it reads the switch before each publish).
+cmd_ota_switch() { # ota-release repo app platform | ota-off repo reason... | ota-on repo
+  local what=$1 repo=${2:-} f why
+  [ "$repo" = "$OTA_REPO" ] || { err "usage: nadavai-deploy $what $OTA_REPO ... (the one repo with store apps)"; return 2; }
+  mkdir -p "$STATE" "$LOGS"
+  case $what in
+    ota-release)
+      [ $# = 4 ] && [ -n "${OTA_ENV[${3:-}]:-}" ] && [[ ${4:-} =~ ^(android|ios)$ ]] ||
+        { err "usage: nadavai-deploy ota-release $OTA_REPO <app> <android|ios>   (apps: ${!OTA_ENV[*]})"; return 2; }
+      f=$(ota_holdfile "$repo" "$3" "$4")
+      ( take_ota_lock "$repo" && rm -f -- "${f:?}" ) || { err "ota-release of $3/$4 failed"; return 1; }
+      say "ota-release: the next OTA step of $repo publishes to $3/$4 again" ;;
+    ota-off)
+      why=${*:3}; why=${why//[$'\t\r\n']/ }
+      [ -n "${why// /}" ] || { err "usage: nadavai-deploy ota-off $OTA_REPO <reason>"; return 2; }
+      f=$(ota_offfile "$repo")
+      printf '%s\n%s\n' "$why" "set $(date -Is)" >"$f.tmp" && mv -f "$f.tmp" "$f" || { err "ota-off of $repo failed"; return 1; }
+      ( take_ota_lock "$repo" ) || { err "off, but could not wait for the $repo OTA lock"; return 1; }
+      say "ota-off: no OTA step of $repo publishes until nadavai-deploy ota-on $repo (web deploys go on)" ;;
+    ota-on)
+      [ $# = 2 ] || { err "usage: nadavai-deploy ota-on $OTA_REPO"; return 2; }
+      f=$(ota_offfile "$repo")
+      ( take_ota_lock "$repo" && rm -f -- "${f:?}" ) || { err "ota-on of $repo failed"; return 1; }
+      say "ota-on: the OTA step of $repo publishes again" ;;
+  esac
+  printf '%s\t%s\t-\t%s\t%s\n' "$(date -u +%FT%TZ)" "$repo" "$what" "${*:3}" >>"$LOGS/deploys.log"
 }
 
 cmd_auto() {
@@ -1157,6 +1352,7 @@ main() {
     auto) cmd_auto ;;
     ota) shift; cmd_ota "$@" ;;
     ota-status|ota-rollback|ota-min) cmd_ota_tool "$@" ;;
+    ota-release|ota-off|ota-on) cmd_ota_switch "$@" ;;
     repos)
       local r
       for r in $(printf '%s\n' "${!KIND[@]}" | sort); do

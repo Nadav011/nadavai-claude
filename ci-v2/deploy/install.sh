@@ -12,8 +12,10 @@ GH_V=2.103.3 GH_SHA=ee32df2323c8847f5fac6cb6b4b69ca75828e9329a8f22f677021f7b3306
 [ "$(uname -m)" = aarch64 ] || { echo "install.sh: expects the ARM64 Oracle VM" >&2; exit 1; }
 for c in git jq python3 flock curl tar xz sha256sum; do command -v "$c" >/dev/null || { echo "install.sh: $c is missing (apt-get install git jq python3 util-linux curl tar xz-utils)" >&2; exit 1; }; done
 # nadavai-build runs repo code (install, build, health check) with no token; nadavai-upload runs
-# wrangler and the Vercel CLI with one repo's token. Neither can log in or read /home.
-for u in nadavai-build nadavai-upload; do
+# wrangler and the Vercel CLI with one repo's token; nadavai-ota runs only the trusted OTA driver
+# with the R2 token and a signing key (its own uid, so no upload unit can read its environment or
+# credentials). None can log in or read /home.
+for u in nadavai-build nadavai-upload nadavai-ota; do
   id "$u" >/dev/null 2>&1 ||
     sudo useradd --system --user-group --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin "$u"
 done
@@ -51,8 +53,13 @@ printf '#!/bin/sh\nexec %s/node/bin/node %s/cli/node_modules/pnpm/bin/pnpm.cjs "
 sudo chmod 755 "$T/bin/pnpm"
 
 install -m 755 "$src/bin/nadavai-deploy" ~/deploy/bin/nadavai-deploy
-# The OTA step's driver, run as nadavai-upload (which cannot read /home), so it lives with the tools.
+# The OTA step's driver and the publisher vendored from therapy-flow-v2 (reviewed copies: a commit
+# whose own copies differ is refused), run as nadavai-ota (which cannot read /home), so they live
+# with the tools, root-owned. aws4fetch, the publisher's one library, resolves from the pinned CLIs.
+sudo install -d -o root -g root -m 755 "$T/ota"
 sudo install -o root -g root -m 644 "$src/tools/ota-step.mjs" "$T/ota-step.mjs"
+sudo install -o root -g root -m 644 "$src/tools/ota/ota-publish.mjs" "$src/tools/ota/fingerprint.mjs" "$T/ota/"
+sudo ln -sfn ../cli/node_modules "$T/ota/node_modules"
 sudo ln -sfn /home/ubuntu/deploy/bin/nadavai-deploy /usr/local/bin/nadavai-deploy
 install -d ~/.config/systemd/user
 install -m 644 "$src/systemd/nadavai-deploy-auto.service" "$src/systemd/nadavai-deploy-auto.timer" ~/.config/systemd/user/

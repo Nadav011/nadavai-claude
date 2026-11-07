@@ -65,7 +65,8 @@ reach a production token (plan Revision v2 item 5). Code in `deploy/`, installed
 `~/deploy/bin/nadavai-deploy` (linked from `/usr/local/bin`), pinned tools under
 `/opt/nadavai-deploy/tools` (node 24.22.2 and gh 2.103.3 from checksummed release tarballs;
 pnpm 10.32.1, wrangler 4.151.3, vercel 64.7.0 and aws4fetch 1.0.20 from `deploy/tools/package-lock.json`;
-the OTA driver `deploy/tools/ota-step.mjs`), the system users `nadavai-build` and `nadavai-upload`, work dirs in `/srv/nadavai-deploy`, and the user timer
+the OTA driver `deploy/tools/ota-step.mjs` and the publisher vendored beside it, `deploy/tools/ota/`), the system
+users `nadavai-build`, `nadavai-upload` and `nadavai-ota`, work dirs in `/srv/nadavai-deploy`, and the user timer
 `nadavai-deploy-auto.timer`.
 - Who deploys (since 2026-11-04): the session that merged a PR runs `deploy <repo> <merge sha>`
   (rules/ci-policy.md rule 10), in all four repos, unless the repo is held (sportchat-web is, until
@@ -76,9 +77,10 @@ the OTA driver `deploy/tools/ota-step.mjs`), the system users `nadavai-build` an
   [--migration-approved "<key>:<reason>"]`,
   `hold <repo> <reason>`, `release <repo>`, `hold-status <repo>` (one word: held, off, auto or
   manual), `pages-live <repo>` (live deployment id and commit, Vercel repos too),
-  `rollback <repo> <deployment id>`, `repos`, and for the store apps `ota <repo> <sha> [--dry-run]`,
+  `rollback <repo> <deployment id> [--with-ota]`, `repos`, and for the store apps `ota <repo> <sha> [--dry-run]`,
   `ota-status <repo>`, `ota-rollback <repo> <app> <android|ios> <bundleId|reset> [--runtime runtime-<fp12>]`,
-  `ota-min <repo> <app> <android|ios> <build> [--message "<text>"]`. Exit codes are in the script's header.
+  `ota-release <repo> <app> <android|ios>`, `ota-min <repo> <app> <android|ios> <build> [--message "<text>"]`,
+  `ota-off <repo> <reason>`, `ota-on <repo>`. Exit codes are in the script's header.
 - Gate: the sha is on main and is the merge commit of a PR into main whose head has every
   `ci/woodpecker/pr/*` status and `nadavai-security` green (main is not tested again). A direct push
   to main has no PR, so it is refused; deploy the next merge commit instead.
@@ -113,25 +115,58 @@ the OTA driver `deploy/tools/ota-step.mjs`), the system users `nadavai-build` an
   section 9 item 6 in that repo): after a deploy went live and posted `nadavai-deploy`, the same run
   publishes that sha to the installed MediZen and RetroBarber apps (Android and iOS) over the air, with
   no human step. It runs outside the repo lock, under `state/<repo>.ota.lock`, only while the sha is
-  what production serves and the repo is neither held nor off (so an older deploy's step never
-  publishes over a newer one's). Each app in the sha's `native/apps.json` builds with its
-  `buildCommand` in the build sandbox, in the web build's checkout, with only its public env
-  (`OTA_ENV`: `therapy-flow-v2.build.env` for medizen, `vitlana-salon-public.env` for retrobarber).
-  The bundle is copied into a fresh clone of the sha (not the build's tree or node_modules; aws4fetch
-  comes from the tools), and `tools/ota-step.mjs` runs there as `nadavai-upload` with `r2-ota.env` as
-  its environment and the app's `ota-<app>.pem` as a systemd credential; it uses the commit's own
-  `scripts/native/ota-publish.mjs` (`publish()`, the same zip, signature, seq and If-Match) on the
-  production bucket. Per platform: no production manifest for the commit's runtime fingerprint is a
-  native change (nothing published; a store build is needed, and first manifests stay a hand step
-  from the LENOVO); a manifest that already carries the commit is current (idempotent); a person's
-  rollback or reset published after the commit's time is kept; otherwise the bundle is published as
-  the next seq. The commit status `nadavai-ota` says it: success, failure "native change: store
-  build needed: <app>/<platform>", or failure "OTA failed: ..."; `deploys.log` gets an `ota`,
-  `ota-native-change` or `ota-failed` line. An OTA failure never rolls back the web or changes the
-  deploy's exit code. `ota <repo> <sha>` runs the step alone (checkout and install first) for the
-  live sha; `--dry-run` writes and posts nothing. `ota-status`, `ota-rollback` and `ota-min` run
-  `ota-publish.mjs status|rollback|min ... --production` from a fresh clone of main's head in the
-  same sandbox (the key only for rollback and min), and the last two log a `deploys.log` line.
+  what production serves, the repo is neither held nor off, and `state/<repo>.ota-off` does not exist
+  (so an older deploy's step never publishes over a newer one's). Each app in the sha's
+  `native/apps.json` builds with its `buildCommand` in the build sandbox, in the web build's checkout,
+  with only its public env (`OTA_ENV`: `therapy-flow-v2.build.env` for medizen,
+  `vitlana-salon-public.env` for retrobarber); medizen's `dist/sw.js` must carry the sha's tf-shell
+  stamp (the salon bundle has no commit marker). The bundle is copied into a fresh clone of the sha
+  (data only), and one unit per platform runs `tools/ota-step.mjs publish` there as `nadavai-ota`, a
+  user no other unit runs as, with `r2-ota.env` as its environment and the app's `ota-<app>.pem` as a
+  systemd credential.
+  - Trusted code only (2026-11-07 review): the unit runs `ota-step.mjs` and the publisher vendored in
+    `deploy/tools/ota/` (byte-identical reviewed copies of therapy-flow-v2's
+    `scripts/native/ota-publish.mjs` and `fingerprint.mjs`, installed root-owned in
+    `/opt/nadavai-deploy/tools/ota`), never a file of the commit. A commit whose own copies differ
+    from the vendored blobs (`git rev-parse <sha>:scripts/native/<file>` against
+    `git hash-object` of the vendored file) is refused before any build: `nadavai-ota` failure "OTA
+    refused: publisher changed in the commit: review and re-vendor". To take such a change: review
+    the diff, copy the two files from that commit into `deploy/tools/ota/`, commit in nadavai, run
+    `install.sh` on the VM, then `ota <repo> <sha>`. The driver pins the bucket, the public host
+    `https://updates.nadavc.ai` and the staging host (the commit's `native/apps.json` "updates" are
+    not read), trusts the commit's public key only after the service's private key signs for it,
+    and before signing checks the bundle: not a staging build, the shipped salon profile for
+    retrobarber, and the updater inside it (the production host, the `runtime-<fp12>/manifest.json`
+    path and every line of the app's public key), so a bundle that cannot update itself is never
+    published. A dry run runs these checks whatever R2 says.
+  - Per platform: a person's OTA hold (`state/<repo>.ota-hold.<app>.<platform>`) skips it; then the
+    hold, the OTA switch and the live commit are read again right before its publish (a `hold`,
+    `ota-off` or web rollback during a step stops it before the next platform: "OTA stopped before
+    ..."). No production manifest for the commit's runtime fingerprint: a native change (nothing
+    published; a store build is needed) when the platform has manifests on another runtime, "not
+    released" when it has none at all (first manifests stay a hand step from the LENOVO); a manifest
+    that already carries the commit is current (idempotent); a person's rollback or reset published
+    after the commit's time is kept; otherwise the bundle is published as the next seq. The runtime
+    each platform reached goes to `state/<repo>.ota-runtime.<app>.<platform>` and each bundle
+    published per commit to `state/<repo>.ota-bundles`.
+  - The commit status `nadavai-ota`: pending at the start, then success, failure "native change:
+    store build needed: <app>/<platform>", "OTA failed: ...", "OTA stopped before ...", "OTA refused:
+    publisher changed ...", "not published: the OTA is off ...", or error "OTA interrupted" (a TERM
+    stops its units first). `deploys.log` gets one `ota*` line. An OTA failure never rolls back the
+    web or changes the deploy's exit code. `ota <repo> <sha>` runs the step alone (checkout and
+    install first) for the live sha; `--dry-run` writes and posts nothing.
+  - People: `ota-status` (no key), `ota-rollback` and `ota-min` run the same trusted driver as
+    `nadavai-ota` on a fresh clone of main's head, as data only, against the production bucket (a
+    hold does not stop them). `ota-rollback` defaults to the runtime the last OTA step reached (not
+    main's tree; with none recorded it asks for `--runtime`) and then holds that platform's OTA step
+    until `ota-release <repo> <app> <platform>`, so the next merge does not publish over it.
+    `ota-off <repo> <reason>` stops the whole OTA step (web deploys go on) until `ota-on <repo>`, and
+    returns once a step in flight has stopped; `hold` waits for the OTA lock the same way.
+  - A web `rollback` of therapy-flow-v2 leaves the phones on the bundle the rolled-back deploy
+    published: it prints, per platform the OTA step reached, the exact `ota-rollback` to the bundle
+    of the commit production serves now (or `reset`, the store build's own bundle, when no OTA step
+    published one there); `rollback <repo> <id> --with-ota` runs them (and so holds those
+    platforms until `ota-release`).
 - Hold: `state/<repo>.hold`, written and removed under `state/<repo>.lock`, the lock every real deploy
   and rollback holds for its whole run, and read with that lock held. A rollback is allowed while
   held. `state/off` (all repos) or `state/<repo>.off` switch deploys off.
@@ -150,7 +185,7 @@ the OTA driver `deploy/tools/ota-step.mjs`), the system users `nadavai-build` an
   Woodpecker API token from the LENOVO vault, for the nightly gate), and for the OTA step (2026-11-07,
   from the LENOVO vault) `r2-ota.env` (`R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`: the
   R2 token `nadavai-ota-r2`, the two OTA buckets only), `ota-medizen.pem` and `ota-retrobarber.pem`
-  (the signing keys, read by systemd as credentials) and `vitlana-salon-public.env` (RetroBarber's
+  (the signing keys, read by systemd as credentials for the `nadavai-ota` units only) and `vitlana-salon-public.env` (RetroBarber's
   public build env). Copied with pipes; nothing in Woodpecker or a repo.
 - Vercel Git deploys: none of the three projects deploys main by itself (snooker-smart's
   `vercel.json` sets `git.deploymentEnabled.main=false`; cash-next-app and sportchat-web have no Git
@@ -159,5 +194,6 @@ the OTA driver `deploy/tools/ota-step.mjs`), the system users `nadavai-build` an
   and pages-live checks ported from nadavai-ci 9ca934d plus the gate, dry run, auto pass and clean
   upload environment, the migration gate (on a git mirror the test builds), the nightly gate (stub
   Woodpecker, plus a saved real answer), the detached run, and the OTA step (the real
-  `ota-step.mjs` against a stub publisher in a fixture commit, `deploy/tests/fixtures/ota`, a stub R2
-  of files and a stub sudo that runs each unit with only its own environment): 162 checks.
+  `ota-step.mjs` with a stub of the vendored publisher, the same stub committed in a fixture commit,
+  `deploy/tests/fixtures/ota`, a stub R2 of files and a stub sudo that runs each unit with only its
+  own environment): 189 checks.

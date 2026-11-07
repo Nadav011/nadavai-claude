@@ -80,7 +80,10 @@ every `ci-wait`, and the old runner (3,445 lines on one 8-core box) queued agent
       audits (`nadavai-ui`, `nadavai-nightly`) stay reports, not gates.
     For therapy-flow-v2 the same deploy then publishes the store apps (MediZen, RetroBarber) over
     the air and posts `nadavai-ota`; "native change: store build needed" means a store build, never
-    a rerun, and an OTA failure leaves the web live (`ci-v2/README.md`, "OTA").
+    a rerun, and an OTA failure leaves the web live. "publisher changed in the commit" means the
+    reviewed copy in nadavai (`ci-v2/deploy/tools/ota`) must be re-vendored first; a web `rollback`
+    prints the `ota-rollback` the phones need (`--with-ota` runs it), and an `ota-rollback` holds
+    that platform until `ota-release` (`ci-v2/README.md`, "OTA").
     Nothing deploys on a timer (no `.auto` flag). `hold`, `hold-status`, `pages-live`,
     `rollback <repo> <id>`, `--dry-run` (starts no nightly): `ci-v2/README.md`, "Deploy service".
     Why: Nadav, 2026-11-04: a merged green PR goes live without waiting for him, but never a held
