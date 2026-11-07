@@ -334,6 +334,12 @@ ensure_research_tools() {
   fi
   command -v skillspector >/dev/null 2>&1 || uv tool install "git+https://github.com/NVIDIA/skillspector.git@e48d771" || warn "could not install skillspector"
   command -v agnix >/dev/null 2>&1 || uv tool install "agnix==0.61.0" || warn "could not install agnix"
+  # bin/webget reads YouTube through yt-dlp; not pinned, YouTube breaks old versions within weeks.
+  if command -v yt-dlp >/dev/null 2>&1; then
+    uv tool upgrade yt-dlp >/dev/null 2>&1 || true
+  else
+    uv tool install yt-dlp || warn "could not install yt-dlp (webget's YouTube path)"
+  fi
 }
 
 ensure_agent_browser() {
