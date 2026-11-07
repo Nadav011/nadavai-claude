@@ -53,6 +53,14 @@ Chrome refuses passwords and can be blocked by a password manager's overlay.
 
 ## Traps
 
+- **A Play listing edit is not sent by "שמור כטיוטה".** The editor has two steps, "נכסים" and
+  "בדיקה". Click "הבא", answer the AI-assets declaration (labels are for assets the AI generated
+  or edited, such as images and video), then click "שמירה". Only then do the changes appear in
+  "סיכום השינויים לפרסום" under "השינויים עדיין לא נשלחו לבדיקה". Send them from there with
+  "שליחת N שינויים לבדיקה". Done when that page says "השינויים בבדיקה". Why: on 7.11.2026 a
+  draft saved through agent-browser never reached the overview, and the overview was empty until
+  the review-step save. The agent-browser `--profile Default` copy is fine for reading; do the
+  send in Claude in Chrome or a signed-in profile.
 - **Screenshots come from a synthetic backend only.** Never real client data. Look at every image
   before upload: a 404 page once went into a live listing. Apple names the 6.1" Dynamic Island set as required and fills it by scaling, so upload one 6.9"
   set (1320×2868) and confirm in ASC that it was accepted (listing.md, step 5). Play refuses phone screenshots whose long side is more than twice the short side,
