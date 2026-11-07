@@ -39,9 +39,11 @@ Nadav set two rules on 7.11.2026:
 
 So the rule applies per platform, and only once that platform's listing is public. From then
 on, no audience keeps a home-screen install there: not customers, not staff, not owners and not
-admins.
+admins. This covers phones and tablets only. On a computer the browser's own install (Chrome or
+Edge "Install", Safari "Add to Dock") stays, with no Electron and no desktop store app (decision
+#567, 7.11). So the manifest stays, and a desktop never gets the move notice.
 
-- Cancel `beforeinstallprompt` in an inline script before hydration.
+- Cancel `beforeinstallprompt` in an inline script before hydration, on phones and tablets only.
 - Turn every "add to home screen" card, menu item and iOS step into a store link.
 - Keep the manifest and the service worker while another platform still relies on the PWA, and
   while already-installed users have not moved. Removing them breaks those installs.

@@ -23,6 +23,11 @@ stores on 2026-11-07, after MediZen, RetroBarber and The Green Room were moved.
     to home screen" steps.
   Why: Nadav, 2026-11-07: "אסור שיהיה יותר PWA ... גם ללקוחות". Two installs of one app split
   users between an updated store app and a stale home-screen copy.
+- This covers phones and tablets only. On a computer the app stays in the browser: no
+  Electron and no desktop store app. The browser's own install (Chrome or Edge "Install", Safari
+  "Add to Dock") stays, so it opens in its own window with notifications. Why: Nadav, 7.11.2026
+  (therapy-flow-v2 decision #567): "the most correct, stable and professional solution, what
+  everyone does". Jane and SimplePractice run in the browser on desktop.
 - Until that platform's listing is public, keep its PWA install as it is. Why: Nadav,
   2026-11-07: "חשוב לא להוריד כאלה שאין לנו עדיין חנות אליהם". Removing it early leaves those
   users with no app at all.
