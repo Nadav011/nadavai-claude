@@ -9,15 +9,13 @@ every `ci-wait`, and the old runner (3,445 lines on one 8-core box) queued agent
 - **Oracle VM** (`ssh nadavai-vm`, Tailscale `oracle`): the Woodpecker CI server at
   https://ci.nadavc.ai (dashboard: log in with GitHub). Runs no repo code. Why: it is always on and
   holds the tokens; it is ARM, and TF's SQL harness is x86 only.
-- **omarchy and MSI**: the Woodpecker agents (Docker, 3 workflows each). Every landing goes to
-  whichever is free. Never start other heavy jobs there. omarchy also runs secscan (user timers
-  `secscan-poll` every 2 minutes and `secscan-nightly` at 04:20; code, baselines and logs in
-  `~/secscan`), which posts `nadavai-security`. And the nightly audits: a local-backend agent
-  (`omarchy-nightly`, capacity 1) that takes only Nadav011/nadavai-nightly's workflows, cron
-  `night` 23:00 UTC, on each repo's main (Green Room: the commit production serves). It posts
-  `nadavai-ui`, `nadavai-nightly`, `nadavai-native` and `nadavai-expo-doctor`, and keeps the
-  "NadavAI: main is red" issue per repo. Summary: `ssh omarchy /home/nadav/nightly/bin/ci-summary <repo>` (absolute: a bare `~`
-  expands on the LENOVO). Logs: `/home/nadav/nightly/logs` on omarchy, 14 days.
+- **omarchy and MSI**: the Woodpecker agents (Docker, 3 workflows each); every landing goes to
+  whichever is free. Never start other heavy jobs there. The MSI is also a work machine (Green
+  Room, cash): its sessions keep local checks scoped.
+- **omarchy** also runs secscan (posts `nadavai-security`) and the nightly audits on each repo's
+  main (`nadavai-ui`, `nadavai-nightly`, `nadavai-native`, `nadavai-expo-doctor`, and the
+  "NadavAI: main is red" issue). Timers, paths, logs and the summary command:
+  `ci-v2/README.md`, "Machines and nightly".
 - **LENOVO**: Nadav's work machine. Agents' scoped checks only; no CI.
 
 ## The rules
@@ -64,28 +62,18 @@ every `ci-wait`, and the old runner (3,445 lines on one 8-core box) queued agent
 9. A newer push to a PR cancels its older run automatically.
 10. The session that merged a PR (rule 6) deploys it: `ssh nadavai-vm nadavai-deploy deploy <repo>
     <merge sha>` in `run_in_background`, then reports the result (all four repos). The deploy runs
-    detached on the Oracle VM's deploy service, never a pipeline, so a dropped ssh stops nothing;
-    it checks the green landing, health-checks, rolls back on a failed check and posts
-    `nadavai-deploy`. Exit codes that stop it:
+    detached on the Oracle VM, checks the green landing, health-checks, rolls back on a failed
+    check and posts `nadavai-deploy`. Nothing deploys on a timer. Hard gates:
     - 3: the repo is held (`hold-status` says held). A held repo is never deployed, and a session
       never runs `release`: only Nadav, or that repo's own release step, does.
     - 5: the live commit and the sha differ in a database migration; the refusal prints an
       approval key. Ask Nadav with AskUserQuestion; only after his yes, rerun with
       `--migration-approved "<key>:<what he approved>"`. The key covers that live commit, that sha
       and those files only, so any change means asking again.
-    - 6: main's nightly full suite (Woodpecker cron) is red. A fix is merged, not bypassed: for a
-      sha newer than the red nightly the deploy reruns the nightly itself and waits up to 20
-      minutes. 4 with "main moved; deploy <head>": deploy that head instead. 75: not ready (still
-      running, cancelled, Woodpecker unreadable): run the same command again later. The omarchy
-      audits (`nadavai-ui`, `nadavai-nightly`) stay reports, not gates.
-    For therapy-flow-v2 the same deploy then publishes the store apps (MediZen, RetroBarber) over
-    the air and posts `nadavai-ota`; "native change: store build needed" means a store build, never
-    a rerun, and an OTA failure leaves the web live. "publisher changed in the commit" means the
-    reviewed copy in nadavai (`ci-v2/deploy/tools/ota`) must be re-vendored first; a web `rollback`
-    prints the `ota-rollback` the phones need (`--with-ota` runs it), and an `ota-rollback` holds
-    that platform until `ota-release` (`ci-v2/README.md`, "OTA").
-    Nothing deploys on a timer (no `.auto` flag). `hold`, `hold-status`, `pages-live`,
-    `rollback <repo> <id>`, `--dry-run` (starts no nightly): `ci-v2/README.md`, "Deploy service".
+    - 6: main's nightly full suite is red. A fix is merged, never bypassed; for a sha newer than
+      the red nightly the deploy reruns the nightly itself and waits up to 20 minutes.
+    Before a deploy, read `ci-v2/README.md`, "Deploy service", for the other exit codes (4, 75)
+    and OTA (therapy-flow-v2's store apps, `nadavai-ota`, rollbacks).
     Why: Nadav, 2026-11-04: a merged green PR goes live without waiting for him, but never a held
     repo, a schema change he did not approve, or a commit whose full suite is red.
 
@@ -94,8 +82,6 @@ every `ci-wait`, and the old runner (3,445 lines on one 8-core box) queued agent
   cash-next-app, sportchat-web, therapy-flow-v2). Each has its workflows in `.woodpecker/` (one
   `landing.yml`, or several, like therapy-flow-v2's `web.yml` + `backend.yml`, which two agents
   run in parallel). sportchat-web has no Lighthouse per landing for now (Nadav).
-- The old nadavai-ci runner is retired: the temporary host on the LENOVO was stopped on
-  2026-11-03 when therapy-flow-v2 moved. A `nadavai-ci` status on an old commit is history only.
 - A new repo: start from `~/nadavai/templates/ci/woodpecker-landing.yml`, activate the repo on
   ci.nadavc.ai (`ci-v2/README.md`, "Per repo"), land it once green, then add it to the list.
 - A project's CLAUDE.md, AGENTS.md, runbook or `.claude/rules` never restates these rules, and

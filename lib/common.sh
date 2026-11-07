@@ -184,24 +184,40 @@ merge_settings() {
 }
 
 apply_model_policy() {
-  # Re-apply only the model keys of settings.base.json on update. A full merge would also
-  # reset per-machine values such as the concurrency caps.
+  # Re-apply only the policy keys of settings.base.json on update (model, availableModels,
+  # deniedMcpServers). A full merge would also reset per-machine values such as the concurrency
+  # caps. Every Orca account profile keeps its own settings.json, so the keys go to each one,
+  # not only to the profile update.sh happens to run in (on 2026-11-07 only one of the
+  # LENOVO's profiles had them).
   local target="$CFG/settings.json"
-  if [ ! -f "$target" ]; then merge_settings; return; fi
-  node -e '
-    const fs = require("fs");
-    const [base, target, backup] = process.argv.slice(1);
-    const b = JSON.parse(fs.readFileSync(base, "utf8"));
-    const raw = fs.readFileSync(target, "utf8");
-    const cur = JSON.parse(raw);
-    for (const k of ["model", "availableModels"]) if (k in b) cur[k] = b[k];
-    const next = JSON.stringify(cur, null, 2) + "\n";
-    if (next === raw) { console.log("  model policy already current"); process.exit(0); }
-    fs.mkdirSync(backup, { recursive: true });
-    fs.writeFileSync(backup + "/settings.json", raw);
-    fs.writeFileSync(target, next);
-    console.log("  applied model and availableModels from settings.base.json to " + target);
-  ' "$REPO/settings/settings.base.json" "$target" "$BACKUP"
+  if [ ! -f "$target" ]; then merge_settings; fi
+  local f n=0
+  for f in "$target" "$HOME/.claude/settings.json" "$HOME"/.config/orca/claude-profiles/*/home/settings.json; do
+    [ -f "$f" ] || continue
+    n=$((n+1))
+    node -e '
+      const fs = require("fs");
+      const [base, target, backup] = process.argv.slice(1);
+      const b = JSON.parse(fs.readFileSync(base, "utf8"));
+      const raw = fs.readFileSync(target, "utf8");
+      let cur;
+      try { cur = JSON.parse(raw); } catch { cur = null; }
+      if (!cur || typeof cur !== "object" || Array.isArray(cur)) { console.log("  skipped unreadable " + target); process.exit(0); }
+      // A key dropped from base is dropped here too, so removing a deny later takes effect.
+      for (const k of ["model", "availableModels", "deniedMcpServers"]) { if (k in b) cur[k] = b[k]; else delete cur[k]; }
+      const next = JSON.stringify(cur, null, 2) + "\n";
+      if (next === raw) process.exit(0);
+      const dir = backup + "/" + target.replace(/[^A-Za-z0-9._-]/g, "_");
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(dir + "/settings.json", raw);
+      // Write beside the real file and rename over it, so a running session never reads half a file.
+      const real = fs.realpathSync(target), tmp = real + ".nadavai-tmp";
+      fs.writeFileSync(tmp, next);
+      fs.renameSync(tmp, real);
+      console.log("  applied policy keys to " + target);
+    ' "$REPO/settings/settings.base.json" "$f" "$BACKUP"
+  done
+  log "policy keys checked in $n settings file(s)"
 }
 
 apply_machine_env() {
@@ -219,7 +235,8 @@ apply_machine_env() {
     const next = JSON.stringify(cur, null, 2) + "\n";
     if (next === raw) { console.log("  machine env already current"); process.exit(0); }
     fs.mkdirSync(backup, { recursive: true });
-    // merge_settings or apply_model_policy may have saved the original earlier in this run
+    // merge_settings may have saved the original earlier in this run (apply_model_policy keeps
+    // its own per-file copies under $BACKUP/<path>/)
     if (!fs.existsSync(backup + "/settings.json")) fs.writeFileSync(backup + "/settings.json", raw);
     fs.writeFileSync(target, next);
     console.log("  set PLAYWRIGHT_MCP_CONFIG in " + target);

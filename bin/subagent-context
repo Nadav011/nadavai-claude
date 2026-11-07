@@ -1,0 +1,82 @@
+#!/usr/bin/env python3
+"""subagent-context [days]: how big subagents start and end, by agent type, and what fills them.
+
+Reads the local subagent transcripts (~/.claude/projects/*/*/subagents/agent-*.jsonl), one copy
+per agent id (Orca profiles link the same files). Start = context of the first request; end =
+context of the last. "Fills" sums tool-result text in chars; images are counted separately.
+Run it before and after a change meant to shrink subagent context (rules/model-routing.md).
+"""
+import glob, json, os, statistics, sys, time
+from collections import defaultdict
+
+days = float(sys.argv[1]) if len(sys.argv) > 1 else 3
+cut = time.time() - days * 86400
+seen, by = set(), defaultdict(list)
+chars, images = defaultdict(int), defaultdict(int)
+
+for f in glob.glob(os.path.expanduser("~/.claude/projects/*/*/subagents/*.jsonl")):
+    aid = os.path.basename(f)
+    if aid in seen or os.path.getmtime(f) < cut:
+        continue
+    seen.add(aid)
+    try:
+        typ = json.load(open(f[:-6] + ".meta.json")).get("agentType") or "?"
+    except Exception:
+        typ = "?"
+    first = last = None
+    n, model, tools, ids = 0, "?", {}, set()
+    with open(f, errors="ignore") as fh:
+        for line in fh:
+            try:
+                e = json.loads(line)
+            except Exception:
+                continue
+            m = e.get("message") or {}
+            if e.get("type") == "assistant" and isinstance(m.get("usage"), dict):
+                u = m["usage"]
+                tot = sum(u.get(k) or 0 for k in ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"))
+                first = tot if first is None else first
+                last = tot
+                mid = m.get("id")
+                if mid not in ids:  # one request writes one line per content block
+                    ids.add(mid)
+                    n += 1
+                model = (m.get("model") or "?").replace("claude-", "")
+                for b in m.get("content") or []:
+                    if b.get("type") == "tool_use":
+                        tools[b.get("id")] = b.get("name")
+            elif e.get("type") == "user" and isinstance(m.get("content"), list):
+                for b in m["content"]:
+                    if b.get("type") != "tool_result":
+                        continue
+                    name, c = tools.get(b.get("tool_use_id"), "?"), b.get("content")
+                    if isinstance(c, str):
+                        chars[name] += len(c)
+                    elif isinstance(c, list):
+                        for x in c:
+                            if isinstance(x, dict):
+                                if x.get("type") == "image":
+                                    images[name] += 1
+                                else:
+                                    chars[name] += len(x.get("text", ""))
+    if first is not None:
+        by[typ].append((first, last, n, model))
+
+print(f"subagents in the last {days:g} days: {sum(len(v) for v in by.values())}")
+print(f"{'type':36} {'n':>5} {'start':>7} {'end med':>8} {'end p90':>8} {'requests':>8}  model")
+for typ, v in sorted(by.items(), key=lambda kv: -len(kv[1]))[:15]:
+    ends = sorted(x[1] for x in v)
+    ms = defaultdict(int)
+    for x in v:
+        ms[x[3]] += 1
+    top = max(ms, key=ms.get)
+    print(f"{typ[:36]:36} {len(v):>5} {statistics.median(x[0] for x in v)/1e3:>6.0f}K "
+          f"{statistics.median(ends)/1e3:>7.0f}K {ends[max(0, int(len(ends)*0.9)-1)]/1e3:>7.0f}K "
+          f"{statistics.median(x[2] for x in v):>8.0f}  {top}")
+total = sum(chars.values()) or 1
+print("\ntool-result text by tool (chars, ~3.5 chars per token):")
+for k, c in sorted(chars.items(), key=lambda kv: -kv[1])[:8]:
+    print(f"  {k[:44]:44} {c/1e6:7.1f}M  {100*c/total:5.1f}%")
+print("images by tool (each ~1.1-1.6K tokens):")
+for k, c in sorted(images.items(), key=lambda kv: -kv[1])[:5]:
+    print(f"  {k[:44]:44} {c:7d}")

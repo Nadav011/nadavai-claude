@@ -1,0 +1,55 @@
+#!/usr/bin/env python3
+"""guard-stats [days]: how often nadavai's guards fired per day, from local main transcripts.
+
+Counts the Stop-hook re-asks of hebrew-guard and candor-guard, and PreToolUse denials whose text
+start "PreToolUse:<tool> hook error:" (agent-guard, hebrew-guard's dialog check, OMC). Each one costs a full-context request, so a rising count
+is a cost even when the guard is right. One copy per session id (Orca profiles link the same files).
+"""
+import glob, json, os, re, sys, time
+from collections import defaultdict
+
+days = float(sys.argv[1]) if len(sys.argv) > 1 else 7
+cut = time.time() - days * 86400
+cutoff = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(cut))
+seen = set()
+count = defaultdict(lambda: defaultdict(int))
+KINDS = [
+    ("hebrew", re.compile(r"written in English|note\(s\) you showed Nadav")),
+    ("candor", re.compile(r"praise or agreement before evidence")),
+    ("pretool-deny", re.compile(r"^PreToolUse:\w+ hook error:")),
+]
+
+for f in glob.glob(os.path.expanduser("~/.claude/projects/*/*.jsonl")):
+    sid = os.path.basename(f)
+    if sid in seen or os.path.getmtime(f) < cut:
+        continue
+    seen.add(sid)
+    with open(f, errors="ignore") as fh:
+        for line in fh:
+            if "Stop hook" not in line and "PreToolUse:" not in line:
+                continue
+            try:
+                e = json.loads(line)
+            except Exception:
+                continue
+            if e.get("type") != "user":
+                continue
+            stamp = e.get("timestamp") or ""
+            day = stamp[:10]
+            if not day or stamp < cutoff:
+                continue
+            c = e.get("message", {}).get("content")
+            texts = [c] if isinstance(c, str) else [
+                (b.get("content") if isinstance(b.get("content"), str) else json.dumps(b.get("content")))
+                for b in (c or []) if isinstance(b, dict) and (b.get("type") == "tool_result" and b.get("is_error"))]
+            for t in texts:
+                if not t:
+                    continue
+                for name, rx in KINDS:
+                    if (name != "pretool-deny" and t.startswith("Stop hook") and rx.search(t)) or \
+                       (name == "pretool-deny" and rx.search(t)):
+                        count[day][name] += 1
+
+print(f"{'day':10} " + " ".join(f"{k:>12}" for k, _ in KINDS))
+for d in sorted(count):
+    print(f"{d:10} " + " ".join(f"{count[d][k]:>12}" for k, _ in KINDS))

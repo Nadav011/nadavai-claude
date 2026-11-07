@@ -124,5 +124,10 @@
       "autoUpdate": true
     }
   },
-  "skipWorkflowUsageWarning": true
+  "skipWorkflowUsageWarning": true,
+  "deniedMcpServers": [
+    {
+      "serverName": "plugin:chrome-devtools-mcp:chrome-devtools"
+    }
+  ]
 }

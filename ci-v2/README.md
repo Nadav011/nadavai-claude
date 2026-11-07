@@ -27,6 +27,19 @@ setup can be rebuilt after a reformat. No secrets live here: they are in the vau
 - omarchy also runs the nightly local-backend agent (`~/nightly`) and secscan (`~/secscan`); their
   own READMEs live there.
 
+## Machines and nightly
+Each machine's role is in `rules/ci-policy.md`, "Machines"; this is where things run and log.
+- secscan (omarchy): user timers `secscan-poll` every 2 minutes and `secscan-nightly` at 04:20;
+  code, baselines and logs in `~/secscan`. Posts `nadavai-security`.
+- Nightly audits (omarchy): a local-backend agent (`omarchy-nightly`, capacity 1) that takes only
+  Nadav011/nadavai-nightly's workflows, cron `night` 23:00 UTC, on each repo's main (Green Room:
+  the commit production serves). It posts `nadavai-ui`, `nadavai-nightly`, `nadavai-native` and
+  `nadavai-expo-doctor`, and keeps the "NadavAI: main is red" issue per repo.
+- Summary: `ssh omarchy /home/nadav/nightly/bin/ci-summary <repo>` (absolute: a bare `~` expands
+  on the LENOVO). Logs: `/home/nadav/nightly/logs` on omarchy, 14 days.
+- The old nadavai-ci runner is retired (its temporary host on the LENOVO stopped on 2026-11-03);
+  a `nadavai-ci` status on an old commit is history only.
+
 ## npm cache (omarchy, msi)
 - `agent/npm-cache/{compose.yml,nginx.conf}` -> `/opt/npm-cache/` on each agent host (`sudo install`,
   `cache/` owned by uid 101, `docker compose up -d`). nginx 1.30 (unprivileged image, tag plus
@@ -68,6 +81,20 @@ pnpm 10.32.1, wrangler 4.151.3, vercel 64.7.0 and aws4fetch 1.0.20 from `deploy/
 the OTA driver `deploy/tools/ota-step.mjs` and the publisher vendored beside it, `deploy/tools/ota/`), the system
 users `nadavai-build`, `nadavai-upload` and `nadavai-ota`, work dirs in `/srv/nadavai-deploy`, and the user timer
 `nadavai-deploy-auto.timer`.
+- For the deploying session (the hard gates 3, 5 and 6 are in `rules/ci-policy.md` rule 10):
+  - The deploy runs detached on the VM, never in a pipeline, so a dropped ssh stops nothing.
+  - Exit 4 with "main moved; deploy <head>": deploy that head instead. Exit 75: not ready (still
+    running, cancelled, Woodpecker unreadable): run the same command again later.
+  - Exit 6 for a sha newer than the red nightly: the deploy reruns the nightly itself and waits
+    up to 20 minutes. The omarchy audits (`nadavai-ui`, `nadavai-nightly`) stay reports, not gates.
+  - therapy-flow-v2: the same deploy then publishes the store apps (MediZen, RetroBarber) over
+    the air and posts `nadavai-ota`. "native change: store build needed" means a store build,
+    never a rerun; an OTA failure leaves the web live. "publisher changed in the commit" means the
+    reviewed copy in `deploy/tools/ota` must be re-vendored first. A web `rollback` prints the
+    `ota-rollback` the phones need (`--with-ota` runs it), and an `ota-rollback` holds that
+    platform until `ota-release` (details under "OTA" below).
+  - Nothing deploys on a timer (no `.auto` flag). `hold`, `hold-status`, `pages-live`,
+    `rollback <repo> <id>` and `--dry-run` (starts no nightly) are under "Commands" below.
 - Who deploys (since 2026-11-04): the session that merged a PR runs `deploy <repo> <merge sha>`
   (rules/ci-policy.md rule 10), in all four repos, unless the repo is held (sportchat-web is, until
   its v4 release); nothing deploys on a timer. `deploy` starts itself as a systemd user unit
