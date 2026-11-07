@@ -1,0 +1,25 @@
+WEBVTT
+Kind: captions
+Language: en
+
+00:00:00.000 --> 00:00:02.000 align:start position:0%
+hello<00:00:00.500><c> there</c><00:00:01.000><c> friends</c>
+
+00:00:02.000 --> 00:00:02.010 align:start position:0%
+hello there friends
+
+
+00:00:02.010 --> 00:00:04.000 align:start position:0%
+hello there friends
+we<00:00:02.500><c> see</c><00:00:03.000><c> the</c><00:00:03.500><c> elephants</c>
+
+00:00:04.000 --> 00:00:04.010 align:start position:0%
+we see the elephants
+
+
+00:00:04.010 --> 00:00:06.000 align:start position:0%
+we see the elephants
+with &amp; long trunks
+
+00:00:10.000 --> 00:00:12.000 align:start position:0%
+after a pause

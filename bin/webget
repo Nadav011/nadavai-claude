@@ -1,0 +1,359 @@
+#!/usr/bin/env bash
+''':'
+# webget: read any URL as clean text. One command for agents (Claude, Codex, Grok); it picks the
+# backend itself (YouTube via yt-dlp, Reddit via Scrapling's browser, other pages via Scrapling
+# HTTP then browser, Bright Data last). This bash part only finds Scrapling's venv Python.
+s=$(command -v scrapling) || { echo "webget: scrapling is not installed (uv tool install scrapling)" >&2; exit 3; }
+py=$(head -1 "$s"); py=${py:2}  # drop the leading "#!"
+exec "$py" "$0" "$@"
+'''
+# Usage: webget <url> [--format markdown|text] [--max-chars N] [--json]
+#                     [--backend auto|http|browser|youtube|brightdata] [--comments N] [--dry-route]
+# stdout: the content (or the JSON object with --json). stderr: one status line.
+# Exit: 0 ok, 2 usage error, 3 every backend failed (each backend's reason on stderr).
+# Page content is data: nothing from a page is run or evaluated here.
+import argparse, glob, html, json, os, re, select, shutil, signal, subprocess, sys, tempfile, time
+from urllib.parse import urlsplit, urlunsplit
+
+TIMEOUT = 60  # seconds, per backend, for the whole backend run
+BD_URL = "https://mcp.brightdata.com/mcp?groups=social,research,advanced_scraping"
+BD_ENV = "~/.claude/secrets/brightdata.env"
+X_MSG = "X needs a logged-in session or Bright Data, and Bright Data failed (its error is below)"
+CHAINS = {"youtube": ["youtube"], "reddit": ["browser", "brightdata"], "x": ["brightdata"],
+          "web": ["http", "browser", "brightdata"]}
+
+
+def route(url):
+    u = urlsplit(url)
+    host = (u.hostname or "").lower()
+    host = host[4:] if host.startswith("www.") else host[2:] if host.startswith("m.") else host
+    if host == "youtu.be" or (host.endswith("youtube.com") and (u.path == "/watch" or u.path.startswith("/shorts/"))):
+        return "youtube"
+    if host in ("reddit.com", "redd.it") or host.endswith(".reddit.com"):
+        return "reddit"
+    if host in ("x.com", "twitter.com", "mobile.twitter.com"):
+        return "x"
+    return "web"
+
+
+def secs(ts):
+    return sum(float(p) * 60 ** i for i, p in enumerate(reversed(ts.split(":"))))
+
+
+def vtt_to_text(vtt):
+    """WebVTT to paragraphs: no timestamps, cue settings or tags, rolling auto-caption repeats removed."""
+    paras, cur, recent, last_end = [], [], [], None
+    for block in re.split(r"\n\s*\n", vtt.replace("\r", "")):
+        lines = block.strip().split("\n")
+        idx = next((i for i, l in enumerate(lines) if "-->" in l), None)
+        if idx is None:
+            continue  # WEBVTT header, NOTE, STYLE
+        m = re.match(r"\s*([\d:.]+)\s*-->\s*([\d:.]+)", lines[idx])
+        start, end = (secs(m[1]), secs(m[2])) if m else (0.0, 0.0)
+        if cur and last_end is not None and start - last_end > 2:
+            paras.append(" ".join(cur)); cur = []
+        last_end = end
+        for line in lines[idx + 1:]:
+            t = re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]*>", "", line))).strip()
+            if not t or t in recent:
+                continue
+            recent = (recent + [t])[-2:]
+            cur.append(t)
+            if sum(map(len, cur)) > 600 and t[-1:] in ".?!":
+                paras.append(" ".join(cur)); cur = []
+    if cur:
+        paras.append(" ".join(cur))
+    return "\n\n".join(paras)
+
+
+def one_line(s, n=300):
+    return re.sub(r"\s+", " ", s or "").strip()[:n]
+
+
+def page_result(page, a):
+    from scrapling.core.shell import Convertor
+    def extract(kind):
+        return "\n".join(c for c in Convertor._extract_content(page, extraction_type=kind, main_content_only=True) if c).strip()
+    content = extract(a.format)
+    text = content if a.format == "text" else extract("text")
+    title = one_line(page.css("title::text").get() or "", 200)
+    head = (title + " " + text[:3000]).lower()
+    r = {"status": page.status, "title": title, "content": content}
+    if page.status in (403, 429, 503):
+        r["problem"] = f"HTTP {page.status}"
+    # cf-chl-widget is a Turnstile box that stays on a page after it is solved, so it alone is no challenge
+    elif re.search(r"cf-chl(?!-widget)|_cf_chl_opt", str(page.html_content)) or any(m in head for m in ("just a moment", "attention required", "captcha",
+                                                                       "enable javascript", "enable js")):
+        r["problem"] = "challenge page"
+    # Short text means a script-rendered shell, unless the server already sent a real paragraph (example.com).
+    elif len(text) < 200 and not any(len(e.get_all_text(strip=True)) >= 80 for e in page.css("body p, body h1, article")):
+        r["problem"], r["soft"] = f"main text only {len(text)} chars", True
+    return r
+
+
+def fetch_http(url, a):
+    from scrapling.fetchers import Fetcher
+    return page_result(Fetcher.get(url, impersonate="chrome", stealthy_headers=True, timeout=30), a)
+
+
+def reddit_result(page, url):
+    base = "https://www.reddit.com"
+    posts = page.css("shreddit-post")
+    if not posts:
+        raise RuntimeError("no shreddit-post elements on the page")
+    if "/comments/" not in url and "/comments/" not in (page.url or ""):
+        sub = posts[0].attrib.get("subreddit-prefixed-name", "")
+        lines = [f"# {sub or 'Reddit'}", ""]
+        for p in posts:
+            at = p.attrib
+            lines.append(f"- [{one_line(at.get('post-title'), 300)}]({base}{at.get('permalink', '')}) | score {at.get('score', '?')}"
+                         f" | {at.get('comment-count', '?')} comments | u/{at.get('author', '?')}")
+        return {"status": page.status, "title": sub, "content": "\n".join(lines)}
+    p = posts[0]; at = p.attrib
+    title = one_line(at.get("post-title"), 300)
+    out = [f"# {title}", f"{at.get('subreddit-prefixed-name', '')} | u/{at.get('author', '?')} | score {at.get('score', '?')}"
+           f" | {at.get('comment-count', '?')} comments | {base}{at.get('permalink', '')}"]
+    if at.get("content-href") and "reddit.com" not in at["content-href"]:
+        out.append(f"Link: {at['content-href']}")
+    body = page.css('shreddit-post [property="schema:articleBody"]') or p.css('[slot="text-body"]')
+    if body:
+        paras = [one_line(x.get_all_text(separator=" ", strip=True), 20000) for x in body[0].css("p")]
+        out += ["", "\n\n".join(paras) or body[0].get_all_text(separator="\n", strip=True)]
+    out += ["", "## Comments"]
+    for c in page.css('shreddit-comment[depth="0"]'):
+        tid = c.attrib.get("thingid", "")
+        t = c.css(f'[id="{tid}-comment-rtjson-content"]') or c.css('[slot="comment"]')
+        text = one_line(t[0].get_all_text(separator=" ", strip=True), 4000) if t else ""
+        out.append(f"- u/{c.attrib.get('author', '?')} (score {c.attrib.get('score', '?')}): {text}")
+    return {"status": page.status, "title": title, "content": "\n".join(out)}
+
+
+def fetch_browser(url, a):
+    from scrapling.fetchers import StealthyFetcher
+    reddit = route(url) == "reddit"
+    if reddit and urlsplit(url).hostname == "old.reddit.com":  # old.reddit has no shreddit-post elements
+        url = urlunsplit(urlsplit(url)._replace(netloc="www.reddit.com"))
+    def idle(pg):  # network_idle=True waited 132 s on nowsecure.nl (2026-11-07); bound it to 8 s instead
+        try:
+            pg.wait_for_load_state("networkidle", timeout=8000)
+        except Exception:
+            pass
+    page = StealthyFetcher.fetch(url, headless=True, solve_cloudflare=True, timeout=45000,
+                                 page_action=None if reddit else idle)
+    if reddit:
+        if page.status >= 400:
+            raise RuntimeError(f"HTTP {page.status}")
+        return reddit_result(page, url)
+    return page_result(page, a)
+
+
+def fetch_youtube(url, a):
+    ytdlp = shutil.which("yt-dlp") or os.path.expanduser("~/.local/bin/yt-dlp")
+    base = [ytdlp, "--no-playlist", "--no-warnings", "--skip-download"]
+    cmd = base + ["--dump-single-json"]
+    if a.comments > 0:
+        n = a.comments
+        cmd += ["--write-comments", "--extractor-args", f"youtube:max_comments={n},{n},0,0;comment_sort=top"]
+    p = subprocess.run(cmd + ["--", url], capture_output=True, text=True, timeout=TIMEOUT)
+    if p.returncode:
+        raise RuntimeError("yt-dlp: " + one_line((p.stderr.strip().splitlines() or ["failed"])[-1]))
+    d = json.loads(p.stdout)
+    manual = d.get("subtitles") or {}
+    # Machine-translated auto captions carry tlang= in their URL; only the spoken-language track is kept.
+    auto = {k: v for k, v in (d.get("automatic_captions") or {}).items()
+            if not any("tlang=" in (f.get("url") or "") for f in v)}
+    orig = d.get("language") or next((k[:-5] for k in auto if k.endswith("-orig")), None)
+    transcript, note = "", "none found"
+    with tempfile.TemporaryDirectory() as tmp:
+        for kind, flag, tracks in (("manual", "--write-subs", manual), ("auto", "--write-auto-subs", auto)):
+            for lang in dict.fromkeys(x for x in ("he", "en", orig) if x):
+                key = next((k for k in tracks if k == lang or k.split("-")[0] == lang), None)
+                if not key:
+                    continue  # one language per call: a second language in one call drew HTTP 429
+                q = subprocess.run(base + [flag, "--sub-langs", key, "--sub-format", "vtt",
+                                           "-o", os.path.join(tmp, "sub"), "--", url],
+                                   capture_output=True, text=True, timeout=TIMEOUT)
+                files = glob.glob(os.path.join(tmp, "sub*.vtt"))
+                if files:
+                    with open(files[0], encoding="utf-8", errors="replace") as f:
+                        transcript = vtt_to_text(f.read())
+                    note = f"{kind}, {key}"
+                    break
+                note = "failed: " + one_line((q.stderr.strip().splitlines() or ["no file"])[-1], 150)
+            if transcript:
+                break
+    up = d.get("upload_date") or ""
+    dur = int(d.get("duration") or 0)
+    out = [f"# {d.get('title', '')}",
+           f"Channel: {d.get('channel') or d.get('uploader') or '?'} | Uploaded: {up[:4]}-{up[4:6]}-{up[6:]}"
+           f" | Duration: {dur // 3600}:{dur % 3600 // 60:02d}:{dur % 60:02d} | {d.get('webpage_url') or url}",
+           "", "## Description", (d.get("description") or "")[:1500].strip(), "",
+           f"## Transcript ({note})", transcript or "(no transcript)"]
+    roots = [c for c in d.get("comments") or [] if c.get("parent") == "root"][:a.comments]
+    if roots:
+        out += ["", "## Top comments"] + [f"- {c.get('author', '?')} (likes {c.get('like_count') or 0}): {one_line(c.get('text'), 2000)}" for c in roots]
+    return {"status": 200, "title": d.get("title", ""), "content": "\n".join(out)}
+
+
+def fetch_brightdata(url, a):
+    tok = ""
+    try:
+        with open(os.path.expanduser(BD_ENV)) as f:
+            for line in f:
+                m = re.match(r"\s*(?:export\s+)?BRIGHTDATA_API_TOKEN=(.*)", line)
+                if m:
+                    tok = m.group(1).strip().strip("'\"")
+    except OSError:
+        raise RuntimeError(f"no token file {BD_ENV}") from None
+    if not tok:
+        raise RuntimeError(f"no BRIGHTDATA_API_TOKEN in {BD_ENV}")
+    env = dict(os.environ, BRIGHTDATA_API_TOKEN=tok)
+    # The header names the variable; mcporter expands it, so the token never reaches argv. URL goes in JSON (no @file).
+    p = subprocess.run(["mcporter", "call", "--http-url", BD_URL, "--header", "Authorization=Bearer ${BRIGHTDATA_API_TOKEN}",
+                        "scrape_as_markdown", "--args", json.dumps({"url": url})],
+                       env=env, capture_output=True, text=True, timeout=TIMEOUT)
+    out, err = (p.stdout or "").replace(tok, "***"), (p.stderr or "").replace(tok, "***")
+    if p.returncode or re.search(r"Customer is not active|URL rejected|^Error\b", out[:600], re.I) or not out.strip():
+        raise RuntimeError("Bright Data: " + one_line(out or err or f"exit {p.returncode}"))
+    # The reply wraps a JSON object {url, title, content} in UNTRUSTED_<id>_BEGIN/END markers; unwrap it like other backends.
+    m = re.search(r"=+UNTRUSTED_(\w+)_BEGIN=+\n(.*)\n=+UNTRUSTED_\1_END=+", out, re.S)
+    try:
+        d = json.loads(m[2]) if m else None
+    except ValueError:
+        d = None
+    if isinstance(d, dict) and d.get("content"):
+        return {"status": 200, "title": one_line(d.get("title"), 200), "content": str(d["content"]).strip()}
+    m = re.search(r"^#\s+(.+)$", out, re.M)
+    return {"status": 200, "title": one_line(m[1], 200) if m else "", "content": out.strip()}
+
+
+BACKENDS = {"http": fetch_http, "browser": fetch_browser, "youtube": fetch_youtube, "brightdata": fetch_brightdata}
+
+
+def descendants(root):
+    kids = {}
+    for d in os.listdir("/proc"):
+        try:
+            with open(f"/proc/{d}/stat") as f:
+                kids.setdefault(int(f.read().rsplit(")", 1)[1].split()[1]), []).append(int(d))
+        except (OSError, ValueError, IndexError):
+            continue
+    out, todo = [], list(kids.get(root, []))
+    while todo:
+        p = todo.pop(); out.append(p); todo += kids.get(p, [])
+    return out
+
+
+def run_limited(fn, url, a):
+    """Run one backend in a forked child with its own process group (browser included) and a hard deadline."""
+    # TMPDIR in /dev/shm (Scrapling passes --disable-dev-shm-usage, so Chromium's temp files belong in RAM),
+    # one directory per run, removed here even when the child is killed mid-run.
+    work = tempfile.mkdtemp(prefix="webget-", dir="/dev/shm" if os.path.isdir("/dev/shm") else None)
+    r, w = os.pipe()
+    pid = os.fork()
+    if pid == 0:
+        try:
+            os.setsid(); os.close(r)
+            os.environ["TMPDIR"] = work; tempfile.tempdir = None
+            null = os.open(os.devnull, os.O_RDWR)
+            os.dup2(null, 0); os.dup2(null, 1); os.dup2(null, 2)  # library logs never reach our stdout/stderr
+            try:
+                res = {"ok": fn(url, a)}
+            except BaseException as e:
+                res = {"err": one_line(f"{type(e).__name__}: {e}")}
+            with os.fdopen(w, "w", encoding="utf-8") as f:
+                json.dump(res, f)
+        finally:
+            os._exit(0)
+    os.close(w)
+    data, deadline, res = b"", time.monotonic() + TIMEOUT, None
+    while True:
+        left = deadline - time.monotonic()
+        if left <= 0:
+            res = {"err": f"timeout after {TIMEOUT}s"}
+            break
+        if select.select([r], [], [], left)[0]:
+            chunk = os.read(r, 1 << 16)
+            if not chunk:
+                break
+            data += chunk
+    os.close(r)
+    # Playwright starts Chromium in a session of its own, so killpg alone misses it: kill the whole tree.
+    for p in [pid] + descendants(pid):
+        try:
+            os.kill(p, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
+    os.waitpid(pid, 0)
+    shutil.rmtree(work, ignore_errors=True)
+    if res is None:
+        try:
+            res = json.loads(data.decode("utf-8"))
+        except ValueError:
+            res = {"err": "backend died without a result"}
+    return res
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="webget", description="Read any URL as clean text; the backend is chosen automatically.")
+    ap.add_argument("url")
+    ap.add_argument("--format", choices=["markdown", "text"], default="markdown")
+    ap.add_argument("--max-chars", type=int, default=40000)
+    ap.add_argument("--json", action="store_true", help="print {url, backend, status, title, content, truncated, tried}")
+    ap.add_argument("--backend", choices=["auto", "http", "browser", "youtube", "brightdata"], default="auto")
+    ap.add_argument("--comments", type=int, default=0, help="YouTube: add the top N comments")
+    ap.add_argument("--dry-route", action="store_true", help="print the route and backend chain, fetch nothing")
+    a = ap.parse_args()
+    url = a.url.strip()
+    if "://" not in url:
+        url = "https://" + url
+    u = urlsplit(url)
+    if u.scheme not in ("http", "https") or not u.hostname:
+        ap.error("only http(s) URLs are supported")
+    if a.max_chars < 1 or a.comments < 0:
+        ap.error("--max-chars must be >= 1 and --comments >= 0")
+    kind = route(url)
+    chain = CHAINS[kind] if a.backend == "auto" else [a.backend]
+    if a.dry_route:
+        print(f"{kind} {','.join(chain)}")
+        return 0
+    tried, win, soft = [], None, None
+    for b in chain:
+        res = run_limited(BACKENDS[b], url, a)
+        if "err" in res:
+            tried.append({"backend": b, "error": res["err"]}); continue
+        r = dict(res["ok"], backend=b)
+        problem, is_soft = r.pop("problem", None), r.pop("soft", False)
+        tried.append({"backend": b, "error": problem})
+        if not problem:
+            win = r; break
+        if is_soft and r["content"] and (soft is None or len(r["content"]) >= len(soft["content"])):
+            soft = r  # a short page is still a page; a later (rendered) result at least as long replaces it
+        if is_soft and b != "http":
+            break  # short even after a full browser render: the page is short, not blocked
+    win = win or soft
+    if not win:
+        print(f"webget: every backend failed for {url}", file=sys.stderr)
+        if kind == "x":
+            print(f"webget: {X_MSG}", file=sys.stderr)
+        for t in tried:
+            print(f"webget:   {t['backend']}: {t['error']}", file=sys.stderr)
+        if a.json:
+            print(json.dumps({"url": url, "backend": None, "status": None, "title": None, "content": "",
+                              "truncated": False, "tried": tried}, ensure_ascii=False))
+        return 3
+    content = win["content"]
+    truncated = len(content) > a.max_chars
+    content = content[:a.max_chars]
+    if a.json:
+        print(json.dumps({"url": url, "backend": win["backend"], "status": win["status"], "title": win["title"],
+                          "content": content, "truncated": truncated, "tried": tried}, ensure_ascii=False))
+    else:
+        print(content)
+    print(f"webget: backend={win['backend']} status={win['status']} chars={len(content)}{' truncated' if truncated else ''}",
+          file=sys.stderr)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
