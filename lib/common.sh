@@ -437,6 +437,7 @@ android-sdk|[ -d "${ANDROID_HOME:-$HOME/Android/Sdk}" ]|Capacitor Android builds
 maestro|command -v maestro|mobile flows: curl -fsSL https://get.maestro.mobile.dev | bash
 bubblewrap|command -v bubblewrap|TWA: npm i -g @bubblewrap/cli
 sox|command -v sox|/voice input
+scrapling|command -v scrapling|free scraper MCP: uv tool install "scrapling[ai]==0.5.1" && scrapling install (on Arch its apt step fails after Chromium is in; then touch scrapling/.scrapling_dependencies_installed in its site-packages)
 brightdata-token|grep -q BRIGHTDATA_API_TOKEN "$CFG/settings.json"|add {"env":{"BRIGHTDATA_API_TOKEN":"..."}} to ~/.claude/settings.json (README, Secrets)
 LIST
 }

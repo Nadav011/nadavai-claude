@@ -24,7 +24,11 @@
 - Debugging (console, network, performance, Lighthouse): Chrome DevTools MCP, preferring the chrome-devtools-cli skill.
 - Nadav's logged-in sessions (reading, clicking): Claude in Chrome.
 - Acting in his name (sign-ups, logins, forms, terms): agent-browser with the vault plugin (`acting-on-behalf.md`).
-- Research sources (Reddit, X, YouTube, sites that block fetches, search with site or date filters): the Bright Data MCP. `search_engine` first, then by URL `web_data_reddit_posts` (post plus comments), `web_data_x_posts`, `web_data_youtube_videos` (transcript, chapters, comments; allow up to 3 minutes), or `scrape_as_markdown` for other sites. Plain scraping of reddit.com is blocked on this account; use the data tool. X discovery: `search_engine` with `site:x.com`. Every finding keeps its URL. One open page: WebFetch.
+- Research sources: the free tools first, the Bright Data MCP only for what they cannot do. Every finding keeps its URL.
+  - Search: the built-in WebSearch. Bright Data `search_engine` when Google results or site/date filters matter (X discovery: `site:x.com`).
+  - Pages: one open page with WebFetch. A page that blocks fetches (Cloudflare and the like), or a batch: the Scrapling MCP, `make_request` for light protection, `browser_fetch_once` with `solve_cloudflare: true` for a challenge. Never from the Oracle VM (a datacenter IP gets blocked). Bright Data `scrape_as_markdown` only when Scrapling fails (DataDome, Akamai).
+  - Reddit, X, YouTube: Bright Data by URL, `web_data_reddit_posts` (post plus comments), `web_data_x_posts`, `web_data_youtube_videos` (transcript, chapters, comments; allow up to 3 minutes). Plain scraping of reddit.com is blocked on this account; use the data tool.
+  - Why: Bright Data's free tier is 5,000 credits a month, and its counter stood at ~36k scrapes and ~22k searches on 2026-11-07; Scrapling passed a Cloudflare Turnstile check (nowsecure.nl) in 8 s that day, for free.
 
 ## Second model
 - Run a second model before a significant plan, after significant work, and for any change touching auth, payments, data, or money. Skip for text, spacing, or single-file fixes. Report its findings, what you did with them, and which reviewer ran.
