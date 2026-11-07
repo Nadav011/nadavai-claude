@@ -73,7 +73,7 @@ Each stage ends with evidence shown to Nadav (files, counts, shots) and a line i
    - who uses it today (roles, no names)
    - the country and the law
    - the language and direction
-   - **the Hebrew form**, which is a decision: generic masculine (MediZen) or gender-neutral (social)
+   - **the Hebrew form**, which is a decision: gender-neutral (MediZen clinics #18, the social studio) or generic masculine (the MediZen salon)
    - **the release rule**, which is a decision: waves, or one full release
    - the surfaces: owner in a host, operator, direct client
    - **the core work unit** at 1280x648: MediZen counts 4 calendar hours and 4 chat messages
