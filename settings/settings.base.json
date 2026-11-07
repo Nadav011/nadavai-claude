@@ -28,7 +28,8 @@
     "NEXT_TELEMETRY_DISABLED": "1",
     "POSTHOG_MCP_EXEC_GATE_DISABLE": "1",
     "CLAUDE_CODE_SUBAGENT_MODEL": "claude-sonnet-5-5",
-    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+    "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "60"
   },
   "disableClaudeAiConnectors": true,
   "skipDangerousModePermissionPrompt": true,

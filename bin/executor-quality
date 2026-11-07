@@ -1,7 +1,7 @@
 #!/usr/bin/env -S python3 -I
 """executor-quality [days | --since YYYY-MM-DD] [-v] - how executor subagents' work fared, by model.
 
-Reads the local transcripts. For every oh-my-claudecode:executor subagent (plain subagents; Workflow
+Reads the local transcripts. For every oh-my-claudecode:executor or nadavai:executor-compact subagent (the compact one is reported as '<model> compact') (plain subagents; Workflow
 agents are not covered) started in the window (default: all), in its parent session:
   - the model it actually ran on, and its size (tool calls)
   - review: the first review within 6 h after the executor ended (a code-reviewer / verifier /
@@ -256,14 +256,14 @@ for root in ROOTS:
 rows = []
 for sid, s in by_session.items():
     subs = s.get('subs', [])
-    if not s.get('parent') or not any(str(md.get('agentType', '')).endswith('executor') for _, md in subs):
+    if not s.get('parent') or not any(str(md.get('agentType', '')).endswith(('executor', 'executor-compact')) for _, md in subs):
         continue
     infos = []
     for p, md in subs:
         i = sub_info(p)
         if i['t0']:
             i['type'] = str(md.get('agentType') or '?'); infos.append(i)
-    execs = [i for i in infos if i['type'].endswith('executor') and not LIMIT.search(i['last'][:400] or 'x')]
+    execs = [i for i in infos if i['type'].endswith(('executor', 'executor-compact')) and not LIMIT.search(i['last'][:400] or 'x')]
     pev = parent_events(s['parent'])
     reviews = [(i['t0'], verdict(i['last']), i['last']) for i in infos
                if any(r in i['type'] for r in REVIEWERS) and i['last'] and not LIMIT.search(i['last'][:400])]
@@ -277,7 +277,7 @@ for sid, s in by_session.items():
         refs = {x for x in REF.findall(e['last']) if not x.isdigit()}
         r = next((r for r in cand if any(x in r[2] for x in refs)), cand[0] if cand else None)
         c = next((v for t, v in cis if e['t1'] <= t <= e['t1'] + GAP), None)
-        rows.append(dict(model=(e['model'] or '?').replace('claude-', ''), tools=e['tools'], reviewed=r is not None,
+        rows.append(dict(model=(e['model'] or '?').replace('claude-', '') + (' compact' if e['type'].endswith('-compact') else ''), tools=e['tools'], reviewed=r is not None,
                          rev=r[1] if r else None, ci=c, text=(r[2] if r else '')[:200].replace('\n', ' ')))
 
 
