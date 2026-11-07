@@ -22,8 +22,8 @@
 //   otherwise                                                      -> published (would-publish on a dry run)
 // and prints one line "RESULT <app> <platform> <runtime> <result> <bundleId|-> <detail>".
 // Exit 0 when nothing failed, 1 when something did, 2 on a usage error.
-import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { lstatSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
+import { isAbsolute, join } from 'node:path';
 import * as fpm from './ota/fingerprint.mjs';
 import * as ota from './ota/ota-publish.mjs';
 
@@ -39,12 +39,65 @@ const usage = () => {
   process.exit(2);
 };
 
+// The clone is the commit's: its registry names the files the vendored publisher reads, and any of
+// them can be a symlink. Every path is checked here first (the vendored files stay byte for byte the
+// reviewed copies), so the signing user never reads outside the clone: a registry path is plain and
+// relative, and a file read is a regular file reached through no symlink at any level.
+/** Refuses a registry path that is absolute, has a `..` (or empty, or `.`) part, or odd characters. */
+export function assertRepoPath(what, path) {
+  if (typeof path !== 'string' || !path || isAbsolute(path) || /[\\\0]/.test(path) ||
+    path.split('/').some((part) => part === '' || part === '.' || part === '..')) {
+    throw new Error(`${what} ${JSON.stringify(path)} in native/apps.json is not a plain path inside the repo`);
+  }
+}
+/** Refuses a file that is missing, not a regular file, or reached through a symlink. */
+export function assertPlainFile(root, rel) {
+  const full = join(root, rel);
+  let st;
+  try { st = lstatSync(full); } catch { throw new Error(`${rel} is missing in the clone`); }
+  if (st.isSymbolicLink() || !st.isFile() || realpathSync(full) !== join(realpathSync(root), rel)) {
+    throw new Error(`${rel} is a symlink, sits under one, or is not a regular file; refusing to read it`);
+  }
+}
+/** Refuses a bundle directory that is, or holds, anything but regular files and directories. */
+export function assertPlainTree(root, rel) {
+  const walk = (dir) => {
+    for (const name of readdirSync(join(root, dir))) {
+      const path = `${dir}/${name}`;
+      const st = lstatSync(join(root, path));
+      if (st.isDirectory()) walk(path);
+      else if (!st.isFile()) throw new Error(`${path} is a symlink or a special file; refusing to sign a bundle that holds one`);
+    }
+  };
+  const st = lstatSync(join(root, rel), { throwIfNoEntry: false });
+  if (!st?.isDirectory() || realpathSync(join(root, rel)) !== join(realpathSync(root), rel)) {
+    throw new Error(`${rel} is missing, a symlink, or not a directory; refusing to sign it`);
+  }
+  walk(rel);
+}
+
 function appOf(root, app) {
+  assertPlainFile(root, 'native/apps.json');
   const registry = fpm.loadRegistry(root);
   const entry = fpm.appEntry(registry, app);
   if (!/^native\/keys\/[a-z0-9-]+\.pub\.pem$/.test(entry.publicKey ?? '')) throw new Error(`${app}: odd publicKey path in native/apps.json`);
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(entry.webDir ?? '')) throw new Error(`${app}: odd webDir in native/apps.json`);
+  for (const p of fpm.PLATFORMS) if (entry.platforms?.[p]) assertRepoPath(`${app} ${p} path`, entry.platforms[p].path);
+  for (const input of entry.configInputs ?? []) assertRepoPath(`${app} configInputs path`, input?.path);
+  assertPlainFile(root, entry.publicKey);
   return { registry, entry, publicKeyPem: readFileSync(join(root, entry.publicKey), 'utf8') };
+}
+
+/** The fingerprint, once every file it reads is a plain file of the clone (see assertPlainFile). */
+function fingerprintOf(root, registry, entry, app, platform) {
+  for (const input of entry.configInputs ?? []) assertPlainFile(root, input.path);
+  assertPlainFile(root, 'pnpm-lock.yaml');
+  const listFiles = (dir, nativePath) => {
+    const files = fpm.gitTrackedFiles(dir, nativePath);
+    for (const f of files) if (fpm.isShellInput(f) && lstatSync(join(dir, f), { throwIfNoEntry: false })) assertPlainFile(dir, f);
+    return files;
+  };
+  return fpm.computeFingerprint({ app, platform, root, registry, listFiles });
 }
 
 const store = () => ota.createR2Store({
@@ -62,7 +115,7 @@ function signingKey(app, publicKeyPem) {
 function textFiles(dir, out = []) {
   for (const name of readdirSync(dir)) {
     const full = join(dir, name);
-    if (statSync(full).isDirectory()) textFiles(full, out);
+    if (lstatSync(full).isDirectory()) textFiles(full, out);
     else if (/\.(m?js|html)$/.test(name)) out.push(readFileSync(full, 'utf8'));
   }
   return out;
@@ -88,14 +141,20 @@ async function publishOne(root, app, platform, sha, commitTime, dry) {
   if (!entry.platforms?.[platform]) throw new Error(`${app} has no ${platform} in native/apps.json`);
   const privateKeyPem = signingKey(app, publicKeyPem);
   const distDir = join(root, entry.webDir);
+  const salon = SALON_APPS.has(app) || entry.vertical === 'salon';
   const checkBundle = () => {
     ota.assertNotStagingBuild(distDir, STAGING_BASE);
-    if (SALON_APPS.has(app) || entry.vertical === 'salon') ota.assertShippedSalonProfile(distDir, join(root, ota.SALON_PROFILE));
+    if (salon) ota.assertShippedSalonProfile(distDir, join(root, ota.SALON_PROFILE));
     assertUpdaterInBundle(distDir, publicKeyPem);
   };
-  const fingerprint = fpm.computeFingerprint({ app, platform, root, registry });
+  const fingerprint = fingerprintOf(root, registry, entry, app, platform);
   const { runtime } = fingerprint;
   if (!fingerprint.shellPresent) throw Object.assign(new Error(`no native project at ${entry.platforms[platform].path}`), { runtime });
+  // Before anything reads the bundle (the checks, the zip): plain files only, in dry runs too.
+  try {
+    assertPlainTree(root, entry.webDir);
+    if (salon) assertPlainFile(root, ota.SALON_PROFILE);
+  } catch (error) { throw Object.assign(error, { runtime }); }
   // A dry run checks the bundle whatever R2 says, so it proves what a real run would refuse.
   if (dry) checkBundle();
   const r2 = await store();
@@ -146,8 +205,8 @@ async function main(argv) {
     const r2 = await store();
     for (const name of [app, platform, ...rest].filter(Boolean)) {
       if (!/^[a-z0-9-]+$/.test(name)) usage();
-      const { registry, publicKeyPem } = appOf(root, name);
-      const currentRuntimes = Object.fromEntries(fpm.PLATFORMS.map((p) => [p, fpm.computeFingerprint({ app: name, platform: p, root, registry }).runtime]));
+      const { registry, entry, publicKeyPem } = appOf(root, name);
+      const currentRuntimes = Object.fromEntries(fpm.PLATFORMS.map((p) => [p, fingerprintOf(root, registry, entry, name, p).runtime]));
       console.log(await ota.status({ app: name, store: r2, publicKeyPem, currentRuntimes }));
     }
     return 0;

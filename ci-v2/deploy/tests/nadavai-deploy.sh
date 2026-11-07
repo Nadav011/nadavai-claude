@@ -504,13 +504,15 @@ check "clean_exec: only the allowed variables reach the tool" "CLOUDFLARE_API_TO
 # fingerprint.mjs; the fixture commit carries the same files, plus native/apps.json and
 # native/runtimes.json) and a stub R2 (files under ~/r2). A stub sudo runs each sandboxed unit in
 # place with env -i, only its Environment=, EnvironmentFile= and credential; before the first OTA
-# unit it runs ~/on-ota-unit once when that exists (a person acting while a publish is in flight).
+# unit it runs ~/on-ota-unit once when that exists (a person acting while a publish is in flight),
+# and before medizen's bundle build ~/on-build-unit (a person acting while a build runs).
 cat >"$t/bin/sudo" <<'SUDO'
 #!/usr/bin/env bash
 [ "$1" = -n ] && shift
 case $1 in
   systemd-run) shift; echo "$*" >>"$HOME/sudo.log"
     case $* in *nadavai-deploy-ota-*) [ -x "$HOME/on-ota-unit" ] && { mv "$HOME/on-ota-unit" "$HOME/on-ota-unit.ran"; "$HOME/on-ota-unit.ran"; } ;; esac
+    case $* in *nadavai-deploy-build-*'>dist/index.html'*) [ -x "$HOME/on-build-unit" ] && { mv "$HOME/on-build-unit" "$HOME/on-build-unit.ran"; "$HOME/on-build-unit.ran"; } ;; esac
     wd=/ envf='' cred='' e=()
     while [ "$1" != -- ]; do
       if [ "$1" = -p ]; then
@@ -636,6 +638,14 @@ check "ota: a changed publisher in the commit is refused: nothing built, signed 
   "$rc $(grep -c 'nadavai-deploy-ota-' "$HOME/sudo.log") $(grep -c 'dist\|build:' "$HOME/sudo.log") $(pubs) $([ -e "$t/r2/commit-code-ran" ] && echo yes || echo no)"
 check "ota: and says so on nadavai-ota and in deploys.log" "1 1 1" \
   "$(ostatus "$c6" "OTA refused: publisher changed in the commit: review and re-vendor" failure) $(grep -c 'differ from the publisher vendored in nadavai' "$t/ota.out") $(grep -c "$c6"$'\tota-publisher-changed\t' "$LOGS/deploys.log")"
+# The vendored file is hashed as its own bytes (hash-object --no-filters): a copy that differs from
+# the commit's blob only in line ends is refused too, whatever core.autocrlf says.
+cp "$t/tools/ota/fingerprint.mjs" "$t/fp.lf"; sed -i 's/$/\r/' "$t/tools/ota/fingerprint.mjs"
+echo "$c5" >"$HOME/live-commit"; : >"$HOME/gh.log"; n0=$(pubs)
+( export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.autocrlf GIT_CONFIG_VALUE_0=input; cmd_ota $R "$c5" ) >"$t/ota.out" 2>&1; rc=$?
+check "ota: a vendored publisher that differs only in line ends is refused, whatever core.autocrlf says" "1 $n0 1" \
+  "$rc $(pubs) $(grep -c "scripts/native/ fingerprint.mjs of ${c5:0:7} differ from the publisher vendored" "$t/ota.out")"
+mv "$t/fp.lf" "$t/tools/ota/fingerprint.mjs"
 
 # A bundle that is not this commit's (medizen's sw.js stamp), or has no updater (retrobarber), is
 # never signed; the other platforms go on.
@@ -646,6 +656,13 @@ c7=$(side bad-bundles); echo "$c7" >"$HOME/live-commit"; : >"$HOME/gh.log"; n0=$
 check "ota: a bundle without this commit's stamp, or without the updater, is not published" "1 $n0 1 1" \
   "$rc $(pubs) $(grep -c "dist/sw.js carries 'tf-shell-0123456789-deadbee', not ${c7:0:7}" "$t/ota.out") $(grep -c 'retrobarber android .* failed - the bundle has no OTA updater: https://updates.nadavc.ai, the runtime-<fp12>/manifest.json path, the app.s public key not found' "$t/ota.out")"
 check "ota: nadavai-ota names both" 1 "$(ostatus "$c7" "OTA failed: medizen,retrobarber/android" failure)"
+# A symlink in a built bundle is never copied into the signing clone (ota-step.mjs refuses one as
+# well; see the real publisher below).
+jq '.apps.medizen.buildCommand += " && ln -s /etc/hostname dist/leak"' "$fx/native/apps.json" >"$t/apps.json" && mv "$t/apps.json" "$fx/native/apps.json"
+c8=$(side link-in-dist); echo "$c8" >"$HOME/live-commit"; : >"$HOME/gh.log"; : >"$HOME/sudo.log"
+( cmd_ota $R "$c8" ) >"$t/ota.out" 2>&1; rc=$?
+check "ota: a symlink in the built bundle is refused before anything signs it" "1 0 1 1" \
+  "$rc $(grep -c 'ota-step.mjs publish .* medizen ' "$HOME/sudo.log") $(grep -c "OTA: medizen's dist has no index.html, is tracked in git, or holds a symlink" "$t/ota.out") $(ostatus "$c8" "OTA failed: medizen (log on the Oracle VM)" failure)"
 echo "$c5" >"$HOME/live-commit"
 
 # A hold, an ota-off or a web rollback while a publish is in flight: the next platform is not
@@ -664,6 +681,16 @@ printf '#!/bin/sh\necho %s >"%s"\n' "$c0" "$HOME/live-commit" >"$HOME/on-ota-uni
 ( cmd_ota $R "$c5" ) >"$t/ota.out" 2>&1; rc=$?
 check "ota: a web rollback during a publish stops the step too" "1 $n0 1" "$rc $(pubs) $(ostatus "$c5" "OTA stopped before medizen/ios,retrobarber/android,retrobarber/ios: production now serves $c0" failure)"
 echo "$c5" >"$HOME/live-commit"
+# The same gate runs before each app's build: a hold set while medizen builds stops the step before
+# retrobarber is built, and nothing is signed.
+printf '#!/bin/sh\nprintf "during a build\\nset now\\n" >"%s"\n' "$hf" >"$HOME/on-build-unit"; chmod +x "$HOME/on-build-unit"
+: >"$HOME/gh.log"; : >"$HOME/sudo.log"; n0=$(pubs)
+( cmd_ota $R "$c5" ) >"$t/ota.out" 2>&1; rc=$?
+check "ota: a hold during a build stops the step before the next app's build" "1 $n0 1 0 0" \
+  "$rc $(pubs) $(grep -c 'nadavai-deploy-build-.*>dist/index.html' "$HOME/sudo.log") $(grep -c 'nadavai-deploy-build-.*dist-salon-client' "$HOME/sudo.log") $(grep -c 'nadavai-deploy-ota-' "$HOME/sudo.log")"
+check "ota: nadavai-ota names every platform it stopped before" 1 \
+  "$(ostatus "$c5" "OTA stopped before retrobarber/android,retrobarber/ios,medizen/android,medizen/ios: deploys of $R are held" failure)"
+rm -f "$hf"
 # hold returns only once a step holding the OTA lock has let go.
 mkfifo "$HOME/ol-ready" "$HOME/ol-go" "$HOME/hold.err"; : >"$HOME/ol-order"
 ( exec 7>"$S/$R.ota.lock"; flock 7; echo >"$HOME/ol-ready"; read -r _ <"$HOME/ol-go"; echo ota-lock-freed >>"$HOME/ol-order" ) &
@@ -716,6 +743,13 @@ check "ota-rollback: no runtime recorded and no --runtime refuses (2), writes no
   "$rc $(grep -c 'pass --runtime' "$t/ota.out") $([ -e "$S/$R.ota-hold.retrobarber.android" ] && echo yes || echo no)"
 out=$(cmd_ota_tool ota-rollback $R retrobarber android 4c1e2d3f4a5b-0f1e2d3c --runtime runtime-bbbbbbbbbbb1 2>/dev/null); rc=$?
 check "ota-rollback: --runtime is passed on" "0 1" "$rc $(grep -c '^rollback retrobarber android 4c1e2d3f4a5b-0f1e2d3c runtime-bbbbbbbbbbb1 nadavai-app-updates https://updates.nadavc.ai$' "$t/r2/publish.log")"
+# The rollback is published, but its hold cannot be written (a directory in its place): exit 1, and
+# say that the next deploy's step would publish over it.
+mkdir "$S/$R.ota-hold.retrobarber.ios"
+( cmd_ota_tool ota-rollback $R retrobarber ios reset --runtime runtime-bbbbbbbbbbb2 ) >"$t/ota.out" 2>&1; rc=$?
+check "ota-rollback: a hold file that cannot be written fails (1) and says why it matters" "1 1 1" \
+  "$rc $(grep -c '^rollback retrobarber ios reset runtime-bbbbbbbbbbb2 ' "$t/r2/publish.log") $(grep -c "could not be written, so the next deploy's OTA step would publish over it" "$t/ota.out")"
+rmdir "${S:?}/$R.ota-hold.retrobarber.ios"
 rm -f "${S:?}/$R.ota-hold."*
 out=$(cmd_ota_tool ota-min $R retrobarber ios 7 --message "update the app" 2>/dev/null); rc=$?
 check "ota-min: the build and the message, with the app's key" "0 1" "$rc $(grep -c '^min retrobarber ios 7 update the app nadavai-app-updates$' "$t/r2/publish.log")"
@@ -739,6 +773,15 @@ echo "$(uuid 1)" >"$t/cf/canonical"
 ( cmd_rollback $R "$tgt" --with-ota ) >"$t/ota.out" 2>&1; rc=$?
 check "rollback --with-ota: runs them, and holds those platforms" "0 1 1 3" \
   "$rc $(grep -c "^rollback medizen android ${c0:0:12}-c0bundle runtime-aaaaaaaaaaa1 nadavai-app-updates" "$t/r2/publish.log") $(grep -c '^rollback retrobarber android reset runtime-bbbbbbbbbbb1 ' "$t/r2/publish.log") $(find "$S" -name "$R.ota-hold.*" | wc -l)"
+# No OTA step recorded at all (state lost): the phones are unknown, never "need no rollback".
+rm -f "${S:?}/$R.ota-hold."* "${S:?}/$R.ota-runtime."*
+echo "$(uuid 1)" >"$t/cf/canonical"
+( cmd_rollback $R "$tgt" ) >"$t/ota.out" 2>&1; rc=$?
+check "rollback: with no OTA step recorded it says OTA unknown and points at ota-status" "0 1 0" \
+  "$rc $(grep -cF "OTA: unknown, no OTA step recorded; check \`nadavai-deploy ota-status $R\`" "$t/ota.out") $(grep -c 'need no rollback' "$t/ota.out")"
+echo "$(uuid 1)" >"$t/cf/canonical"; n0=$(pubs)
+( cmd_rollback $R "$tgt" --with-ota ) >"$t/ota.out" 2>&1; rc=$?
+check "rollback --with-ota: with nothing recorded it fails (1) and runs no ota-rollback" "1 $n0" "$rc $(pubs)"
 rm -f "${S:?}/$R.ota-hold."*; stubs; eval "$real_nw"; live_of() { echo "live-x $(cat "$HOME/live-commit")"; }
 
 # A TERM during the OTA step: its units are stopped, nadavai-ota says it was interrupted.
@@ -752,6 +795,51 @@ check "ota: a TERM stops the step's units and says so on nadavai-ota" "1 1 1 1" 
 check "ota: install.sh makes the nadavai-ota user and installs the vendored publisher" "1 1 1" \
   "$(grep -c '^for u in nadavai-build nadavai-upload nadavai-ota; do$' "$here/../install.sh") $(grep -c 'tools/ota/ota-publish.mjs" "$src/tools/ota/fingerprint.mjs" "$T/ota/"' "$here/../install.sh") $(grep -c '^OTA_VENDORED=(ota-publish.mjs fingerprint.mjs)$' "$src")"
 printf '#!/bin/sh\nexit 1\n' >"$t/bin/sudo"
+
+# ---- The real publisher: tools/ota-step.mjs with the vendored tools/ota (not the stub), on a small
+# git clone, offline. A key pair from two generated RSA keys, and the path and symlink guards. With
+# no R2_* env, a run that passed every check before R2 ends at "R2_ACCOUNT_ID is not set".
+rt=$t/real rr=$t/real/repo
+mkdir -p "$rt/tools/ota" "$rr/native/keys" "$rr/native/medizen/android"
+cp "$here/../tools/ota-step.mjs" "$rt/tools/"; cp "$here/../tools/ota/ota-publish.mjs" "$here/../tools/ota/fingerprint.mjs" "$rt/tools/ota/"
+node -e 'const { generateKeyPairSync } = require("node:crypto"); const fs = require("node:fs");
+  for (const n of ["a", "b"]) { const k = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    fs.writeFileSync(`${process.argv[1]}/${n}.pem`, k.privateKey.export({ type: "pkcs8", format: "pem" }));
+    fs.writeFileSync(`${process.argv[1]}/${n}.pub.pem`, k.publicKey.export({ type: "spki", format: "pem" })); }' "$rt"
+cp "$rt/a.pub.pem" "$rr/native/keys/medizen.pub.pem"; cp "$here/fixtures/ota/pnpm-lock.yaml" "$rr/"
+echo 'android {}' >"$rr/native/medizen/android/build.gradle"; echo 'export default {};' >"$rr/capacitor.config.ts"
+jq -n '{schema: 1, updates: {}, apps: {medizen: {appId: "ai.example.medizen", vertical: "clinic", webDir: "dist", buildCommand: "true",
+  publicKey: "native/keys/medizen.pub.pem", configInputs: [{path: "capacitor.config.ts"}], platforms: {android: {path: "native/medizen/android"}}}}}' >"$rt/apps.json"
+cp "$rt/apps.json" "$rr/native/apps.json"
+git -C "$rr" init -q -b main && git -C "$rr" add -A && git -C "$rr" -c user.name=t -c user.email=t@t.invalid commit -qm real; rsha=$(git -C "$rr" rev-parse HEAD)
+mkdir -p "$rr/dist"; echo real >"$rr/dist/index.html"
+{ printf 'u="https://updates.nadavc.ai";m=`/runtime-${f}/manifest.json`;k=`'; cat "$rt/a.pub.pem"; echo '`'; } >"$rr/dist/u.js"
+rp() { # signing key -> the RESULT line of a publish of medizen android from the clone
+  env -i PATH="$PATH" HOME="$t" OTA_SIGNING_KEY="$1" node "$rt/tools/ota-step.mjs" publish "$rr" medizen android "$rsha" 2026-11-07T00:00:00Z 2>&1 | grep '^RESULT'
+}
+reg() { jq "$1" "$rt/apps.json" >"$rr/native/apps.json"; } # a registry edit, in the clone only
+check "real publisher: the service key whose pair is the commit's public key passes every check before R2" 1 \
+  "$(rp "$rt/a.pem" | grep -c '^RESULT medizen android - failed - R2_ACCOUNT_ID is not set')"
+check "real publisher: another generated key is refused before anything is read from R2" 1 \
+  "$(rp "$rt/b.pem" | grep -c 'failed - The signing key does not match native/keys/medizen.pub.pem; refusing')"
+ln -s /etc/hostname "$rr/dist/leak.txt"
+check "real publisher: a symlink in the built bundle is refused" 1 "$(rp "$rt/a.pem" | grep -c 'failed - dist/leak.txt is a symlink or a special file; refusing to sign')"
+rm -f "${rr:?}/dist/leak.txt"; mv "$rr/dist" "$rr/dist.real"; ln -s dist.real "$rr/dist"
+check "real publisher: a bundle directory that is a symlink is refused" 1 "$(rp "$rt/a.pem" | grep -c 'failed - dist is missing, a symlink, or not a directory')"
+rm -f "${rr:?}/dist"; mv "$rr/dist.real" "$rr/dist"
+for p in /etc/hostname ../outside.ts 'native/../../x.ts' ''; do
+  reg ".apps.medizen.configInputs[0].path = \"$p\""
+  check "real publisher: configInputs path '$p' is refused" 1 "$(rp "$rt/a.pem" | grep -c "failed - medizen configInputs path \"${p//./\\.}\" in native/apps.json is not a plain path inside the repo")"
+done
+reg '.apps.medizen.platforms.android.path = "/etc"'
+check "real publisher: an absolute platform path is refused" 1 "$(rp "$rt/a.pem" | grep -c 'failed - medizen android path "/etc" in native/apps.json is not a plain path')"
+mkdir -p "$rr/cfg.real"; echo 'export default {};' >"$rr/cfg.real/c.ts"; ln -s cfg.real "$rr/cfg"; reg '.apps.medizen.configInputs[0].path = "cfg/c.ts"'
+check "real publisher: a config input under a symlinked directory is refused" 1 "$(rp "$rt/a.pem" | grep -c 'failed - cfg/c.ts is a symlink, sits under one, or is not a regular file')"
+reg .; rm -f "${rr:?}/native/keys/medizen.pub.pem"; ln -s "$rt/a.pub.pem" "$rr/native/keys/medizen.pub.pem"
+check "real publisher: a public key that is a symlink is refused" 1 "$(rp "$rt/a.pem" | grep -c 'failed - native/keys/medizen.pub.pem is a symlink, sits under one')"
+rm -f "${rr:?}/native/keys/medizen.pub.pem"; cp "$rt/a.pub.pem" "$rr/native/keys/medizen.pub.pem"
+ln -s /etc/hostname "$rr/native/medizen/android/leak.gradle"; git -C "$rr" add native/medizen/android/leak.gradle
+check "real publisher: a tracked symlink in the native project is refused" 1 "$(rp "$rt/a.pem" | grep -c 'failed - native/medizen/android/leak.gradle is a symlink, sits under one')"
 
 echo "-- $n checks in all"
 [ "$fail" = 0 ] && echo "all passed"

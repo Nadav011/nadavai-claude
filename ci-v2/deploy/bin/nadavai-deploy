@@ -48,9 +48,9 @@
 # holds the key: ota-step.mjs and the publisher vendored beside it (tools/ota), never the commit's
 # own scripts; a commit whose scripts/native/ota-publish.mjs or fingerprint.mjs differ from the
 # vendored blobs is refused ("publisher changed in the commit"). The hold, the OTA switch and the
-# live commit are read again right before each platform's publish. A runtime with no manifest is
-# a native change (store build needed) when the platform has manifests on another runtime, and
-# "not released yet" when it has none. The nadavai-ota status on the sha says what happened; an
+# live commit are read again before each app's build and each platform's publish. A runtime with
+# no manifest is a native change (store build needed) when the platform has manifests on another
+# runtime, and "not released yet" when it has none. The nadavai-ota status on the sha says what happened; an
 # OTA failure never touches the web deploy or its exit code.
 #
 # Two more gates run before anything is built (2026-11-04), without the repo lock (a rollback is
@@ -778,7 +778,8 @@ ota_first() { local r; r=$(head -1 "$1" 2>/dev/null); say "${r:-no reason given}
 ota_publisher_ok() { # repo sha
   local f want have bad=()
   for f in "${OTA_VENDORED[@]}"; do
-    want=$("${GIT[@]}" hash-object "$TOOLS/ota/$f" 2>/dev/null)
+    # --no-filters: the file's own bytes, never what a CRLF or attribute setting would make of them.
+    want=$("${GIT[@]}" hash-object --no-filters "$TOOLS/ota/$f" 2>/dev/null)
     have=$("${GIT[@]}" -C "$MIRROR/$1.git" rev-parse -q --verify "$2:scripts/native/$f" 2>/dev/null)
     [ -n "$want" ] && [ "$want" = "$have" ] || bad+=("$f")
   done
@@ -786,7 +787,7 @@ ota_publisher_ok() { # repo sha
   err "OTA: scripts/native/ $(ota_join "${bad[@]}") of ${2:0:7} differ from the publisher vendored in nadavai ($TOOLS/ota): review the change and re-vendor it"
   return 1
 }
-# Right before each platform's publish: no hold or off, OTA on, and production still on sha.
+# Before each app's build and each platform's publish: no hold or off, OTA on, and production still on sha.
 ota_gate() { # repo sha dry -> 0 go on; otherwise prints why not
   local live hs
   if [ -z "$3" ]; then
@@ -829,6 +830,13 @@ ota_step() { # repo sha workdir dry
     if ! [[ $app =~ ^[a-z0-9-]+$ ]] || [ -z "${OTA_ENV[$app]:-}" ]; then err "OTA: app '$app' has no build env in OTA_ENV (nadavai-deploy); add one before it can publish"; failed+=("$app"); continue; fi
     if ! [[ $web =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || [ -z "$cmd" ]; then err "OTA: $app has no buildCommand or an odd webDir ($web)"; failed+=("$app"); continue; fi
     secret_ok "$SECRETS/${OTA_ENV[$app]}" || { failed+=("$app"); continue; }
+    # The same gate as before each publish: a hold, ota-off or a newer live commit stops the step
+    # before a build too, and every platform of the apps not built yet counts as stopped.
+    if [ -z "$stop" ] && ! why=$(ota_gate "$repo" "$sha" "$dry"); then err "OTA: stopped before building $app: $why"; stop=$why; fi
+    if [ -n "$stop" ]; then
+      mapfile -t pfs < <(jq -r --arg a "$app" '.apps[$a].platforms | keys[] | select(. == "android" or . == "ios")' <<<"$reg")
+      stopped+=("${pfs[@]/#/$app/}"); continue
+    fi
     say "--- OTA: build $app ($cmd) as $BUILD_USER in a sandbox (its public env only)"
     ( flock 8; sandbox "$w" "$SECRETS/${OTA_ENV[$app]}" -- /bin/bash -c "$cmd" ) 8>"$STATE/build.lock" ||
       { err "OTA: the $app build failed"; failed+=("$app"); continue; }
@@ -1209,6 +1217,12 @@ ota_after_rollback() { # repo with_ota
   local repo=$1 now commit plan=() p app pf target rt note rc=0
   now=$(live_of "$repo") && commit=${now#* } && [[ $commit =~ ^[0-9a-f]{40}$ ]] ||
     { err "OTA: cannot read the commit production serves now; see nadavai-deploy ota-status $repo"; return 1; }
+  # No record of any OTA step (state lost, or none ran yet) says nothing about the phones.
+  if ! compgen -G "$STATE/$repo.ota-runtime.*" >/dev/null; then
+    say "OTA: unknown, no OTA step recorded; check \`nadavai-deploy ota-status $repo\`"
+    [ -z "$2" ] || { err "OTA: --with-ota has nothing to run: no OTA step is recorded; roll back by hand from nadavai-deploy ota-status $repo"; return 1; }
+    return 0
+  fi
   mapfile -t plan < <(ota_rollback_plan "$repo" "$commit")
   if [ "${#plan[@]}" = 0 ]; then say "OTA: the store apps need no rollback (no platform reached past ${commit:0:7})"; return 0; fi
   say "OTA: the store apps still run the bundle of the rolled-back deploy. Back to ${commit:0:7} over the air${2:+ (--with-ota: running them now)}:"
@@ -1271,8 +1285,11 @@ cmd_ota_tool() { # ota-status|ota-rollback|ota-min repo [app platform arg [--run
     ota_cli "$app" rollback "$app" "$pf" "$arg" "$rt" || rc=$?
     if [ "$rc" = 0 ]; then
       # A person's rollback stands until a person lifts it: the next deploy's OTA step skips this platform.
-      printf '%s\n%s\n' "ota-rollback to $arg on $rt" "set $(date -Is)" >"$(ota_holdfile "$repo" "$app" "$pf")" &&
+      if printf '%s\n%s\n' "ota-rollback to $arg on $rt" "set $(date -Is)" 2>/dev/null >"$(ota_holdfile "$repo" "$app" "$pf")"; then
         say "ota-rollback: $app/$pf is held for the OTA step until nadavai-deploy ota-release $repo $app $pf" >&2
+      else
+        rc=1; err "ota-rollback: published, but the hold file $(ota_holdfile "$repo" "$app" "$pf") could not be written, so the next deploy's OTA step would publish over it: fix the file, or run nadavai-deploy ota-off $repo <reason> now"
+      fi
     fi
     opt=(--runtime "$rt")
   else

@@ -1,0 +1,9 @@
+lockfileVersion: '9.0'
+
+importers:
+
+  .:
+    dependencies:
+      '@capacitor/core':
+        specifier: 7.4.4
+        version: 7.4.4

@@ -129,20 +129,23 @@ users `nadavai-build`, `nadavai-upload` and `nadavai-ota`, work dirs in `/srv/na
     `scripts/native/ota-publish.mjs` and `fingerprint.mjs`, installed root-owned in
     `/opt/nadavai-deploy/tools/ota`), never a file of the commit. A commit whose own copies differ
     from the vendored blobs (`git rev-parse <sha>:scripts/native/<file>` against
-    `git hash-object` of the vendored file) is refused before any build: `nadavai-ota` failure "OTA
+    `git hash-object --no-filters` of the vendored file, its own bytes whatever `core.autocrlf`
+    says) is refused before any build: `nadavai-ota` failure "OTA
     refused: publisher changed in the commit: review and re-vendor". To take such a change: review
     the diff, copy the two files from that commit into `deploy/tools/ota/`, commit in nadavai, run
     `install.sh` on the VM, then `ota <repo> <sha>`. The driver pins the bucket, the public host
     `https://updates.nadavc.ai` and the staging host (the commit's `native/apps.json` "updates" are
     not read), trusts the commit's public key only after the service's private key signs for it,
-    and before signing checks the bundle: not a staging build, the shipped salon profile for
+    reads only plain files of the clone (every registry path relative with no `..`, and no file it
+    reads, from the native project to the bundle, a symlink or under one), and before signing
+    checks the bundle: not a staging build, the shipped salon profile for
     retrobarber, and the updater inside it (the production host, the `runtime-<fp12>/manifest.json`
     path and every line of the app's public key), so a bundle that cannot update itself is never
     published. A dry run runs these checks whatever R2 says.
   - Per platform: a person's OTA hold (`state/<repo>.ota-hold.<app>.<platform>`) skips it; then the
-    hold, the OTA switch and the live commit are read again right before its publish (a `hold`,
-    `ota-off` or web rollback during a step stops it before the next platform: "OTA stopped before
-    ..."). No production manifest for the commit's runtime fingerprint: a native change (nothing
+    hold, the OTA switch and the live commit are read again before each app's build and right
+    before each publish (a `hold`, `ota-off` or web rollback during a step stops it before the next
+    build or platform: "OTA stopped before ..."). No production manifest for the commit's runtime fingerprint: a native change (nothing
     published; a store build is needed) when the platform has manifests on another runtime, "not
     released" when it has none at all (first manifests stay a hand step from the LENOVO); a manifest
     that already carries the commit is current (idempotent); a person's rollback or reset published
@@ -159,14 +162,17 @@ users `nadavai-build`, `nadavai-upload` and `nadavai-ota`, work dirs in `/srv/na
     `nadavai-ota` on a fresh clone of main's head, as data only, against the production bucket (a
     hold does not stop them). `ota-rollback` defaults to the runtime the last OTA step reached (not
     main's tree; with none recorded it asks for `--runtime`) and then holds that platform's OTA step
-    until `ota-release <repo> <app> <platform>`, so the next merge does not publish over it.
+    until `ota-release <repo> <app> <platform>`, so the next merge does not publish over it (a hold
+    file it cannot write is exit 1, with what to do).
     `ota-off <repo> <reason>` stops the whole OTA step (web deploys go on) until `ota-on <repo>`, and
     returns once a step in flight has stopped; `hold` waits for the OTA lock the same way.
   - A web `rollback` of therapy-flow-v2 leaves the phones on the bundle the rolled-back deploy
     published: it prints, per platform the OTA step reached, the exact `ota-rollback` to the bundle
     of the commit production serves now (or `reset`, the store build's own bundle, when no OTA step
     published one there); `rollback <repo> <id> --with-ota` runs them (and so holds those
-    platforms until `ota-release`).
+    platforms until `ota-release`). With no `state/<repo>.ota-runtime.*` at all (state lost) it says
+    "OTA: unknown, no OTA step recorded; check `nadavai-deploy ota-status <repo>`", never that the
+    phones need no rollback, and `--with-ota` exits 1.
 - Hold: `state/<repo>.hold`, written and removed under `state/<repo>.lock`, the lock every real deploy
   and rollback holds for its whole run, and read with that lock held. A rollback is allowed while
   held. `state/off` (all repos) or `state/<repo>.off` switch deploys off.
@@ -196,4 +202,5 @@ users `nadavai-build`, `nadavai-upload` and `nadavai-ota`, work dirs in `/srv/na
   Woodpecker, plus a saved real answer), the detached run, and the OTA step (the real
   `ota-step.mjs` with a stub of the vendored publisher, the same stub committed in a fixture commit,
   `deploy/tests/fixtures/ota`, a stub R2 of files and a stub sudo that runs each unit with only its
-  own environment): 189 checks.
+  own environment), and the real vendored publisher under `ota-step.mjs` on a small clone (a key
+  pair from two generated RSA keys, the registry path and symlink guards): 208 checks.
