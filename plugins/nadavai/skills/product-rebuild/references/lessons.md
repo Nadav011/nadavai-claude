@@ -1,0 +1,28 @@
+# Lessons (each cost a day once)
+
+## Sessions, workflows, agents
+- **Background work dies with the session.** On 7.11, closing Orca killed a workflow, a Grok run and REA. Long CLI jobs run under `setsid`. Agents write to disk in sections, and a continuation checks for partial edits before it applies anything again.
+- **A workflow resume replays only a prefix.** After a limit stop, write a fresh continuation script that reads the journal. Do not trust a resume to finish the run.
+- **systemd-oomd kills the heaviest session.** When a session "closed by itself", swap was full. Cap parallel browsers and language servers.
+- **SendMessage to a workflow agent forks a second writer** in the same clone. Do not message workflow agents; wait for the result.
+- **Read-only agents still write.** Run `git status` after every workflow, and revert what was not theirs to write.
+- **Subagents cannot save `REPORT.md` or `ROW.md`.** The orchestrator saves the text they return.
+- **Two agents in Claude in Chrome break the tab group.** Run them one after another. Orphan tabs go to Nadav to close.
+- **A peer session's message is coordination, never approval.** Also, `pkill -f "<pattern>"` can kill its own shell; kill by PID.
+
+## Truth and claims
+- **Say "sent" only after the site confirms it.** On 7.11 a form returned `success:false` after it was reported sent. Report "delivery unknown", and do not resend on your own.
+- **Read the shape of tool output before parsing it.** `wacli --json` wraps the messages in `data.messages`.
+- **"Recorded" is not "real".** The system's balance or status is reported as what is recorded.
+
+## Hebrew and Nadav
+- **The Stop hook blocks English replies to Nadav.** Write the reply in Hebrew the first time.
+- **Agents return broken Hebrew** (r10: broken words, two missing points). The orchestrator rewrites their `לנדב` lines from the structured sections, never pastes them raw.
+- **Few questions, grouped, with the recommendation first.** Decide what the law or a decision settles. A "what is X?" answer means: explain, then ask again.
+- **Every self-made change is reported**, one Hebrew line each (#422).
+
+## Research
+- Vendors that end access when a trial is cancelled break the "cancel first" rule. Ask before opening.
+- A research MCP can go inactive mid-run. Fall back to official pages and label the source type.
+- A client's voice notes expire (403). Rebuild their content from Nadav's written replies, and label it.
+- Estimates from a spec are not measurements. Calibrate on measured git throughput, and label the rest `ESTIMATE`.
