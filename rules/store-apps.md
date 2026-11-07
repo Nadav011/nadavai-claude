@@ -1,7 +1,8 @@
 # Store apps
 
-For any native, store, OTA, TestFlight, App Review, Play Console, TWA or PWA-to-store work, load
-`nadavai:store-apps`. If the catalog cannot load it, read
+For any native, store, OTA, TestFlight, App Review, Play Console, Meta App Review, platform
+approval (Apple, Google Play, Meta), TWA or PWA-to-store work, load `nadavai:store-apps`. If the
+catalog cannot load it, read
 `${NADAVAI_HOME:-$HOME/nadavai}/plugins/nadavai/skills/store-apps/SKILL.md`. That skill holds the
 model choice, the steps and the traps; this rule holds only the four invariants below, which hold
 whether or not the skill is loaded. Why: Nadav approved one global way to move web apps into the

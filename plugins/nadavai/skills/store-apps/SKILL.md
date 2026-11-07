@@ -1,6 +1,6 @@
 ---
 name: store-apps
-description: "Move a web app into the App Store and Google Play as real store apps, and keep them in step with every web deploy: choose the model (bundled Capacitor app with signed self-hosted OTA, or a remote-URL Capacitor shell with an update-required gate; never a new TWA), set up the shells (ids, icons, privacy manifests, push, deep links, in-app account deletion, reviewer login), build (iOS on Codemagic, Android locally), do the store work through the App Store Connect and Play Developer APIs first, move installed-PWA users to the store, and run the OTA step of the deploy service. Built on 7.11.2026 for MediZen and RetroBarber (therapy-flow-v2) and The Green Room (snooker-smart). Use for any native, store, OTA, TestFlight, App Review, Play Console, TWA or PWA-to-store work, a store build or release, or a native change in a repo with live store apps. Triggers: \"store app\", \"להעלות לחנות\", \"אפליקציה בחנות\", \"App Store\", \"Google Play\", \"TestFlight\", \"OTA\", \"live update\", \"TWA\", \"native shell\", \"store build\"."
+description: "Move a web app into the App Store and Google Play as real store apps, and keep them in step with every web deploy: choose the model (bundled Capacitor app with signed self-hosted OTA, or a remote-URL Capacitor shell with an update-required gate; never a new TWA), set up the shells (ids, icons, privacy manifests, push, deep links, in-app account deletion, reviewer login), build (iOS on Codemagic, Android locally), do the store work through the App Store Connect and Play Developer APIs first, move installed-PWA users to the store, and run the OTA step of the deploy service. Built on 7.11.2026 for MediZen and RetroBarber (therapy-flow-v2) and The Green Room (snooker-smart). Use for any native, store, OTA, TestFlight, App Review, Play Console, Meta App Review, platform approval (D-U-N-S, organization or business verification), TWA or PWA-to-store work, a store build or release, or a native change in a repo with live store apps. Triggers: \"store app\", \"להעלות לחנות\", \"אפליקציה בחנות\", \"App Store\", \"Google Play\", \"TestFlight\", \"OTA\", \"live update\", \"TWA\", \"native shell\", \"store build\"."
 ---
 # store-apps
 
@@ -63,6 +63,12 @@ before it too.
    after a shell change ships ([references/remote-shell.md](references/remote-shell.md), "After a
    shell change"). Done when the minimum-build env var is at or below the build every store user
    has.
+
+7. **Keep the platform approvals valid** at Apple, Google and Meta, for the legal entity and for
+   each app ([references/approvals.md](references/approvals.md)). Run
+   `node scripts/check-approvals.mjs --asc --play` before every store or Meta submission and on
+   the first of each month. It only reads. Done when it exits 0, or each item it flags has an owner
+   and a date in its ledger.
 
 The next action is step 1: open the repo's build config (`package.json` scripts, `next.config.*`,
 `vite.config.*`) and fill the table row.
