@@ -1,0 +1,68 @@
+# Store work: APIs first, the browser for the rest
+
+Both stores are worked through their APIs where a scope exists, because an API call can be read
+back and repeated, and a console click cannot. Every submission, release or upload is an approval
+gate: ask Nadav at that moment.
+
+## Helpers (in this skill's `scripts/`)
+
+| Helper | Use | Credentials |
+|---|---|---|
+| `node scripts/asc.mjs <METHOD> <path> [json]` | App Store Connect API. Prints the HTTP status, then the body. | The team API key from `~/.claude/secrets/sporchat-asc.env` (`ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_PATH`). |
+| `node scripts/play.mjs tracks <pkg>` / `upload <pkg> <aab> <track> [--status draft\|completed] [--name …] [--notes-he …]` / `raw <METHOD> <path> [json]` | Google Play Developer API (androidpublisher v3), one edit per call, committed at the end. | The service account `~/.claude/secrets/play-publisher-service-account.json` (or `PLAY_SA_KEY`). |
+
+A request that carries a secret (the demo account's password) goes through a small script that
+reads the vault, calls `asc.mjs` with `execFileSync`, and prints only `passwordSet: true`. Why:
+the request's command line and the `appStoreReviewDetails` response both carry the password, and
+`rules/acting-on-behalf.md` keeps passwords out of the transcript.
+
+## App Store Connect recipes
+
+| What | Call |
+|---|---|
+| New version | `POST /v1/appStoreVersions` (`platform: IOS`, `versionString`, `releaseType: MANUAL` when the release must wait), relationship `app`. |
+| Attach the build | `PATCH /v1/appStoreVersions/<id>/relationships/build`, once the build is `VALID`. |
+| Text (description, what's new, keywords) | `/v1/appStoreVersionLocalizations`. |
+| Review details and demo account | `POST` or `PATCH /v1/appStoreReviewDetails`: contact fields, `demoAccountRequired`, `demoAccountName`, `demoAccountPassword`, `notes`. |
+| OTA disclosure (bundled model) | In `notes`: the app updates its own web content over the air, signed with the developer's key, without changing its purpose or features (guideline 2.5.2). |
+| Content rights | `PATCH /v1/apps/<id>`, `contentRightsDeclaration` (`USES_THIRD_PARTY_CONTENT` or `DOES_NOT_USE_THIRD_PARTY_CONTENT`); a submission is refused while it is unset. |
+| Age rating | `PATCH /v1/ageRatingDeclarations/<id>`. |
+| Availability | `GET /v2/appAvailabilities/<appId>` and its `territoryAvailabilities`; `PATCH /v1/territoryAvailabilities/<id>` with `available`; `POST /v2/appAvailabilities` when none exists. |
+| Submit for review | `POST /v1/reviewSubmissions` (`platform: IOS`, `app`), then `POST /v1/reviewSubmissionItems` (`appStoreVersion`), then `PATCH /v1/reviewSubmissions/<id>` with `submitted: true`. Read back `WAITING_FOR_REVIEW`. |
+| Release a MANUAL version | `POST /v1/appStoreVersionReleaseRequests` once `appStoreState` is `PENDING_DEVELOPER_RELEASE`. |
+
+## Google Play
+
+- Granted scopes: view app info, release to production and testing tracks, manage testing tracks.
+  "Manage store presence" is not granted, so the listing text and graphics go through the browser.
+- A new app accepts only `--status draft` releases until its first review. Send the first
+  release for review in the console.
+- Turn off Google's automated testing (pre-launch robots) for an app that books real slots or
+  sends real messages. Why: the robots sign in and tap through flows.
+
+## What needs the browser
+
+| Item | Why it is browser-only |
+|---|---|
+| App Store Connect App Privacy label (data types, linked, tracking) | No API. Keep it equal to the privacy manifest and the SDKs in the binary. |
+| Play declarations: data safety, content rating (IARC), target audience, app access, ads | No API for them. |
+| Play listing text, icon, feature graphic, screenshots | The "manage store presence" grant was refused. |
+| Passwords in a console form (Play "App access" sign-in, a console login) | Only Nadav pastes them. |
+
+Use `agent-browser` with a kept profile for console work (`rules/acting-on-behalf.md`). Claude in
+Chrome refuses passwords and can be blocked by a password manager's overlay.
+
+## Traps
+
+- **Screenshots come from a synthetic backend only.** Never real client data. Look at every image
+  before upload: a 404 page once went into a live listing. Apple's required iPhone set is 6.9"
+  (1320×2868). Play refuses phone screenshots whose long side is more than twice the short side,
+  so render Play's set at 2:1 or squarer.
+- **"Ready for Distribution" is not "on sale".** A version with empty availability shows "Removed
+  from App Store". Read `/v2/appAvailabilities` before saying an app is live.
+- **Holding a version until approval:** set `releaseType: MANUAL`, keep the old version's
+  availability as decided, and install a release-on-approval timer: an hourly systemd user timer
+  (`Persistent=true`) whose script reads `appStoreState`. On `PENDING_DEVELOPER_RELEASE` it
+  restores availability, posts the release request and disables itself. On a rejection it only
+  notifies. Why: approval can come at night, and the timer lives on one machine, so note the
+  machine and the unit name in the project's memory when you install it.

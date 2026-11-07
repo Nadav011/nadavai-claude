@@ -1,0 +1,21 @@
+# Shell setup checklist
+
+One row per item. Each row has a check that decides pass or fail. Rows marked "bundled" apply
+only to the OTA model. Generic how-to (icons, splash, deep-link files, plugin install) is in the
+`capacitor-app-development` and `capacitor-plugins` skills.
+
+| # | Item | Check | Why |
+|---|---|---|---|
+| 1 | App ids | Each app has one bundle id / package, equal to its existing listing (a TWA being replaced keeps its package and upload key). | A Play update of the same package and key replaces the TWA in place; a new package starts a new listing with no users. |
+| 2 | Icons and splash | Generated from the brand mark by a script in the repo. The Android adaptive foreground fits the 66 dp safe circle. | Hand-edited assets drift from the brand and get cropped on round launchers. |
+| 3 | iOS privacy manifest | `PrivacyInfo.xcprivacy` declares UserDefaults `CA92.1` and FileTimestamp `C617.1` (bundled), plus every collected data type of the App Privacy label. It parses with Python `plistlib`. | Live-update and Preferences keep state in UserDefaults and unzip bundles; a missing reason is an upload rejection. |
+| 4 | Android manifest | `allowBackup="false"` when the app holds personal data; only the permissions used; `AD_ID` removed with `tools:node="remove"` when there are no ads; `POST_NOTIFICATIONS` when there is push. | Personal data must not go to cloud backup, and every permission is declared in Play's data safety form. |
+| 5 | Push | FCM HTTP v1 on both platforms (APNs through FCM). The APNs auth key covers Production. The App ID has the push capability, so the profiles are regenerated. The payload carries no name, number or message text. `google-services.json` and `GoogleService-Info.plist` are gitignored, written at build time from the vault, and checked to belong to this app. | A sandbox-only APNs key cannot serve a store build, and a notification shows on a locked screen. |
+| 6 | Deep links | Android: an `autoVerify` intent filter, and `assetlinks.json` lists the SHA-256 of the upload key and of the Play app-signing key. iOS: AASA plus associated domains. The app routes only that exact origin. | Play re-signs with its own key: with only the upload key listed, links stop verifying once installed from Play. |
+| 7 | Google sign-in | Android: one OAuth client per SHA-1 (upload key and Play signing). iOS: off unless Nadav decides, because a third-party login there needs an equivalent private option (Apple 4.8). | Without both Android clients sign-in fails on one of the two builds; on iOS it triggers Sign in with Apple. |
+| 8 | Account deletion | Deletion can be started inside the app (Apple 5.1.1(v)), and a web path works signed out (Play's deletion URL). The exact behaviour, including legal retention of bookkeeping records, is approved by Nadav before it goes live. | Both stores reject without it, and deletion is an approval gate. |
+| 9 | Reviewer login | When a reviewer cannot sign in as a customer (phone OTP, no local number), there is one fixed test account behind a kill switch. Its code is in the vault only, nothing is ever sent to its number, and the switch is ON only while a review is pending. Reference: therapy-flow-v2 REVIEWER-LOGIN.md. | Reviewers reject what they cannot sign in to, and a fixed code is an auth change (approval gate) that must not stay open. |
+| 10 | Analytics in a second app | When one source builds two apps, follow the PostHog lines in `rules/working-style.md`. | A customer bundle must not carry the owner app's analytics. |
+| 11 | Plugins per app | Each app lists its plugins explicitly (`includePlugins`), so push, Firebase or Google SDKs of one app never enter another built from the same source. | Every SDK in a binary is declared in its privacy forms. |
+| 12 | Bundled: review-sensitive routes | On native, purchase and plan pages redirect away, and no remote `server` is in the config. A bundle check (therapy-flow-v2 `scripts/appstore/verify-native-bundle.mjs`) runs on the packaged web root. | Apple 3.1.1: digital goods bought outside in-app purchase are rejected. |
+| 13 | Bundled: clean sync | `cap sync` leaves no tracked change, and `cordova.accessOrigins: []` keeps `<access origin="*" />` out of `config.xml`. | A sync that edits tracked native files changes the fingerprint between the build and its check. |
