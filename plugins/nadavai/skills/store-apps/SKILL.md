@@ -1,6 +1,6 @@
 ---
 name: store-apps
-description: "Move a web app into the App Store and Google Play as real store apps, and keep them in step with every web deploy: choose the model (bundled Capacitor app with signed self-hosted OTA, or a remote-URL Capacitor shell with an update-required gate; never a new TWA), set up the shells, build (iOS on Codemagic, Android locally), do the store work through the store APIs first, end every PWA install for every audience and move PWA users to the store, check the store-installed app really works and is current, and run the OTA step of the deploy service. Use for any native, store, OTA, TestFlight, App Review, Play Console, Meta App Review, platform approval (D-U-N-S, organization or business verification), TWA or PWA-to-store work, a store build or release, or a native change in a repo with live store apps. Triggers: \"store app\", \"להעלות לחנות\", \"אפליקציה בחנות\", \"App Store\", \"Google Play\", \"TestFlight\", \"OTA\", \"live update\", \"TWA\", \"native shell\", \"store build\"."
+description: "Move a web app into the App Store and Google Play as real store apps, and keep them in step with every web deploy: choose the model (bundled Capacitor app with signed self-hosted OTA, or a remote-URL Capacitor shell with an update-required gate; never a new TWA), set up the shells, build (iOS on Codemagic, Android locally), do the store work through the store APIs first, once a listing is public end the PWA there for every audience and move its users to the store, check the store-installed app really works and is current, and run the OTA step of the deploy service. Use for any native, store, OTA, TestFlight, App Review, Play Console, Meta App Review, platform approval (D-U-N-S, organization or business verification), TWA or PWA-to-store work, a store build or release, or a native change in a repo with live store apps. Triggers: \"store app\", \"להעלות לחנות\", \"אפליקציה בחנות\", \"App Store\", \"Google Play\", \"TestFlight\", \"OTA\", \"live update\", \"TWA\", \"native shell\", \"store build\"."
 ---
 # store-apps
 
@@ -53,15 +53,14 @@ before it too.
    account; and the switch is off once no review is pending.
 
 5. **End the PWA and move its users** ([references/pwa-to-store.md](references/pwa-to-store.md)).
-   - No audience keeps a PWA install, staff and owners included (`rules/store-apps.md`).
-   - From the start of the move, remove every install offer: the installable manifest, the
-     `beforeinstallprompt` prompt and the "add to home screen" steps.
-   - Once a listing is public, flip that app × platform switch, one at a time, so offers become
-     store links and installed-PWA users get the move notice.
+   - Keep the PWA install on a platform until its listing is public (`rules/store-apps.md`).
+   - Once the listing is public, flip that app × platform switch, one at a time. From then on,
+     no audience on that platform keeps a PWA install, staff and owners included: offers become
+     store links, `beforeinstallprompt` is cancelled, and installed-PWA users get the move notice.
    Done when:
    - the store URL opens the public listing signed out;
    - the notice shows on an installed PWA of that platform and nowhere else;
-   - no screen of the app offers a home-screen install;
+   - no screen of the app offers a home-screen install on that platform;
    - the app installed from the public listing has been checked: it signs in, the main flows
      run, and the current deploy reached it.
 

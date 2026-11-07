@@ -31,24 +31,29 @@ icon they were told to delete and an app they cannot get.
 Done when each row is covered by a test, and screenshots at 390 px (Android and iPhone user
 agents, standalone) show the notice in Hebrew RTL with a clean console.
 
-## No installable PWA for anyone
+## No PWA for anyone once the listing is public
 
-Since 7.11.2026 (Nadav: "אסור שיהיה יותר PWA ... גם ללקוחות"), no audience keeps a home-screen
-install: not customers, not staff, not owners and not admins.
+Nadav set two rules on 7.11.2026:
+- "אסור שיהיה יותר PWA ... גם ללקוחות": no PWA once there is a store app.
+- "חשוב לא להוריד כאלה שאין לנו עדיין חנות אליהם": keep the PWA where there is no store app yet.
 
-- Drop the installable manifest, or strip its `display: standalone` / `start_url` install
-  fields. Cancel `beforeinstallprompt` in an inline script before hydration.
-- Remove every "add to home screen" card, menu item and iOS step.
-- A service worker may stay for offline and caching. Nothing may invite an install.
-- Before a platform's listing is public, that platform gets the website in the browser and
-  nothing to install.
+So the rule applies per platform, and only once that platform's listing is public. From then
+on, no audience keeps a home-screen install there: not customers, not staff, not owners and not
+admins.
+
+- Cancel `beforeinstallprompt` in an inline script before hydration.
+- Turn every "add to home screen" card, menu item and iOS step into a store link.
+- Keep the manifest and the service worker while another platform still relies on the PWA, and
+  while already-installed users have not moved. Removing them breaks those installs.
+- Until the listing is public, that platform keeps its PWA install unchanged.
 - Whatever ran only on the installed PWA (staff push, badges) moves to the store app. Name its
   replacement before removing it.
 - A public `/app` link (QR codes) redirects by phone platform to the right store. Inside the
   native shell it goes home.
 
-Done when a browser on Android and iPhone shows no install offer on any screen (customer, staff,
-admin), and `beforeinstallprompt` never reaches the page.
+Done when, on each platform whose listing is public, a browser shows no install offer on any
+screen (customer, staff, admin) and `beforeinstallprompt` never reaches the page. The other
+platforms keep theirs.
 
 ## Really working, not only listed
 

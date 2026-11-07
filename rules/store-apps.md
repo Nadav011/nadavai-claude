@@ -15,14 +15,17 @@ stores on 2026-11-07, after MediZen, RetroBarber and The Green Room were moved.
 - A change to a native project, a native plugin or the OTA key needs a new store build of each
   affected platform. A web change never does. Why: the runtime fingerprint keeps a bundle away
   from a shell it was not built against, so a native change without a store build ships to nobody.
-- No PWA install, for anyone. An app with store apps (or on its way to them) offers no
-  home-screen install to any audience: customers, staff, owners and admins alike. There is no
-  installable manifest, no `beforeinstallprompt` offer and no "add to home screen" steps.
-  - Before a platform's listing is public, that platform gets the website in the browser only.
-  - Once the listing is public, every install offer is a store link, and installed-PWA users get
-    the move notice.
+- Once an app's listing is public on a platform, that platform has no PWA for anyone:
+  customers, staff, owners and admins alike.
+  - Every install offer becomes a store link.
+  - Installed-PWA users get the move notice.
+  - Nothing offers a home-screen install any more: no `beforeinstallprompt` prompt and no "add
+    to home screen" steps.
   Why: Nadav, 2026-11-07: "אסור שיהיה יותר PWA ... גם ללקוחות". Two installs of one app split
   users between an updated store app and a stale home-screen copy.
+- Until that platform's listing is public, keep its PWA install as it is. Why: Nadav,
+  2026-11-07: "חשוב לא להוריד כאלה שאין לנו עדיין חנות אליהם". Removing it early leaves those
+  users with no app at all.
 - Moved means it really works in the store app, not that it was uploaded. Each platform counts
   as moved only after the app installed from the public listing has been checked: it signs in,
   the main flows run, and the latest deploy reached it (OTA applied, or the live URL serves the
