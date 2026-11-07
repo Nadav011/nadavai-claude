@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# resume-all [--send] [--text "<prompt>"]: after Nadav switches to another Claude account, find
+# the Orca terminals whose Claude session stopped on a usage limit and, with --send, type a
+# "continue" prompt into each one. Without --send it only lists what it would do.
+#
+# Why: Claude Code resumes on its own when the SAME account's limit resets ("Automatic continue
+# at the usage-limit reset", 2.1.319), but not after a switch to another account; Nadav typed
+# "continue, we're back with a new user" 32 times in 13 sessions in the week to 2026-11-07.
+# Sessions showing "Login expired" need /login typed by Nadav and are only listed, never sent to.
+# Only Orca-managed terminals on this host whose agent is claude, whose screen's last lines show
+# the limit message, and which are not busy are touched.
+set -uo pipefail
+
+SEND=0
+TEXT="המשך מאיפה שעצרת: החשבון הוחלף, והמגבלה הקודמת כבר לא חלה."
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --send) SEND=1 ;;
+    --text) TEXT="${2:?--text needs a value}"; shift ;;
+    -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
+    *) echo "resume-all: unknown option $1" >&2; exit 2 ;;
+  esac
+  shift
+done
+
+# classify <screen text on stdin> -> limit | login | busy | other
+classify() {
+  local s; s="$(tail -n 20)"
+  if grep -qE 'esc to interrupt|Esc to interrupt' <<<"$s"; then echo busy
+  elif grep -qE "Login expired|Please run /login" <<<"$s"; then echo login
+  elif grep -qE "You've hit your (session|5-hour|weekly|Opus|Sonnet)? ?limit|usage limit reached|limit · resets" <<<"$s"; then echo limit
+  else echo other; fi
+}
+[ "${RESUME_ALL_CLASSIFY_ONLY:-}" = 1 ] && { classify; exit 0; }  # used by tests
+
+command -v orca >/dev/null || { echo "resume-all: orca CLI not found" >&2; exit 3; }
+list="$(orca terminal list --json 2>/dev/null)" || { echo "resume-all: orca terminal list failed (is Orca running?)" >&2; exit 3; }
+
+n_limit=0; n_sent=0
+while IFS=$'\t' read -r handle title; do
+  [ -n "$handle" ] || continue
+  screen="$(orca terminal read --terminal "$handle" --screen --json 2>/dev/null | jq -r '.result.terminal.tail[]? // empty')"
+  kind="$(classify <<<"$screen")"
+  case "$kind" in
+    login) printf 'needs /login  %s  %s\n' "$handle" "$title" ;;
+    limit)
+      n_limit=$((n_limit+1))
+      if [ "$SEND" = 1 ]; then
+        if orca terminal send --terminal "$handle" --text "$TEXT" --enter --wait-submit 5 --json >/dev/null 2>&1; then
+          n_sent=$((n_sent+1)); printf 'sent         %s  %s\n' "$handle" "$title"
+        else
+          printf 'SEND FAILED  %s  %s\n' "$handle" "$title"
+        fi
+      else
+        printf 'would send   %s  %s\n' "$handle" "$title"
+      fi ;;
+  esac
+done < <(jq -r '(.result.terminals // .result // [])[]
+  | select(.agentIdentity == "claude" and .connected == true and .writable == true and (.orphaned | not))
+  | [.handle, (.title // "-")] | @tsv' <<<"$list")
+
+if [ "$SEND" = 1 ]; then echo "resume-all: $n_sent of $n_limit limit-stopped sessions resumed"
+else echo "resume-all: $n_limit limit-stopped sessions found (dry run; add --send to resume them)"; fi
