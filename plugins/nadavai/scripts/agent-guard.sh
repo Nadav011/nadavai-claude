@@ -43,6 +43,12 @@
 #          also runs sh -c, a bare variable target. Measured on that history: 138 of the 154 stops
 #          caught; 1257 of 7571 rm commands the check passed would be denied (one rewrite each).
 #          rm behind xargs or find -exec, heredoc bodies and commands over 20000 characters are not read.
+#   Bash:  a command that calls Supabase Auth's admin generate_link (a sign-in link minted with the
+#          service role, so it opens any account without its password) must name its target email
+#          literally, and every email in the command must end in @therapyflow.test, unless the command
+#          carries `# genlink-checked: <reason>`. Why: Nadav, 2026-11-07: password-free live checks are
+#          for QA accounts only, never a client's or a patient's account. Not seen: a script file or a
+#          heredoc body that calls it.
 # Strict mode, off unless ${XDG_CONFIG_HOME:-~/.config}/nadavai/guard-strict exists (touch it to
 # switch on, remove it to switch off; the next call reads it). Both rules apply in the
 # background too (rules/ci-policy.md, rules 4 and 7):
@@ -83,7 +89,7 @@ deny() {
 # Fast path: most calls carry neither word, and this runs before every Bash/run_command call.
 case "$input" in
   # rm after a blank, an operator, a quote, a slash (/bin/rm) or JSON's \n / \t escapes
-  *'"fork"'*|*sleep*|*gh*merge*|*find*|*bfs*|*[[:space:]\;\&\|\(\`\"\'/nt]'rm '*|*.claude/secrets*) ;;
+  *'"fork"'*|*sleep*|*gh*merge*|*find*|*bfs*|*[[:space:]\;\&\|\(\`\"\'/nt]'rm '*|*.claude/secrets*|*generate_link*) ;;
   *'"agent_id"'*ci-wait*|*ci-wait*'"agent_id"'*|*'"agent_id"'*'"timeout"'*|*'"timeout"'*'"agent_id"'*) ;;
   *'"agent_id"'*'tail --pid'*|*'tail --pid'*'"agent_id"'*) ;;
   *while*|*until*|*docker*|*podman*|*supabase*) [ "$strict" = 1 ] || allow ;;
@@ -758,6 +764,21 @@ merge_guard() { # merge_guard <command> <cwd>: denies on the first failing merge
   done
 }
 
+# Password-free sign-in links (Auth admin generate_link) only for the QA accounts.
+genlink_guard() {
+  local cmd="$1" e bad=() found=()
+  [[ $cmd == *generate_link* ]] || return 0
+  [[ $cmd == *'# genlink-checked:'* ]] && return 0
+  while IFS= read -r e; do [ -n "$e" ] && found+=("$e"); done < <(grep -oiE '[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]+' <<<"$cmd")
+  if [ "${#found[@]}" -eq 0 ]; then
+    deny "This command mints a password-free sign-in link (generate_link) without naming the account. Name the QA address literally in the command (…@therapyflow.test), so the guard can see it is a test account. If Nadav approved this for another account, add '# genlink-checked: <reason>' to the command."
+  fi
+  for e in "${found[@]}"; do [[ ${e,,} == *@therapyflow.test ]] || bad+=("$e"); done
+  if [ "${#bad[@]}" -gt 0 ]; then
+    deny "generate_link opens an account without its password, so it is for QA accounts (@therapyflow.test) only, never a client's or a patient's account. This command names: ${bad[*]}. If Nadav approved this for that account, add '# genlink-checked: <reason>' to the command."
+  fi
+}
+
 if [ "$is_agy" = 1 ]; then
   tool=$(jq -r '.toolCall.name // empty' <<<"$input" 2>/dev/null)
   case "$tool" in
@@ -769,6 +790,7 @@ if [ "$is_agy" = 1 ]; then
       ;;
     run_command)
       cmd=$(jq -r '.toolCall.args.CommandLine // empty' <<<"$input")
+      genlink_guard "$cmd"
       disk_search_guard "$cmd" "$(jq -r '.toolCall.args.Cwd // empty' <<<"$input")"
       strict_guard "$cmd"
       merge_guard "$cmd" "$(jq -r '.toolCall.args.Cwd // empty' <<<"$input")"
@@ -881,6 +903,7 @@ case "$tool" in
     cmd=$(jq -r '.tool_input.command // .toolInput.command // empty' <<<"$input" 2>/dev/null)
     cwd=$(jq -r '.cwd // empty' <<<"$input" 2>/dev/null)
     vault_guard "$cmd"
+    genlink_guard "$cmd"
     disk_search_guard "$cmd" "$cwd"
     # Claude Code only: Codex (turn_id) and Grok (run_terminal_command) have no such removal check.
     if [ "$tool" = Bash ] && [ -z "$(jq -r '.turn_id // empty' <<<"$input" 2>/dev/null)" ]; then
