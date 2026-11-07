@@ -23,7 +23,14 @@ step "Repo"
 if [ -n "$(git -C "$REPO" status --porcelain)" ]; then
   warn "uncommitted changes in $REPO; skipping git pull"
 else
+  before="$(git -C "$REPO" rev-parse HEAD)"
   git -C "$REPO" pull --ff-only
+  # lib/common.sh was sourced before the pull, so a pull that brought new code reruns this
+  # script once on it. Why: on 2026-11-07 the MSI and omarchy applied the new policy keys only
+  # on a second run.
+  if [ "$(git -C "$REPO" rev-parse HEAD)" != "$before" ] && [ -z "${NADAVAI_UPDATE_REEXEC:-}" ]; then
+    NADAVAI_UPDATE_REEXEC=1 exec "$REPO/update.sh" "$@"
+  fi
 fi
 
 step "Marketplace"
