@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# test-ui-check.sh: runs bin/ui-check against two local fixtures over file:// and checks that every
-# check fires on bad.html, that clean.html (with a scrolling carousel) is clean, and the exit codes.
+# test-ui-check.sh: runs bin/ui-check against local fixtures over file:// and checks that every
+# check fires on bad.html, that clean.html (with a scrolling carousel and a dark theme) is clean,
+# that each review fixture (shell, hiddenwrap, offright, fixednav, spanlabel, noviewport, spoof,
+# hang) reports its failure, and the exit codes.
 set -uo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 UI="$here/../../../bin/ui-check"
@@ -54,6 +56,45 @@ expect "carousel not reported"         0 "$(q "$tmp/clean.json" 'sum(x["overflow
 sed 's/overflow-x: auto;/overflow-x: visible;/' "$here/fixtures/ui-check/clean.html" >"$tmp/noscroll.html"
 "$UI" "file://$tmp/noscroll.html" --width 375 --json >"$tmp/noscroll.json"
 expect "unscrolled carousel reported"  True "$(q "$tmp/noscroll.json" 'v["overflow"]["count"] >= 1 and "slide" in v["overflow"]["examples"][0]["selector"]')"
+
+# review fixtures: each failure shape is reported (all RTL phone pages unless noted)
+"$UI" "$FX/shell.html" --width 375 --json >"$tmp/shell.json"; rc=$?
+expect "shell exits 1"                 1 "$rc"
+expect "overflow inside a vertical shell" True "$(q "$tmp/shell.json" 'v["overflow"]["count"] >= 1 and "wide" in v["overflow"]["examples"][0]["selector"]')"
+"$UI" "$FX/hiddenwrap.html" --width 375 --json >"$tmp/hw.json"
+expect "button cut by overflow-x:hidden" True "$(q "$tmp/hw.json" 'any("button" in e["selector"] and "wrap" in e["by"] for e in v["clippedByAncestor"]["examples"])')"
+"$UI" "$FX/offright.html" --width 375 --json >"$tmp/off.json"
+expect "button wholly off screen"      True "$(q "$tmp/off.json" 'any("button" in e["selector"] and e["box"][0] >= 375 for e in v["offscreen"]["examples"])')"
+"$UI" "$FX/fixednav.html" --width 375 --json >"$tmp/fix.json"
+expect "button under a fixed bottom bar" True "$(q "$tmp/fix.json" 'any(e.get("fixedBar") and "button" in e["selector"] and "nav" in e["other"] for e in v["overlap"]["examples"])')"
+# control: with room to scroll the button clear of the bar, the pair is not reported
+sed 's/\.spacer{height:700px}/.spacer{height:700px} main{padding-bottom:80px}/' "$here/fixtures/ui-check/fixednav.html" >"$tmp/fixok.html"
+"$UI" "file://$tmp/fixok.html" --width 375 --json >"$tmp/fixok.json"
+expect "bar with scroll room is clean" 0 "$(q "$tmp/fixok.json" 'v["overlap"]["count"]')"
+"$UI" "$FX/spanlabel.html" --width 375 --json >"$tmp/span.json"
+expect "label in a span clipped"       True "$(q "$tmp/span.json" 'any("button" in e["selector"] for e in v["clipped"]["examples"])')"
+"$UI" "$FX/noviewport.html" --width 375,1440 --json >"$tmp/novp.json"
+expect "missing viewport meta at 375"  missing "$(q "$tmp/novp.json" 'v["viewportMeta"]["problem"]')"
+expect "viewport meta not checked at 1440" None "$(q "$tmp/novp.json" 'd["viewports"][1]["viewportMeta"]')"
+# spoof.html replaces window.axe with a getter returning a fake result: the real axe still runs
+"$UI" "$FX/spoof.html" --width 375 --json >"$tmp/spoof.json"
+expect "page cannot spoof axe"         False "$(q "$tmp/spoof.json" 'any("IGNORE" in r["id"] for r in v["axe"]["rules"])')"
+# page strings reach the summary without control characters
+printf '<!doctype html><html lang="en"><title>t</title><main><h1>x</h1></main><script>console.error("\\x1b[2J\\x1b[31mesc\\x07")</script></html>' >"$tmp/esc.html"
+"$UI" "file://$tmp/esc.html" --width 1440 >"$tmp/esc.txt"
+expect "summary shows the page string" 1 "$(grep -c 'console-errors 1: .*esc' "$tmp/esc.txt")"
+expect "summary has no control chars"  0 "$(LC_ALL=C grep -c $'[\x01-\x08\x0b-\x1f\x7f]' "$tmp/esc.txt")"
+# controls: an a without href is not one; role=switch and summary are
+printf '<!doctype html><html lang="en"><meta name="viewport" content="width=device-width"><title>t</title><main><h1>x</h1><a class="nohref" style="display:inline-block;width:20px;height:20px">a</a><div class="sw" role="switch" aria-checked="false" aria-label="s" tabindex="-1" style="width:20px;height:20px"></div><details><summary class="sum" style="width:20px;height:20px">s</summary>d</details></main></html>' >"$tmp/ctl.html"
+"$UI" "file://$tmp/ctl.html" --width 375 --json >"$tmp/ctl.json"
+expect "a without href not a control"  False "$(q "$tmp/ctl.json" 'any("nohref" in e["selector"] for e in v["touch"]["examples"])')"
+expect "role=switch and summary are controls" True "$(q "$tmp/ctl.json" 'sum(("sw" in e["selector"]) + ("sum" in e["selector"]) for e in v["touch"]["examples"]) == 2')"
+# a page that never yields: exit 2 within the timeout, with a clear message
+start=$SECONDS
+"$UI" "$FX/hang.html" --width 375 --timeout 5 >/dev/null 2>"$tmp/hang.err"; rc=$?
+expect "hung page exits 2"             2 "$rc"
+expect "hung page says timed out"      1 "$(grep -c 'timed out after 5s' "$tmp/hang.err")"
+expect "hung page stops in time"       True "$([ $((SECONDS - start)) -le 10 ] && echo True || echo False)"
 
 # errors exit 2
 "$UI" "file://$here/fixtures/ui-check/missing.html" >/dev/null 2>"$tmp/err"; rc=$?

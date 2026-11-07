@@ -1,23 +1,26 @@
 #!/usr/bin/env node
 // ui-check: turns a web page into layout numbers, so agents stop judging screens from screenshots.
-// Per width and theme: dir/lang, page overflow, elements past the viewport, clipped text,
-// overlapping controls, small touch targets, console errors, axe-core violations and an RTL
-// text-align hint. Uses the globally installed @playwright/test and the axe-core bundled with
-// @axe-core/cli (resolved through `npm root -g`); it adds no dependency.
+// Per width and theme: dir/lang, page overflow, elements past or wholly beyond the viewport, clipped
+// text, controls and text cut by a clipping ancestor, overlapping controls (also content a fixed
+// bar covers for good), small touch targets, the phone viewport meta, console errors, axe-core
+// violations and an RTL text-align hint. Uses the globally installed @playwright/test and the
+// axe-core bundled with @axe-core/cli (resolved through `npm root -g`); it adds no dependency.
 'use strict';
 const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
 const USAGE = 'usage: ui-check <url> [--width 375,1440] [--theme light,dark] [--storage-state <file>]\n' +
-  '                [--ignore <css selector>]... [--wait <ms>] [--json]\n' +
-  'exit: 0 clean, 1 findings, 2 usage or navigation error';
+  '                [--ignore <css selector>]... [--wait <ms>] [--timeout <s per viewport, 60>] [--json]\n' +
+  'exit: 0 clean, 1 findings, 2 usage, navigation, timeout or internal error';
 const MAX = 5;
+// Page strings are data: control characters never reach the terminal.
+const CTL = /[\x00-\x1f\x7f-\x9f]/g;
 
 function fail(msg) { process.stderr.write(`ui-check: ${msg}\n`); process.exit(2); }
 
 function parseArgs(argv) {
-  const o = { url: null, widths: [375, 1440], themes: ['light'], storage: null, ignores: [], wait: 500, json: false };
+  const o = { url: null, widths: [375, 1440], themes: ['light'], storage: null, ignores: [], wait: 500, timeout: 60, json: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     const val = () => { if (i + 1 >= argv.length) fail(`${a} needs a value\n${USAGE}`); return argv[++i]; };
@@ -27,6 +30,7 @@ function parseArgs(argv) {
     else if (a === '--storage-state') o.storage = val();
     else if (a === '--ignore') o.ignores.push(val());
     else if (a === '--wait') o.wait = parseInt(val(), 10);
+    else if (a === '--timeout') o.timeout = Number(val());
     else if (a === '--json') o.json = true;
     else if (a.startsWith('-')) fail(`unknown option ${a}\n${USAGE}`);
     else if (o.url) fail(`one url only\n${USAGE}`);
@@ -36,6 +40,7 @@ function parseArgs(argv) {
   if (o.widths.some((w) => !(w > 0 && w < 10000))) fail('--width takes positive integers, e.g. 375,1440');
   if (o.themes.some((t) => t !== 'light' && t !== 'dark')) fail('--theme takes light, dark or light,dark');
   if (!(o.wait >= 0)) fail('--wait takes milliseconds');
+  if (!(o.timeout > 0)) fail('--timeout takes seconds, e.g. 60');
   if (o.storage && !fs.existsSync(o.storage)) fail(`storage state not found: ${o.storage}`);
   if (/^[a-z][a-z0-9+.-]*:/i.test(o.url) === false) {
     o.url = fs.existsSync(o.url) ? 'file://' + path.resolve(o.url) : 'https://' + o.url;
@@ -56,11 +61,12 @@ function loadDeps() {
   return { chromium, phoneUA: devices['Pixel 7'].userAgent, axeSrc: fs.readFileSync(axePath, 'utf8') };
 }
 
-// Runs inside the page. Everything it needs is passed in or defined here.
-function domChecks({ ignores, touch, max }) {
+// Runs inside the page. Everything it needs is passed in or defined here; `hold.sel` hands the
+// selector builder to runAxe without a page global.
+function domChecks({ ignores, phone, max }, hold) {
   for (const s of ignores) { try { document.querySelector(s); } catch { return { badIgnore: s }; } }
   const html = document.documentElement;
-  const vw = html.clientWidth;
+  const vw = html.clientWidth, vh = window.innerHeight;
   const ignored = (el) => ignores.some((s) => el.closest(s));
   const box = (r) => [r.x, r.y, r.width, r.height].map(Math.round);
   const uniq = (s) => { try { return document.querySelectorAll(s).length === 1; } catch { return false; } };
@@ -83,65 +89,155 @@ function domChecks({ ignores, touch, max }) {
     }
     return parts.join(' > ');
   };
-  window.__uiCheckSel = sel;
+  if (hold) hold.sel = sel;
+  const styles = new Map(), rects = new Map();
+  const st = (e) => { let s = styles.get(e); if (!s) styles.set(e, s = getComputedStyle(e)); return s; };
+  const rect = (e) => { let r = rects.get(e); if (!r) rects.set(e, r = e.getBoundingClientRect()); return r; };
   const visible = (el, r) => r.width > 1 && r.height > 1 &&
     el.checkVisibility({ opacityProperty: true, visibilityProperty: true }) &&
-    !el.closest('[aria-hidden="true"],[inert]');
+    !el.closest('[aria-hidden="true"],[inert],[hidden],dialog:not([open])');
   const ownText = (el) => [...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim());
   const mk = () => ({ count: 0, examples: [] });
   const add = (c, ex) => { c.count++; if (c.examples.length < max) c.examples.push(ex); };
+  const vm = document.querySelector('meta[name="viewport" i]');
+  const vmc = vm ? vm.getAttribute('content') || '' : '';
   const out = { dir: html.getAttribute('dir') || getComputedStyle(html).direction, lang: html.getAttribute('lang') || '',
     pageOverflow: html.scrollWidth > html.clientWidth ? { scrollWidth: html.scrollWidth, clientWidth: html.clientWidth } : null,
-    overflow: mk(), clipped: mk(), overlap: mk(), touch: mk(), rtlTextLeft: mk() };
+    viewportMeta: !phone || /(^|[\s,;])width\s*=\s*device-width/i.test(vmc) ? null
+      : vm ? { problem: 'no width=device-width', content: vmc.slice(0, 100) } : { problem: 'missing' },
+    overflow: mk(), offscreen: mk(), clipped: mk(), clippedByAncestor: mk(), overlap: mk(), touch: mk(), rtlTextLeft: mk() };
   const rtl = out.dir === 'rtl' || getComputedStyle(document.body).direction === 'rtl';
-  const flagged = new Set();
+  const flagged = new Set(), offFlagged = new Set(), cutFlagged = new Set(), clippedSet = new Set();
   const inter = [];
-  // tabindex=-1 marks a focus target for scripts (carousel slides, regions), not a control.
-  const isInter = (el) => el.matches('a, button, input:not([type="hidden"]), select, textarea, [role="button"], [tabindex]:not([tabindex^="-"])');
+  // tabindex=-1 marks a focus target for scripts (carousel slides, regions), not a control; so does an a without href.
+  const isInter = (el) => el.matches('a[href], button, input:not([type="hidden"]), select, textarea, summary, ' +
+    '[contenteditable]:not([contenteditable="false"]), [role="button"], [role="link"], [role="tab"], [role="checkbox"], ' +
+    '[role="switch"], [role="menuitem"], [tabindex]:not([tabindex^="-"])');
+  const clipsX = (s) => /hidden|clip/.test(s.overflowX), clipsY = (s) => /hidden|clip/.test(s.overflowY);
+  const inVp = (r) => r.left >= -1 && r.right <= vw + 1;
+  const pad = (a) => { const r = rect(a); const pl = r.left + a.clientLeft, pt = r.top + a.clientTop; return { pl, pt, pr: pl + a.clientWidth, pb: pt + a.clientHeight }; };
+  const past = (t, c, x, y) => (x && (t.left < c.pl - 1 || t.right > c.pr + 1)) || (y && (t.top < c.pt - 1 || t.bottom > c.pb + 1));
+  // Built to scroll sideways: overflow-x auto/scroll and either overflow-y hidden, or a row of side-by-side
+  // children running past its width (a carousel, a chip row). A vertical shell that also scrolls sideways is not.
+  const kinds = new Map(), rows = new Map();
+  const row = (a) => rows.has(a) ? rows.get(a) : rows.set(a, isRow(a)).get(a);
+  const isRow = (a) => {
+    let els = [...a.children];
+    if (els.length === 1) els = [...els[0].children];
+    const kr = els.filter((e) => !/absolute|fixed/.test(st(e).position)).map(rect)
+      .filter((r) => r.width > 1 && r.height > 1).sort((p, q) => p.left - q.left);
+    return kr.length > 1 && kr.every((r, i) => i === 0 || r.left >= kr[i - 1].right - 1) &&
+      kr[kr.length - 1].right - kr[0].left > a.clientWidth + 1;
+  };
+  const sideScroller = (a) => kinds.has(a) ? kinds.get(a) : kinds.set(a, /auto|scroll/.test(st(a).overflowX) &&
+    (clipsY(st(a)) || (a.scrollWidth > a.clientWidth + 1 && row(a)))).get(a);
+  const range = document.createRange();
+  const textRect = (n) => { range.selectNodeContents(n); return range.getBoundingClientRect(); };
+  // Text this element cuts itself; text inside a control or a nested clipping box is left to those.
+  const textCut = (el, x, y) => {
+    const c = pad(el), w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    for (let n, i = 0; (n = w.nextNode()) && i < 300; i++) {
+      if (!n.textContent.trim()) continue;
+      let tx = x, ty = y;
+      for (let p = n.parentElement; p && p !== el && (tx || ty); p = p.parentElement) {
+        const s = st(p);
+        if (isInter(p) || s.position === 'fixed') tx = ty = false;
+        if (s.overflowX !== 'visible') tx = false;
+        if (s.overflowY !== 'visible') ty = false;
+      }
+      const t = (tx || ty) && textRect(n);
+      if (t && t.width >= 1 && t.height >= 1 && past(t, c, tx, ty)) return true;
+    }
+    return false;
+  };
+  // A skip link is off screen until focused; measure it focused, with no transition in the way.
+  const skipLink = (el) => {
+    if (!el.matches('a[href^="#"]')) return false;
+    const prev = document.activeElement, tr = el.style.transition;
+    el.style.transition = 'none'; el.focus({ preventScroll: true });
+    const fr = el.getBoundingClientRect(); el.style.transition = tr;
+    if (prev && prev !== el && prev.focus) prev.focus({ preventScroll: true }); else el.blur();
+    return fr.right > 0 && fr.left < vw;
+  };
+  const bodyIsViewport = st(html).overflowX === 'visible' && st(html).overflowY === 'visible';
   for (const el of document.body.querySelectorAll('*')) {
     if (el.closest('svg') && el.localName !== 'svg') continue;
-    const r = el.getBoundingClientRect();
+    const r = rect(el);
     if (!visible(el, r) || ignored(el)) continue;
-    const cs = getComputedStyle(el);
-    // Past the viewport, partly visible. Wholly off-screen boxes are skip links or parked drawers.
-    if ((r.left < -1 || r.right > vw + 1) && r.right > 0 && r.left < vw) {
-      let skip = false;
-      for (let a = el.parentElement; a && a !== html; a = a.parentElement) {
-        if (flagged.has(a)) { skip = true; break; }
-        const ox = getComputedStyle(a).overflowX;
-        if (ox !== 'visible') {
-          const ar = a.getBoundingClientRect();
-          if (ar.left >= -1 && ar.right <= vw + 1) { skip = true; break; }
-        }
-      }
-      if (!skip) { flagged.add(el); add(out.overflow, { selector: sel(el), box: box(r) }); }
+    const cs = st(el);
+    const own = ownText(el), ctl = isInter(el);
+    // Walk the boxes that clip this one: a positioned box skips those below its containing block.
+    let mode = cs.position, scroller = false, hiddenVp = false, cutAway = false, cut = null;
+    let underPast = false, underOff = false, underCut = false;
+    for (let a = el.parentElement; a && a !== html; a = a.parentElement) {
+      if (flagged.has(a)) underPast = true;
+      if (offFlagged.has(a)) underOff = true;
+      if (cutFlagged.has(a) || clippedSet.has(a)) underCut = true;
+      const s = st(a);
+      const cb = s.transform !== 'none' || s.filter !== 'none' || s.perspective !== 'none' || /paint|layout|strict|content/.test(s.contain);
+      if (mode === 'fixed' ? !cb : mode === 'absolute' && !cb && s.position === 'static') continue;
+      mode = s.position;
+      if ((s.overflowX === 'visible' && s.overflowY === 'visible') || (a === document.body && bodyIsViewport)) continue;
+      const side = sideScroller(a), x = clipsX(s), y = clipsY(s), ar = rect(a), c = pad(a);
+      if (side && inVp(ar)) scroller = true;
+      if (x && inVp(ar)) hiddenVp = true;
+      if (((x || side) && (r.right <= c.pl + 1 || r.left >= c.pr - 1)) || (y && (r.bottom <= c.pt + 1 || r.top >= c.pb - 1))) cutAway = true;
+      // A hidden box holding a row of slides is a script carousel: slides peek at its edges by design.
+      else if (!cut && past(r, c, x && !row(a), y)) cut = { a, c, x: x && !row(a), y };
     }
-    // Wholly off-screen sideways (carousel clones, parked panels): nobody sees it, skip the rest.
-    if (r.right <= 0 || r.left >= vw) continue;
-    const text = ownText(el);
-    if (text) {
-      const clips = /hidden|clip/.test(cs.overflowX + cs.overflowY) || cs.textOverflow !== 'clip';
-      if (clips && el.clientWidth > 0 && (el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight + 1)) {
-        add(out.clipped, { selector: sel(el), box: box(r), scroll: [el.scrollWidth, el.scrollHeight], client: [el.clientWidth, el.clientHeight] });
-      }
-      if (rtl && cs.textAlign === 'left' && cs.direction === 'rtl') add(out.rtlTextLeft, { selector: sel(el), box: box(r) });
+    const onScreen = r.right > 0 && r.left < vw;
+    // Past the viewport, partly visible, and not inside a sideways scroller or a clipping box that fits.
+    if ((r.left < -1 || r.right > vw + 1) && onScreen && !underPast && !scroller && !hiddenVp && !cutAway) {
+      flagged.add(el); add(out.overflow, { selector: sel(el), box: box(r) });
     }
-    if (isInter(el)) {
+    // Wholly beyond the viewport sideways: a control or text nobody can reach. Report the outermost
+    // such box once. Carousel slides, clipped-away boxes, skip links and screen-reader-only text far off are fine.
+    if (!onScreen) {
+      if ((ctl || own) && !underPast && !underOff && !scroller && !cutAway &&
+          (ctl || (r.right > -999 && r.left < vw + 999)) && !skipLink(el)) {
+        let top = el;
+        for (let p = el.parentElement, pr; p && p !== document.body && visible(p, pr = rect(p)) && (pr.right <= 0 || pr.left >= vw); p = p.parentElement) top = p;
+        if (!offFlagged.has(top)) { offFlagged.add(top); add(out.offscreen, { selector: sel(top), box: box(rect(top)) }); }
+      }
+      continue;
+    }
+    const cx = clipsX(cs) || (cs.textOverflow !== 'clip' && cs.overflowX !== 'visible'), cy = clipsY(cs);
+    if (((cx && el.scrollWidth > el.clientWidth + 1) || (cy && el.scrollHeight > el.clientHeight + 1)) &&
+        el.clientWidth > 0 && el.textContent.trim() && textCut(el, cx, cy)) {
+      clippedSet.add(el);
+      add(out.clipped, { selector: sel(el), box: box(r), scroll: [el.scrollWidth, el.scrollHeight], client: [el.clientWidth, el.clientHeight] });
+    }
+    // A form field or label text cut by an ancestor's hidden/clip box. What counts is what people
+    // see: a cropped image or an empty inline fragment below a media frame is not a cut.
+    const labelCut = () => {
+      if (el.matches('input, select, textarea')) return true;
+      const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      for (let n, t, i = 0; (n = w.nextNode()) && i < 50; i++) {
+        if (n.textContent.trim() && (ctl || n.parentNode === el) && (t = textRect(n)).width >= 1 && t.height >= 1 && past(t, cut.c, cut.x, cut.y)) return true;
+      }
+      return false;
+    };
+    if (cut && !underCut && (ctl || own) && labelCut()) {
+      cutFlagged.add(el); add(out.clippedByAncestor, { selector: sel(el), box: box(r), by: sel(cut.a) });
+    }
+    if (own && rtl && cs.textAlign === 'left' && cs.direction === 'rtl') add(out.rtlTextLeft, { selector: sel(el), box: box(r) });
+    if (ctl) {
       // For overlap: the part left after every clipping ancestor, and whether it sits on a fixed layer.
-      let fixed = /fixed|sticky/.test(cs.position);
+      let fixed = /fixed|sticky/.test(cs.position), root = cs.position === 'fixed' ? el : null;
       const v = { left: r.left, top: r.top, right: r.right, bottom: r.bottom };
       for (let a = el.parentElement; a && a !== html; a = a.parentElement) {
-        const s = getComputedStyle(a);
+        const s = st(a);
         if (/fixed|sticky/.test(s.position)) fixed = true;
+        if (s.position === 'fixed') root = a;
         if (s.overflowX !== 'visible' || s.overflowY !== 'visible') {
-          const ar = a.getBoundingClientRect();
+          const ar = rect(a);
           Object.assign(v, { left: Math.max(v.left, ar.left), top: Math.max(v.top, ar.top), right: Math.min(v.right, ar.right), bottom: Math.min(v.bottom, ar.bottom) });
         }
       }
-      if (v.right - v.left > 0 && v.bottom - v.top > 0) inter.push({ el, r: v, box: box(r), fixed });
+      if (v.right - v.left > 0 && v.bottom - v.top > 0) inter.push({ el, r: v, rr: r, box: box(r), fixed, root });
       // A link inside a sentence is exempt (WCAG 2.5.8 inline exception).
       const inline = cs.display === 'inline' && el.parentElement && ownText(el.parentElement);
-      if (touch && !inline && (r.width < 44 || r.height < 44)) add(out.touch, { selector: sel(el), box: box(r) });
+      if (phone && !inline && (r.width < 44 || r.height < 44)) add(out.touch, { selector: sel(el), box: box(r) });
     }
   }
   // Containment allows 4 px of slack (a caption link laid over its image link); two links to
@@ -159,12 +255,37 @@ function domChecks({ ignores, touch, max }) {
       add(out.overlap, { selector: sel(A.el), box: A.box, other: sel(B.el), otherBox: B.box });
     }
   }
+  // ...unless the content can never scroll clear of the bar: under a bottom bar even at the deepest
+  // scroll the page and its scroll boxes allow, or under a top bar already at scroll 0.
+  const se = document.scrollingElement || html;
+  const bars = [...new Set(inter.map((c) => c.root).filter(Boolean))].map((el) => ({ el, r: rect(el) }))
+    .filter(({ r }) => r.width > 1 && r.height < vh / 2 && (r.top >= vh / 2 || r.bottom <= vh / 2));
+  for (const bar of bars) {
+    const bottom = bar.r.top >= vh / 2;
+    for (const c of inter) {
+      if (c.fixed || bar.el.contains(c.el)) continue;
+      const scs = [];  // scroll boxes around it, outermost first
+      for (let a = c.el.parentElement; a && a !== html && a !== document.body; a = a.parentElement) if (/auto|scroll/.test(st(a).overflowY) && a.scrollHeight > a.clientHeight + 1) scs.unshift(a);
+      let shift = bottom ? se.scrollHeight - vh - window.scrollY : -window.scrollY, top = -Infinity, bot = Infinity;
+      for (const a of scs) {
+        const ar = rect(a);
+        top = Math.max(top, ar.top - shift); bot = Math.min(bot, ar.bottom - shift);
+        shift += bottom ? a.scrollHeight - a.clientHeight - a.scrollTop : -a.scrollTop;
+      }
+      top = Math.max(top, c.rr.top - shift); bot = Math.min(bot, c.rr.bottom - shift);
+      const ox = Math.min(c.rr.right, bar.r.right) - Math.max(c.rr.left, bar.r.left);
+      const oy = Math.min(bot, bar.r.bottom) - Math.max(top, bar.r.top);
+      if (ox <= 4 || oy <= 4) continue;
+      const hit = document.elementFromPoint(Math.max(c.rr.left, bar.r.left) + ox / 2, Math.max(top, bar.r.top) + oy / 2);
+      if (hit && bar.el.contains(hit)) add(out.overlap, { selector: sel(c.el), box: c.box, other: sel(bar.el), otherBox: box(bar.r), fixedBar: true });
+    }
+  }
   return out;
 }
 
-async function runAxe({ ignores, max }) {
+async function runAxe(axe, sel, { ignores, max }) {
   const ctx = ignores.length ? { exclude: ignores.map((s) => [s]) } : document;
-  const res = await window.axe.run(ctx, { runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag22aa'] }, resultTypes: ['violations'] });
+  const res = await axe.run(ctx, { runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag22aa'] }, resultTypes: ['violations'] });
   const find = (t) => { try { return typeof t === 'string' ? document.querySelector(t) : null; } catch { return null; } };
   const box = (el) => {
     if (!el) return null;
@@ -178,7 +299,7 @@ async function runAxe({ ignores, max }) {
         const d = (n.any[0] || n.none[0] || n.all[0] || {}).data || {};
         const t = n.target[n.target.length - 1];
         const el = find(t);
-        const ex = { selector: el && window.__uiCheckSel ? window.__uiCheckSel(el) : [].concat(t).join(' >>> '), box: box(el) };
+        const ex = { selector: el ? sel(el) : [].concat(t).join(' >>> '), box: box(el) };
         if (v.id === 'color-contrast') Object.assign(ex, { ratio: d.contrastRatio, need: parseFloat(d.expectedContrastRatio), fg: d.fgColor, bg: d.bgColor });
         else Object.assign(ex, { size: d.width && d.height ? [Math.round(d.width), Math.round(d.height)] : undefined, min: d.minSize });
         return ex;
@@ -196,7 +317,7 @@ async function checkViewport(browser, deps, o, width, theme) {
   const ctx = await browser.newContext({ viewport: { width, height }, colorScheme: theme,
     ...(phone ? { hasTouch: true, userAgent: deps.phoneUA } : {}),
     ...(o.storage ? { storageState: o.storage } : {}) });
-  try {
+  const run = (async () => {
     const page = await ctx.newPage();
     const errors = [];
     page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
@@ -207,25 +328,44 @@ async function checkViewport(browser, deps, o, width, theme) {
     if (resp && resp.status() >= 400) throw Object.assign(new Error(`navigation failed: HTTP ${resp.status()} for ${o.url}`), { nav: true });
     await page.waitForLoadState('load', { timeout: 15000 }).catch(() => {});
     if (o.wait) await page.waitForTimeout(o.wait);
-    const dom = await page.evaluate(domChecks, { ignores: o.ignores, touch: width <= 480, max: MAX });
+    // One evaluate through CDP (a page CSP cannot block it): axe is injected with define/module
+    // shadowed and used through module.exports, never through a window.axe the page may have replaced.
+    const res = await page.evaluate(`(async () => {
+      const args = ${JSON.stringify({ ignores: o.ignores, phone, max: MAX })}, hold = {};
+      const dom = (${domChecks})(args, hold);
+      if (dom.badIgnore) return { dom };
+      var define, exports, module = { exports: {} };
+      ${deps.axeSrc}
+      ;return { dom, axe: await (${runAxe})(module.exports, hold.sel, args) };
+    })()`);
+    const { dom, axe } = res;
     if (dom.badIgnore) throw Object.assign(new Error(`invalid --ignore selector: ${dom.badIgnore}`), { nav: true });
-    // Evaluated through CDP, so a page CSP cannot block it; define/module are shadowed so AMD pages still get window.axe.
-    await page.evaluate(`(function(){var define, module, exports;\n${deps.axeSrc}\n})(); 0`);
-    const axe = await page.evaluate(runAxe, { ignores: o.ignores, max: MAX });
-    const vp = { width, height, theme, dir: dom.dir, lang: dom.lang, pageOverflow: dom.pageOverflow,
-      overflow: dom.overflow, clipped: dom.clipped, overlap: dom.overlap, touch: width <= 480 ? dom.touch : null,
-      rtlTextLeft: dom.rtlTextLeft, console: { count: errors.length, messages: errors.slice(0, 3) },
+    const vp = { width, height, theme, dir: dom.dir, lang: dom.lang, pageOverflow: dom.pageOverflow, viewportMeta: dom.viewportMeta,
+      overflow: dom.overflow, offscreen: dom.offscreen, clipped: dom.clipped, clippedByAncestor: dom.clippedByAncestor,
+      overlap: dom.overlap, touch: phone ? dom.touch : null, rtlTextLeft: dom.rtlTextLeft,
+      console: { count: errors.length, messages: errors.slice(0, 3) },
       axe: { count: axe.reduce((n, r) => n + r.count, 0), rules: axe } };
-    vp.findings = (vp.pageOverflow ? 1 : 0) + vp.overflow.count + vp.clipped.count + vp.overlap.count +
-      (vp.touch ? vp.touch.count : 0) + vp.rtlTextLeft.count + vp.console.count + vp.axe.count;
+    vp.findings = (vp.pageOverflow ? 1 : 0) + (vp.viewportMeta ? 1 : 0) + vp.overflow.count + vp.offscreen.count +
+      vp.clipped.count + vp.clippedByAncestor.count + vp.overlap.count + (vp.touch ? vp.touch.count : 0) +
+      vp.rtlTextLeft.count + vp.console.count + vp.axe.count;
     return vp;
+  })();
+  run.catch(() => {});
+  let timer, hung = false;
+  const limit = new Promise((_, reject) => { timer = setTimeout(() => { hung = true; reject(Object.assign(
+    new Error(`timed out after ${o.timeout}s at ${width} ${theme}: the page is busy or hung (raise --timeout)`), { nav: true })); }, o.timeout * 1000); });
+  try {
+    return await Promise.race([run, limit]);
   } finally {
-    await ctx.close().catch(() => {});
+    clearTimeout(timer);
+    // A hung renderer can stall a graceful close; the browser close in main() ends it.
+    const closing = ctx.close().catch(() => {});
+    if (!hung) await closing;
   }
 }
 
 function fmtBox(b) { return b ? `[${b.join(',')}]` : ''; }
-function clip(s, n = 200) { s = String(s).replace(/[\r\n\t]+/g, ' '); return s.length > n ? s.slice(0, n - 1) + '…' : s; }
+function clip(s, n = 200) { s = String(s).replace(/[\r\n\t]+/g, ' ').replace(CTL, ''); return s.length > n ? s.slice(0, n - 1) + '…' : s; }
 
 function human(o, vps) {
   const lines = [`ui-check ${o.url}`];
@@ -233,10 +373,13 @@ function human(o, vps) {
   const plain = (e) => `${e.selector} ${fmtBox(e.box)}`;
   for (const v of vps) {
     const po = v.pageOverflow ? `  page-overflow ${v.pageOverflow.scrollWidth}>${v.pageOverflow.clientWidth}` : '';
-    lines.push(`${v.width} ${v.theme}  dir=${v.dir || '-'} lang=${v.lang || '-'}${po}  ${v.findings ? `findings ${v.findings}` : 'clean'}`);
+    lines.push(`${v.width} ${v.theme}  dir=${clip(v.dir || '-', 20)} lang=${clip(v.lang || '-', 20)}${po}  ${v.findings ? `findings ${v.findings}` : 'clean'}`);
+    if (v.viewportMeta) lines.push(clip(`  viewport-meta ${v.viewportMeta.problem}${v.viewportMeta.content !== undefined ? ` "${v.viewportMeta.content}"` : ''}`));
     row('past-viewport', v.overflow, plain);
+    row('off-screen', v.offscreen, plain);
     row('clipped-text', v.clipped, plain);
-    row('overlap', v.overlap, (e) => `${e.selector} ${fmtBox(e.box)} x ${e.other} ${fmtBox(e.otherBox)}`);
+    row('clipped-by-ancestor', v.clippedByAncestor, (e) => `${e.selector} ${fmtBox(e.box)} by ${e.by}`);
+    row('overlap', v.overlap, (e) => `${e.selector} ${fmtBox(e.box)} x ${e.fixedBar ? 'fixed bar ' : ''}${e.other} ${fmtBox(e.otherBox)}`);
     row('touch<44', v.touch, plain);
     row('rtl text-align:left', v.rtlTextLeft, plain);
     if (v.console.count) lines.push(clip(`  console-errors ${v.console.count}: ${v.console.messages.map((m) => JSON.stringify(clip(m, 70))).join(' | ')}`));
@@ -251,7 +394,7 @@ function human(o, vps) {
   }
   const total = vps.reduce((n, v) => n + v.findings, 0);
   lines.push(`total findings ${total} -> exit ${total ? 1 : 0}${o.json ? '' : '  (--json for all fields)'}`);
-  return lines.join('\n');
+  return lines.map((l) => l.replace(CTL, '')).join('\n');
 }
 
 async function main() {
@@ -260,18 +403,18 @@ async function main() {
   let browser;
   const vps = [];
   try {
-    browser = await deps.chromium.launch({ headless: true, ignoreDefaultArgs: ['--disable-dev-shm-usage'] });
+    browser = await deps.chromium.launch({ headless: true, chromiumSandbox: true, ignoreDefaultArgs: ['--disable-dev-shm-usage'] });
     for (const w of o.widths) for (const t of o.themes) vps.push(await checkViewport(browser, deps, o, w, t));
   } catch (e) {
-    process.stderr.write(`ui-check: ${e.nav ? e.message : (e.stack || e)}\n`);
+    process.stderr.write(`ui-check: ${e.nav ? clip(e.message, 400) : (e.stack || e)}\n`);
     process.exitCode = 2;
     return;
   } finally {
-    if (browser) await browser.close().catch(() => {});
+    if (browser) await Promise.race([browser.close().catch(() => {}), new Promise((r) => setTimeout(r, 3000).unref())]);
   }
   const total = vps.reduce((n, v) => n + v.findings, 0);
   process.stdout.write((o.json ? JSON.stringify({ url: o.url, findings: total, viewports: vps }, null, 2) : human(o, vps)) + '\n');
   process.exitCode = total ? 1 : 0;
 }
 
-main();
+main().catch((e) => { process.stderr.write(`ui-check: internal error: ${e && e.stack || e}\n`); process.exit(2); });
