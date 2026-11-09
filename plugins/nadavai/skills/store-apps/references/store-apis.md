@@ -67,6 +67,12 @@ Chrome refuses passwords and can be blocked by a password manager's overlay.
   so render Play's set at 2:1 or squarer.
 - **"Ready for Distribution" is not "on sale".** A version with empty availability shows "Removed
   from App Store". Read `/v2/appAvailabilities` before saying an app is live.
+- **A Play production release with status `completed` is not "live".** `play.mjs tracks` reads the
+  edit, not the review: on 2026-11-09 three packages showed `completed` while their public Play page
+  answered 404 (still in Google's review, or never published). Count an Android app as live only when
+  `https://play.google.com/store/apps/details?id=<pkg>` opens and the release is `completed`
+  (`scripts/store-status.mjs` does both). The same rule on iOS: `READY_FOR_SALE` with no territories
+  is off sale, so the matrix also reads Apple's public lookup.
 - **A stale demo password fails the review.** The MediZen reviewer password had been rotated
   since it was entered, and Apple's reviewers would have been refused. Before each submission,
   sign in with the demo account against production and check two things: HTTP 200, and that the

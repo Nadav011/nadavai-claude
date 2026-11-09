@@ -93,5 +93,13 @@ before it too.
    the first of each month. It only reads. Done when it exits 0, or each item it flags has an owner
    and a date in its ledger.
 
+8. **Say "live" only from public proof.** Run `node scripts/store-status.mjs` (read-only) before
+   telling Nadav what is in the stores, and at the end of every submission or release. It lists
+   every app in both stores: the iOS state with territories on sale and Apple's public lookup, and
+   the Android production release with whether the public Play page opens. The Play package of an
+   app whose iOS bundle id differs comes from `~/.config/nadavai/store-apps.json` (kept outside
+   this public repo). Done when no app × platform is reported as live without a public listing
+   behind it, and every other row has an owner (review, rejection, draft, held).
+
 The next action is step 1: open the repo's build config (`package.json` scripts, `next.config.*`,
 `vite.config.*`) and fill the table row.
