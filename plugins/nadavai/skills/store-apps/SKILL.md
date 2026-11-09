@@ -97,9 +97,12 @@ before it too.
    telling Nadav what is in the stores, and at the end of every submission or release. It lists
    every app in both stores: the iOS state with territories on sale and Apple's public lookup, and
    the Android production release with whether the public Play page opens. The Play package of an
-   app whose iOS bundle id differs comes from `~/.config/nadavai/store-apps.json` (kept outside
-   this public repo). Done when no app × platform is reported as live without a public listing
-   behind it, and every other row has an owner (review, rejection, draft, held).
+   app whose iOS bundle id differs comes from `~/.config/nadavai/store-apps.json`, or from the file
+   `--config <path>` names. Either file stays outside this public repo. A nightly store-drift check
+   on omarchy (the private nadavai-nightly repo) compares this matrix with each repo's declared
+   state. It opens one issue per repo when they disagree. Done when no app × platform is reported
+   as live without a public listing behind it, and every other row has an owner (review,
+   rejection, draft, held).
 
 The next action is step 1: open the repo's build config (`package.json` scripts, `next.config.*`,
 `vite.config.*`) and fill the table row.

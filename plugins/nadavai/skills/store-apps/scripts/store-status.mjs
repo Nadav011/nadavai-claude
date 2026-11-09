@@ -1,20 +1,27 @@
 // Read-only matrix of every store app in both stores, with public proof. Usage:
-//   node store-status.mjs [--json]
+//   node store-status.mjs [--json] [--config <path>]
 // iOS: every app in App Store Connect (state of the newest version, territories on sale, and whether
 // Apple's public lookup finds it). Android: the production track of each package, and whether the
 // public Play page opens. Why both: "Ready for Distribution" with no territories is off sale, and a
 // Play production release with status "completed" can still be in Google's review, so only the
 // public page counts as live (found 2026-11-09: 3 of 6 Play packages said completed with a 404 page).
-// Play package = the iOS bundle id unless ~/.config/nadavai/store-apps.json maps it, e.g.
+// Play package = the iOS bundle id unless the config (--config, default ~/.config/nadavai/store-apps.json)
+// maps it, e.g.
 //   { "apps": { "app.sporchat.ios": { "play": "app.sporchat.twa" } }, "playOnly": ["com.example.app"] }
-// (kept outside the repo: ids of the private apps do not belong in this public skill).
+// (kept outside the repo: ids of the private apps do not belong in this public skill; the nightly
+// store-drift check on omarchy passes its own copy from the private nadavai-nightly repo).
+// --json rows also carry iosPublic (Apple's public lookup finds the app) and play.public (the public
+// Play page opens), whatever review a newer version is in.
 // Credentials: the same two files asc.mjs and play.mjs read. Prints no secret.
 import { readFileSync, existsSync } from 'node:fs';
 import { createSign } from 'node:crypto';
 
 const HOME = process.env.HOME;
 const wantJson = process.argv.includes('--json');
-const cfgPath = `${HOME}/.config/nadavai/store-apps.json`;
+const cfgArg = process.argv.indexOf('--config');
+if (cfgArg !== -1 && !process.argv[cfgArg + 1]) { console.error('store-status: --config needs a path'); process.exit(2); }
+const cfgPath = cfgArg === -1 ? `${HOME}/.config/nadavai/store-apps.json` : process.argv[cfgArg + 1];
+if (cfgArg !== -1 && !existsSync(cfgPath)) { console.error(`store-status: no config at ${cfgPath}`); process.exit(2); }
 const cfg = existsSync(cfgPath) ? JSON.parse(readFileSync(cfgPath, 'utf8')) : {};
 const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
 const envFile = (p) => Object.fromEntries(readFileSync(p, 'utf8').split('\n').filter((l) => /^[A-Z_]+=/.test(l))
@@ -78,13 +85,13 @@ for (const a of apps) {
     : publicIos ? `LIVE ${newest.versionString}`
     : territories === 0 ? `OFF SALE (0 territories) ${newest.versionString}` : `NOT PUBLIC ${newest.versionString} ${newest.appStoreState}`;
   const pkg = cfg.apps?.[bundleId]?.play || bundleId;
-  rows.push({ name, bundleId, ios: iosState, territories, play: { pkg } });
+  rows.push({ name, bundleId, ios: iosState, iosPublic: publicIos, territories, play: { pkg } });
 }
-for (const pkg of cfg.playOnly || []) rows.push({ name: pkg, bundleId: null, ios: '-', territories: null, play: { pkg } });
+for (const pkg of cfg.playOnly || []) rows.push({ name: pkg, bundleId: null, ios: '-', iosPublic: false, territories: null, play: { pkg } });
 for (const r of rows) {
   const [prod, page] = await Promise.all([playProduction(r.play.pkg), playPage(r.play.pkg)]);
   r.play = {
-    pkg: r.play.pkg, page,
+    pkg: r.play.pkg, page, public: page === 200,
     state: prod.error ? `NO PLAY APP (${prod.error})` : !prod.release ? 'NO PRODUCTION RELEASE'
       : page === 200 && prod.release.status === 'completed' ? `LIVE ${prod.release.name}`
       : prod.release.status === 'draft' ? `DRAFT ${prod.release.name}`
