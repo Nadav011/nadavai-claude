@@ -27,8 +27,9 @@ for a in "$@"; do
 done
 
 # Runs in its own systemd unit, so closing Orca (which may be this script's own terminal) cannot
-# stop it before Orca is started again. Look in `journalctl --user -u 'orca-restart-*'` if Orca
-# does not come back.
+# stop it before Orca is started again. Orca itself is started in a separate scope: a process
+# started inside the unit's own cgroup is killed when the unit's bash exits (found 2026-11-09:
+# Orca closed and never came back). Look in `journalctl --user -u 'orca-restart-*'` if it fails.
 restart_orca() {
   local pid
   if [ -z "${WAYLAND_DISPLAY:-}${DISPLAY:-}" ]; then
@@ -42,7 +43,7 @@ restart_orca() {
       for _ in $(seq 15); do kill -0 "$pid" 2>/dev/null || break; sleep 2; done
       if kill -0 "$pid" 2>/dev/null; then echo "Orca did not close; not starting a second copy"; exit 1; fi
     fi
-    gtk-launch orca-ide' _ "$pid"
+    systemd-run --user --scope --quiet gtk-launch orca-ide' _ "$pid"
   echo "[orca-update] Orca is restarting in the background (closes, then opens again)"
 }
 
