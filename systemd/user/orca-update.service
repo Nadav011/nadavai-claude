@@ -1,0 +1,9 @@
+[Unit]
+Description=Build the newest Orca release package (installs nothing; run orca-update to install)
+
+[Service]
+Type=oneshot
+Nice=19
+# 3 = the newest release could not be read (offline, or gh not logged in): the next daily run retries.
+SuccessExitStatus=3
+ExecStart=%h/.local/bin/orca-update --build-only

@@ -19,22 +19,40 @@ patched() { if [ -d "$CSSDIR" ]; then grep -lq "$MARK" "$CSSDIR"/*.css 2>/dev/nu
 # Wait for size+mtime to hold still, then verify against the live file and retry once.
 settle() {
   local prev="" cur
-  for _ in $(seq 30); do
+  # pacman writes app.asar early and the thousands of unpacked files after it: also wait for
+  # its database lock to go, or the patch lands on a half-extracted tree.
+  for _ in $(seq 60); do
     cur=$(stat -c '%Y %s' "$ASAR" 2>/dev/null || echo missing)
-    if [ "$cur" != missing ] && [ "$cur" = "$prev" ]; then return 0; fi
+    if [ "$cur" != missing ] && [ "$cur" = "$prev" ] && [ ! -e /var/lib/pacman/db.lck ]; then return 0; fi
     prev=$cur
     sleep 2
   done
 }
 
+# One apply at a time: the .path unit, orca-update and a hand run share the same
+# `<file>.orca-rtl-new` sibling names and would otherwise break each other's rename.
+mkdir -p "$HOME/.local/share/orca-rtl"
+exec 8>"$HOME/.local/share/orca-rtl/.apply.lock"
+flock 8
+
+# A failed patch.mjs may already have written some files; the asar header must still be brought
+# in line with them, or Orca opens a white window (1.4.246).
+run_patch() {
+  if ! node "$DIR/patch.mjs" "$@"; then
+    echo "[orca-rtl] patch.mjs FAILED; syncing the asar header with whatever it wrote"
+    if [ -d "$CSSDIR" ]; then node "$DIR/sync-header.mjs" "$ASAR" || true; fi
+    exit 1
+  fi
+}
+
 settle
-node "$DIR/patch.mjs" "$@"
+run_patch "$@"
 
 # The asar can still be swapped while we extract/repack (a ~2 min window).
 if ! patched; then
   echo "[orca-rtl] live asar is unpatched (replaced mid-run) — retrying once"
   settle
-  node "$DIR/patch.mjs" "$@"
+  run_patch "$@"
   patched || { echo "[orca-rtl] FAILED: live asar still unpatched"; exit 1; }
 fi
 echo "[orca-rtl] verified: live Orca carries the patch."
@@ -45,5 +63,14 @@ echo "[orca-rtl] verified: live Orca carries the patch."
 if [ -d "$CSSDIR" ] && ! node "$DIR/sync-header.mjs" "$ASAR"; then
   echo "[orca-rtl] FAILED to update the asar header; restoring the original files"
   "$(dirname "$(readlink -f "$0")")/orca-rtl-remove"
+  exit 1
+fi
+
+# The phone checks each mobile-web asset against manifest.json and the desktop refuses to serve
+# one that differs (mobile_web_bundle_asset_changed), so the phone cannot install the page bundle:
+# "cannot run the latest update from the computer" (1.4.247, 2026-11-09). patch.mjs re-syncs the
+# manifest; fail loudly here if anything still differs.
+if ! node "$DIR/patch.mjs" --check-manifest; then
+  echo "[orca-rtl] FAILED: the phone bundle's manifest does not match the patched files"
   exit 1
 fi

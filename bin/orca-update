@@ -1,0 +1,105 @@
+#!/usr/bin/env bash
+# orca-update: bring Orca (a local PKGBUILD that repacks the official .deb into /opt/Orca) to the
+# newest GitHub release, re-apply the RTL patch, and check what the phone needs. Orca's own
+# updater uses dpkg and cannot work on this system, so without this a phone app that updated first
+# stops syncing ("cannot run the latest update from the computer", 2026-11-09).
+#   orca-update               install the newest release (builds it first when needed)
+#   orca-update --check       exit 0 = up to date, 10 = a newer release exists
+#   orca-update --build-only  build the package and notify, install nothing (the daily timer)
+#   orca-update --restart     restart Orca at the end (closes every agent session running in it)
+# Installing replaces /opt/Orca under the running app, so restart Orca soon after.
+set -euo pipefail
+
+PK=${ORCA_PKGBUILD_DIR:-$HOME/.local/share/pkgbuilds/orca-ide}
+SELF=$(readlink -f "$0")
+RTL=$(cd "$(dirname "$SELF")/../lib/orca-rtl" && pwd)
+APPLY=$(dirname "$SELF")/orca-rtl-apply
+
+mode=install restart=0
+for a in "$@"; do
+  case $a in
+    --check) mode=check ;;
+    --build-only) mode=build ;;
+    --restart) restart=1 ;;
+    -h|--help) sed -n '2,10p' "$SELF"; exit 0 ;;
+    *) echo "orca-update: unknown option $a" >&2; exit 2 ;;
+  esac
+done
+
+# Runs in its own systemd unit, so closing Orca (which may be this script's own terminal) cannot
+# stop it before Orca is started again. Look in `journalctl --user -u 'orca-restart-*'` if Orca
+# does not come back.
+restart_orca() {
+  local pid
+  if [ -z "${WAYLAND_DISPLAY:-}${DISPLAY:-}" ]; then
+    echo "[orca-update] no display in this shell: quit and start Orca by hand" >&2; return 1
+  fi
+  pid=$(jq -r '.pid // empty' "$HOME/.config/orca/orca-runtime.json" 2>/dev/null || true)
+  systemd-run --user --collect --quiet --unit="orca-restart-$(date +%s)" /bin/bash -c '
+    pid=$1
+    if [ -n "$pid" ] && grep -aq orca-ide "/proc/$pid/cmdline" 2>/dev/null; then
+      kill -TERM "$pid" 2>/dev/null || true
+      for _ in $(seq 15); do kill -0 "$pid" 2>/dev/null || break; sleep 2; done
+      if kill -0 "$pid" 2>/dev/null; then echo "Orca did not close; not starting a second copy"; exit 1; fi
+    fi
+    gtk-launch orca-ide' _ "$pid"
+  echo "[orca-update] Orca is restarting in the background (closes, then opens again)"
+}
+
+installed=$(pacman -Q orca-ide | awk '{print $2}'); installed=${installed%-*}
+latest="" sha=""
+{ read -r latest || true; read -r sha || true; } < <("$PK/latest")
+if ! [[ $latest =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && $sha =~ ^[a-f0-9]{64}$ ]]; then
+  echo "[orca-update] cannot read the newest release from GitHub (offline, or gh not logged in)" >&2
+  exit 3
+fi
+
+if [ "$(vercmp "$latest" "$installed")" -le 0 ]; then
+  echo "[orca-update] up to date: $installed (newest release $latest)"
+  if [ "$mode" = install ] && [ "$restart" = 1 ]; then restart_orca; fi
+  exit 0
+fi
+echo "[orca-update] installed $installed, newest $latest"
+[ "$mode" = check ] && exit 10
+
+# The daily build and a hand run must not build into the same src/ and pkg/ at once.
+exec 9>"$PK/.lock"
+flock 9
+
+pkg=$PK/orca-ide-$latest-1-x86_64.pkg.tar.zst
+# A build killed half way leaves a truncated file; never install or reuse one.
+if [ -f "$pkg" ] && ! zstd -tq "$pkg" 2>/dev/null; then
+  echo "[orca-update] $pkg is damaged; building it again"
+  rm -f "${pkg:?}"
+fi
+if [ ! -f "$pkg" ]; then
+  # makepkg checks the download against this sha256 (the digest GitHub shows for the .deb).
+  sed -i -e "s/^pkgver=.*/pkgver=$latest/" -e "s/^pkgrel=.*/pkgrel=1/" -e "s/^sha256sums=.*/sha256sums=('$sha')/" "$PK/PKGBUILD"
+  stage=$(mktemp -d "$PK/.new.XXXXXX")
+  (cd "$PK" && PKGDEST=$stage ionice -c3 nice -n 19 makepkg -f --noconfirm)
+  mv "$stage/$(basename "$pkg")" "$pkg"
+  rmdir "$stage"
+fi
+zstd -tq "$pkg"
+echo "[orca-update] package ready: $pkg"
+if [ "$mode" = build ]; then
+  notify-send -a Orca "Orca $latest מוכן להתקנה" "להתקנה: orca-update (הוא סוגר ופותח את Orca)" 2>/dev/null || true
+  exit 0
+fi
+
+# The .path unit that re-applies the patch is stopped while we install; orca-rtl-apply also takes
+# a lock, so a run of that unit already under way finishes before the explicit apply below.
+systemctl --user stop orca-rtl-reapply.path 2>/dev/null || true
+trap 'systemctl --user start orca-rtl-reapply.path 2>/dev/null || true' EXIT
+sudo pacman -U --noconfirm "$pkg"
+"$APPLY"
+ELECTRON_RUN_AS_NODE=1 /opt/Orca/orca-ide "$RTL/verify-serve.cjs" /opt/Orca/resources/app.asar
+
+# Keep the two newest packages and downloads; each is ~200 MB.
+for pat in 'orca-ide-*-x86_64.pkg.tar.zst' 'orca-ide_*_amd64.deb'; do
+  find "$PK" -maxdepth 1 -name "$pat" -printf '%T@ %p\n' | sort -rn | tail -n +3 | cut -d' ' -f2- |
+    while read -r old; do rm -f -- "${old:?}"; done
+done
+
+echo "[orca-update] installed $(pacman -Q orca-ide). Orca keeps running the old version, and the phone keeps the old bundle, until Orca is quit completely and started again."
+if [ "$restart" = 1 ]; then restart_orca; else echo "[orca-update] to finish: orca-update --restart"; fi

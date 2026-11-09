@@ -6,7 +6,9 @@ set -euo pipefail
 RES=/opt/Orca/resources
 ASAR="$RES/app.asar"
 BACKUP="$RES/app.asar.rtl-backup"
-VER=$(/opt/Orca/orca-ide --version 2>/dev/null | awk '{print $NF}')
+# Same source as patch.mjs (out/package.json), so the backup it wrote is the one found here.
+VER=$(jq -r '.version // empty' "$RES/app.asar.unpacked/out/package.json" 2>/dev/null || true)
+[ -n "$VER" ] || VER=$(/opt/Orca/orca-ide --version 2>/dev/null | awk '{print $NF}')
 BDIR="$HOME/.local/share/orca-rtl/backup-$VER"
 did=0
 if [ -d "$BDIR" ]; then

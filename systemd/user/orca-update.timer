@@ -1,0 +1,10 @@
+[Unit]
+Description=Check for a newer Orca release once a day
+
+[Timer]
+OnStartupSec=10min
+OnUnitActiveSec=1d
+RandomizedDelaySec=30min
+
+[Install]
+WantedBy=timers.target
