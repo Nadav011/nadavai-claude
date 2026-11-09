@@ -29,6 +29,16 @@ case $* in
   *commits/*/status*) echo "${GH_STATUS:-{\"statuses\":[]}}" ;;
   *commits/main) printf '{"sha":"%s"}\n' "${GH_MAIN:-}" ;;
   *commits/*) a="$*"; r=${a##*/commits/}; r=${r%% *}; [[ $r =~ ^[0-9a-f]{40}$ ]] && printf '{"sha":"%s"}\n' "$r" || exit 1 ;;
+  # Issues: ~/gh-issue holds the number of the one open rolling issue (empty: none);
+  # GH_ISSUE_FAIL=1 makes every issue call fail (a token without Issues permission).
+  "issue "*) [ -z "${GH_ISSUE_FAIL:-}" ] || exit 1
+    case $* in
+      "issue list"*) cat "$HOME/gh-issue" 2>/dev/null || true ;;
+      "issue create"*) n=$(( $(cat "$HOME/gh-issue-seq" 2>/dev/null || echo 6) + 1 )); echo "$n" >"$HOME/gh-issue-seq"
+        echo "$n" >"$HOME/gh-issue"; echo "https://github.com/Nadav011/x/issues/$n" ;;
+      "issue close"*) : >"$HOME/gh-issue" ;;
+    esac ;;
+  "label create"*) ;;
   *) exit 1 ;;
 esac
 GH
@@ -565,6 +575,9 @@ r2m() { # app platform runtime seq commit action published-at: a production mani
 }
 m2() { local f=$t/r2/nadavai-app-updates/$1/$2/$3/manifest.json; [ -f "$f" ] && jq -r .body "$f" | jq -r '"\(.seq) \(.action) \(.commit)"' || echo none; }
 ostatus() { grep "statuses/$1 .*context=nadavai-ota .*description=$2" "$HOME/gh.log" | grep -c "state=$3"; }
+ialert() { # what: the issue calls of the last run (created, commented, closed) and the open issue
+  printf '%s %s %s %s' "$(grep -c '^issue create .*--title NadavAI: store apps need attention --label nadavai-store' "$HOME/gh.log")" \
+    "$(grep -c '^issue comment ' "$HOME/gh.log")" "$(grep -c '^issue close ' "$HOME/gh.log")" "$(cat "$HOME/gh-issue" 2>/dev/null)"; }
 pubs() { grep -c . "$t/r2/publish.log" 2>/dev/null || echo 0; }
 . "$src"; real_nw=$(declare -f new_workdir) real_lo=$(declare -f live_of); stubs; eval "$real_nw"
 echo "$c5" >"$HOME/live-commit"
@@ -589,6 +602,8 @@ check "ota: nadavai-ota says a store build is needed, after the live nadavai-dep
 check "ota: a pending nadavai-ota is posted first" "1 pending" "$(ostatus "$c5" "publishing the store apps over the air" pending) $(grep 'context=nadavai-ota' "$HOME/gh.log" | head -1 | sed -n 's/.*state=\([a-z]*\).*/\1/p')"
 check "ota: the deploy log names it, and deploys.log has an ota line" "1 1" \
   "$(grep -c 'OTA: STORE BUILD NEEDED: native change' "$t/ota.out") $(grep -c "$c5"$'\tota-native-change\tnative change: store build needed: medizen/ios' "$LOGS/deploys.log")"
+check "ota alert: a native change opens the rolling issue, labelled, naming the platform" "1 0 0 7 1 1" \
+  "$(ialert) $(grep -c '^label create nadavai-store .*--force' "$HOME/gh.log") $(grep -c "^issue create .*--body \`nadavai-ota\` on ${c5:0:7} (the live commit of $R): native change: store build needed: medizen/ios" "$HOME/gh.log")"
 bundle=$t/r2/nadavai-app-updates/medizen/bundles/${c5:0:12}-stub
 check "ota: the bundle built with its public env only, no R2 or GitHub secret" "1 0 0" \
   "$(grep -c '^VITE_APP=medizen-public$' "$bundle/build-env.txt") $(grep -c 'zz-fake' "$bundle/build-env.txt") $(grep -c 'OTA_STUB_R2\|CREDENTIALS_DIRECTORY' "$bundle/build-env.txt")"
@@ -609,6 +624,7 @@ check "ota: the clones are removed" "" "$(find "$WORK" -mindepth 1 -maxdepth 1 -
 ( cmd_ota $R "$c5" ) >"$t/ota.out" 2>&1; rc=$?
 check "ota: the same commit again is current everywhere and publishes nothing" "0 2 2" "$rc $(pubs) $(grep -c ' current .*-stub seq 2 apply' "$t/ota.out")"
 check "ota: and posts current on nadavai-ota" 1 "$(ostatus "$c5" "native change: store build needed: medizen/ios; current medizen/android,retrobarber/android" failure)"
+check "ota alert: the same problem again adds no issue and no comment" "0 0 0 7" "$(ialert)"
 # Dry run: an older manifest would be published over, but nothing is written or posted.
 r2m medizen android runtime-aaaaaaaaaaa1 2 "$c0" apply 2026-11-06T00:00:00Z; : >"$HOME/gh.log"
 ( cmd_ota $R "$c5" --dry-run ) >"$t/ota.out" 2>&1; rc=$?
@@ -621,12 +637,15 @@ check "ota: a failed publish does not undo the web deploy" "0 deployed $c5 1 0" 
   "$rc $(cat "$HOME/deployed") $(dstatus "$c5" "live: new-") $(grep -c 'rolled-back\|rolling back' "$t/ota.out")"
 check "ota: the failure is on nadavai-ota, in the log and in deploys.log" "1 1 1" \
   "$(ostatus "$c5" "OTA failed: medizen/android (log on the Oracle VM); native change: medizen/ios" failure) $(grep -c 'OTA: FAILED' "$t/ota.out") $(grep -c "$c5"$'\tota-failed\t' "$LOGS/deploys.log")"
+check "ota alert: a different problem comments on the open issue" "0 1 0 7 1" \
+  "$(ialert) $(grep -c "^issue comment 7 -R Nadav011/$R --body \`nadavai-ota\` on ${c5:0:7} (the live commit of $R): OTA failed: medizen/android" "$HOME/gh.log")"
 rm -f "$t/r2/fail-medizen"
 # A platform with no manifest on any runtime was never released over the air: not a failure.
 rm -rf "${t:?}/r2/nadavai-app-updates/medizen/ios"; : >"$HOME/gh.log"
 ( cmd_ota $R "$c5" ) >"$t/ota.out" 2>&1; rc=$?
 check "ota: a platform with no manifest at all is 'not released yet', success" "0 1 0" \
   "$rc $(ostatus "$c5" "store apps on ${c5:0:7}; published medizen/android; current retrobarber/android; rollback kept: retrobarber/ios; not released: medizen/ios" success) $(grep -c 'store build' "$t/ota.out")"
+check "ota alert: a successful step closes the issue" "0 0 1  1" "$(ialert) $(grep -c "^issue close 7 -R Nadav011/$R --comment The OTA step of ${c5:0:7} succeeded" "$HOME/gh.log")"
 r2m medizen ios runtime-aaaaaaaaaaa2 1 "$c5" apply 2026-11-06T00:00:00Z
 
 # The commit's publisher is never run: a commit whose scripts/native/ota-publish.mjs differs from
@@ -638,6 +657,7 @@ check "ota: a changed publisher in the commit is refused: nothing built, signed 
   "$rc $(grep -c 'nadavai-deploy-ota-' "$HOME/sudo.log") $(grep -c 'dist\|build:' "$HOME/sudo.log") $(pubs) $([ -e "$t/r2/commit-code-ran" ] && echo yes || echo no)"
 check "ota: and says so on nadavai-ota and in deploys.log" "1 1 1" \
   "$(ostatus "$c6" "OTA refused: publisher changed in the commit: review and re-vendor" failure) $(grep -c 'differ from the publisher vendored in nadavai' "$t/ota.out") $(grep -c "$c6"$'\tota-publisher-changed\t' "$LOGS/deploys.log")"
+check "ota alert: a refused publisher opens a new issue once the old one is closed" "1 0 0 8" "$(ialert)"
 # The vendored file is hashed as its own bytes (hash-object --no-filters): a copy that differs from
 # the commit's blob only in line ends is refused too, whatever core.autocrlf says.
 cp "$t/tools/ota/fingerprint.mjs" "$t/fp.lf"; sed -i 's/$/\r/' "$t/tools/ota/fingerprint.mjs"
@@ -652,7 +672,9 @@ mv "$t/fp.lf" "$t/tools/ota/fingerprint.mjs"
 jq '.apps.medizen.buildCommand |= sub("git rev-parse --short HEAD"; "echo deadbee") | .apps.retrobarber.buildCommand |= sub(" && \\{ printf.*$"; "")' \
   "$fx/native/apps.json" >"$t/apps.json" && mv "$t/apps.json" "$fx/native/apps.json"
 c7=$(side bad-bundles); echo "$c7" >"$HOME/live-commit"; : >"$HOME/gh.log"; n0=$(pubs)
-( cmd_ota $R "$c7" ) >"$t/ota.out" 2>&1; rc=$?
+( GH_ISSUE_FAIL=1 cmd_ota $R "$c7" ) >"$t/ota.out" 2>&1; rc=$?
+check "ota alert: issues that cannot be listed are skipped with a log line, nothing opened" "0 0 0 8 1 0" \
+  "$(ialert) $(grep -c 'OTA alert: could not list the issues of therapy-flow-v2 (github.env needs Issues read/write)' "$t/ota.out") $(grep -c '^issue \(create\|comment\|close\)' "$HOME/gh.log")"
 check "ota: a bundle without this commit's stamp, or without the updater, is not published" "1 $n0 1 1" \
   "$rc $(pubs) $(grep -c "dist/sw.js carries 'tf-shell-0123456789-deadbee', not ${c7:0:7}" "$t/ota.out") $(grep -c 'retrobarber android .* failed - the bundle has no OTA updater: https://updates.nadavc.ai, the runtime-<fp12>/manifest.json path, the app.s public key not found' "$t/ota.out")"
 check "ota: nadavai-ota names both" 1 "$(ostatus "$c7" "OTA failed: medizen,retrobarber/android" failure)"

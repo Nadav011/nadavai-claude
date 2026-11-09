@@ -53,7 +53,10 @@
 # live commit are read again before each app's build and each platform's publish. A runtime with
 # no manifest is a native change (store build needed) when the platform has manifests on another
 # runtime, and "not released yet" when it has none. The nadavai-ota status on the sha says what happened; an
-# OTA failure never touches the web deploy or its exit code.
+# OTA failure never touches the web deploy or its exit code. A native change (store build needed),
+# a refused publisher or a failed OTA also opens one rolling issue in the repo, "NadavAI: store
+# apps need attention" (label nadavai-store; an issue emails Nadav, as the nightly's "main is red"
+# does), with a comment each time the problem changes; the next successful OTA step closes it.
 #
 # Two more gates run before anything is built (2026-11-04), without the repo lock (a rollback is
 # never kept waiting behind them); under the lock the live commit, the migrations, the hold and the
@@ -905,7 +908,49 @@ ota_step() { # repo sha workdir dry
   [ -z "$dry" ] || res=ota-dry-run
   printf '%s\t%s\t%s\t%s\t%s\n' "$(date -u +%FT%TZ)" "$repo" "$sha" "$res" "$desc" >>"$LOGS/deploys.log"
   [ -n "$dry" ] || status "$repo" "$sha" "$state" "$desc" nadavai-ota
+  [ -n "$dry" ] || ota_alert "$repo" "$sha" "$res" "$desc"
   [ "${#failed[@]}" = 0 ] && [ -z "$refused" ] && [ "${#stopped[@]}" = 0 ]
+}
+# A status emails nobody, so a result someone must act on also goes to one rolling issue per repo,
+# the way the nightly's ci-digest (nadavai-nightly) reports a red main: opened on a native change,
+# a refused publisher or a failed step, commented on only when the problem (the status's first
+# clause, kept in state/<repo>.ota-alert) changes, closed by the next success. A stopped step or an
+# OTA that is off neither opens nor closes it. Issues that cannot be listed (github.env without
+# Issues read/write) are skipped with a log line: a transient error must not open a second issue,
+# and the alert never changes the step's result.
+OTA_ALERT_TITLE='NadavAI: store apps need attention' OTA_ALERT_LABEL=nadavai-store
+ota_alert() { # repo sha res desc
+  local repo=$1 sha=$2 res=$3 desc=$4 f="$STATE/$1.ota-alert" num key url body
+  case $res in ota|ota-native-change|ota-publisher-changed|ota-failed) ;; *) return 0 ;; esac
+  if ! num=$(ghr issue list -R "$OWNER/$repo" --label "$OTA_ALERT_LABEL" --state open --json number,title \
+      -q ".[] | select(.title == \"$OTA_ALERT_TITLE\") | .number"); then
+    err "OTA alert: could not list the issues of $repo (github.env needs Issues read/write); no issue opened or closed"
+    return 0
+  fi
+  num=$(head -1 <<<"$num")
+  if [ "$res" = ota ]; then
+    if [ -z "$num" ]; then :
+    elif ghx issue close "$num" -R "$OWNER/$repo" --comment "The OTA step of ${sha:0:7} succeeded: $desc" >/dev/null 2>&1; then
+      say "OTA alert: closed $repo#$num"
+    else err "OTA alert: could not close $repo#$num"; fi
+    : >"$f"
+    return 0
+  fi
+  key=${desc%%;*}
+  [ -z "$num" ] || [ "$key" != "$(cat "$f" 2>/dev/null)" ] || return 0
+  body="\`nadavai-ota\` on ${sha:0:7} (the live commit of $repo): $desc"$'\n\n'"What each result means and what to do: nadavai \`plugins/nadavai/skills/store-apps/references/ota.md\`, \"After each deploy\". Posted by nadavai-deploy on the Oracle VM; the next successful OTA step closes this issue."
+  if [ -z "$num" ]; then
+    ghx label create "$OTA_ALERT_LABEL" -R "$OWNER/$repo" --color D93F0B --force \
+      --description "NadavAI deploy: the store apps need a store build or a fix (rolling issue)" >/dev/null 2>&1
+    url=$(ghx issue create -R "$OWNER/$repo" --title "$OTA_ALERT_TITLE" --label "$OTA_ALERT_LABEL" --body "$body" 2>/dev/null) ||
+      { err "OTA alert: could not open an issue in $repo"; return 0; }
+    say "OTA alert: opened $repo#${url##*/}"
+  elif ghx issue comment "$num" -R "$OWNER/$repo" --body "$body" >/dev/null 2>&1; then
+    say "OTA alert: commented on $repo#$num"
+  else
+    err "OTA alert: could not comment on $repo#$num"; return 0
+  fi
+  printf '%s\n' "$key" >"$f"
 }
 # A TERM, INT, HUP or PIPE during the OTA step: its transient units are system units a signal to
 # this process does not reach, so they are stopped first (a running publish would land after the

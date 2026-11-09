@@ -74,7 +74,10 @@ of those.
 ## After each deploy: the `nadavai-ota` status
 
 The deploy service runs the OTA step after every live deploy of the store-app repo and posts
-`nadavai-ota` on the commit. An OTA failure never rolls back the web deploy.
+`nadavai-ota` on the commit. An OTA failure never rolls back the web deploy. A native change, a
+refused publisher or a failed step also opens the rolling issue "NadavAI: store apps need
+attention" (label `nadavai-store`) in the repo, which emails Nadav. It gets a comment when the
+problem changes, and the next successful step closes it.
 
 | Status says | Meaning | Do |
 |---|---|---|

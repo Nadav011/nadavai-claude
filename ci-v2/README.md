@@ -185,6 +185,13 @@ users `nadavai-build`, `nadavai-upload` and `nadavai-ota`, work dirs in `/srv/na
     stops its units first). `deploys.log` gets one `ota*` line. An OTA failure never rolls back the
     web or changes the deploy's exit code. `ota <repo> <sha>` runs the step alone (checkout and
     install first) for the live sha; `--dry-run` writes and posts nothing.
+  - Alert (2026-11-09): a status emails nobody, so a native change, a refused publisher or a
+    failed step also opens one rolling issue in the repo, "NadavAI: store apps need attention"
+    (label `nadavai-store`), the way the nightly's ci-digest reports a red main (an issue emails
+    Nadav). It gets a comment only when the problem (the status's first clause, kept in
+    `state/<repo>.ota-alert`) changes, and the next successful OTA step closes it; a stopped step or
+    `ota-off` leaves it as it is. When the token cannot list issues, the run logs "OTA alert: could
+    not list the issues" and opens nothing; the alert never changes the step's result.
   - People: `ota-status` (no key), `ota-rollback` and `ota-min` run the same trusted driver as
     `nadavai-ota` on a fresh clone of main's head, as data only, against the production bucket (a
     hold does not stop them). `ota-rollback` defaults to the runtime the last OTA step reached (not
@@ -210,7 +217,8 @@ users `nadavai-build`, `nadavai-upload` and `nadavai-ota`, work dirs in `/srv/na
   deploys only from the merging session). Turning the timer on for a repo is Nadav's call:
   `touch ~/deploy/state/<repo>.auto`. The timer never passes `--migration-approved`.
 - Secrets, VM only, 600 in `~/deploy/secrets/`: `github.env` (`GH_TOKEN`: a fine-grained PAT for the four repos
-  with Contents read, Pull requests read, Commit statuses read and write; pending as of
+  with Contents read, Pull requests read, Commit statuses read and write, and Issues read and write
+  for the OTA alert (not on the token as of 2026-11-09: listing issues answers 403); pending as of
   2026-11-04: GitHub asked for GitHub Mobile confirmation, so Nadav creates it and pipes it in), `therapy-flow-v2.env` (the Pages deploy token from
   the old `therapy-flow-v2.deploy.env`), `therapy-flow-v2.build.env` (public `VITE_*` build env, read
   by systemd as root, never by the build user), and `cash-next-app.env`, `snooker-smart.env`,
@@ -231,4 +239,5 @@ users `nadavai-build`, `nadavai-upload` and `nadavai-ota`, work dirs in `/srv/na
   `ota-step.mjs` with a stub of the vendored publisher, the same stub committed in a fixture commit,
   `deploy/tests/fixtures/ota`, a stub R2 of files and a stub sudo that runs each unit with only its
   own environment), and the real vendored publisher under `ota-step.mjs` on a small clone (a key
-  pair from two generated RSA keys, the registry path and symlink guards): 220 checks.
+  pair from two generated RSA keys, the registry path and symlink guards), and the OTA alert issue
+  (stub issues): 226 checks.
