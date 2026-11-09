@@ -52,3 +52,9 @@ universal APK, and the bundle check. Upload with `scripts/play.mjs` (store-apis.
 
 `node scripts/native/fingerprint.mjs --all` on the base and on the branch tells which platforms
 changed.
+
+A native change stays on its branch until its store build is ready to submit, and merges with
+that build in the same step (as PR 198 in therapy-flow-v2 waits). Batch every native change of an
+app into one build per platform. Why: once a native change is on main, every phone on the old
+shell stops receiving bundles until the new build is live, with nothing on the phone saying so
+(audit 2026-11-09).

@@ -64,6 +64,9 @@ of those.
 | The update gate fails open: it blocks only on a correctly signed, current `app.json` whose `minBuild` is above this build and that has a store URL for the platform. | Failing closed would turn an R2 outage or a publishing slip into a store-wide lockout. |
 | Raise `ota-min` only 7 days after the new shell reaches 100% of its store, and keep build numbers rising across marketing versions. | A minimum above what the store serves walls current users out. |
 | `native/apps.json` gets a `storeUrl` only once that listing is public, in the same PR as `STORE_LIVE`. | A store URL arms the minimum-build gate. |
+| A "success" status means the bundle reached the store, not a phone. Prove the apply with a beacon from the app (or a device check) before saying a deploy reached users. | On 2026-11-09 the therapy-flow-v2 beacon was off, so no deploy could be proven applied. |
+| A bundle applies at the next cold start. A reload sooner happens only on resume after a long background and only on a route with no input in progress, with the rollback window checked on a crashing test bundle. | A suspended iPhone app can stay old for days, but a reload mid-booking loses the customer's input. |
+| An app's first manifest waits for its first store build. | Before that no shell runs the runtime, so a published bundle reaches nobody. |
 | Rotating a key means a store build. | The key is a fingerprint input. Old shells keep the old key until their minimum is raised. |
 | Never edit or replay a manifest by hand; roll back with `ota-rollback`, which writes a new, higher `seq`. | The client refuses a lower `seq`, and the publisher refuses to build on a manifest it cannot verify. |
 | A staging test build (`VITE_OTA_STAGING=1`) and a demo-profile salon build never reach production. | The publisher refuses both: one would strand phones on staging, the other would put the demo salon on every phone. |
