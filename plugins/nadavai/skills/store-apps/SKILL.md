@@ -49,8 +49,9 @@ before it too.
 4. **Do the store work through the APIs first** ([references/store-apis.md](references/store-apis.md)):
    the version, build, review details with the demo account, review notes (including the OTA
    disclosure), content rights, availability and the review submission. Only what has no API, or
-   no granted scope, goes through the browser. Before each submission, sign in with the demo
-   account against production. After the reviews, turn the reviewer-login kill switch off.
+   no granted scope, goes through the browser. Before each submission, pass the readiness gate
+   there (`asc validate --strict`, `asc review doctor`) and sign in with the demo account against
+   production; after a rejection, follow its rejection triage. After the reviews, turn the reviewer-login kill switch off.
    Done when three things hold: the submission (Apple) or release (Play) is in the state you
    meant, read back through the API; the demo sign-in answered HTTP 200 as a non-privileged
    account; and the switch is off once no review is pending.
@@ -106,6 +107,21 @@ before it too.
    state. It opens one issue per repo when they disagree. Done when no app × platform is reported
    as live without a public listing behind it, and every other row has an owner (review,
    rejection, draft, held).
+
+9. **Watch each release's health.**
+
+   | Store | Check | Why |
+   |---|---|---|
+   | Google Play | Android vitals after each release: user-perceived crash rate under 1.09% and ANR rate under 0.47% overall, and under 8% on every phone model. Raise a store update's rollout (staged release) only while both hold. | Above these bad-behaviour thresholds Play reduces the app's visibility. |
+   | App Store | A store build that changes native code goes out with "Release update over a 7-day period using phased release" (1, 2, 5, 10, 20, 50, 100% of automatic-update users). Pause it (up to 30 days in total) on a crash spike; anyone can still download it by hand. | A native bug reaches 1% of phones on day one instead of all of them. |
+
+   The session that released the build reads these on days 1, 3 and 7, or hands that to Nadav
+   with the dates. Done when day 7 is read and below the thresholds, or the rollout is paused with
+   an owner. Follow-up, not built: the nightly store-drift job in nadavai-nightly could report the
+   vitals too.
+   Sources: https://developer.android.com/google/play/vitals,
+   https://developer.apple.com/help/app-store-connect/update-your-app/release-a-version-update-in-phases
+   (both read 2026-11-09).
 
 The next action is step 1: open the repo's build config (`package.json` scripts, `next.config.*`,
 `vite.config.*`) and fill the table row.

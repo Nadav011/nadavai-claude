@@ -104,7 +104,9 @@ one; pacman `rust` is fine), `socket` vs `@socketsecurity/cli` under pnpm 12 (in
   copy the binary when upstream fails to build, as parry-guard did).
 - Standalone binaries in `~/.local/bin`: install the pacman package when one exists
   (`pacman -F usr/bin/<name>` after `pacman -Fy`), otherwise copy the binary (grok, agy, csq,
-  wacli, ngrok, supabase). Copy toolchain dirs (Android SDK, JDKs, gcloud SDK) and add their
+  wacli, ngrok, supabase). `asc` (App Store Connect CLI) is installed from its release with a
+  checksum and telemetry turned off: store-apps `references/store-apis.md`, "asc on a new
+  machine". Copy toolchain dirs (Android SDK, JDKs, gcloud SDK) and add their
   paths for the target's shell (fish: `~/.config/fish/conf.d/`).
 - Playwright browsers: `npx -y playwright@<version> install chromium chromium-headless-shell webkit ffmpeg`.
 - Fonts in `~/.local/share/fonts`: copy, then `fc-cache -f`.

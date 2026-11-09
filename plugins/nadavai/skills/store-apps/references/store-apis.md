@@ -10,10 +10,79 @@ gate: ask Nadav at that moment.
 |---|---|---|
 | `node scripts/asc.mjs <METHOD> <path> [json\|@-]` | App Store Connect API. Prints the HTTP status, then the body with `demoAccountPassword` shown only as `<set>` or `<empty>`. `@-` reads the body from stdin. | The team API key from `~/.claude/secrets/sporchat-asc.env` (`ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_PATH`). |
 | `node scripts/play.mjs tracks <pkg>` / `upload <pkg> <aab> <track> [--status draft\|completed] [--name …] [--notes-he …]` / `raw <METHOD> <path> [json]` | Google Play Developer API (androidpublisher v3), one edit per call, committed at the end. | The service account `~/.claude/secrets/play-publisher-service-account.json` (or `PLAY_SA_KEY`). |
+| `asc` (App Store Connect CLI, MIT, `~/.local/bin/asc`) | Readiness checks, review status waits, typed reads and writes. Add `--read-only` (or `ASC_READ_ONLY=1`) to every call that should only read: a mutation is then refused before it is sent. | `~/.asc/config.json`, profile `nadav-team`, made from the same vault key; run with `ASC_BYPASS_KEYCHAIN=1`. |
 
-A body that carries a secret (the demo account's password) is built by a command that reads the
-vault and pipes the JSON into `asc.mjs ... @-`. Why: a command line lands in the transcript, and
-`rules/acting-on-behalf.md` keeps passwords out of it.
+A body that carries a secret (the demo account's password) never has the value on the command
+line. Two safe paths: `asc review details-update --id <id> --demo-account-password @env:<VAR>` (or
+`@file:<path>`), with the variable loaded from the vault in the same command (`set -a; . <vault
+file>; set +a`); or a command that reads the vault and pipes the JSON into `asc.mjs ... @-`. asc
+prints the password as redacted unless `--include-sensitive` is passed, so never pass it. Why: a
+command line lands in the transcript, and `rules/acting-on-behalf.md` keeps passwords out of it.
+Tested 2026-11-09: `@env:` of an unset variable fails with exit 2 before any request, and with
+`--read-only` the PATCH stopped at exit 6 after the value resolved.
+
+### asc on a new machine
+
+No pacman or AUR package exists, so install the release binary, never `curl | bash`:
+
+1. `gh release download <tag> -R rorkai/App-Store-Connect-CLI -p 'asc_*_linux_amd64' -p 'asc_*_checksums.txt'`
+   into an empty folder (`linux_arm64` on ARM).
+2. `sha256sum -c --ignore-missing asc_*_checksums.txt` must print `OK`. The repo publishes no
+   build attestations (`gh attestation verify` returns 404), so the checksum file is the check.
+3. `install -m 0755 asc_*_linux_amd64 ~/.local/bin/asc`, then `asc --version`.
+4. Telemetry is on by default and posts to rork.com. Run the first command with
+   `DO_NOT_TRACK=1`, then `asc telemetry disable` (kept in `~/.asc/telemetry.json`); `asc telemetry
+   status` must show `enabled: false`.
+5. `set -a; . ~/.claude/secrets/sporchat-asc.env; set +a; asc auth login --bypass-keychain --name
+   nadav-team --key-id "$ASC_KEY_ID" --issuer-id "$ASC_ISSUER_ID" --private-key "$ASC_KEY_PATH"
+   --network >/dev/null`. The config keeps the key's path, not its content.
+6. `ASC_BYPASS_KEYCHAIN=1 asc --read-only apps list` lists the team's apps.
+
+Installed on the LENOVO 2026-11-09: 6.5.3, checksum verified, telemetry off.
+
+## Readiness gate (before every iOS submission)
+
+| Check | Pass | Why |
+|---|---|---|
+| `asc --read-only validate --app <id> --version <v> --strict` | Exit 0. The report's ordered plan names the first thing to fix otherwise. | It reads metadata limits, review details, the attached build, encryption, content rights, pricing, availability, screenshots and age rating in one call; `--strict` turns placeholder and test wording into blockers. |
+| `asc --read-only review doctor --app <id> --version <v>` | No blocker listed. | It explains why a submission would be refused before the submit call fails. |
+| Demo sign-in against production (Traps below) | HTTP 200, not a super user. | No CLI can see that a password was rotated. |
+
+After the submit, wait in slices (`rules/model-routing.md`): `asc --read-only status --app <id>
+--until review-done --timeout 140s` with Bash timeout 175000, one call per turn.
+
+| Exit | Meaning | Next |
+|---|---|---|
+| 0 | Approved: `ACCEPTED`, `PENDING_*_RELEASE`, `PROCESSING_FOR_DISTRIBUTION` or `READY_FOR_DISTRIBUTION`. | Release (MANUAL) or confirm on-sale with `scripts/store-status.mjs`. |
+| 1 | `REJECTED`, `METADATA_REJECTED`, `INVALID_BINARY` or `DEVELOPER_REJECTED`. | Rejection triage below. |
+| 7 | Still pending when the timeout ended the wait. | Run the same command again next turn. |
+
+`--until processed` waits the same way for a build to turn `VALID`. `--until ready-for-sale` does
+not read availability, so "live" still comes only from `scripts/store-status.mjs` (Traps below).
+
+Sources: https://github.com/rorkai/App-Store-Connect-CLI (asc 6.5.3 `--help`),
+https://github.com/rorkai/app-store-connect-cli-skills.
+
+## Rejection triage
+
+| Step | Check | Why |
+|---|---|---|
+| 1 | Copy the exact heading and text of the notice (Resolution Center, the Play email and Policy status) into the project's ledger before touching code. Note the cited guideline or policy, the example given, the version code or build, and any deadline. | A paraphrase loses the clause the fix must answer, and Google says a notice may not list every violation. |
+| 2 | Read the crash log App Review attached, when there is one, and reproduce on the same OS version. | A crash in review is usually a path the team never runs: a fresh install, an empty account, iPad. |
+| 3 | Fix and answer one guideline at a time, quoting it in the reply. | A reply that argues several points at once gets a generic second rejection. |
+| 4 | Play: open every active track (internal, closed, open, production, staged rollout) and read which version codes are live on each. | An old build on any track keeps a policy violation alive after production is fixed. |
+
+Review notes that pre-empt the common Capacitor rejections:
+
+| Guideline | What the notes say | Why |
+|---|---|---|
+| 4.2 Minimum functionality | The native features list from `native-bar.md` that the reviewer can try (push, biometric lock, share sheet, haptics, offline). | 4.2 rejects an app that is "a repackaged website". |
+| 4.2 and 2.5.2 for a remote-URL shell | The app's native features, and that the remote content is the app's own service, not a way to change its features after review. | A `server.url` shell looks like a web clipping and like code loaded after review. |
+| 5.1.2(i) | Where personal data goes to a third party, including a third-party AI, the app asks for explicit consent first; the notes say where the consent screen is. | Apple added "including with third-party AI" to 5.1.2(i). |
+
+Sources: https://developer.apple.com/app-store/review/guidelines/ (read 2026-11-09),
+https://github.com/sunvali/play-store-review-skill (rejection playbook),
+https://github.com/safaiyeh/app-store-review-skill.
 
 ## App Store Connect recipes
 
