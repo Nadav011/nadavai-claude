@@ -514,11 +514,107 @@ check "subagent: a 175 s wait in a turn 5 s old" allow "$(sibc 'timeout 170 tail
 check "subagent: a 140 s wait in a turn 150 s old" allow "$(sibc 'timeout 130 tail --pid=5 -f /dev/null' 140000 t5)"
 check "subagent: long-call escape in an old turn" allow "$(sibc 'timeout 170 tail --pid=2 -f /dev/null # long-call: one wait' 175000 t2)"
 check "subagent: call not in the transcript yet" allow "$(sibc 'timeout 170 tail --pid=9 -f /dev/null' 175000 t9)"
+# A plain call from a session under .claude/worktrees: "worktree" in the cwd must not send it down the slow path.
+check "subagent: plain ls, worktree cwd, old turn" allow "$(sibc 'ls -la' null t2 | jq -c '.cwd = "/home/u/repo/.claude/worktrees/agent-x"')"
 rm -rf "${SIB:?}"
 check "subagent: long-call escape" allow "$(subc 'pnpm test # long-call: one suite' 600000)"
 check "subagent: a short call" allow "$(subc 'ls -la' 60000)"
 check "main loop: 600 s tail --pid" allow "$(bashc 'timeout 590 tail --pid=123 -f /dev/null')"
 check "codex subagent (turn_id): ci-wait" allow "$(jq -cn '{agent_id:"a1",turn_id:"t",session_id:"s",cwd:"/tmp",hook_event_name:"PreToolUse",tool_name:"Bash",tool_input:{command:"ci-wait therapy-flow-v2 pr:3",timeout:600000}}')"
+
+# Worktree removal: the stub worktree-clean calls a path active when it contains "busy"; the stub orca-ide lists two
+# worktrees, so name:/branch:/identity:/issue: selectors resolve to a busy and an idle path. It answers only the
+# cleaner's own list call (--limit 5000) and logs each call. A bare `orca` (the GNOME screen reader outside Orca)
+# lists the two swapped, so a guard that calls it lets name:busy-wt through.
+mkdir -p "$tmp/nadavai-home/bin" "$tmp/stubbin"
+cat >"$tmp/nadavai-home/bin/worktree-clean" <<'STUB'
+#!/usr/bin/env bash
+while [ $# -gt 1 ]; do
+  if [ "$1" = --active ]; then
+    case $2 in *busy*) printf '%s\tclaude transcript 2026-11-07 00:46\n' "$2" ;; esac
+  fi
+  shift
+done
+STUB
+cat >"$tmp/stubbin/orca-ide" <<'STUB'
+#!/usr/bin/env bash
+echo x >>"$ORCA_STUB_LOG"
+[ "$*" = "worktree list --limit 5000 --json" ] || exit 1
+echo '{"result":{"worktrees":[{"path":"/w/busy-wt","displayName":"busy-wt","branch":"refs/heads/feat/busy","identity":{"key":"wt2:local:busy"},"linkedIssue":42},{"path":"/w/idle-wt","displayName":"idle-wt","branch":"refs/heads/feat/idle","identity":{"key":"wt2:local:idle"},"linkedIssue":null}]}}'
+STUB
+cat >"$tmp/stubbin/orca" <<'STUB'
+#!/usr/bin/env bash
+echo '{"result":{"worktrees":[{"path":"/w/idle-wt","displayName":"busy-wt","branch":"refs/heads/feat/busy"},{"path":"/w/busy-wt","displayName":"idle-wt","branch":"refs/heads/feat/idle"}]}}'
+STUB
+chmod +x "$tmp/nadavai-home/bin/worktree-clean" "$tmp/stubbin/orca-ide" "$tmp/stubbin/orca"
+OLD_PATH=$PATH; export PATH=$tmp/stubbin:$PATH
+OLD_ORCA=${ORCA_CLI_COMMAND-}; unset ORCA_CLI_COMMAND
+export ORCA_STUB_LOG=$tmp/orca-calls.log
+check "worktree rm: busy path"             deny  "$(bashc 'orca worktree rm --worktree path:/w/busy-wt')"
+check "worktree rm: idle path"             allow "$(bashc 'orca worktree rm --worktree path:/w/idle-wt')"
+check "worktree rm: quoted busy path"      deny  "$(bashc 'orca worktree rm --worktree "path:/w/busy-wt" --json')"
+check "worktree rm: --worktree= form"      deny  "$(bashc 'orca worktree rm --worktree=path:/w/busy-wt')"
+check "worktree rm: orca-ide binary"       deny  "$(bashc 'orca-ide worktree rm --worktree path:/w/busy-wt')"
+check "worktree remove: orca alias"        deny  "$(bashc 'orca worktree remove --worktree path:/w/busy-wt')"
+check "worktree delete: orca alias"        deny  "$(bashc 'orca worktree delete --worktree path:/w/busy-wt')"
+check "worktree rm: name selector, busy"   deny  "$(bashc 'orca worktree rm --worktree name:busy-wt')"
+check "worktree rm: name selector, idle"   allow "$(bashc 'orca worktree rm --worktree name:idle-wt')"
+check "worktree rm: branch selector, busy" deny  "$(bashc 'orca worktree rm --worktree branch:feat/busy')"
+check "worktree rm: unknown name allows"   allow "$(bashc 'orca worktree rm --worktree name:nobody')"
+check "worktree rm: id selector, busy"     deny  "$(bashc 'orca worktree rm --worktree id:r1::/w/busy-wt')"
+check "worktree rm: identity, busy"        deny  "$(bashc 'orca worktree rm --worktree identity:wt2:local:busy')"
+check "worktree rm: identity, idle"        allow "$(bashc 'orca worktree rm --worktree identity:wt2:local:idle')"
+check "worktree rm: issue, busy"           deny  "$(bashc 'orca worktree rm --worktree issue:42')"
+check "worktree rm: identity not listed"   deny  "$(bashc 'orca worktree rm --worktree identity:wt2:local:gone')"
+: >"$ORCA_STUB_LOG"
+check "worktree rm: two names, idle"       allow "$(bashc 'orca worktree rm --worktree name:idle-wt; orca worktree rm --worktree branch:feat/idle')"
+n=$(wc -l <"$ORCA_STUB_LOG")
+if [ "$n" -eq 1 ]; then echo "PASS: worktree rm: Orca listed once per call"; PASS=$((PASS+1))
+else echo "FAIL: worktree rm: Orca listed once per call — $n calls"; FAIL=$((FAIL+1)); fi
+ORCA_CLI_COMMAND=$tmp/stubbin/orca-ide check "worktree rm: ORCA_CLI_COMMAND" deny "$(bashc 'orca worktree rm --worktree name:busy-wt')"
+check "worktree rm: variable target"       deny  "$(bashc 'for w in a b; do orca worktree rm --worktree path:$w; done')"
+check "worktree rm: substitution target"   deny  "$(bashc 'orca worktree rm --worktree "path:$(cat list)"')"
+check "worktree rm: after && chain"        deny  "$(bashc 'cd /x && orca worktree rm --worktree path:/w/busy-wt && echo done')"
+check "worktree rm: second of two"         deny  "$(bashc 'orca worktree rm --worktree path:/w/idle-wt; orca worktree rm --worktree path:/w/busy-wt')"
+check "worktree rm: checked escape"        allow "$(bashc 'orca worktree rm --worktree path:/w/busy-wt # worktree-checked: its session ended 2026-11-07')"
+check "git worktree remove: busy"          deny  "$(bashc 'git worktree remove /w/busy-wt')"
+check "git worktree remove --force: busy"  deny  "$(bashc 'git worktree remove --force /w/busy-wt')"
+check "git worktree remove: idle"          allow "$(bashc 'git worktree remove /w/idle-wt')"
+check "git worktree remove: relative busy" deny  "$(bashcwd 'git worktree remove busy-wt' /w)"
+check "git worktree remove: 2>/dev/null"   deny  "$(bashc 'git worktree remove /w/busy-wt 2>/dev/null || true')"
+check "git worktree remove: >/dev/null"    deny  "$(bashc 'git worktree remove --force /w/busy-wt >/dev/null 2>&1')"
+check "git worktree remove: glued >"       deny  "$(bashc 'git worktree remove /w/busy-wt>/dev/null')"
+check "git worktree remove: comment"       deny  "$(bashc 'git worktree remove /w/busy-wt # cleanup')"
+check "git worktree remove: idle 2>"       allow "$(bashc 'git worktree remove /w/idle-wt 2>/dev/null')"
+check "git worktree remove: loop var 2>"   deny  "$(bashc 'for w in /w/a /w/b; do git worktree remove "$w" 2>/dev/null; done')"
+HOME=/w/busy-home check "git worktree remove: ~/x"     deny "$(bashcwd 'git worktree remove ~/x 2>/dev/null' /w)"
+HOME=/w/busy-home check "worktree rm: path:~/x"        deny "$(bashcwd 'orca worktree rm --worktree path:~/x' /w)"
+check "git worktree remove: cd then relative" deny  "$(bashcwd 'cd /w/busy-dir && git worktree remove x' /w)"
+check "git worktree remove: -C then relative" deny  "$(bashcwd 'git -C /w/busy-dir worktree remove x' /w)"
+check "git worktree remove: cd, absolute idle" allow "$(bashcwd 'cd /w && git worktree remove /w/idle-wt' /w)"
+check "git worktree remove: bash -c"       deny  "$(bashc 'bash -c "git worktree remove /w/busy-wt"')"
+check "git worktree remove: xargs"         deny  "$(bashc "printf '%s\\n' /w/busy-wt | xargs git worktree remove")"
+check "git worktree remove: xargs {}"      deny  "$(bashc 'ls -d /w/*-wt | xargs -I{} git worktree remove {}')"
+check "worktree rm: xargs, no selector"    deny  "$(bashc 'printf x | xargs -n1 orca worktree rm --worktree')"
+check "git worktree remove: sudo"          deny  "$(bashc 'sudo git worktree remove /w/busy-wt')"
+check "git -C a folder named orca"         deny  "$(bashc 'git -C /some/orca worktree remove /w/busy-wt')"
+check "worktree remove in a heredoc body"  allow "$(bashc $'cat >notes.md <<\'EOF\'\ngit worktree remove /w/busy-wt\nEOF')"
+check "worktree remove after a heredoc"    deny  "$(bashc $'cat >notes.md <<EOF\nx\nEOF\ngit worktree remove /w/busy-wt')"
+check "worktree rm: codex payload"         deny  "$(codex_cmd 'orca worktree rm --worktree path:/w/busy-wt')"
+check "worktree rm: grok payload"          deny  "$(grok_cmd 'orca worktree rm --worktree path:/w/busy-wt')"
+check "worktree remove: agy, Cwd"          deny  "$(jq -cn '{toolCall:{name:"run_command",args:{CommandLine:"git worktree remove busy-wt",Cwd:"/w"}}}')"
+check "worktree remove: agy, idle"         allow "$(jq -cn '{toolCall:{name:"run_command",args:{CommandLine:"git worktree remove idle-wt",Cwd:"/w"}}}')"
+check "worktree list"                      allow "$(bashc 'orca worktree list --json')"
+check "worktree create"                    allow "$(bashc 'orca worktree create --name busy-wt')"
+check "git worktree add"                   allow "$(bashc 'git worktree add /w/busy-wt main')"
+check "git worktree list"                  allow "$(bashc 'git worktree list | grep busy')"
+check "worktree word in an echo"           allow "$(bashc 'echo "orca worktree rm --worktree path:/w/busy-wt"')"
+check "worktree remove in a commit message" allow "$(bashc 'git commit -m "docs: git worktree remove /w/busy-wt is guarded"')"
+check "git -c option before worktree"      deny  "$(bashc 'git -c core.x=1 --no-pager worktree remove /w/busy-wt')"
+mv "$tmp/nadavai-home/bin/worktree-clean" "$tmp/nadavai-home/bin/worktree-clean.off"
+check "worktree rm: no cleaner allows"     allow "$(bashc 'orca worktree rm --worktree path:/w/busy-wt')"
+export PATH=$OLD_PATH
+[ -n "$OLD_ORCA" ] && export ORCA_CLI_COMMAND=$OLD_ORCA
 
 echo "----"
 echo "PASS=$PASS FAIL=$FAIL"

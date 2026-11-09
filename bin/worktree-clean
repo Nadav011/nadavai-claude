@@ -2,6 +2,7 @@
 # worktree-clean: find git worktrees nobody needs any more; with --apply, remove them without losing work.
 #
 #   worktree-clean [--report | --dry-run | --apply] [--repo <main checkout>]... [--safe-days N] [--unsaved-days N]
+#   worktree-clean --active <path> [--active <path>]...   (read-only, for agent-guard: prints the paths in use)
 #
 # Modes (Nadav, 2026-11-03: nothing is ever removed automatically):
 #   --report (the default, and what the weekly timer runs) removes nothing. It writes one file,
@@ -625,6 +626,24 @@ def on_sigterm(sig, frame):
     raise SystemExit(128 + sig)  # unwinds through the finally that writes the log
 
 
+def active_check(paths):
+    """Read-only, for agent-guard: prints '<path><TAB><why>' for each path a process runs in or a Claude, Codex or
+    Grok transcript touched within sessionActiveDays. Writes, locks and removes nothing; exit 1 when the owner lists
+    or the transcripts cannot be read (the guard then lets the command through)."""
+    try:
+        sessions = session_index(load_config()['sessionActiveDays'])
+    except (OSError, ValueError) as e:
+        print(f'worktree-clean: cannot read the transcripts ({e})', file=sys.stderr)
+        return 1
+    cwds = process_cwds()
+    for p in paths:
+        p = os.path.realpath(os.path.expanduser(p))
+        why = 'a process runs inside it' if in_use(p, cwds) else session_activity(p, sessions)
+        if why:
+            print(f'{p}\t{why}')
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser(description='Find git worktrees nobody needs any more; remove them only with --apply.')
     mode = ap.add_mutually_exclusive_group()
@@ -635,7 +654,11 @@ def main():
     ap.add_argument('--safe-days', type=float, default=2)
     ap.add_argument('--unsaved-days', type=float, default=7)
     ap.add_argument('--archive-root', default=os.path.join(HOME, 'Archive', 'worktree-clean'))
+    ap.add_argument('--active', action='append', default=[], metavar='PATH',
+                    help='read-only: print the PATHs a process runs in or a session transcript touched lately, then exit')
     args = ap.parse_args()
+    if args.active:
+        return active_check(args.active)
     signal.signal(signal.SIGTERM, on_sigterm)
 
     try:

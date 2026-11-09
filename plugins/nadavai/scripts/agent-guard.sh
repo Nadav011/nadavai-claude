@@ -49,6 +49,18 @@
 #          carries `# genlink-checked: <reason>`. Why: Nadav, 2026-11-07: password-free live checks are
 #          for QA accounts only, never a client's or a patient's account. Not seen: a script file or a
 #          heredoc body that calls it.
+#   Bash:  `orca worktree rm|remove|delete --worktree <selector>` or `git worktree remove <path>` of a
+#          worktree that a process runs in or that a Claude, Codex or Grok transcript touched within
+#          sessionActiveDays (config/worktree-clean.json, 3), unless the command carries
+#          `# worktree-checked: <reason>`. The test is `worktree-clean --active`, the cleaner's own rule.
+#          Closeout 2026-11-03 removed 26 TherapyFlow worktrees in two minutes, among them one whose
+#          session had left it 2.5 hours earlier. Denied as unreadable: a target built from a variable or
+#          $(...), a `{}` or missing target fed by xargs, an identity:/issue: selector Orca does not list,
+#          and a relative target (or active/current) in a command that also runs `cd` or `-C`. Name,
+#          branch, identity and issue selectors are resolved from one `orca worktree list` per call.
+#          The tool is the first word of each command (after sudo, env, xargs, `bash -c` and the like);
+#          heredoc bodies and comments are skipped. An unknown name, a missing worktree-clean or Orca, or
+#          an unreadable transcript folder allows. Removal from Orca's own UI is not seen by any hook.
 # Strict mode, off unless ${XDG_CONFIG_HOME:-~/.config}/nadavai/guard-strict exists (touch it to
 # switch on, remove it to switch off; the next call reads it). Both rules apply in the
 # background too (rules/ci-policy.md, rules 4 and 7):
@@ -90,6 +102,8 @@ deny() {
 case "$input" in
   # rm after a blank, an operator, a quote, a slash (/bin/rm) or JSON's \n / \t escapes
   *'"fork"'*|*sleep*|*gh*merge*|*find*|*bfs*|*[[:space:]\;\&\|\(\`\"\'/nt]'rm '*|*.claude/secrets*|*generate_link*) ;;
+  # the removal forms only: "worktree" alone is in the cwd and transcript path of every session under .claude/worktrees
+  *'worktree rm'*|*'worktree remove'*|*'worktree delete'*) ;;
   *'"agent_id"'*ci-wait*|*ci-wait*'"agent_id"'*|*'"agent_id"'*'"timeout"'*|*'"timeout"'*'"agent_id"'*) ;;
   *'"agent_id"'*'tail --pid'*|*'tail --pid'*'"agent_id"'*) ;;
   *while*|*until*|*docker*|*podman*|*supabase*) [ "$strict" = 1 ] || allow ;;
@@ -779,6 +793,121 @@ genlink_guard() {
   fi
 }
 
+# Orca's `orca worktree list --json`, read at most once per call (not once per selector); empty when unreadable.
+# `$ORCA_CLI_COMMAND`, else orca-ide, as bin/worktree-clean does: outside Orca a bare `orca` is the GNOME screen reader.
+orca_list= orca_list_read=0 wt_path=
+orca_worktree_path() { # orca_worktree_path <name:X|branch:X|identity:X|issue:N|X>: sets wt_path to Orca's path for it
+  local k=name v=$1 orca=${ORCA_CLI_COMMAND:-orca-ide}
+  wt_path=
+  [[ $1 == *:* ]] && { k=${1%%:*}; v=${1#*:}; }
+  case $k in name|branch|identity|issue) ;; *) return 0 ;; esac
+  if [ "$orca_list_read" = 0 ]; then
+    orca_list_read=1
+    command -v "$orca" >/dev/null 2>&1 && orca_list=$(timeout 10 "$orca" worktree list --limit 5000 --json 2>/dev/null)
+  fi
+  [ -n "$orca_list" ] || return 0
+  wt_path=$(jq -r --arg k "$k" --arg v "$v" '
+    [.. | objects | select((.path? | type) == "string")
+      | select(if $k == "branch" then (.branch // "") as $b | $b == $v or ($b | sub("^refs/heads/"; "")) == $v
+               elif $k == "identity" then ((.identity | if type == "object" then .key else . end) // "") == $v or (.instanceId // "") == $v
+               elif $k == "issue" then (.linkedIssue | if type == "object" then .number else . end | tostring) == $v
+               else (.displayName // .name // "") == $v end)
+      | .path] | first // empty' <<<"$orca_list" 2>/dev/null)
+}
+
+# Removing a worktree that a session still works in, or touched in the last days (the rule at the top).
+worktree_guard() { # worktree_guard <command> <cwd>: denies, or returns
+  local cmd=$1 cwd=${2:-$PWD} line seg t hd= sel p kind wi i j n moved=0 cleaner out msg why
+  local hre='(^|[^<])[<][<]-?[[:space:]]*["'\'']?([A-Za-z_][A-Za-z0-9_]*)'
+  local -a w=() paths=() args=()
+  [[ $cmd == *worktree* ]] || return 0
+  [[ $cmd == *'# worktree-checked:'* ]] && return 0
+  [ "${#cmd}" -le 20000 ] || return 0
+  [[ $cmd =~ (^|[^[:alnum:]_.-])(cd|pushd)[[:space:]] || $cmd == *' -C'* ]] && moved=1
+  why="Name each worktree literally, one command per worktree (orca worktree rm --worktree path:/home/nadavcohen/orca/workspaces/<repo>/<name>), or add '# worktree-checked: <reason>' once you have checked every session."
+  while IFS= read -r line; do
+    if [ -n "$hd" ]; then t=${line#"${line%%[!$'\t']*}"}; [ "$t" = "$hd" ] && hd=; continue; fi
+    [[ $line =~ (^|[[:space:]])#.*$ ]] && line=${line%"${BASH_REMATCH[0]}"}
+    [[ $line =~ $hre ]] && hd=${BASH_REMATCH[2]}
+    while IFS= read -r seg; do
+      read -ra w <<<"$seg"
+      w=("${w[@]//[\"\']/}")
+      n=${#w[@]} kind= wi=-1
+      # The tool is the first command word, after wrappers, keywords, assignments and options (bash -c "git ...").
+      for ((i = 0; i < n; i++)); do
+        if [ -z "$kind" ]; then
+          case ${w[i]} in
+            git|*/git) kind=git ;;
+            orca|*/orca|orca-ide|*/orca-ide) kind=orca ;;
+            sudo|env|time|nohup|timeout|nice|ionice|exec|command|xargs|stdbuf|setsid|bash|sh|zsh|do|then|else|if|elif|while|until|'!'|'{'|'{}'|-*|[0-9]*|[A-Za-z_]*=*) ;;
+            *) break ;;
+          esac
+        else # the subcommand: only git's global options may stand between (-C and -c take a value)
+          case ${w[i]} in
+            -C|-c) [ "$kind" = git ] && i=$((i + 1)) ;;
+            -*) ;;
+            worktree) wi=$i; break ;;
+            *) break ;;
+          esac
+        fi
+      done
+      [ "$wi" -ge 0 ] || continue
+      case $kind:${w[wi+1]:-} in git:remove|orca:rm|orca:remove|orca:delete) ;; *) continue ;; esac
+      # The target: git's first word that is no option, Orca's --worktree value; a redirect or comment ends it.
+      sel=
+      for ((j = wi + 2; j < n; j++)); do
+        case ${w[j]} in '#'*|'<'*|'>'*|[0-9]*'>'*|'&>'*) break ;; esac
+        if [ "$kind" = git ]; then
+          case ${w[j]} in -*) ;; *) sel=${w[j]}; break ;; esac
+        else
+          case ${w[j]} in
+            --worktree) sel=${w[j+1]:-}; case $sel in '#'*|'<'*|'>'*|[0-9]*'>'*|'&>'*) sel= ;; esac; break ;;
+            --worktree=*) sel=${w[j]#--worktree=}; break ;;
+          esac
+        fi
+      done
+      sel=${sel%%[<>]*}
+      case $sel in
+        '') [[ $cmd == *xargs* ]] || continue
+            deny "Worktree removal takes its target from xargs, which the hook cannot read before the command runs, so it cannot check whether a session still works there. $why" ;;
+        '{}'|*'$'*|*'`'*)
+          deny "Worktree removal of '$sel' takes its target from a variable, a substitution or xargs, which the hook cannot read before the command runs, so it cannot check whether a session still works there. $why" ;;
+      esac
+      p=
+      case $sel in
+        path:*) p=${sel#path:} ;;
+        id:*::*) p=${sel#*::} ;;
+        active|current) p=. ;;
+        *) if [ "$kind" = git ]; then p=$sel; else
+             orca_worktree_path "$sel"; p=$wt_path
+             if [ -z "$p" ] && [ -n "$orca_list" ] && [[ $sel == identity:* || $sel == issue:* ]]; then
+               deny "Worktree removal by '$sel' names a worktree the hook cannot find in orca worktree list, so it cannot check whether a session still works there. Use --worktree path:<absolute path> instead, or add '# worktree-checked: <reason>' once you have checked every session."
+             fi
+           fi ;;
+      esac
+      case $p in
+        '') continue ;;
+        '~') p=$HOME ;;
+        '~/'*) p=$HOME/${p#'~/'} ;;
+        '~'*) continue ;;
+      esac
+      if [[ $p != /* ]]; then
+        [ "$moved" = 1 ] && deny "Worktree removal of '$sel' is relative to the folder the command runs in, and the command also changes folder (cd or -C), so the hook cannot tell which worktree it names. Give the worktree's absolute path (git worktree remove /home/nadavcohen/orca/workspaces/<repo>/<name>, or --worktree path:<absolute path>), or add '# worktree-checked: <reason>' once you have checked every session."
+        [ "$p" = . ] && p=$cwd || p=$cwd/$p
+      fi
+      paths+=("$p")
+    done <<<"${line//[;&|()]/$'\n'}"
+  done <<<"$cmd"
+  [ "${#paths[@]}" -gt 0 ] || return 0
+  cleaner=${NADAVAI_HOME:-$HOME/nadavai}/bin/worktree-clean
+  [ -x "$cleaner" ] || cleaner=$(command -v worktree-clean 2>/dev/null) || return 0
+  for p in "${paths[@]}"; do args+=(--active "$p"); done
+  out=$(timeout 20 "$cleaner" "${args[@]}" 2>/dev/null) || return 0
+  [ -n "$out" ] || return 0
+  msg=$(awk -F'\t' '{printf "%s%s (%s)", (NR > 1 ? "; " : ""), $1, $2}' <<<"$out")
+  deny "Not removed: $msg. A session works in that worktree, or touched it within the last 3 days (worktree-clean's rule, config/worktree-clean.json). On 2026-11-03 a closeout removed 26 worktrees in two minutes, among them one whose session had left it 2.5 hours earlier. Ask Nadav about that worktree by name; once he says it is done, or you checked that its session ended, add '# worktree-checked: <reason>' to the command."
+}
+
 if [ "$is_agy" = 1 ]; then
   tool=$(jq -r '.toolCall.name // empty' <<<"$input" 2>/dev/null)
   case "$tool" in
@@ -792,6 +921,7 @@ if [ "$is_agy" = 1 ]; then
       cmd=$(jq -r '.toolCall.args.CommandLine // empty' <<<"$input")
       genlink_guard "$cmd"
       disk_search_guard "$cmd" "$(jq -r '.toolCall.args.Cwd // empty' <<<"$input")"
+      worktree_guard "$cmd" "$(jq -r '.toolCall.args.Cwd // empty' <<<"$input")"
       strict_guard "$cmd"
       merge_guard "$cmd" "$(jq -r '.toolCall.args.Cwd // empty' <<<"$input")"
       [ "$(jq -r '.toolCall.args.IsDaemon // false' <<<"$input")" = true ] && allow
@@ -905,6 +1035,7 @@ case "$tool" in
     vault_guard "$cmd"
     genlink_guard "$cmd"
     disk_search_guard "$cmd" "$cwd"
+    worktree_guard "$cmd" "$cwd"
     # Claude Code only: Codex (turn_id) and Grok (run_terminal_command) have no such removal check.
     if [ "$tool" = Bash ] && [ -z "$(jq -r '.turn_id // empty' <<<"$input" 2>/dev/null)" ]; then
       rm_guard "$cmd"
