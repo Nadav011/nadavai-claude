@@ -5,7 +5,8 @@
 // to ~/.claude/secrets/pasted-<time>.env (600), blocks the prompt with a Hebrew reason that
 // names only the type and the last 4 characters, and starts a detached child that scrubs the
 // values from history.jsonl, paste-cache and Orca's hook spool (Claude Code and Orca may write
-// them after the hook returns). Malformed input never blocks.
+// them after the hook returns). Payment cards (with the expiry and code after them) and a prompt
+// that is only one bare token count too (2026-11-10). Malformed input never blocks.
 // Tests: plugins/nadavai/tests/test-secret-paste-guard.sh.
 import fs from "node:fs";
 import os from "node:os";
@@ -22,6 +23,25 @@ const MAX = 50; // matches collected per prompt: enough to block, bounded so a h
 
 const PEM_HEAD = String.raw`-----BEGIN ([A-Z ]*)PRIVATE KEY-----\s+(?:[A-Za-z-]+:[^\n]*\n\s*)*`;
 const b64count = (v) => v.replace(/-----[A-Z ]+-----/g, "").replace(/^[A-Za-z-]+:.*$/gm, "").replace(/[^A-Za-z0-9+/=]/g, "").length;
+
+// Payment card: 13-19 digits starting 2-6 (Mastercard, Amex, Visa, Discover), contiguous or
+// grouped 4-4-4-4 / 4-6-5; an expiry and a 3-4 digit code right after it belong to the match.
+const CARD = "כרטיס אשראי";
+const CARD_NUM = String.raw`[2-6]\d{3}(?<s1>[ -])\d{4}\k<s1>\d{4}\k<s1>\d{4}|[2-6]\d{3}(?<s2>[ -])\d{6}\k<s2>\d{4,5}|[2-6]\d{12,18}`;
+const CARD_HEAD = new RegExp(`^(?:${CARD_NUM})`);
+const EXPIRY = String.raw`(?:0[1-9]|1[0-2])[\/.-](?:20[2-4]\d|[23]\d|4[0-5])(?![\/.-]?\d)`;
+const EXPIRY_RE = new RegExp(String.raw`(?<![\d\/.-])${EXPIRY}`);
+const CARD_SEP = String.raw`\s{0,4}(?:[\/,|;:-]\s{0,4})?(?:(?:exp(?:iry|ires)?|valid(?: thru)?|ו?תוקף|cvv2?|cvc|cid|ו?קוד(?: אבטחה)?)\s{0,2}[:=.-]?\s{0,4})?`;
+const CARD_WORD = /כרטיס|אשראי|תוקף|\b(?:cvv2?|cvc|cards?|visa|mastercard|amex)\b/i;
+const luhn = (d) => {
+  let s = 0;
+  for (let i = 0; i < d.length; i++) {
+    let n = +d[d.length - 1 - i];
+    if (i % 2) { n *= 2; if (n > 9) n -= 9; }
+    s += n;
+  }
+  return s % 10 === 0;
+};
 
 // Order matters: a match that overlaps an earlier one is skipped (sk-ant- before generic sk-).
 const PATTERNS = [
@@ -48,6 +68,26 @@ const PATTERNS = [
   ["Supabase secret key", /\bsb_secret_[A-Za-z0-9_-]{20,}/g],
   // Firebase web keys (AIza…) are public; only a line that calls it a server key counts.
   ["Google server key", /\bAIza[0-9A-Za-z_-]{35}\b/g, (_v, line) => /\b(?:secret|server|service)\b/i.test(line)],
+  // Luhn-valid, not inside a URL or path, and an expiry or a card word within ~60 characters:
+  // an order number, a phone, an ID or a timestamp alone passes.
+  [CARD, new RegExp(String.raw`(?<![\w.\/\\-])(?:${CARD_NUM})(?![\w\/\\]|\.\w)(?:${CARD_SEP}(?:${EXPIRY}|\d{3,4}(?![\w\/.]|-\d))){0,2}`, "gi"),
+    (v, _line, before, after) => {
+      const num = v.match(CARD_HEAD)[0];
+      if (!luhn(num.replace(/\D/g, ""))) return false;
+      if (/[\/\\?&#@]|www\./i.test(before.match(/\S*$/)[0])) return false;
+      const near = before.slice(-60) + " " + v.slice(num.length) + " " + after.slice(0, 60);
+      return CARD_WORD.test(near) || EXPIRY_RE.test(near);
+    }],
+  // A prompt that is nothing but one random-looking token. Inside a longer message such a string
+  // is usually an id, so only the whole prompt counts. No "." in the set keeps JWTs and URLs out.
+  ["טוקן ללא קידומת", /(?<=^\s{0,20})[A-Za-z0-9_+\/=-]{32,200}(?=\s{0,20}$)/g, (v) => {
+    if (!/[a-z]/.test(v) || !/[A-Z]/.test(v) || !/\d/.test(v) || new Set(v).size < 20) return false;
+    if (/^[0-9a-f-]+$/i.test(v)) return false; // UUID, git sha, hash
+    if (/^\/|\/$|\/\//.test(v)) return false; // file path
+    // A slug or identifier of words (kebab, snake, path segments or camelCase) is not a token.
+    const parts = v.split(/[-_\/+=]+|(?<=[a-z\d])(?=[A-Z])/).filter(Boolean);
+    return !(parts.length >= 3 && parts.every((p) => /^[A-Za-z][a-z]*\d*$|^\d+$/.test(p)));
+  }],
 ];
 
 function findSecrets(text) {
@@ -59,7 +99,7 @@ function findSecrets(text) {
       if (found.some((f) => start < f.end && end > f.start)) continue;
       if (keep) {
         const before = text.slice(Math.max(0, start - 300), start), after = text.slice(end, end + 300);
-        if (!keep(m[0], before.slice(before.lastIndexOf("\n") + 1) + m[0] + after.split("\n")[0])) continue;
+        if (!keep(m[0], before.slice(before.lastIndexOf("\n") + 1) + m[0] + after.split("\n")[0], before, after)) continue;
       }
       seen.add(m[0]);
       found.push({ type, value: m[0], start, end });
@@ -70,7 +110,8 @@ function findSecrets(text) {
 }
 
 const tail = ({ type, value }) =>
-  (type === "private key" ? value.replace(/-----[A-Z ]+-----/g, "").replace(/\s/g, "") : value).slice(-4);
+  (type === "private key" ? value.replace(/-----[A-Z ]+-----/g, "").replace(/\s/g, "")
+    : type === CARD ? value.match(CARD_HEAD)[0].replace(/\D/g, "") : value).slice(-4);
 
 function stamp(d = new Date()) {
   const p = (n) => String(n).padStart(2, "0");

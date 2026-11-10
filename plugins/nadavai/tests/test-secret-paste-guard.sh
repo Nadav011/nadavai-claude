@@ -30,6 +30,14 @@ SKL="sk_""live_$(rep e 24)"
 RKL="rk_""live_$(rep E 24)"
 SB="sb_""secret_$(rep f 24)"
 AIZA="AIza$(rep g 35)"
+# Public test card numbers (Stripe's Visa and Amex), built from parts; never a real card.
+CARD16="$(rep 4242 4)"
+CARD16G="$(rep '4242 ' 3)4242"
+AMEX="3782""82246310005"
+AMEX_D="3782-822463-10005"
+CARD_HE="תכניס גם ותבדוק שעובד $AMEX / 08.32 / 1234"
+# A generated 43-character mixed-case token (base64url of a fixed hash), not a real one.
+TOK=$(node -e 'process.stdout.write(require("crypto").createHash("sha256").update("paste-guard-test").digest("base64url"))')
 
 run() {  # prompt -> block|allow|bad (stdout of the hook in $tmp/out)
   local json; json=$(jq -n --arg p "$1" '{hook_event_name:"UserPromptSubmit",session_id:"s1",transcript_path:"/nonexistent",prompt:$p}')
@@ -62,6 +70,7 @@ spool_line() { jq -nc --arg p "$1" '{paneKey:"p",payload:{hook_event_name:"UserP
 spool_line "use $ANT" >"$SPOOL/pane-aaaa.jsonl"; chmod 600 "$SPOOL/pane-aaaa.jsonl"
 spool_line "the key: $PK" >"$tmp/orca/spool/pane-bbbb.jsonl"; chmod 600 "$tmp/orca/spool/pane-bbbb.jsonl"
 printf 'not a pane file %s\n' "$ANT" >"$SPOOL/other.txt"
+printf '%s\n' "$CARD_HE" >"$HOME/.claude/paste-cache/card.txt"
 
 # A second and third home: history.jsonl under a held lock, and under a stale one.
 for h in h2 h3; do mkdir -p "$tmp/$h/.claude"; done
@@ -99,6 +108,11 @@ check "in code fence"      block $'```\n'"$ANT"$'\n```'
 check "in pasted_content"  block $'<pasted_content id="1">\nexport X='"$GL"$'\n</pasted_content id="1">'
 check "pem without END"    block "${D}BEGIN PRIV""ATE KEY${D}"$'\n'"$(rep Ab12Cd34 8)"$'\n'"$(rep Ef56Gh78 8)"$'\n'"$(rep Ij90Kl12 8)"$'\n'"$(rep Mn34 4)"
 check "sk-proj with dashes" block "OPENAI_API_KEY=sk-proj-$(rep Ab1De2Gh3J- 12)"
+check "card 16 + expiry + cvv" block "pay with $CARD16G exp 12/29 cvv 123"
+check "card hebrew amex"   block "$CARD_HE"
+check "card amex dashes"   block "תכניס גם ותבדוק שעובד $AMEX_D / 08.32 / 1234"
+check "card word, no expiry" block "המספר של הכרטיס $CARD16"
+check "bare token alone"   block "$TOK"
 
 # --- these pass ---
 check "firebase web key"   allow "firebase apiKey: \"$AIZA\""
@@ -115,6 +129,21 @@ check "pem header + prose" allow "${D}BEGIN PRIV""ATE KEY${D}"$'\n'"this is wher
 check "pem short body"     allow "${D}BEGIN PRIV""ATE KEY${D}"$'\n'"$(rep Ab12Cd34 6)"
 check "sk- mixed branch"   allow "branch sk-Add-OAuth2-Support-For-Payments-Module-Refactor"
 check "aws docs example"   allow "aws_access_key_id = AKIA""IOSFODNN7""EXAMPLE"
+check "israeli phone"      allow "0541234567"
+check "9-digit id"         allow "ת.ז. 123456782"
+check "order no context"   allow "הזמנה מספר $CARD16"
+check "card fails luhn"    allow "$(rep 4242 3)4241 12/29"
+check "ms timestamp"       allow "created 1762780000000 card"
+check "card id in url"     allow "see https://shop.example/card/$CARD16 for the order"
+check "card id in path"    allow "card file at /var/data/$CARD16.json"
+check "uuid alone"         allow "0f8fad5b-d9cb-469f-a165-70867728950e"
+check "git sha alone"      allow "3f786850e387550fdab836ed7e6dc881de23001b"
+check "jwt alone"          allow "eyJ$(rep hbGciOiJIUzI1NiJ9 2).eyJ$(rep zdWIiOiIxMjM0 3).$(rep SflKxwRJ 4)"
+check "url alone"          allow "https://example.com/a/$TOK"
+check "token in sentence"  allow "the run id is $TOK, can you check it?"
+check "path alone"         allow "/home/someone/Projects/SomeRepo2/src/components/HeaderNav"
+check "camel id alone"     allow "useSecretPasteGuardHookForClaudeCode2Agents"
+check "kebab slug alone"   allow "fix-Secret-guard-cards-and-bare-tokens-2026-round2"
 
 # --- a 1 MB paste stays fast and still blocks (at most 50 kept, 5 listed) ---
 awk 'BEGIN { for (i = 0; i < 50000; i++) printf "AKIA%016d\n", i }' >"$tmp/big.txt"
@@ -150,8 +179,28 @@ case "$REASON_ANT" in *"נעצרה"*"${ANT: -4}"*"pasted-"*"vault-login-add"*) e
 case "$REASON_PK" in *"private key"*"7Qq7"*) expect "private key reason tail" ok ok ;; *) expect "private key reason tail" ok bad ;; esac
 expect "suppressOriginalPrompt" true "$SUPPRESS"
 
-# --- saved files ---
+# --- a blocked card: number, expiry and code saved, only the last 4 shown, none on stdout/stderr ---
 S="$HOME/.claude/secrets"
+card_case() {  # name prompt number expiry code last4
+  local json saved out
+  json=$(jq -n --arg p "$2" '{hook_event_name:"UserPromptSubmit",prompt:$p}')
+  printf '%s' "$json" | node "$GUARD" >"$tmp/card.out" 2>"$tmp/card.err"
+  saved=$(jq -r '.reason' "$tmp/card.out" | grep -o "$S/pasted-[0-9-]*\.env")
+  if [ -n "$saved" ] && grep -qF -- "$3" "$saved" && grep -qF -- "$4" "$saved" && grep -qF -- "$5" "$saved"; then
+    expect "$1: saved number+expiry+code" ok ok; else expect "$1: saved number+expiry+code" ok missing; fi
+  case "$(jq -r '.reason' "$tmp/card.out")" in *"כרטיס אשראי שמסתיים ב-$6"*) expect "$1: reason type + last 4" ok ok ;;
+    *) expect "$1: reason type + last 4" ok bad ;; esac
+  out=$(cat "$tmp/card.out" "$tmp/card.err"); out=${out//"$saved"/}
+  local v leak=no
+  for v in "$3" "${3//[ -]/}" "$4" "$5"; do case "$out" in *"$v"*) leak=yes ;; esac; done
+  expect "$1: no value on stdout/stderr" no "$leak"
+}
+card_case "visa"  "pay with $CARD16G exp 12/29 cvv 123" "$CARD16G" "12/29" "123" 4242
+card_case "amex"  "$CARD_HE" "$AMEX" "08.32" "1234" 0005
+card_case "amex dashes" "תכניס גם ותבדוק שעובד $AMEX_D / 08.32 / 1234" "$AMEX_D" "08.32" "1234" 0005
+grep -rqF -- "# טוקן ללא קידומת" "$S" && grep -rqF -- "'$TOK'" "$S" && expect "saved bare token" ok ok || expect "saved bare token" ok missing
+
+# --- saved files ---
 expect "secrets dir 700" 700 "$(stat -c %a "$S")"
 bad_mode=$(find "$S" -name 'pasted-*.env' ! -perm 600 | wc -l)
 expect "saved files 600" 0 "$bad_mode"
@@ -175,6 +224,7 @@ expect "home paste scrubbed" "pasted text with [REDACTED-SECRET] inside" "$(cat 
 expect "cfg paste scrubbed" "other paste [REDACTED-SECRET]" "$(cat "$CLAUDE_CONFIG_DIR/paste-cache/bbbb.txt")"
 expect "paste mode kept" 640 "$(stat -c %a "$CLAUDE_CONFIG_DIR/paste-cache/bbbb.txt")"
 expect "clean paste untouched" "no secrets here" "$(cat "$CLAUDE_CONFIG_DIR/paste-cache/cccc.txt")"
+expect "card paste scrubbed" "תכניס גם ותבדוק שעובד [REDACTED-SECRET]" "$(cat "$HOME/.claude/paste-cache/card.txt")"
 grep -rqF -- "PASTED_1='$ANT'" "$S" && expect "secrets not scrubbed" ok ok || expect "secrets not scrubbed" ok scrubbed
 expect "no scrub temp left" 0 "$(find "$tmp" -name '*.scrub-*' | wc -l)"
 expect "nothing left in TMPDIR" 0 "$(find "$TMPDIR" -type f | wc -l)"
