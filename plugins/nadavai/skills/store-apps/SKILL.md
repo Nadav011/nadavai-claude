@@ -13,9 +13,30 @@ IDs, and keep their IDs out of this public repo.
 | Bundled app + signed self-hosted OTA | MediZen and RetroBarber | OTA live and published by the deploy service. RetroBarber Android has been public on Play since 7.11, with `STORE_LIVE.retrobarber.android` true (therapy-flow-v2 PR 200). MediZen Android and both iOS apps are in review. | therapy-flow-v2 `planning/native-apps-2026-11-06/` (OTA.md, SHELLS.md, IOS-BUILD.md, RELEASE.md, PUSH-GOOGLE.md, ACCOUNT-DELETION.md, REVIEWER-LOGIN.md), `scripts/native/`, `native/apps.json`, `src/lib/native/`, `codemagic.yaml` |
 | Remote-URL shell + update gate | The Green Room | Live in both stores; customers moved to the store apps, update gate shipped off. | snooker-smart `capacitor.config.ts`, PR #145 (`gh pr diff 145 -R Nadav011/snooker-smart`) |
 
-General Capacitor topics (CLI, config, icons, splash, deep links, plugins) live in the
-`capacitor-app-development` and `capacitor-plugins` skills; phone feel of the web layer in
-`mobile-native`. This skill holds only what those do not: the decisions, the order and the traps.
+General Capacitor topics live in their own skills, one owner per topic; load the one the step
+needs. This skill holds only what those do not: the decisions, the order and the traps.
+
+| Topic | Skill |
+|---|---|
+| CLI, config, platforms, app icons, storage, troubleshooting | `capacitor-app-development` |
+| Choosing and installing a plugin | `capacitor-plugins` |
+| Notch, home indicator, edge-to-edge, status bar | `safe-area-handling` |
+| Keyboard covering inputs, resize modes | `capacitor-keyboard` |
+| Splash screen | `capacitor-splash-screen` |
+| Universal links, App Links, custom schemes | `capacitor-deep-linking` |
+| Push (FCM, APNs), channels, permission timing | `capacitor-push-notifications` |
+| VoiceOver, TalkBack, text size, contrast in the shell | `capacitor-accessibility` |
+| Apple App Review before a submission or after a rejection | `capacitor-apple-review-preflight` |
+| iPad Split View, Stage Manager, foldables | `capacitor-ios-resizability` |
+| UIScene lifecycle (Capacitor 8.5, Xcode 27) | `capacitor-uiscene-migration` |
+| R8, shrinking, DEX size (Play's February 2027 rule) | `capacitor-android-dex-optimization` |
+| Startup time, memory, WebView performance | `capacitor-performance` |
+| A bug that only happens on the device; reading device logs | `debugging-capacitor`, `ios-android-logs` |
+| Phone feel of the web layer | `mobile-native` |
+
+Those skills are third-party text (`plugins/nadavai/skills/VENDORED.md`). Where one of them
+disagrees with this skill or with `rules/store-apps.md` (a remote shell's `server.url`, OTA, who
+publishes), this skill and the rule win.
 
 Approval gates still apply at every step (`rules/working-style.md`, `rules/acting-on-behalf.md`):
 a public release (a build, a raise of a staged rollout, the first listing, a change to a live

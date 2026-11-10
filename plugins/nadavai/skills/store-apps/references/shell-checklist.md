@@ -1,8 +1,10 @@
 # Shell setup checklist
 
 One row per item. Each row has a check that decides pass or fail. Rows marked "bundled" apply
-only to the OTA model. Generic how-to (icons, splash, deep-link files, plugin install) is in the
-`capacitor-app-development` and `capacitor-plugins` skills.
+only to the OTA model. Generic how-to is in the Capacitor skills listed in this skill's SKILL.md (app icons in
+`capacitor-app-development`, splash in `capacitor-splash-screen`, deep-link files in
+`capacitor-deep-linking`, plugin install in `capacitor-plugins`, safe areas in
+`safe-area-handling`, keyboard in `capacitor-keyboard`).
 
 | # | Item | Check | Why |
 |---|---|---|---|
