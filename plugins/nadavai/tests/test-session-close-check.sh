@@ -105,10 +105,15 @@ has "clean: working tree OK" '^OK +Working tree: clean' "$out"
 has "clean: stash OK" '^OK +Stash: none' "$out"
 has "clean: branch OK" '^OK +Branch: main: tracks origin/main, every commit is on a remote' "$out"
 has "clean: main OK" '^OK +Main: HEAD [0-9a-f]{7} is in origin/main' "$out"
-has "clean on main: deploy SKIP, no commit of its own (N5)" "^SKIP +Deploy: therapy-flow-v2: no commit of this session to deploy" "$out"
+has "back on main, own0 landed here (C6-1): deploy OK" "^OK +Deploy: therapy-flow-v2: production serves this session's commit ${MAIN:0:7}" "$out"
 has "clean: worktrees OK" '^OK +Worktrees: no other worktree' "$out"
 expect "clean: last line is CLOSE yes" "CLOSE: yes" "$(tail -1 <<<"$out")"
 expect "fetch ran (the no-fetch probe can see one)" yes "$([ -e "$R/.git/FETCH_HEAD" ] && echo yes || echo no)"
+# Q: a fresh clone that made no commit and left no branch: nothing of its own, so Deploy SKIP and no ssh
+Q="$tmp/q/therapy-flow-v2"; git clone -q "$tmp/origin.git" "$Q" 2>/dev/null
+: >"$CALLS"
+out=$(check "$Q")
+has "clean on main: deploy SKIP, no commit of its own (N5)" "^SKIP +Deploy: therapy-flow-v2: no commit of this session to deploy" "$out"
 expect "clean on main: ssh not called" "" "$(grep -E '^ssh ' "$CALLS")"
 # M6: the fetch starts no gc or maintenance in a repo other sessions share.
 has "fetch: no gc" '^git -C .* -c gc.auto=0 -c maintenance.auto=false fetch --quiet origin' "$(cat "$CALLS")"
@@ -232,18 +237,21 @@ git -C "$tmp/pusher" pull -q --ff-only; echo three >>"$tmp/pusher/a.txt"; git -C
 git -C "$tmp/pusher" push -q origin main 2>/dev/null
 git -C "$R" pull -q --ff-only
 live manual "$MAIN"
+git -C "$Q" pull -q --ff-only
 : >"$CALLS"
-out=$(check "$R")
+out=$(check "$Q")
 has "N5 main after a pull: deploy SKIP" "^SKIP +Deploy: therapy-flow-v2: no commit of this session to deploy" "$out"
 expect "N5 main after a pull: ssh not called" "" "$(grep -E '^ssh ' "$CALLS")"
 hasnt "N5 main after a pull: no Deploy NOTE" '^NOTE +Deploy' "$out"
 hasnt "N5 main after a pull: no deploy command" 'nadavai-deploy deploy' "$out"
 has "N5 main after a pull: CLOSE yes" '^CLOSE: yes$' "$out"
-git -C "$R" checkout -q -b fresh origin/main 2>/dev/null
-out=$(check "$R")
+git -C "$Q" checkout -q -b fresh origin/main 2>/dev/null
+out=$(check "$Q")
 has "N5 fresh branch from main: deploy SKIP" "^SKIP +Deploy: therapy-flow-v2: no commit of this session to deploy" "$out"
 hasnt "N5 fresh branch from main: no deploy command" 'nadavai-deploy deploy' "$out"
 has "N5 fresh branch from main: CLOSE yes" '^CLOSE: yes$' "$out"
+git -C "$Q" checkout -q main; git -C "$Q" branch -q -D fresh
+git -C "$R" checkout -q -b fresh origin/main 2>/dev/null
 echo four >>"$R/a.txt"; git -C "$R" commit -qam four; git -C "$R" push -q origin HEAD:main 2>/dev/null
 OWNC=$(git -C "$R" rev-parse HEAD)
 out=$(check "$R")
@@ -282,7 +290,7 @@ has "unknown to deploy service: SKIP" '^SKIP +Deploy: therapy-flow-v2: not handl
 # nothing of this session's in main: no ssh at all, so an unreachable VM leaves the answer yes
 back_to_main own1
 printf '' >"$tmp/fake/ssh.out"; printf 255 >"$tmp/fake/ssh.rc"; : >"$CALLS"
-out=$(check "$R")
+out=$(check "$Q")
 has "nothing of its own: Deploy SKIP" '^SKIP +Deploy: therapy-flow-v2: no commit of this session to deploy' "$out"
 expect "nothing of its own: ssh not called" "" "$(grep -E '^ssh ' "$CALLS")"
 has "nothing of its own: CLOSE yes with ssh down" '^CLOSE: yes$' "$out"
@@ -306,6 +314,54 @@ has "N9 fetch reason: the first fatal line" '^UNCHECKED +Fetch: not fetched: fat
 hasnt "N9 fetch reason: not the last stderr line" 'repository exists' "$out"
 has "fetch fails: CLOSE unknown" '^CLOSE: unknown' "$out"
 git -C "$R" remote set-url origin "$tmp/origin.git"
+
+# --- C6-1: landed work HEAD no longer shows: a merged PR of a branch it left (kept or deleted), a commit on main ---
+clone_tf() { git clone -q "$tmp/origin.git" "$tmp/$1/therapy-flow-v2" 2>/dev/null; printf '%s' "$tmp/$1/therapy-flow-v2"; }
+A=$(clone_tf a1)
+git -C "$A" checkout -q -b feat1; echo a >"$A/a1.txt"; git -C "$A" add a1.txt; git -C "$A" commit -qm feat1
+git -C "$A" push -q -u origin feat1 2>/dev/null; F1=$(git -C "$A" rev-parse HEAD)
+git -C "$tmp/pusher" pull -q --ff-only; echo a >"$tmp/pusher/a1.txt"; git -C "$tmp/pusher" add a1.txt
+git -C "$tmp/pusher" commit -qm "feat1 (#20)"; git -C "$tmp/pusher" push -q origin main 2>/dev/null
+SQ1=$(git -C "$tmp/pusher" rev-parse HEAD); live manual "$(git -C "$tmp/pusher" rev-parse HEAD~1)"
+gh_says "[$(pr 20 MERGED main "$F1" "$SQ1")]"
+git -C "$A" switch -q main; git -C "$A" pull -q --ff-only
+out=$(check "$A")
+has "C6-1 A1 squash-merged, back on main: Deploy OPEN" "^OPEN +Deploy: therapy-flow-v2: this session's commit ${SQ1:0:7} is in origin/main but not live" "$out"
+has "C6-1 A1: the deploy command" 'ssh nadavai-vm nadavai-deploy deploy therapy-flow-v2 ' "$out"
+out=$(check --no-fetch "$A")
+has "C6-1 A1 no-fetch: Deploy UNCHECKED, not SKIP" '^UNCHECKED +Deploy: therapy-flow-v2: HEAD is in origin/main; whether this session landed work it left: PRs of feat1 not checked: --no-fetch' "$out"
+git -C "$A" branch -q -D feat1
+: >"$CALLS"
+out=$(check "$A")
+has "C6-1 A2 branch deleted (gh pr merge -d): Deploy OPEN" "^OPEN +Deploy: therapy-flow-v2: this session's commit ${SQ1:0:7} is in origin/main but not live" "$out"
+has "C6-1 A2: gh asked by the branch name from the reflog" '^gh pr list --head feat1 ' "$(cat "$CALLS")"
+gh_says 'not json'
+out=$(check "$A")
+has "C6-1 gh fails: Deploy UNCHECKED" '^UNCHECKED +Deploy: therapy-flow-v2: HEAD is in origin/main; whether this session landed work it left: PR of feat1 not checked' "$out"
+hasnt "C6-1 gh fails: never yes" '^CLOSE: yes' "$out"
+gh_says "[$(pr 20 MERGED main "$F1" "$SQ1")]"; live manual "$SQ1"
+out=$(check "$A")
+has "C6-1 A2 merge live: Deploy OK" "^OK +Deploy: therapy-flow-v2: production serves this session's commit ${SQ1:0:7}" "$out"
+gh_says '[]'
+B=$(clone_tf b)
+echo b >>"$B/a.txt"; git -C "$B" commit -qam b-direct; git -C "$B" push -q origin main 2>/dev/null
+BC=$(git -C "$B" rev-parse HEAD); live manual "$(git -C "$B" rev-parse HEAD~1)"
+out=$(check "$B")
+has "C6-1 B committed on main, not live: Deploy OPEN" "^OPEN +Deploy: therapy-flow-v2: this session's commit ${BC:0:7} is in origin/main but not live" "$out"
+live manual "$BC"
+out=$(check "$B")
+has "C6-1 B live: Deploy OK" "^OK +Deploy: therapy-flow-v2: production serves this session's commit ${BC:0:7}" "$out"
+# --- C6-3: a branch whose own commit was dropped (reset --hard origin/main) has nothing of its own in main ---
+C=$(clone_tf c)
+git -C "$C" checkout -q -b try; echo t >"$C/t.txt"; git -C "$C" add t.txt; git -C "$C" commit -qm try
+git -C "$tmp/pusher" pull -q --ff-only; echo c >>"$tmp/pusher/a.txt"; git -C "$tmp/pusher" commit -qam other-c
+git -C "$tmp/pusher" push -q origin main 2>/dev/null
+git -C "$C" fetch -q; git -C "$C" reset -q --hard origin/main
+live manual "$(git -C "$C" rev-parse HEAD~1)"
+out=$(check "$C")
+has "C6-3 dropped own commit: Deploy SKIP" '^SKIP +Deploy: therapy-flow-v2: no commit of this session to deploy' "$out"
+hasnt "C6-3 dropped own commit: no deploy command for others' merges" 'nadavai-deploy deploy' "$out"
+git -C "$R" pull -q --ff-only; live manual "$(git -C "$R" rev-parse origin/main)"
 
 # --- H2: another worktree with uncommitted changes is a NOTE, not counted ---
 git -C "$R" worktree add -q "$tmp/wt2" -b side 2>/dev/null
@@ -355,6 +411,13 @@ echo d >>"$L/l.txt"
 out=$(check "$L")
 has "N2 local-only: uncommitted still OPEN" '^OPEN +Working tree: 1 uncommitted' "$out"
 has "N2 local-only: CLOSE no" '^CLOSE: no \(1 open\)$' "$out"
+
+# --- C6-5: a repo whose remote was removed is not local-only: its push state is unknown ---
+G="$tmp/w/removedremote"; git clone -q "$tmp/origin.git" "$G" 2>/dev/null
+echo g >>"$G/a.txt"; git -C "$G" commit -qam g; git -C "$G" remote remove origin
+out=$(check --no-fetch "$G")
+has "C6-5 removed remote: Branch UNCHECKED" '^UNCHECKED +Branch: main: the remote was removed: push state unknown' "$out"
+hasnt "C6-5 removed remote: never yes" '^CLOSE: yes' "$out"
 
 # --- N6: origin's default branch comes from origin/HEAD; with no main ref at all Main is UNCHECKED ---
 git init -q --bare "$tmp/dev.git"; D="$tmp/w/devrepo"; git clone -q "$tmp/dev.git" "$D" 2>/dev/null
@@ -452,7 +515,14 @@ landed own2
 out=$("$TOOL" --no-fetch --json "$R")
 expect "json: close unknown" "unknown 1" "$(jq -r '"\(.close) \(.unchecked)"' <<<"$out" 2>/dev/null)"
 "$TOOL" --bogus >/dev/null 2>&1; expect "usage error exit 2" 2 "$?"
-"$TOOL" "$tmp/does-not-exist" >/dev/null 2>&1; expect "missing dir exit 2" 2 "$?"
+# C6-4: a dir that does not exist is UNCHECKED for that dir; the others are still checked; --json stays valid
+out=$(check --no-fetch "$tmp/plain" "$tmp/does-not-exist"); rc=$?
+expect "C6-4 missing dir: exit 0" 0 "$rc"
+has "C6-4 missing dir: UNCHECKED" "^UNCHECKED +Repo: $tmp/does-not-exist: no such directory" "$out"
+has "C6-4 missing dir: the other dir still checked" "^SKIP +Repo: $tmp/plain is not in a git repo" "$out"
+has "C6-4 missing dir: CLOSE unknown" '^CLOSE: unknown \(1 not checked: Repo\)$' "$out"
+out=$("$TOOL" --no-fetch --json "$tmp/does-not-exist")
+expect "C6-4 json valid: close unknown, dir named" "unknown $tmp/does-not-exist" "$(jq -r '"\(.close) \(.missing[0])"' <<<"$out" 2>/dev/null)"
 
 echo "session-close-check: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
