@@ -31,6 +31,7 @@ export VITEST_MAX_FORKS="$NADAVAI_JOBS"
 export RAYON_NUM_THREADS="$NADAVAI_JOBS"
 export UV_THREADPOOL_SIZE=8
 export NEXT_TELEMETRY_DISABLED=1
+export IMPECCABLE_NO_TELEMETRY=1
 
 # --- Modern CLI --------------------------------------------------------------
 command -v batcat  >/dev/null 2>&1 && alias cat='batcat --style=plain'
