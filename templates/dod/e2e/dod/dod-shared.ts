@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { CheckResult, ProbeAt } from "./standard-dom";
+import { DOM_CHECK_IDS, type CheckResult, type ProbeAt } from "./standard-dom";
 
 /**
  * The project root: the directory the run starts from (`pnpm dod` runs in the package
@@ -206,6 +206,8 @@ export interface StandardConfig {
   profile: "work-tool" | "consumer";
   /** `report` writes findings to dod.json and leaves the score alone; `enforce` deducts. */
   mode: "enforce" | "report";
+  /** In `report` mode, the check ids that already deduct, so a project moves them one at a time. */
+  enforce?: string[];
   /** Smallest text the probe accepts, in px. */
   textFloorPx: number;
   helpDir?: string;
@@ -251,7 +253,16 @@ export function loadStandard(): StandardConfig | null {
   const forbiddenWords = raw.forbiddenWords ?? [];
   if (!Array.isArray(forbiddenWords) || forbiddenWords.some((w) => typeof w !== "string" || !w.trim()))
     bad('"forbiddenWords" must be a list of non-empty strings');
+  const known: string[] = [...DOM_CHECK_IDS, "state-coverage", "core-unit", "probe"];
+  if (raw.enforce !== undefined && (!Array.isArray(raw.enforce) || raw.enforce.some((id) => !known.includes(id))))
+    bad(`"enforce" must be a list of check ids (${known.join(", ")})`);
   return { ...raw, profile, mode, textFloorPx, forbiddenWords } as StandardConfig;
+}
+
+/** Whether a check id costs points: every id in `enforce` mode, the ids listed in `enforce` in `report`. */
+export function standardEnforced(cfg: StandardConfig | null): (id: string) => boolean {
+  if (!cfg) return () => false;
+  return (id) => cfg.mode === "enforce" || (cfg.enforce ?? []).includes(id);
 }
 
 export function routeSlug(route: string): string {
@@ -329,6 +340,10 @@ export interface EntryResult {
   standard?: Record<string, CheckResult>;
   /** A failure of the standard's machinery itself (never of the page): recorded, never scored. */
   standard_error?: string;
+  /** Why the standard's checks ran a second time on this entry (the first try's error): set
+   *  when a check errored on the time budget, or on any error under CI, and the page still
+   *  answered. Only the second try's results are kept. */
+  standard_retried?: string;
   /** The mechanical probe, by size ("320x700"); light scheme only. */
   probe?: Record<string, ProbeAt>;
 }
@@ -347,8 +362,12 @@ export interface Totals {
   reduced_motion_violations: number;
   /** The standard's findings: every count, summed over routes (each route's highest entry). */
   standard_findings: number;
-  /** Check ids with findings, one per route and check id. Deducted only in `enforce` mode. */
+  /** Check ids with findings, one per route and check id, enforced or not. */
   standard_failures: number;
+  /** Check ids that could not finish (an error), one per route and check id, enforced or not. */
+  standard_errored: number;
+  /** Check ids that cost points: enforced ones with findings or an error, one per route and check id. */
+  standard_scored: number;
   score: number;
 }
 
@@ -361,14 +380,15 @@ export interface Totals {
  *  -10 if font families > 2
  *  -2 per touch-target failure (capped at -20)
  *  -10 per reduced-motion violation
- *  -10 (STANDARD_PENALTY) per standard check id with findings on a route, in `enforce` mode only
+ *  -10 (STANDARD_PENALTY) per enforced standard check id on a route with findings or an error (a
+ *     check that could not measure is never a pass); none for a check id in `report` mode
  *  -100 if any entry was unreachable (non-2xx, a redirect to a login screen, or a load error):
  *     a page the QA account cannot open is not "passing", it is unmeasured.
  *  -100 if any entry was never reached: the response arrived but the app did not paint.
  *     Same reason, one layer up — averaging an unrendered page in as "perfect" is the
  *     single failure mode that makes the whole number a lie.
  */
-export function score(t: Omit<Totals, "score">, enforceStandard = false): number {
+export function score(t: Omit<Totals, "score">): number {
   if (t.unreachable > 0) return 0;
   if (t.unreached > 0) return 0;
   let s = 100;
@@ -378,7 +398,7 @@ export function score(t: Omit<Totals, "score">, enforceStandard = false): number
   if (t.font_families > 2) s -= 10;
   s -= Math.min(20, 2 * t.touch_target_failures);
   s -= 10 * t.reduced_motion_violations;
-  if (enforceStandard) s -= STANDARD_PENALTY * t.standard_failures;
+  s -= STANDARD_PENALTY * t.standard_scored;
   return Math.max(0, Math.min(100, s));
 }
 
@@ -387,9 +407,10 @@ export function score(t: Omit<Totals, "score">, enforceStandard = false): number
  * touch targets, reduced motion) are counted once per route as the max across its
  * viewport/scheme entries, so the same defect isn't charged four times. Overflow is
  * counted per entry (mobile vs desktop overflow are distinct defects). The standard's
- * checks are per page too: a check id counts once per route, at its highest entry.
+ * checks are per page too: a check id counts once per route, at its highest entry. `enforced`
+ * says which check ids cost points (standardEnforced).
  */
-export function aggregate(entries: EntryResult[], enforceStandard = false): Totals {
+export function aggregate(entries: EntryResult[], enforced: (id: string) => boolean = () => false): Totals {
   const byRoute = new Map<string, EntryResult[]>();
   for (const e of entries) byRoute.set(e.route, [...(byRoute.get(e.route) ?? []), e]);
   const max = (xs: number[]) => (xs.length ? Math.max(...xs) : 0);
@@ -405,11 +426,15 @@ export function aggregate(entries: EntryResult[], enforceStandard = false): Tota
     reduced_motion_violations: 0,
     standard_findings: 0,
     standard_failures: 0,
+    standard_errored: 0,
+    standard_scored: 0,
   };
   for (const es of byRoute.values()) {
-    for (const c of Object.values(routeStandard(es))) {
+    for (const [id, c] of Object.entries(routeStandard(es))) {
       t.standard_findings += c.count;
       if (c.count > 0) t.standard_failures++;
+      if (c.error) t.standard_errored++;
+      if (enforced(id) && (c.count > 0 || c.error)) t.standard_scored++;
     }
     t.axe_violations += max(es.map((e) => e.axe.scored));
     t.axe_recorded += max(es.map((e) => e.axe.counted));
@@ -417,15 +442,16 @@ export function aggregate(entries: EntryResult[], enforceStandard = false): Tota
     t.touch_target_failures += max(es.filter((e) => e.touch_targets.checked).map((e) => e.touch_targets.failures));
     t.reduced_motion_violations += max(es.map((e) => e.reduced_motion.violations));
   }
-  return { ...t, score: score(t, enforceStandard) };
+  return { ...t, score: score(t) };
 }
 
 /**
  * One route's standard checks from its entries: each check id at its highest entry, with
  * that entry's samples labelled by viewport and scheme. `skipped` only when every entry
- * that ran the check skipped it.
+ * that ran the check skipped it. `verdict` says it in words: "errored" (the check could not
+ * finish on some entry, whatever it found), "found N", "skipped" or "clean".
  */
-export function routeStandard(es: EntryResult[]): Record<string, CheckResult> {
+export function routeStandard(es: EntryResult[]): Record<string, CheckResult & { verdict: string }> {
   const out: Record<string, CheckResult> = {};
   for (const e of es) {
     for (const [id, c] of Object.entries(e.standard ?? {})) {
@@ -451,5 +477,10 @@ export function routeStandard(es: EntryResult[]): Record<string, CheckResult> {
       if (c.error) out[id].error ??= `${at}: ${c.error}`;
     }
   }
-  return out;
+  return Object.fromEntries(
+    Object.entries(out).map(([id, c]) => [
+      id,
+      { ...c, verdict: c.error ? "errored" : c.count ? `found ${c.count}` : c.skipped ? "skipped" : "clean" },
+    ]),
+  );
 }

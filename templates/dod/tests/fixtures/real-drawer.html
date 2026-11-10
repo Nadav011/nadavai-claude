@@ -1,0 +1,41 @@
+<!doctype html>
+<!-- Reviewer round 3. Stock shadcn Drawer (vaul) open from the bottom on a phone screen: Radix
+     Dialog under vaul puts aria-hidden on the page. Inside: the stock drawer-demo stepper (a
+     decrease button disabled at the minimum, the count shown in a div, not an input). -->
+<html lang="he" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>r3-drawer</title><link rel="stylesheet" href="/real.css"><link rel="stylesheet" href="/real-extra.css">
+<style>
+[data-slot="drawer-overlay"] { position: fixed; inset: 0; background: rgb(0 0 0 / .5); z-index: 50; }
+[data-slot="drawer-content"] { position: fixed; inset-inline: 0; bottom: 0; max-height: 80vh; border-top: 1px solid var(--border); border-radius: 10px 10px 0 0; background: #fff; z-index: 50; display: flex; flex-direction: column; }
+.handle { width: 100px; height: 8px; border-radius: 999px; background: var(--muted); margin: 16px auto 0; }
+[data-slot="drawer-header"] { padding: 16px; text-align: center; }
+[data-slot="drawer-title"] { font-size: 16px; font-weight: 600; margin: 0; }
+[data-slot="drawer-description"] { font-size: 14px; color: var(--muted-foreground); margin: 4px 0 0; }
+.stepper { display: flex; align-items: center; justify-content: center; gap: 16px; padding: 16px; }
+.stepper .val { font-size: 56px; font-weight: 700; line-height: 1; }
+.stepper .unit { font-size: 12px; color: var(--muted-foreground); }
+.round { width: 32px; height: 32px; border-radius: 999px; padding: 0; }
+@media (pointer: coarse) { .round { width: 44px; height: 44px; } }
+[data-slot="drawer-footer"] { display: flex; flex-direction: column; gap: 8px; padding: 16px; }
+</style></head><body>
+<header aria-hidden="true"><span>סטודיו מיכל</span><a data-help="door" data-slot="button" class="border" href="#help">עזרה</a></header>
+<main aria-hidden="true" data-vaul-drawer-wrapper="">
+  <div class="page-head"><h1>התורים שלי</h1><a data-help="screen" href="#help">מה עושים כאן</a></div>
+  <p>יוגה בוקר, יום ראשון 16 בנובמבר, 08:00</p>
+  <button type="button" data-slot="button" class="border">ביטול התור</button>
+</main>
+<div data-vaul-overlay="" data-vaul-snap-points="false" data-vaul-snap-points-overlay="true" data-state="open" data-slot="drawer-overlay" style="pointer-events:auto"></div>
+<div role="dialog" id="radix-«d1»" aria-describedby="radix-«d3»" aria-labelledby="radix-«d2»" data-state="open" data-vaul-drawer-direction="bottom" data-vaul-drawer="" data-vaul-delayed-snap-points="false" data-vaul-snap-points="false" data-vaul-custom-container="false" data-vaul-animate="true" data-slot="drawer-content" tabindex="-1">
+  <div class="handle"></div>
+  <div data-slot="drawer-header"><h2 id="radix-«d2»" data-slot="drawer-title">כמה מקומות לשמור?</h2><p id="radix-«d3»" data-slot="drawer-description">אפשר לשמור עד 4 מקומות בשיעור.</p></div>
+  <div class="stepper">
+    <button type="button" data-slot="button" class="border round" disabled><svg aria-hidden="true" width="16" height="16"></svg><span class="sr-only">הפחתה</span></button>
+    <div style="text-align:center"><div class="val">1</div><div class="unit">מקומות</div></div>
+    <button type="button" data-slot="button" class="border round"><svg aria-hidden="true" width="16" height="16"></svg><span class="sr-only">הוספה</span></button>
+  </div>
+  <div data-slot="drawer-footer">
+    <button type="button" data-slot="button" class="bg-primary">שמירת המקום</button>
+    <button type="button" data-slot="drawer-close" style="height:36px;border:1px solid var(--border);border-radius:6px;background:#fff;font:inherit;font-size:14px">ביטול</button>
+  </div>
+</div>
+</body></html>

@@ -61,7 +61,8 @@ const splitState = (route) => {
 /**
  * @param {{ root: string, entries: (string | { route: string, static?: boolean })[], patternOf?: Map<string, string> }} o
  *   patternOf maps a measured route ("/orders/1") to the pattern it was filled from ("/orders/[id]").
- * @returns {null | { mode: string, failures: { check: string, message: string }[] }}
+ * @returns {null | { mode: string, enforce?: string[], failures: { check: string, message: string }[] }}
+ *   `enforce`: in report mode, the check ids that fail anyway (standard.json "enforce").
  *   null when the project has no e2e/dod/standard.json.
  */
 export function standardCheck(o) {
@@ -87,6 +88,8 @@ function check({ root, entries, patternOf = new Map() }) {
   const failures = [];
   const fail = (check, message) => failures.push({ check, message });
   if (mode !== "enforce" && mode !== "report") fail("standard.json", `mode must be "enforce" or "report", not ${JSON.stringify(mode)}`);
+  if (cfg.enforce !== undefined && (!Array.isArray(cfg.enforce) || cfg.enforce.some((id) => typeof id !== "string")))
+    fail("standard.json", '"enforce" must be a list of check ids');
   if (cfg.coreUnit && !entries.some((e) => routeOf(e) === cfg.coreUnit.route))
     fail("standard.json", `coreUnit.route ${cfg.coreUnit.route} is not in routes.json, so core-unit would never run`);
   for (const e of entries)
@@ -168,5 +171,5 @@ function check({ root, entries, patternOf = new Map() }) {
     }
   }
 
-  return { mode, failures };
+  return { mode, enforce: Array.isArray(cfg.enforce) ? cfg.enforce : [], failures };
 }

@@ -241,13 +241,16 @@ if (process.argv.includes("--check")) {
   // A configuration error (standard.json itself, routes.json flags) fails in either mode: the
   // checks cannot be trusted until it is fixed. Findings fail only in enforce mode.
   const configError = std.failures.some((f) => f.check === "standard.json");
-  const enforce = std.mode === "enforce";
+  // A check id listed under "enforce" fails in report mode too.
+  const failing = std.failures.filter((f) => std.mode === "enforce" || (std.enforce ?? []).includes(f.check));
   console.log(
     `dod-standard (${std.mode}): ${std.failures.length} finding(s) in the static checks` +
-      (std.failures.length && !enforce && !configError ? " (report mode: not failing)" : "") +
+      (std.failures.length > failing.length && !configError
+        ? ` (report mode: not failing${failing.length ? `, except ${failing.length} under "enforce"` : ""})`
+        : "") +
       ".",
   );
-  process.exit(configError || (std.failures.length && enforce) ? 1 : 0);
+  process.exit(configError || failing.length ? 1 : 0);
 }
 
 // Write every app route, keeping the entries already there (state variants such as

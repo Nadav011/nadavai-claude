@@ -1,0 +1,106 @@
+<!doctype html>
+<!-- Reviewer round 3. Stock shadcn: a NavigationMenu in the header (desktop), a Sheet trigger for
+     the phone, a Popover date-range picker open (react-day-picker v9, mode="range", past days
+     disabled, "previous month" disabled at this month), with "ניקוי" and "החלה" in its footer,
+     and a Carousel (embla) of class cards at its first slide (stock: previous disabled). -->
+<html lang="he" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>r3-nav-range</title><link rel="stylesheet" href="/real.css"><link rel="stylesheet" href="/real-extra.css">
+<style>
+[data-slot="navigation-menu"] { display: none; }
+@media (min-width: 768px) { [data-slot="navigation-menu"] { display: flex; } .menu-btn { display: none !important; } }
+[data-slot="navigation-menu-list"] { display: flex; gap: 4px; list-style: none; margin: 0; padding: 0; }
+[data-slot="navigation-menu-trigger"], [data-slot="navigation-menu-link"] { display: inline-flex; align-items: center; gap: 4px; height: 36px; padding: 0 12px; border: 0; border-radius: 6px; background: transparent; font: inherit; font-size: 14px; color: inherit; text-decoration: none; }
+[data-slot="navigation-menu-link"][data-active="true"] { background: var(--muted); }
+.rdp-root { padding: 12px; }
+.rdp-months { display: flex; gap: 16px; flex-wrap: wrap; position: relative; }
+.rdp-nav { position: absolute; inset-inline: 0; top: 0; }
+.rdp-month_caption { display: flex; justify-content: center; height: 32px; align-items: center; font-size: 14px; font-weight: 500; }
+.rdp-weekday { font-size: 12.8px; font-weight: 400; color: var(--muted-foreground); width: 32px; }
+td[data-range-middle="true"] { background: var(--muted); }
+td[data-range-start="true"] button, td[data-range-end="true"] button { background: var(--primary); color: var(--primary-foreground); }
+.pop-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 8px 12px; border-top: 1px solid var(--border); }
+[data-slot="carousel"] { position: relative; margin: 24px 48px; max-width: 320px; }
+[data-slot="carousel-content"] { overflow: hidden; }
+[data-slot="carousel-content"] > div { display: flex; margin-inline-start: -16px; }
+[data-slot="carousel-item"] { min-width: 0; flex: 0 0 100%; padding-inline-start: 16px; }
+.card { border: 1px solid var(--border); border-radius: 12px; padding: 24px; font-size: 14px; }
+[data-slot="carousel-previous"], [data-slot="carousel-next"] { position: absolute; top: 50%; transform: translateY(-50%); width: 32px; height: 32px; border-radius: 999px; border: 1px solid var(--border); background: #fff; display: inline-flex; align-items: center; justify-content: center; }
+[data-slot="carousel-previous"] { inset-inline-start: -48px; }
+[data-slot="carousel-next"] { inset-inline-end: -48px; }
+@media (pointer: coarse) { [data-slot="carousel-previous"], [data-slot="carousel-next"], [data-slot="navigation-menu-trigger"], [data-slot="navigation-menu-link"] { min-width: 44px; min-height: 44px; } }
+[data-slot="popover-content"].range { position: absolute; top: 200px; inset-inline-start: 16px; width: auto; max-width: calc(100vw - 32px); }
+</style></head><body>
+<header>
+  <span>סטודיו מיכל</span>
+  <nav aria-label="Main" data-orientation="horizontal" dir="rtl" data-slot="navigation-menu" data-viewport="true">
+    <div style="position:relative"><ul data-orientation="horizontal" data-slot="navigation-menu-list" dir="rtl">
+      <li data-slot="navigation-menu-item"><a data-slot="navigation-menu-link" data-active="true" aria-current="page" href="#schedule" data-radix-collection-item="">מערכת שעות</a></li>
+      <li data-slot="navigation-menu-item"><button id="radix-«n1»-trigger-radix-«n2»" data-state="closed" aria-expanded="false" aria-controls="radix-«n1»-content-radix-«n2»" data-slot="navigation-menu-trigger" data-radix-collection-item="">שיעורים<svg aria-hidden="true" width="12" height="12"></svg></button></li>
+      <li data-slot="navigation-menu-item"><a data-slot="navigation-menu-link" href="#clients" data-radix-collection-item="">מנויות</a></li>
+      <li data-slot="navigation-menu-item"><a data-slot="navigation-menu-link" href="#reports" data-radix-collection-item="">דוחות</a></li>
+    </ul></div>
+  </nav>
+  <span style="display:flex;gap:8px">
+    <button type="button" class="menu-btn" data-slot="button" aria-haspopup="dialog" aria-expanded="false" data-state="closed" style="width:44px;padding:0"><svg aria-hidden="true" width="16" height="16"></svg><span class="sr-only">תפריט</span></button>
+    <a data-help="door" data-slot="button" class="border" href="#help">עזרה</a>
+  </span>
+</header>
+<main>
+  <div class="page-head"><h1>דוח נוכחות</h1><a data-help="screen" href="#help">מה עושים כאן</a></div>
+  <span id="range-l" style="display:block;font-size:14px;margin:12px 0 6px">טווח תאריכים</span>
+  <button type="button" data-slot="button" class="border" id="date" aria-labelledby="range-l date" aria-haspopup="dialog" aria-expanded="true" aria-controls="radix-«p1»" data-state="open"><svg aria-hidden="true" width="16" height="16"></svg>10 בנוב׳ 2026 - 16 בנוב׳ 2026</button>
+  <button type="button" data-slot="button" class="bg-primary">הפקת דוח</button>
+  <div data-radix-popper-content-wrapper="" dir="rtl" style="position:absolute;right:0;top:0;width:100%;z-index:50">
+    <div data-side="bottom" data-align="start" role="dialog" id="radix-«p1»" data-state="open" data-slot="popover-content" class="range" tabindex="-1">
+      <div data-slot="calendar" class="rdp-root" dir="rtl" data-mode="range">
+        <div class="rdp-months">
+          <nav class="rdp-nav" aria-label="ניווט בין חודשים" style="display:flex;justify-content:space-between">
+            <button type="button" class="rdp-button_previous" aria-label="מעבר לחודש הקודם" aria-disabled="true" disabled><svg aria-hidden="true" width="16" height="16"></svg></button>
+            <button type="button" class="rdp-button_next" aria-label="מעבר לחודש הבא"><svg aria-hidden="true" width="16" height="16"></svg></button>
+          </nav>
+          <div class="rdp-month">
+            <div class="rdp-month_caption"><span class="rdp-caption_label" role="status" aria-live="polite">נובמבר 2026</span></div>
+            <table role="grid" aria-multiselectable="true" aria-label="נובמבר 2026" class="rdp-month_grid">
+              <thead aria-hidden="true"><tr class="rdp-weekdays"><th class="rdp-weekday" aria-label="יום ראשון">א׳</th><th class="rdp-weekday" aria-label="יום שני">ב׳</th><th class="rdp-weekday" aria-label="יום שלישי">ג׳</th><th class="rdp-weekday" aria-label="יום רביעי">ד׳</th><th class="rdp-weekday" aria-label="יום חמישי">ה׳</th><th class="rdp-weekday" aria-label="יום שישי">ו׳</th><th class="rdp-weekday" aria-label="שבת">ש׳</th></tr></thead>
+              <tbody class="rdp-weeks">
+                <tr class="rdp-week">
+                  <td class="rdp-day rdp-disabled" role="gridcell" data-day="2026-11-08" data-disabled="true"><button type="button" disabled tabindex="-1" aria-label="יום ראשון, 8 בנובמבר 2026">8</button></td>
+                  <td class="rdp-day rdp-disabled" role="gridcell" data-day="2026-11-09" data-disabled="true"><button type="button" disabled tabindex="-1" aria-label="יום שני, 9 בנובמבר 2026">9</button></td>
+                  <td class="rdp-day rdp-range_start rdp-selected" role="gridcell" data-day="2026-11-10" data-selected="true" data-range-start="true" aria-selected="true"><button type="button" tabindex="0" data-range-start="true" aria-label="היום, יום שלישי, 10 בנובמבר 2026, נבחר">10</button></td>
+                  <td class="rdp-day rdp-range_middle rdp-selected" role="gridcell" data-day="2026-11-11" data-selected="true" data-range-middle="true" aria-selected="true"><button type="button" tabindex="-1" aria-label="יום רביעי, 11 בנובמבר 2026, נבחר">11</button></td>
+                  <td class="rdp-day rdp-range_middle rdp-selected" role="gridcell" data-day="2026-11-12" data-selected="true" data-range-middle="true" aria-selected="true"><button type="button" tabindex="-1" aria-label="יום חמישי, 12 בנובמבר 2026, נבחר">12</button></td>
+                  <td class="rdp-day rdp-range_middle rdp-selected" role="gridcell" data-day="2026-11-13" data-selected="true" data-range-middle="true" aria-selected="true"><button type="button" tabindex="-1" aria-label="יום שישי, 13 בנובמבר 2026, נבחר">13</button></td>
+                  <td class="rdp-day rdp-range_middle rdp-selected" role="gridcell" data-day="2026-11-14" data-selected="true" data-range-middle="true" aria-selected="true"><button type="button" tabindex="-1" aria-label="שבת, 14 בנובמבר 2026, נבחר">14</button></td>
+                </tr>
+                <tr class="rdp-week">
+                  <td class="rdp-day rdp-range_middle rdp-selected" role="gridcell" data-day="2026-11-15" data-selected="true" data-range-middle="true" aria-selected="true"><button type="button" tabindex="-1" aria-label="יום ראשון, 15 בנובמבר 2026, נבחר">15</button></td>
+                  <td class="rdp-day rdp-range_end rdp-selected" role="gridcell" data-day="2026-11-16" data-selected="true" data-range-end="true" aria-selected="true"><button type="button" tabindex="-1" data-range-end="true" aria-label="יום שני, 16 בנובמבר 2026, נבחר">16</button></td>
+                  <td class="rdp-day" role="gridcell" data-day="2026-11-17"><button type="button" tabindex="-1" aria-label="יום שלישי, 17 בנובמבר 2026">17</button></td>
+                  <td class="rdp-day" role="gridcell" data-day="2026-11-18"><button type="button" tabindex="-1" aria-label="יום רביעי, 18 בנובמבר 2026">18</button></td>
+                  <td class="rdp-day" role="gridcell" data-day="2026-11-19"><button type="button" tabindex="-1" aria-label="יום חמישי, 19 בנובמבר 2026">19</button></td>
+                  <td class="rdp-day" role="gridcell" data-day="2026-11-20"><button type="button" tabindex="-1" aria-label="יום שישי, 20 בנובמבר 2026">20</button></td>
+                  <td class="rdp-day" role="gridcell" data-day="2026-11-21"><button type="button" tabindex="-1" aria-label="שבת, 21 בנובמבר 2026">21</button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      <div class="pop-foot">
+        <button type="button" data-slot="button" class="border">ניקוי</button>
+        <button type="button" data-slot="button" class="bg-primary">החלה</button>
+      </div>
+    </div>
+  </div>
+  <h2 style="margin-top:420px">השיעורים של השבוע</h2>
+  <div role="region" aria-roledescription="carousel" data-slot="carousel" aria-label="השיעורים של השבוע">
+    <div data-slot="carousel-content"><div>
+      <div role="group" aria-roledescription="slide" data-slot="carousel-item" aria-label="1 מתוך 3"><div class="card">יוגה בוקר, יום ראשון 08:00</div></div>
+      <div role="group" aria-roledescription="slide" data-slot="carousel-item" aria-label="2 מתוך 3"><div class="card">פילאטיס, יום שלישי 18:30</div></div>
+      <div role="group" aria-roledescription="slide" data-slot="carousel-item" aria-label="3 מתוך 3"><div class="card">מתיחות, יום חמישי 20:00</div></div>
+    </div></div>
+    <button type="button" data-slot="carousel-previous" disabled><svg aria-hidden="true" width="16" height="16"></svg><span class="sr-only">השקופית הקודמת</span></button>
+    <button type="button" data-slot="carousel-next"><svg aria-hidden="true" width="16" height="16"></svg><span class="sr-only">השקופית הבאה</span></button>
+  </div>
+</main>
+</body></html>

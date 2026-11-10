@@ -14,6 +14,8 @@ import {
   SCHEMES,
   STANDARD_NOT_BUILT,
   STANDARD_PENALTY,
+  standardEnforced,
+  STORAGE_STATE,
   VIEWPORTS,
   type EntryResult,
 } from "./dod-shared";
@@ -22,7 +24,10 @@ export default async function globalTeardown() {
   const routes = loadRoutes();
   const excluded = excludedRoutes(loadParams());
   const standard = loadStandard();
-  const enforce = standard?.mode === "enforce";
+  const enforce = standardEnforced(standard);
+  // The QA session is needed only while the run lasts: global-setup signs in again on every run.
+  // DOD_KEEP_STORAGE_STATE=1 keeps it for a tool that needs the session afterwards.
+  if (process.env.DOD_KEEP_STORAGE_STATE !== "1") fs.rmSync(STORAGE_STATE, { force: true });
   const scoring = loadScoring();
   // Configuration the run could not act on: said in dod.json and on the console, never silent.
   const configErrors: string[] = [];
@@ -101,7 +106,13 @@ export default async function globalTeardown() {
           mode: standard.mode,
           profile: standard.profile,
           text_floor_px: standard.textFloorPx,
-          penalty: enforce ? `-${STANDARD_PENALTY} per check id with findings on a route` : "none (report mode)",
+          penalty:
+            standard.mode === "enforce"
+              ? `-${STANDARD_PENALTY} per check id with findings or an error on a route`
+              : standard.enforce?.length
+                ? `-${STANDARD_PENALTY} per enforced check id (${standard.enforce.join(", ")}) with findings or an error on a route; none for the rest`
+                : "none (report mode)",
+          enforced: standard.mode === "enforce" ? "all" : (standard.enforce ?? []),
           checks,
           errors,
           config_errors: configErrors,
@@ -118,7 +129,9 @@ export default async function globalTeardown() {
         scoring.axe.minorModerate === "enforce" ? ", moderate, minor" : "; moderate and minor recorded only"
       }) -5/console error` +
       " -10 if fonts>2 -2/touch-target (cap 20) -10/reduced-motion violation" +
-      (enforce ? ` -${STANDARD_PENALTY}/standard check id with findings (route)` : "") +
+      (standard && (standard.mode === "enforce" || standard.enforce?.length)
+        ? ` -${STANDARD_PENALTY}/enforced standard check id with findings or an error (route)`
+        : "") +
       "; per-page findings counted once per route (max across viewport×scheme)",
     axe: {
       // The engine that judged this run: a new axe-core adds rules, so a score that moved
@@ -169,14 +182,18 @@ export default async function globalTeardown() {
   }
 
   if (typeof standardSummary === "object" && (standardSummary.errors.length || standardSummary.config_errors.length)) {
-    console.log(`\n[dod] the experience standard's checks could not all run (recorded in dod.json, never scored):`);
+    console.log(
+      `\n[dod] the experience standard's checks could not all run (recorded in dod.json; an enforced check that errored is "errored" and costs its points, a check in report mode costs nothing):`,
+    );
     for (const e of [...standardSummary.config_errors, ...standardSummary.errors].slice(0, 20)) console.log(`[dod]   ${e}`);
   }
 
   const t = report.totals;
   console.log(
     `\n[dod] score=${t.score} unreachable=${t.unreachable} unreached=${t.unreached} overflow=${t.overflow_failures} axe=${t.axe_violations} (recorded ${t.axe_recorded}) console=${t.console_errors} fonts=${t.font_families} touch=${t.touch_target_failures} reduced-motion=${t.reduced_motion_violations}` +
-      (standard ? ` standard(${standard.mode})=${t.standard_failures} check(s), ${t.standard_findings} finding(s)` : ""),
+      (standard
+        ? ` standard(${standard.mode})=${t.standard_failures} check(s), ${t.standard_findings} finding(s), ${t.standard_errored} errored, ${t.standard_scored} scored`
+        : ""),
   );
   for (const [route, r] of Object.entries(perRoute)) {
     console.log(`[dod]   ${route.padEnd(34)} score=${r.score}`);

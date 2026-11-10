@@ -40,7 +40,8 @@ export const BUILT_IN_FORBIDDEN: { label: string; source: string; flags?: string
   { label: "exclamation mark", source: "!" },
   { label: "emoji", source: "\\p{Emoji_Presentation}|\\p{Extended_Pictographic}\\uFE0F" },
   // "מטפל/ית", "הגיע/ה", "מטפלים/ות", the imperative "לחץ/י", and the same with a dot ("מטפל.ת").
-  { label: "slash or dot gender form", source: "[א-ת][/.](י|ה|ת|ית|תה|ות|יות)(?![א-ת])" },
+  // A dot needs two letters before it: "ע.ה" and "ז.ל" are abbreviations, not gender forms.
+  { label: "slash or dot gender form", source: "[א-ת]/(י|ה|ת|ית|תה|ות|יות)(?![א-ת])|[א-ת]{2}\\.(י|ה|ת|ית|תה|ות|יות)(?![א-ת])" },
   // "מדריך(ה)", "תלמיד(ה)".
   { label: "bracket gender form", source: "[א-ת]\\((י|ה|ת|ית|ות|יות)\\)" },
 ];
@@ -163,24 +164,28 @@ export function domChecks(args: DomCheckArgs): Record<string, CheckResult> {
       return readable(text(el)) || pointsAtVisibleText(el, "aria-labelledby");
     };
     // The same words already on screen as its own label: a sibling of the element or of its
-    // wrapper (an avatar beside the name), or the label of the labelled group it sits in. A
-    // heading higher up is not its label.
-    const besideIt = (el: Element, words: string) => {
-      // What sits beside n in its parent: text nodes and elements other than n and headings.
+    // wrapper whose words are the title's words (an avatar beside the name), or the label of the
+    // labelled group it sits in. A heading higher up is not its label, and neither is a longer
+    // text that happens to hold the word ("עריכה אחרונה: אתמול" is not the label "עריכה").
+    const words = (s: string) => s.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+    const sameWords = (a: string, b: string) => words(a).join(" ") === words(b).join(" ");
+    const besideIt = (el: Element, title: string) => {
+      // What sits beside n in its parent: text nodes and elements other than n and headings, each
+      // on its own, up to 60 characters.
       const beside = (n: Element | null) =>
         n?.parentElement
           ? [...n.parentElement.childNodes]
               .filter((x) => x !== n && !(x instanceof Element && (x.matches("h1, h2, h3, h4, h5, h6") || !vis(x))))
-              .map((x) => (x instanceof Element ? text(x) : (x.textContent ?? "")))
-              .join(" ")
-          : "";
-      if (beside(el).includes(words) || beside(el.parentElement).includes(words)) return true;
+              .map((x) => (x instanceof Element ? text(x) : (x.textContent ?? "")).trim())
+              .filter((t) => t.length <= 60)
+          : [];
+      if ([...beside(el), ...beside(el.parentElement)].some((t) => sameWords(t, title))) return true;
       const group = el.closest('[role="group"][aria-labelledby], [role="group"][aria-label], fieldset');
       const label = group
-        ? (group.getAttribute("aria-label") ?? "") + byIds(group.getAttribute("aria-labelledby")).map((t) => text(t)).join(" ") +
-          text(group.querySelector(":scope > legend"))
+        ? [group.getAttribute("aria-label") ?? "", ...byIds(group.getAttribute("aria-labelledby")).map((t) => text(t)), text(group.querySelector(":scope > legend"))].join(" ")
         : "";
-      return label.includes(words);
+      // The title as whole words inside the group's label.
+      return !!words(title).length && ` ${words(label).join(" ")} `.includes(` ${words(title).join(" ")} `);
     };
     const seen = new Set<Element>();
     for (const el of document.body.querySelectorAll("[title]")) {
@@ -203,12 +208,14 @@ export function domChecks(args: DomCheckArgs): Record<string, CheckResult> {
   // disabled-reason (E-02): a disabled control shows why, in a visible line linked to it
   // (aria-describedby on the control or on its group, which is how a legend is linked). Not
   // judged where the position is the reason, each case narrow so a real defect still fires: the
-  // current page of a breadcrumb or pager, a numbered calendar day, a pager's or calendar's
-  // previous/next, a +/- or icon stepper beside a number field. An option or item whose own
-  // text carries the reason, in brackets or after a dash ("פדיקור (אין תורים החודש)"), passes.
+  // current page of a breadcrumb or pager, a numbered calendar day, a pager's, calendar's or
+  // carousel's previous/next, a +/- or icon stepper beside a number, and a decrease/increase
+  // button beside one. An option or item whose own text carries the reason, in two words or
+  // more, in brackets or after a dash ("פדיקור (אין תורים החודש)"), passes.
   check("disabled-reason", (c) => {
-    const PREV = /^(הקודם|הקודמת|previous|prev|go to (the )?previous (page|month)|לעמוד הקודם|החודש הקודם|חודש קודם|[‹«<])$/i;
-    const NEXT = /^(הבא|הבאה|next|go to (the )?next (page|month)|לעמוד הבא|החודש הבא|חודש הבא|[›»>])$/i;
+    const PREV =
+      /^(הקודם|הקודמת|previous|prev|go to (the )?previous (page|month)|לעמוד הקודם|החודש הקודם|חודש קודם|השקופית הקודמת|שקופית קודמת|previous slide|[‹«<])$/i;
+    const NEXT = /^(הבא|הבאה|next|go to (the )?next (page|month)|לעמוד הבא|החודש הבא|חודש הבא|השקופית הבאה|שקופית הבאה|next slide|[›»>])$/i;
     const EDGE = /^(ראשון|אחרון|first|last|go to (the )?(first|last) page|\d+)$/i;
     const name = (el: Element) => (el.getAttribute("aria-label") || text(el)).replace(/\s+/g, " ").trim();
     const isPrev = (el: Element) => PREV.test(name(el));
@@ -217,21 +224,37 @@ export function domChecks(args: DomCheckArgs): Record<string, CheckResult> {
     const CONTROL = 'a, button, [role="button"], [role="link"]';
     const inPager = (el: Element) => {
       if (el.closest('[data-slot="pagination"], [aria-label="pagination" i], .rdp-nav, [data-slot="calendar"] nav')) return true;
+      // A carousel's previous/next at its first or last slide (stock CarouselPrevious/Next).
+      if (el.closest('[data-slot="carousel"], [aria-roledescription="carousel"]') && (isPrev(el) || isNext(el))) return true;
       const nav = el.closest("nav[aria-label]");
       return !!nav && [...nav.querySelectorAll(CONTROL)].every(pagerish);
     };
-    // A previous and a next control side by side: the data-table pager on its first page.
+    // A previous and a next control side by side: the data-table pager on its first page. Not in a
+    // form: a wizard's disabled "הבא" beside "הקודם" still needs its reason.
     const pairedPager = (el: Element) => {
+      if (el.closest('form, [role="form"]')) return false;
       const sibs = [...(el.parentElement?.querySelectorAll(":scope > " + CONTROL.split(", ").join(", :scope > ")) ?? [])];
       return (isPrev(el) || isNext(el)) && sibs.some(isPrev) && sibs.some(isNext);
     };
     const calendarDay = (el: Element) => !!el.closest('[role="gridcell"]') && /^\d{1,2}$/.test(text(el));
+    // A stepper: beside a number field or a number shown as text (the drawer-demo count), a
+    // button whose whole name is "+"/"-" or a stepper word, or an icon with no name at all. An
+    // icon-only "הוספה לסל" is not a stepper word, so it still needs its reason.
+    const STEP_WORD = /^(הוספה|הפחתה|הגדלה|הקטנה|increase|decrease|increment|decrement)$/i;
+    const numberBeside = (el: Element) =>
+      !!el.parentElement &&
+      (!!el.parentElement.querySelector('input[type="number"], [role="spinbutton"]') ||
+        [...el.parentElement.children].some((x) => x !== el && /^\d+$/.test(text(x).split(/\s+/)[0] ?? "")));
     const stepper = (el: Element) =>
-      (/^[+\-−–]$/.test(text(el)) || !readable(text(el))) &&
-      !!el.parentElement?.querySelector('input[type="number"], [role="spinbutton"]');
-    const reasonInOwnText = (el: Element) =>
-      el.matches('[role="option"], [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"], [role="treeitem"], [cmdk-item], option, li') &&
-      /\(.+\)|\s[-–—]\s\S/.test(text(el));
+      numberBeside(el) && (/^[+\-−–]$/.test(name(el)) || STEP_WORD.test(name(el)) || !readable(name(el)));
+    // The reason in the item's own words: in brackets or after a dash, with a letter, two words or more.
+    const reasonInOwnText = (el: Element) => {
+      if (!el.matches('[role="option"], [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"], [role="treeitem"], [cmdk-item], option, li'))
+        return false;
+      const t = text(el);
+      const why = t.match(/\(([^)]+)\)/)?.[1] ?? t.match(/\s[-–—]\s(.+)$/)?.[1] ?? "";
+      return /\p{L}/u.test(why) && why.trim().split(/\s+/).length >= 2;
+    };
     const groupReason = (el: Element) => {
       const g = el.closest('[role="group"], [role="radiogroup"], [role="listbox"], [role="toolbar"], fieldset');
       return !!g && pointsAtVisibleText(g, "aria-describedby");
@@ -240,7 +263,7 @@ export function domChecks(args: DomCheckArgs): Record<string, CheckResult> {
       'button:disabled, input:disabled:not([type="hidden"]), select:disabled, textarea:disabled, [aria-disabled="true"]',
     )) {
       if (!vis(el) || el.closest('[aria-busy="true"]')) continue;
-      if (el.matches('[aria-current], [data-slot="breadcrumb-page"]')) continue;
+      if (el.matches('[aria-current]:not([aria-current="false"]), [data-slot="breadcrumb-page"]')) continue;
       if (calendarDay(el) || inPager(el) || pairedPager(el) || stepper(el) || reasonInOwnText(el)) continue;
       if (pointsAtVisibleText(el, "aria-describedby") || groupReason(el)) continue;
       add(c, describe(el));
@@ -305,7 +328,12 @@ export function domChecks(args: DomCheckArgs): Record<string, CheckResult> {
         // A field that declares another kind is that kind: a type="email" named "contact" is not a phone.
         if (Object.entries(fits).some(([other, f]) => other !== kind && f)) continue;
         const strong = k.ac.test(ac) || declared.some((w) => k.declared.test(w));
-        const weak = [labelText(el), el.getAttribute("aria-label") ?? ""].some((w) => k.words.test(w)) && k.looks.test(el.placeholder.trim());
+        // An autocomplete token says what the field is ("username" for "אימייל או שם משתמש"), so
+        // label and placeholder words do not overrule it.
+        const weak =
+          !(ac && ac !== "on" && ac !== "off") &&
+          [labelText(el), el.getAttribute("aria-label") ?? ""].some((w) => k.words.test(w)) &&
+          k.looks.test(el.placeholder.trim());
         if (strong || weak) add(c, `${describe(el)} is a ${kind} field without the matching type or inputmode`);
       }
     }
@@ -345,7 +373,7 @@ export function domChecks(args: DomCheckArgs): Record<string, CheckResult> {
     };
     const STATE =
       '[role="switch"], [role="checkbox"], [role="radio"], [role="tab"], [role="gridcell"], [role="option"], ' +
-      '[role="menuitemcheckbox"], [role="menuitemradio"], [aria-selected], [aria-pressed], [aria-checked], [aria-current]';
+      '[role="menuitemcheckbox"], [role="menuitemradio"], [aria-selected], [aria-pressed], [aria-checked], [aria-current]:not([aria-current="false"])';
     const candidates = [
       ...scope.querySelectorAll('button, a[href], [role="button"], input[type="submit"], input[type="button"]'),
     ].filter((el) => vis(el) && !el.matches(STATE) && !el.closest('[role="gridcell"]'));

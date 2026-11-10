@@ -161,8 +161,10 @@ export default async function globalSetup(config: FullConfig) {
     await page.click(process.env.DOD_SUBMIT_SELECTOR ?? "button[type=submit]");
     await page.waitForLoadState("networkidle").catch(() => {});
     await page.goto(process.env.DOD_READY_PATH ?? "/", { waitUntil: "domcontentloaded" });
-    fs.mkdirSync(path.dirname(STORAGE_STATE), { recursive: true });
-    await page.context().storageState({ path: STORAGE_STATE });
+    // Readable by this user only: it holds the QA account's session cookies. Removed above, so
+    // the mode applies to a new file; global-teardown deletes it after the run.
+    fs.mkdirSync(path.dirname(STORAGE_STATE), { recursive: true, mode: 0o700 });
+    fs.writeFileSync(STORAGE_STATE, JSON.stringify(await page.context().storageState()), { mode: 0o600 });
     console.log(`[dod] QA session saved for ${user}.`);
   } catch (err) {
     console.error(`[dod] QA login failed: ${err instanceof Error ? err.message : String(err)}`);

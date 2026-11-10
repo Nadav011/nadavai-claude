@@ -35,6 +35,12 @@ const SKIP_BROWSER = args.includes("--skip-browser");
 // How long /slow keeps the network busy: long enough that a second page load inside the
 // standard's checks would push a report-mode entry past the test timeout, as it did before.
 const SLOW_MS = Number(process.env.DOD_TEST_SLOW_MS ?? 40_000);
+// Round 3: how long a page's HTML takes to arrive on the slow variants (a dev server compiling
+// the route), how long /busy-once blocks on its first resize (past the standard's 30 s budget, so
+// the first try runs out and the second succeeds), and how long /busy-resize blocks on every one.
+const SLOW_HTML_MS = 1_500;
+const BUSY_ONCE_MS = 32_000;
+const BUSY_MS = 70_000;
 const SUITES = new Set((args.includes("--suite") ? args[args.indexOf("--suite") + 1] : "static,dom,browser,small").split(","));
 // The DOM lane can run an older standard-dom.ts, to show which of its checks fail real markup.
 const DOM_SRC = args.includes("--dom-src") ? path.resolve(args[args.indexOf("--dom-src") + 1]) : path.join(TEMPLATE, "e2e", "dod", "standard-dom.ts");
@@ -127,10 +133,39 @@ function startServer() {
     // finding that must be measured on the route itself, not on the page it went to).
     if (url.pathname === "/api/slow") return setTimeout(() => res.writeHead(200, { "content-type": "application/json" }).end("{}"), SLOW_MS);
     if (url.pathname === "/slow") return html("slow", '<p>רשימת התורים של היום נטענת מהשרת.</p><script>fetch("/api/slow")</script>');
-    if (url.pathname === "/resize-log")
+    const RESIZE_LOG =
+      '<p>לוח שנה שבועי עם הרבה תורים.</p><script>let t;addEventListener("resize",()=>{clearTimeout(t);t=setTimeout(()=>console.error("layout: cannot measure week grid"),300)})</script>';
+    if (url.pathname === "/resize-log") return html("resize-log", RESIZE_LOG);
+    // Round 3. The same page with its HTML late: the old document must be gone before the console
+    // counts again, or its timer lands in the reduced-motion load's count.
+    if (url.pathname === "/resize-log-slow") return setTimeout(() => html("resize-log-slow", RESIZE_LOG), SLOW_HTML_MS);
+    // A breakpoint hack: a full reload of the same URL when the width crosses 768 (the 375 entry's
+    // probe crosses it), with slow HTML.
+    if (url.pathname === "/reload-on-resize")
+      return setTimeout(
+        () =>
+          html(
+            "reload-on-resize",
+            '<p>מסך שנטען מחדש כשהחלון משנה רוחב.</p><script>const w0=innerWidth>=768;addEventListener("resize",()=>{if((innerWidth>=768)!==w0)location.reload()})</script>',
+          ),
+        SLOW_HTML_MS,
+      );
+    // The URL changes on resize, the document stays (history.replaceState).
+    if (url.pathname === "/replace-resize")
       return html(
-        "resize-log",
-        '<p>לוח שנה שבועי עם הרבה תורים.</p><script>let t;addEventListener("resize",()=>{clearTimeout(t);t=setTimeout(()=>console.error("layout: cannot measure week grid"),300)})</script>',
+        "replace-resize",
+        '<p>מסך ששומר את הרוחב בכתובת.</p><script>addEventListener("resize",()=>history.replaceState(null,"",location.pathname+"?w="+innerWidth))</script>',
+      );
+    // The main thread blocked on the first resize only (a loaded machine), and on every resize.
+    if (url.pathname === "/busy-once")
+      return html(
+        "busy-once",
+        `<p>מסך עם חישוב כבד בשינוי הגודל הראשון.</p><script>let once=false;addEventListener("resize",()=>{if(once)return;once=true;const e=Date.now()+${BUSY_ONCE_MS};while(Date.now()<e){}})</script>`,
+      );
+    if (url.pathname === "/busy-resize")
+      return html(
+        "busy-resize",
+        `<p>מסך עם חישוב כבד בכל שינוי גודל.</p><script>addEventListener("resize",()=>{const e=Date.now()+${BUSY_MS};while(Date.now()<e){}})</script>`,
       );
     if (url.pathname === "/nav-resize")
       return html(
@@ -176,7 +211,9 @@ function playwright(cwd, port, extraEnv = {}) {
   const log = path.join(cwd, "run.log");
   const fd = fs.openSync(log, "w");
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, [cli, "test", "-c", "playwright.dod.config.ts", "--reporter=dot"], {
+    // dot on the log, json in pw.json (each test's duration).
+    env.PLAYWRIGHT_JSON_OUTPUT_NAME = path.join(cwd, "pw.json");
+    const child = spawn(process.execPath, [cli, "test", "-c", "playwright.dod.config.ts", "--reporter=dot,json"], {
       cwd,
       env,
       stdio: ["ignore", fd, fd],
@@ -194,6 +231,16 @@ const ranClean = (run, what) => {
   return good;
 };
 const report = (dir) => JSON.parse(fs.readFileSync(path.join(dir, "reports", "dod", "dod.json"), "utf8"));
+// Seconds per test ("dod /busy-resize__375__light"), from the json reporter.
+const durations = (dir) => {
+  const out = {};
+  const walk = (suite) => {
+    for (const x of suite.suites ?? []) walk(x);
+    for (const sp of suite.specs ?? []) for (const t of sp.tests) for (const r of t.results) out[sp.title] = r.duration / 1000;
+  };
+  for (const x of JSON.parse(fs.readFileSync(path.join(dir, "pw.json"), "utf8")).suites) walk(x);
+  return out;
+};
 const fired = (route) =>
   Object.entries(route?.standard ?? {})
     .filter(([, c]) => c.count > 0)
@@ -224,7 +271,9 @@ const REAL_PAGES = ["real-settings", "real-table"];
 // Every real-markup page, for the DOM lane: the two above plus the reviewer's of round 2 (a
 // booking screen with cmdk and react-day-picker, a modal dialog form, a modal sheet, the sidebar
 // shell with a breadcrumb, and the same shell nested deeper). No check may fire on any.
-const LANE_PAGES = [...REAL_PAGES, "real-booking", "real-dialog-form", "real-sheet", "real-shell", "real-shell-deep"];
+// Round 3 adds the reviewer's drawer (vaul, the stock drawer-demo stepper) and a page with a
+// NavigationMenu, an open range picker and a Carousel at its first slide.
+const LANE_PAGES = [...REAL_PAGES, "real-booking", "real-dialog-form", "real-sheet", "real-shell", "real-shell-deep", "real-drawer", "real-nav-range"];
 const STANDARD = {
   profile: "work-tool",
   mode: "enforce",
@@ -349,12 +398,26 @@ async function smallRuns(kind, port) {
   // The same three routes twice: without standard.json, and in report mode with a broken
   // coreUnit selector. Report mode records its findings and its error, and must leave every
   // score, the console counts and the exit code exactly as the plain run has them (H3).
-  const ROUTES = ["/clean", "/one-primary", "/axe-moderate", "/slow", "/resize-log", "/nav-resize"];
+  const ROUTES = [
+    "/clean",
+    "/one-primary",
+    "/axe-moderate",
+    "/slow",
+    "/resize-log",
+    "/nav-resize",
+    "/resize-log-slow",
+    "/reload-on-resize",
+    "/replace-resize",
+    "/busy-once",
+    "/busy-resize",
+  ];
   const plainDir = project(path.join(WORK, `${kind}-plain`), kind, { "e2e/dod/routes.json": ROUTES });
   const plain = await playwright(plainDir, port);
   let p = null;
   if (ranClean(plain, `${kind}: run without standard.json exits 0`)) {
     p = report(plainDir);
+    // The QA session is gone after the run (M5): global-setup signs in again each time.
+    ok(!fs.existsSync(path.join(plainDir, "node_modules", ".cache", "dod", "qa-storage-state.json")), `${kind}: the QA session file is deleted at the end of the run`);
     ok(p.standard === "not configured", `${kind}: dod.json says standard: "not configured"`);
     ok(Object.values(p.routes).every((x) => x.entries.every((e) => !e.standard && !e.probe)), `${kind}: no entry carries standard or probe results`);
     // Default axe scoring: a moderate node is recorded and costs nothing.
@@ -378,11 +441,69 @@ async function smallRuns(kind, port) {
       String(nav?.standard?.probe?.error).includes("navigated") && nav?.reduced_motion_violations === p.routes["/nav-resize"]?.reduced_motion_violations,
       `${kind}: a page that navigates on resize records the probe's error and keeps its own measurements (${nav?.standard?.probe?.error})`,
     );
-    for (const x of ["/slow", "/resize-log", "/nav-resize"])
-      ok(r.routes[x]?.score === p.routes[x]?.score, `${kind}: ${x} scores ${r.routes[x]?.score} in report mode and ${p.routes[x]?.score} without standard.json`);
+    for (const x of ROUTES.slice(3))
+      ok(
+        r.routes[x]?.score === p.routes[x]?.score && r.routes[x]?.console_errors === p.routes[x]?.console_errors,
+        `${kind}: ${x} scores ${r.routes[x]?.score} with ${r.routes[x]?.console_errors} console error(s) in report mode, and ${p.routes[x]?.score} with ${p.routes[x]?.console_errors} without standard.json`,
+      );
+    const probeErr = (x) => String(r.routes[x]?.standard?.probe?.error);
+    ok(probeErr("/reload-on-resize").includes("reloaded itself"), `${kind}: a same-URL reload on resize is said as one (${probeErr("/reload-on-resize")})`);
+    ok(probeErr("/replace-resize").includes("the URL changed on resize"), `${kind}: a replaceState on resize is said as a URL change (${probeErr("/replace-resize")})`);
+    // M3: a try that ran out of time gets a second one, and only the second is kept.
+    const once = r.routes["/busy-once"]?.entries.filter((e) => e.scheme === "light") ?? [];
+    ok(
+      once.length === 2 && once.every((e) => e.standard_retried?.includes("out of time") && !e.standard?.probe?.error),
+      `${kind}: a first try that ran out of time is retried and the second try's probe is kept (${once.map((e) => `${e.viewport.width}: ${e.standard_retried ?? "no retry"}; ${e.standard?.probe?.error ?? "no error"}`).join(" / ")})`,
+    );
+    // M4: a page that blocks on every resize ends the standard at its deadline, and the entry is
+    // measured on a new tab; no entry passes its own timeout.
+    const busy = r.routes["/busy-resize"]?.entries.filter((e) => e.scheme === "light") ?? [];
+    ok(busy.length === 2 && busy.every((e) => String(e.standard?.probe?.error).includes("out of time") && !e.unreachable), `${kind}: /busy-resize records the probe out of time and stays measured`);
+    const dp = durations(plainDir);
+    const dr = durations(dir);
+    const added = ["375__light", "1440__light"].map((v) => dr[`dod busy-resize__${v}`] - dp[`dod busy-resize__${v}`]);
+    // Two tries (30 s each) and five 5 s waits at most; this page is not retried (it does not answer).
+    ok(added.every((x) => x > 25 && x < 85), `${kind}: /busy-resize adds ${added.map((x) => x.toFixed(1)).join(" s and ")} s to its light entries (bounded by 85 s)`);
+    // Time per light entry, without standard.json and in report mode.
+    for (const x of ["slow", "resize-log-slow", "reload-on-resize", "busy-once", "busy-resize"])
+      for (const v of ["375__light", "1440__light"])
+        console.log(`     ${kind} ${x}__${v}: ${dp[`dod ${x}__${v}`]?.toFixed(1)} s plain, ${dr[`dod ${x}__${v}`]?.toFixed(1)} s report`);
+    ok(r.routes["/clean"]?.standard?.["core-unit"]?.verdict === "errored" && !r.routes["/clean"]?.entries.some((e) => e.standard_retried), `${kind}: report mode: the broken selector is "errored", costs nothing and is not retried outside CI`);
     ok(
       r.routes["/one-primary"]?.standard?.["one-primary"]?.count > 0 && r.totals.standard_findings > 0,
       `${kind}: report mode records one-primary and sums the findings in totals`,
+    );
+  }
+  // M3: in enforce mode a check that errored is a failure of that check, said as "errored"; under
+  // CI it is tried once more first. DOD_KEEP_STORAGE_STATE=1 keeps the session file (M5).
+  const enfDir = project(path.join(WORK, `${kind}-enforce-errored`), kind, {
+    "e2e/dod/routes.json": ["/clean"],
+    "e2e/dod/standard.json": { ...STANDARD, coreUnit: { route: "/clean", selector: "[[broken", min: 1, viewport: [390, 700] } },
+  });
+  const enf = await playwright(enfDir, port, { CI: "1", DOD_KEEP_STORAGE_STATE: "1" });
+  if (ranClean(enf, `${kind}: enforce run with a broken selector exits 0 (the score says it)`)) {
+    const e = report(enfDir);
+    const cu = e.routes["/clean"]?.standard?.["core-unit"];
+    ok(
+      cu?.verdict === "errored" && e.routes["/clean"]?.score === 90 && e.totals.standard_errored === 1 && e.totals.standard_scored === 1,
+      `${kind}: enforce mode: an errored check costs its 10 points and is "errored", not "found" (${cu?.verdict}, score ${e.routes["/clean"]?.score})`,
+    );
+    const lightCu = e.routes["/clean"]?.entries.find((x) => x.viewport.width === 375 && x.scheme === "light");
+    ok(lightCu?.standard_retried?.includes("core-unit"), `${kind}: under CI the errored check is tried once more (${lightCu?.standard_retried})`);
+    const ss = path.join(enfDir, "node_modules", ".cache", "dod", "qa-storage-state.json");
+    ok(fs.existsSync(ss) && (fs.statSync(ss).mode & 0o777) === 0o600, `${kind}: DOD_KEEP_STORAGE_STATE=1 keeps the session file, readable by its owner only`);
+  }
+  // Report mode with one check enforced: only that one costs points.
+  const oneDir = project(path.join(WORK, `${kind}-enforce-one`), kind, {
+    "e2e/dod/routes.json": ["/one-primary", "/tooltip-only"],
+    "e2e/dod/standard.json": { ...STANDARD, mode: "report", enforce: ["one-primary"], coreUnit: undefined },
+  });
+  const one = await playwright(oneDir, port);
+  if (ranClean(one, `${kind}: report run with "enforce": ["one-primary"] exits 0`)) {
+    const o = report(oneDir);
+    ok(
+      o.routes["/one-primary"]?.score === 90 && o.routes["/tooltip-only"]?.score === 100 && o.routes["/tooltip-only"]?.standard?.["tooltip-only"]?.count > 0,
+      `${kind}: "enforce": ["one-primary"] deducts for one-primary only (${o.routes["/one-primary"]?.score} / ${o.routes["/tooltip-only"]?.score})`,
     );
   }
   // Argos is optional: a token without the package stops the run with words.
@@ -441,6 +562,8 @@ function staticSuite(kind) {
     { name: "standard-clean", files: { "e2e/dod/routes.json": full, "e2e/dod/standard.json": std }, exit: 0, out: /0 finding\(s\)/ },
     { name: "state-coverage", check: "state-coverage", files: { "e2e/dod/routes.json": full.filter((r) => r !== "/orders/1?state=error"), "e2e/dod/standard.json": std }, exit: 1, out: /state-coverage: \/orders\/1 has no \?state=error/ },
     { name: "state-coverage-report", files: { "e2e/dod/routes.json": full.filter((r) => r !== "/orders/1?state=error"), "e2e/dod/standard.json": { ...std, mode: "report" } }, exit: 0, out: /^(?=[^]*state-coverage: \/orders\/1)(?=[^]*report mode: not failing)/ },
+    // Round 3: a check id under "enforce" fails in report mode too.
+    { name: "state-coverage-enforced", files: { "e2e/dod/routes.json": full.filter((r) => r !== "/orders/1?state=error"), "e2e/dod/standard.json": { ...std, mode: "report", enforce: ["state-coverage"] } }, exit: 1, out: /state-coverage: \/orders\/1/ },
     { name: "help-route", check: "help-route", drop: ["src/help/orders-id.md"], files: { "e2e/dod/routes.json": full, "e2e/dod/standard.json": std }, exit: 1, out: /help-route: \/orders\/1 has no help file src\/help\/orders-id/ },
     { name: "brand-assets", check: "brand-assets", files: { "PRODUCT.md": "# Product\n\n## Brand\n\nLogo: `public/missing.svg`.\n", "e2e/dod/routes.json": full, "e2e/dod/standard.json": std }, exit: 1, out: /brand-assets: .*public\/missing\.svg/ },
     // H1: a real route the scan cannot see is kept with its reason, never reported stale; a
@@ -490,6 +613,7 @@ function staticSuite(kind) {
 // --- the DOM lane: stock markup, then one defect per check -------------------------------------
 // standard-dom.ts transpiled and run straight in a page, without the DoD around it: fast enough
 // to try every check on the real-markup pages at two widths, and once per injected defect.
+const M = (html) => `document.querySelector("main").insertAdjacentHTML("beforeend", ${JSON.stringify(html)})`;
 const DEFECTS = [
   ["help-door", "real-settings", 390, `document.querySelector('[data-help="door"]').remove()`],
   ["tooltip-only", "real-table", 1440, `document.querySelector("main").insertAdjacentHTML("beforeend", '<button data-slot="button" class="size-9" title="ייצוא" aria-label="ייצוא"><svg width="16" height="16"></svg></button>')`],
@@ -514,6 +638,20 @@ const DEFECTS = [
   ["forbidden-words", "real-table", 390, `document.querySelector("main").insertAdjacentHTML("beforeend", '<p>לחץ/י על הכפתור. בחר/י מדריך(ה) מהרשימה.</p>')`, null, "imperative slash and bracket gender forms"],
   ["forbidden-words", "real-table", 390, `document.querySelector("main").insertAdjacentHTML("beforeend", '<p>נָא לְמַלֵּא אֶת כָּל הַשָּׂדוֹת.</p>')`, null, "a forbidden word with niqqud"],
   ["tooltip-only", "real-table", 1440, `document.querySelector("main").insertAdjacentHTML("beforeend", '<div><h2>מחיקה</h2><div><span><button type="button" data-slot="button" class="size-9" title="מחיקה"><svg aria-hidden="true" width="16" height="16"></svg></button></span></div></div>')`, null, "an icon button whose title repeats a heading above it"],
+  // Round 3: the reviewer's cases that the round-2 exemptions still passed.
+  ["disabled-reason", "real-table", 390, M('<form><div class="row"><button type="button" data-slot="button" class="border">הקודם</button><button type="submit" data-slot="button" class="border" disabled>הבא</button></div></form>'), null, "a wizard mid-way: הבא disabled beside הקודם, in a form"],
+  ["disabled-reason", "real-table", 390, M('<div><label for="q2">כמות</label><input id="q2" type="number" name="qty" value="1" autocomplete="off" data-slot="input"><button type="button" data-slot="button" class="size-9 border" aria-label="הוספה לסל" disabled><svg aria-hidden="true" width="16" height="16"></svg></button></div>'), null, "an icon-only הוספה לסל beside a quantity field"],
+  ["disabled-reason", "real-table", 390, M('<div role="menu" aria-label="פעולות"><div role="menuitem" aria-disabled="true" data-disabled="" tabindex="-1">מחיקה - לצמיתות</div></div>'), null, "a menu item with one word after a dash"],
+  ["disabled-reason", "real-table", 390, M('<div role="listbox" aria-label="שעות פנויות"><div role="option" aria-selected="false" aria-disabled="true">09:00 - 09:45</div><div role="option" aria-selected="false">10:00 - 10:45</div></div>'), null, "a time slot whose dash holds no words"],
+  ["disabled-reason", "real-table", 390, M('<div cmdk-root=""><div cmdk-list=""><div cmdk-item="" role="option" aria-disabled="true" data-disabled="true">ייצוא (CSV)</div></div></div>'), null, "a command item with one word in brackets"],
+  ["disabled-reason", "real-table", 390, M('<a role="link" aria-disabled="true" aria-current="false">דוח שנתי</a>'), null, 'aria-current="false" is not the current page'],
+  ["disabled-reason", "real-nav-range", 390, `document.querySelector('[data-slot="carousel-item"] .card').insertAdjacentHTML("beforeend", '<button type="button" data-slot="button" class="border" disabled>הזמנת מקום</button>')`, null, "a disabled action inside a carousel slide"],
+  ["tooltip-only", "real-table", 1440, M('<table><tr><td>עריכה אחרונה: אתמול</td><td><button type="button" data-slot="button" class="size-9" title="עריכה"><svg aria-hidden="true" width="16" height="16"></svg></button></td></tr></table>'), null, "an icon whose title is one word of the next cell"],
+];
+// Round 3: markup that looked like a defect to a round-2 check and is not one. Nothing may fire.
+const CLEAN_CASES = [
+  ["real-table", 390, M('<label for="lg">אימייל או שם משתמש</label><input data-slot="input" id="lg" name="login" autocomplete="username" placeholder="name@example.com">'), "a login field: autocomplete=username, label אימייל, a placeholder with @"],
+  ["real-table", 390, M("<p>לזכר סבא משה ע.ה, ז.ל, נ.ב. הקובץ דוח.תשפו. אפשר לשלם במזומן ו/או בכרטיס.</p>"), "the abbreviations ע.ה, ז.ל and נ.ב, a file name, and ו/או"],
 ];
 async function domLane(port) {
   const req = createRequire(path.join(WORK, "package.json"));
@@ -563,6 +701,11 @@ async function domLane(port) {
       const exact = r.fired.length === 1 && r.fired[0] === id;
       ok(exact, `dom: one ${id} defect${what ? ` (${what})` : ""} in ${p}.html at ${w} fires exactly ${id} (${r.fired.join(",") || "none"})`);
       table.push({ kind: "dom", id, fixture: `${p}.html + ${what ?? "one defect"}`, fired: exact, onClean: (onClean[`${p}@${w}`] ?? []).includes(id) });
+    }
+    for (const [p, w, mutate, what] of CLEAN_CASES) {
+      const r = await runOn(p, w, mutate, null);
+      ok(r.fired.length === 0 && r.errors.length === 0, `dom: nothing fires on ${p}.html at ${w} with ${what} (${r.fired.join(",") || "none"})`);
+      if (r.fired.length) console.log(r.samples.map((x) => `      ${x}`).join("\n"));
     }
   } finally {
     await browser.close();

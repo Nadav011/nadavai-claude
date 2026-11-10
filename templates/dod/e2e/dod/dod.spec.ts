@@ -31,6 +31,7 @@ import {
   forbiddenWordSource,
   probeAt,
   watchRemovedErrors,
+  type CheckResult,
 } from "./standard-dom";
 
 const SETTLE_MS = 1200;
@@ -267,29 +268,72 @@ function expectedState(route: string): string[] | null {
 
 /**
  * The standard's checks run inside their own budget, apart from the page's own measurements:
- * the test's timeout is raised by this much when standard.json exists, and running out of it
- * records an error on every unfinished check instead of failing the entry.
+ * one try ends at this deadline, whatever is still running, and records an error on every
+ * unfinished check instead of failing the entry.
  */
 const STANDARD_BUDGET_MS = 30_000;
+/** Each wait after a try (putting the viewport back, asking the page to answer, leaving it). */
+const AFTER_STANDARD_MS = 5_000;
+/** Added to the test's timeout when standard.json exists: two tries and every wait after them. */
+const STANDARD_TIMEOUT_MS = 2 * STANDARD_BUDGET_MS + 5 * AFTER_STANDARD_MS;
+const OUT_OF_TIME = `out of time (the standard's ${STANDARD_BUDGET_MS / 1000}s budget)`;
 
-/** Stops the standard's steps when the budget is spent or when a resize navigated the page. */
+/** Stops the standard's steps when the budget is spent or when a resize moved the page. */
 interface Guard {
   deadline: number;
   url: string;
   stopped: string | null;
+  /** A new document started loading in the main frame (a navigation or a reload). */
+  newDocument: boolean;
+}
+
+/** What a resize did to the page, if it moved it: a new document, or only a new URL. */
+function moved(g: Guard, page: Page): string | null {
+  const url = page.url();
+  if (g.newDocument)
+    return url !== g.url
+      ? `the page navigated to ${url} when resized, so later measurements were not taken`
+      : "the page reloaded itself when resized, so later measurements were not taken";
+  if (url !== g.url) return `the URL changed on resize (to ${url}, without a new page), so later measurements were not taken`;
+  return null;
 }
 
 async function step<T>(g: Guard, page: Page, fn: () => Promise<T>): Promise<T> {
-  if (!g.stopped && Date.now() > g.deadline) g.stopped = `out of time (the standard's ${STANDARD_BUDGET_MS / 1000}s budget)`;
+  if (!g.stopped && Date.now() > g.deadline) g.stopped = OUT_OF_TIME;
   if (g.stopped) throw new Error(g.stopped);
-  const r = await fn();
+  let r: T;
+  try {
+    r = await fn();
+  } catch (err) {
+    // "Execution context was destroyed" is the page reloading under the step: said as that.
+    const m = moved(g, page);
+    if (m) throw new Error((g.stopped ??= m));
+    throw err;
+  }
   // A page that navigates when resized (a phone-only screen sending wide windows home) would
   // have every later number taken on another page.
-  if (page.url() !== g.url) {
-    g.stopped = `the page navigated to ${page.url()} when resized, so later measurements were not taken`;
-    throw new Error(g.stopped);
-  }
+  const m = moved(g, page);
+  if (m) throw new Error((g.stopped ??= m));
   return r;
+}
+
+/** Resolves true when `p` settles well within `ms`, false on a timeout or an error. */
+function bounded(p: Promise<unknown>, ms = AFTER_STANDARD_MS): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([
+    p.then(
+      () => true,
+      () => false,
+    ),
+    new Promise<boolean>((resolve) => (timer = setTimeout(() => resolve(false), ms))),
+  ]).finally(() => clearTimeout(timer));
+}
+
+/** One try's results, kept apart from the entry until the try ends, so a step still running
+ *  after the deadline cannot write into the entry. */
+interface StandardOut {
+  standard?: Record<string, CheckResult>;
+  probe?: NonNullable<EntryResult["probe"]>;
 }
 
 async function runStandard(
@@ -298,7 +342,7 @@ async function runStandard(
   entry: RouteEntry,
   viewport: { width: number; height: number },
   scheme: string,
-  result: EntryResult,
+  result: StandardOut,
   g: Guard,
 ) {
   const { route } = entry;
@@ -370,6 +414,43 @@ async function runStandard(
   checks.probe = { count, samples: samples.slice(0, 8), ...(error ? { error } : {}) };
 }
 
+/** One try of the standard's checks, ended at the deadline whatever is still running. */
+async function tryStandard(
+  cfg: StandardConfig,
+  page: Page,
+  entry: RouteEntry,
+  viewport: { width: number; height: number },
+  scheme: string,
+  g: Guard,
+): Promise<{ standard: Record<string, CheckResult>; probe?: EntryResult["probe"]; error?: string }> {
+  const out: StandardOut = {};
+  let error: string | undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      runStandard(cfg, page, entry, viewport, scheme, out, g),
+      new Promise<void>((resolve) => {
+        timer = setTimeout(() => {
+          g.stopped ??= OUT_OF_TIME;
+          resolve();
+        }, Math.max(0, g.deadline - Date.now()));
+      }),
+    ]);
+  } catch (err) {
+    error = err instanceof Error ? err.message.slice(0, 500) : String(err);
+  } finally {
+    clearTimeout(timer);
+  }
+  // Copied now: what the steps still running write later stays in `out`.
+  const standard: Record<string, CheckResult> = { ...(out.standard ?? {}) };
+  const probe = out.probe && { ...out.probe };
+  if (g.stopped)
+    // Every check that did not finish says so; nothing is counted for it.
+    for (const id of plannedChecks(cfg, entry.route, viewport, scheme))
+      if (!standard[id]) standard[id] = { count: 0, samples: [], error: g.stopped };
+  return { standard, probe, error };
+}
+
 /** Which of the standard's checks this entry runs, so a run cut short can say which did not finish. */
 function plannedChecks(cfg: StandardConfig, route: string, viewport: { width: number }, scheme: string): string[] {
   const ids: string[] = [...DOM_CHECK_IDS];
@@ -402,17 +483,21 @@ for (const entry of routes) {
 
         test(`dod ${name}`, async ({ page }) => {
           // The standard's checks have their own budget on top of the page's.
-          if (standard) test.setTimeout(test.info().timeout + STANDARD_BUDGET_MS);
+          if (standard) test.setTimeout(test.info().timeout + STANDARD_TIMEOUT_MS);
           const consoleErrors: string[] = [];
           // Paused while the standard's checks resize the page: an error a resize provokes
-          // belongs to those checks, not to the page's console score.
-          const console_ = { collecting: true };
-          page.on("console", (m) => {
-            if (console_.collecting && m.type() === "error") consoleErrors.push(m.text().slice(0, 300));
-          });
-          page.on("pageerror", (e) => {
-            if (console_.collecting) consoleErrors.push(`pageerror: ${e.message.slice(0, 300)}`);
-          });
+          // belongs to those checks, not to the page's console score. Only the page being
+          // measured counts: one left behind by the standard's checks never does.
+          const console_ = { collecting: true, page };
+          const listen = (p: Page) => {
+            p.on("console", (m) => {
+              if (console_.collecting && console_.page === p && m.type() === "error") consoleErrors.push(m.text().slice(0, 300));
+            });
+            p.on("pageerror", (e) => {
+              if (console_.collecting && console_.page === p) consoleErrors.push(`pageerror: ${e.message.slice(0, 300)}`);
+            });
+          };
+          listen(page);
 
           const result: EntryResult = {
             route,
@@ -602,45 +687,59 @@ for (const entry of routes) {
             // whatever goes wrong in them is recorded on the check, and never turns the page
             // unreachable or changes any other number, so report mode leaves the score alone.
             const measuredUrl = page.url();
+            // The page the reduced-motion load runs on: this one, unless the standard's checks
+            // left it unable to answer.
+            let rmPage = page;
             if (standard && result.reached && !result.unreachable) {
               console_.collecting = false;
-              const g: Guard = { deadline: Date.now() + STANDARD_BUDGET_MS, url: measuredUrl, stopped: null };
-              let timer: ReturnType<typeof setTimeout> | undefined;
-              try {
-                // Bounded even when one step hangs on a busy page: the race ends the wait, and the
-                // guard stops the steps still to come.
-                await Promise.race([
-                  runStandard(standard, page, entry, viewport, scheme, result, g),
-                  new Promise<void>((resolve) => {
-                    timer = setTimeout(() => {
-                      g.stopped ??= `out of time (the standard's ${STANDARD_BUDGET_MS / 1000}s budget)`;
-                      resolve();
-                    }, STANDARD_BUDGET_MS + 5_000);
-                  }),
-                ]);
-              } catch (err) {
-                result.standard_error = err instanceof Error ? err.message.slice(0, 500) : String(err);
-              } finally {
-                clearTimeout(timer);
+              const nav: { g: Guard | null } = { g: null };
+              page.on("request", (r) => {
+                if (nav.g && r.isNavigationRequest() && r.frame() === page.mainFrame()) nav.g.newDocument = true;
+              });
+              // Each try is bounded by its deadline; after it, the viewport goes back and the page
+              // must answer within AFTER_STANDARD_MS, or it is left behind.
+              const attempt = async () => {
+                const g: Guard = { deadline: Date.now() + STANDARD_BUDGET_MS, url: measuredUrl, stopped: null, newDocument: false };
+                nav.g = g;
+                const r = await tryStandard(standard, page, entry, viewport, scheme, g);
+                nav.g = null;
+                const answers =
+                  (await bounded(page.setViewportSize({ width: viewport.width, height: viewport.height }))) &&
+                  (await bounded(page.waitForTimeout(RESIZE_MS).then(() => page.evaluate(() => true))));
+                return { ...r, g, answers };
+              };
+              let t = await attempt();
+              // A try that ran out of time on a loaded machine, or any error under CI, gets one
+              // more try, on a page that still answers and was not moved by a resize.
+              const errored = Object.entries(t.standard).find(([, c]) => c.error);
+              if (errored && t.answers && !moved(t.g, page) && (t.g.stopped === OUT_OF_TIME || process.env.CI)) {
+                result.standard_retried = `${errored[0]}: ${errored[1].error}`.slice(0, 300);
+                t = await attempt();
               }
-              if (g.stopped) {
-                // Every check that did not finish says so; nothing is counted for it.
-                result.standard ??= {};
-                for (const id of plannedChecks(standard, route, viewport, scheme))
-                  if (!result.standard[id]) result.standard[id] = { count: 0, samples: [], error: g.stopped };
+              result.standard = t.standard;
+              if (t.probe) result.probe = t.probe;
+              if (t.error) result.standard_error = t.error;
+              // The old document ends before the console counts again: a timer a resize started
+              // there (an error logged 300 ms later) must not land in the new load's count.
+              if (!t.answers || !(await bounded(page.goto("about:blank")))) {
+                // A page still busy with what a resize started is left behind; the reduced-motion
+                // load runs in a new tab of the same context (same session, same emulation).
+                void page.close({ runBeforeUnload: false }).catch(() => {});
+                rmPage = await page.context().newPage();
+                listen(rmPage);
+                console_.page = rmPage;
               }
-              await page.setViewportSize({ width: viewport.width, height: viewport.height }).catch(() => {});
-              await page.waitForTimeout(RESIZE_MS);
             }
 
-            await page.emulateMedia({ reducedMotion: "reduce" });
+            await rmPage.emulateMedia({ reducedMotion: "reduce" });
             // The console counts again from this load, as it does without the standard's checks.
             console_.collecting = true;
-            // A page the resizes navigated away is brought back to the route it is measured as.
-            if (page.url() !== measuredUrl) await page.goto(measuredUrl, { waitUntil: "domcontentloaded" });
-            else await page.reload({ waitUntil: "domcontentloaded" });
-            await settle(page);
-            result.reduced_motion = await reducedMotionViolations(page);
+            // After the standard's checks the page is loaded again from its measured URL; without
+            // them it is the same page, reloaded.
+            if (rmPage.url() !== measuredUrl) await rmPage.goto(measuredUrl, { waitUntil: "domcontentloaded" });
+            else await rmPage.reload({ waitUntil: "domcontentloaded" });
+            await settle(rmPage);
+            result.reduced_motion = await reducedMotionViolations(rmPage);
           } catch (err) {
             result.load_error = err instanceof Error ? err.message.slice(0, 500) : String(err);
             result.unreachable = true;
