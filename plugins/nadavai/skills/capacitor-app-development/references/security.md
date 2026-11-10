@@ -63,7 +63,7 @@ Adjust the policy based on the app's requirements:
 - Never send sensitive data (tokens, credentials) through URL scheme parameters.
 - For OAuth2 flows, use **PKCE (Proof Key for Code Exchange)** to prevent token interception during the callback.
 
-See `references/deep-links.md` for deep link setup.
+See the `capacitor-deep-linking` skill for deep link setup.
 
 ## WebView Debugging
 
