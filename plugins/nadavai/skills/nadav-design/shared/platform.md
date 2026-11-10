@@ -82,7 +82,7 @@ His standing rules for it:
 - Every other component gets a bake-off: the platform's against the custom one, captured on the
   device, and he picks where the screenshots differ.
 
-In `screen` on this app only the DOM parts of steps 6 to 8 of SKILL.md are replaced by the rows
+In `screen` on this app only the DOM parts of steps 6 to 8 of `modes/screen.md` are replaced by the rows
 below: the DoD and its four screenshots. The rest stays. Step 6's lint runs on the `apps/native`
 files with that app's own `lint` script. Step 8's visual change gate runs on the device captures:
 Nadav still says keep, change or revert before anything is committed. Step 8b's reviewer gets the

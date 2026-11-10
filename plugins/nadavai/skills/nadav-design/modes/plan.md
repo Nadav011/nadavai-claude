@@ -1,0 +1,15 @@
+# nadav-design · mode `plan`
+
+## Mode `plan <feature>` (before any code, one feature)
+
+Part of the nadav-design skill. Before this file read the Hard rules of `SKILL.md`, then `shared/rules.md`
+and `shared/platform.md`. Every path here is relative to the skill folder, one level above this file.
+
+
+0. **Is the problem clear?** Declare the tempo and the track. If the problem, audience or whether to build at all is unclear: `/intent:strategize` and `/intent:investigate` (ember) first; if user research already exists: `synthesize-research` (nadavai) before the PRD; if Nadav is about to interview users: the `mom-test` skill (wondelai product-strategy) shapes the questions. Otherwise say "problem clear" and continue. Evidence: the brief or the one line.
+1. **PRD.** `/write-spec` (bundled in the nadavai plugin) for the feature; answer its questions from the repo and PRODUCT.md, ask Nadav only what cannot be inferred. Save to `docs/specs/<feature>.md`. Evidence: the file, Nadav approved.
+2. **Job.** `jobs-to-be-done` (wondelai product-strategy): one job statement per user type, saved into the same spec under "Jobs". Evidence: the section.
+3. **Flows and IA.** Intent plugin (wren): `/intent:journey` for the end-to-end flow, `/intent:organize` for IA and navigation, `/intent:wireframe` for the screen structure, `/intent:localize` for the RTL and Hebrew notes. Output as Mermaid in `docs/specs/<feature>.md` under "Flows": happy path plus two failure paths, every decision node has an exit. Evidence: the Mermaid renders.
+4. **Heuristics pre-check.** `ux-heuristics` skill (wondelai ux-design) on the planned flow, reading `references/cultural-ux.md` for the RTL section. If the feature is a funnel (landing, signup, checkout, onboarding): the `conversion-optimization` skill (wondelai metaskills) on the planned flow as well. Then `/intent:evaluate` (vigil) on the wireframes: Nielsen, anti-patterns, WCAG 2.2, and `/intent:fortify` for edge cases, empty and error states, offline. Fold findings into the spec. Evidence: the findings list.
+5. **Mockup.** If Nadav wants to see it before code: a low-fi clickable HTML page of the key screen, built from `redesign/templates/section.html` and shown to him as a local file or a claude.ai artifact. Evidence: the page path or link, or "skipped by Nadav".
+6. **Hand off.** `/intent:specify` (rune): per-screen spec with behaviour, states, copy and accessibility, saved under "Screens" in the same file; the second model on the spec (`rules/working-style.md`, "Second model"), and fold what survives; then list the screens to build as `- [ ]` checkboxes under "Screens" in the spec (the `screen` mode ticks them and `next` reads them), each becomes a `/ux-screen <name>` run. Ask which first.
