@@ -117,19 +117,6 @@ The understanding check is `rules/working-style.md`, "Requests"; it is not resta
 
 ## Platform
 
-`PLATFORM` is recorded in setup step 1: `capacitor-bundled`, `capacitor-remote` (`capacitor.config.*` sets
-`server.url`), `pwa` or `expo`; the desktop browser is always a target too. Store, OTA and install rules belong to
-`rules/store-apps.md` and the `nadavai:store-apps` skill.
-
-- iOS and Android are judged separately. A platform gets a manifest and an install offer only while it has no
-  public store listing; once it has one, installed-PWA users get the move notice. The desktop browser's own install
-  stays.
-- Install checks (setup 9b), for a platform still allowed a PWA install: the served manifest's fields (`name`,
-  `short_name`, `start_url`, `display`, `lang`, `dir`, 192 and 512 icons with a maskable purpose, theme and
-  background colours), HTTPS, a service worker whose fetch handler answers a failed navigation, and Chrome's
-  install button on the live URL. Not `lighthouse_audit`: Lighthouse 12 has no PWA category.
-- Capacitor: load `nadavai:store-apps` (its `references/shell-checklist.md` and `references/native-bar.md`) with
-  `capacitor-app-development` and `capacitor-plugins`. `ship` checks the app installed from the public listing and
-  the OTA status as store-apps defines.
-- Expo: the DOM-based gates (DoD, Lighthouse, `ui-check`) do not apply to a native screen; the app's own
-  `apps/native/AGENTS.md` and scripts hold its checks. The full Expo profile lands in a later step.
+`shared/platform.md`: what each `PLATFORM` (`capacitor-bundled`, `capacitor-remote`, `pwa`, `expo`) changes in the
+design steps, which skill owns each Capacitor topic, and the native form of every gate on the Expo app. Read it in
+setup step 1, and again before any step that touches a shell, a device or a release.
