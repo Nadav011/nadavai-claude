@@ -1,7 +1,7 @@
 # The help system
 
 The part of the standard Nadav called the differentiator: "a non-technical therapist manages
-alone: explanation, video, AI helper on every screen" (#181 [N], #3 [N]), so that people manage
+alone: explanation, video, AI helper on every screen" (#181 [A], #3 [N]), so that people manage
 end to end without calling him. Rule ids (G-01 ...) refer to [experience.md](experience.md);
 decision numbers to `~/design-redesign/therapy-flow-v2/DECISIONS-ANSWERED.md`; source tags as
 defined there. The detailed spec this was distilled from is
@@ -27,7 +27,7 @@ header, and "מה זה?" beside unclear fields; all three open the same panel (#
 the header entry is one icon, because a header with both entries overflowed at 320 (#510 [A]).
 A labelled word beats an icon alone in the top bar ([B], kept by the r11 critique).
 
-**The panel (G-02).** One panel for every door ([B]): docked at the inline-end on a desktop so
+**The panel (G-02).** One panel for every door (#99 [A]; its anatomy below is [B]): docked at the inline-end on a desktop so
 the work stays usable beside it, a tall sheet on a phone. It holds the screen's article (what the
 screen is for, then three to five numbered tasks), "הראו לי" (closes the panel and starts the tour
 on the live screen), related articles, "what's new", and the question field. Content is filtered

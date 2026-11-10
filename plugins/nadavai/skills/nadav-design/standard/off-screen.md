@@ -12,7 +12,7 @@ Nadav sends to his own clients is a different thing and belongs to `nadavai:clie
 | Id | Rule | Source | Check |
 |---|---|---|---|
 | O-01 | The same voice as the screens (C-01 to C-04): gender-neutral, one word per concept, no banned words. A message to a business's customers says "אנחנו" and "שלך", has no gendered verb, no emoji and no exclamation mark, and is signed with the business name. | #81 [A] | auto: `forbidden-words` on the templates |
-| O-02 | The exact text is previewed by the person who triggers it before it goes, and sending is reported only after the provider confirmed (E-06, E-08). | #423 [A] | action-safety |
+| O-02 | What E-06 and E-08 say, for a message: the exact text is previewed before it goes, and "sent" is said only after the provider confirmed. The contract is action-safety's. | #423 [A] | action-safety |
 | O-03 | Nothing sends as a side effect: a status change offers the message as a button ("לשלוח את הודעת השלב?"); an automation has a trial run, "send me first", one stop switch, quiet hours and a visible log of what was sent or skipped and why. | #354 [A], #404 | reviewer |
 | O-04 | A send that can be undone waits about ten seconds so that undo never delivers a wrong message. | #43 [A] | reviewer |
 | O-05 | Every link in a message lands on the thing it talks about, already open, on the device it was opened on (the store app when installed, the browser otherwise). | [P] | reviewer |
@@ -38,7 +38,7 @@ a utility template. An SMS says who it is from in its first words.
 **PDF, receipts, exports.** RTL throughout, the real logo, `he-IL` dates, ₪ before the number,
 tabular figures, page numbers, and a file name a person can find later (what, who, date). A
 money document says what it counts and is never regenerated silently. Law beats design: a legal
-document's required fields and wording are not restyled away (#C05-18 [N]).
+document's required fields and wording are not restyled away (Nadav, 5.11.2026, row C05-18 of `~/design-redesign/therapy-flow-v2/research/closing/session-audit/chunk-05.md` [N]).
 
 ## At review time
 
