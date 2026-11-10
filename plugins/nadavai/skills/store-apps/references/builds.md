@@ -2,7 +2,8 @@
 
 Reference: therapy-flow-v2 `planning/native-apps-2026-11-06/IOS-BUILD.md` (Codemagic: the account,
 variable groups, signing, how to start and read a run) and SHELLS.md section 3 (local Android
-builds). Store uploads are a publishing step: ask Nadav before each upload.
+builds). Uploading a build and submitting it for review are not asked once its checks pass, as long as the
+release is held for Nadav; the public release is asked (`rules/working-style.md`, Approval gates).
 
 ## Version and build numbers
 

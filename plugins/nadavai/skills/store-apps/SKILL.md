@@ -18,10 +18,13 @@ General Capacitor topics (CLI, config, icons, splash, deep links, plugins) live 
 `mobile-native`. This skill holds only what those do not: the decisions, the order and the traps.
 
 Approval gates still apply at every step (`rules/working-style.md`, `rules/acting-on-behalf.md`):
-store publishing, auth changes (a reviewer login), deletion, migrations and anything that costs
-money are asked at that moment. Uploading to TestFlight or a Play internal track counts as store
-publishing (therapy-flow-v2 RELEASE.md section 4 F puts those uploads under that gate), so ask
-before it too.
+a public release (a build, a raise of a staged rollout, the first listing, a change to a live
+listing, its availability or price), auth changes (a reviewer login), deletion, migrations and
+anything that costs money are asked at that moment. Uploading a build and submitting it for review
+are not asked once its checks pass (Nadav, 2026-11-10), provided the release is held for him: App
+Store Connect `releaseType: MANUAL`; on Play a testing track, or managed publishing on for
+production. A project file that still puts every upload under the gate (therapy-flow-v2
+RELEASE.md section 4 F) is older than this decision.
 
 ## Steps
 
