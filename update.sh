@@ -87,6 +87,7 @@ apply_machine_env
 
 step "Links"
 link_rules
+link_global_claude_md
 link_git
 link_shell
 link_shortcuts

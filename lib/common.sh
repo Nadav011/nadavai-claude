@@ -185,7 +185,7 @@ merge_settings() {
 
 apply_model_policy() {
   # Re-apply only the policy keys of settings.base.json on update (model, availableModels, missing modelSettings entries, plugins that base turns off,
-  # deniedMcpServers, and env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE). A full merge would also reset per-machine values such as the concurrency
+  # deniedMcpServers, env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE and env.OMC_SKIP_HOOKS). A full merge would also reset per-machine values such as the concurrency
   # caps. Every Orca account profile keeps its own settings.json, so the keys go to each one,
   # not only to the profile update.sh happens to run in (on 2026-11-07 only one of the
   # LENOVO's profiles had them).
@@ -215,7 +215,7 @@ apply_model_policy() {
         if (!(m in cur.modelSettings)) cur.modelSettings[m] = v;
       }
       // Policy env vars are set one by one, so the other env vars of the machine (tokens, paths) stay.
-      for (const k of ["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"]) {
+      for (const k of ["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE", "OMC_SKIP_HOOKS"]) {
         const v = (b.env || {})[k];
         if (v !== undefined) cur.env = { ...(cur.env || {}), [k]: v };
         else if (cur.env) delete cur.env[k];
@@ -263,6 +263,22 @@ link_git() {
   git config --global core.hooksPath "$HOME/.git-hooks"
   link_file "$REPO/git/ignore" "$HOME/.config/git/ignore"
   log "core.hooksPath=$HOME/.git-hooks, global ignore linked"
+}
+
+link_global_claude_md() {
+  # ~/.claude/CLAUDE.md loads into every session and subagent: each Orca profile's own CLAUDE.md
+  # is one line that imports it, so the target is always ~/.claude, whichever profile runs this.
+  # `omc setup` used to own the file and left a 6K block whose delegation, model and verification
+  # text the rules override; the short file here replaces it. claudeMdEnabled=false makes OMC
+  # treat the file as the user's: no rewrite on setup or update, no drift warning.
+  link_file "$REPO/settings/CLAUDE.global.md" "$HOME/.claude/CLAUDE.md"
+  node -e '
+    const fs = require("fs"), p = process.argv[1];
+    let d = {}; try { d = JSON.parse(fs.readFileSync(p, "utf8")); } catch {}
+    if (d.claudeMdEnabled === false) process.exit(0);
+    d.claudeMdEnabled = false;
+    fs.writeFileSync(p, JSON.stringify(d, null, 2) + "\n");
+  ' "$HOME/.claude/.omc-config.json"
 }
 
 ensure_omc() {

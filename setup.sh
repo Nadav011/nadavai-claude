@@ -86,6 +86,7 @@ link_shell
 
 step "OMC CLI, CLAUDE.md and HUD"
 ensure_omc
+link_global_claude_md
 
 step "continues CLI and the cs shortcut"
 ensure_continues
