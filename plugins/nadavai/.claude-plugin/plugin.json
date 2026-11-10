@@ -47,10 +47,6 @@
       "marketplace": "claude-plugins-official"
     },
     {
-      "name": "vercel",
-      "marketplace": "claude-plugins-official"
-    },
-    {
       "name": "chrome-devtools-mcp",
       "marketplace": "claude-plugins-official"
     },
