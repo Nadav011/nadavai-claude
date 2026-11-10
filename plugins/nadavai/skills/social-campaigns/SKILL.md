@@ -26,8 +26,8 @@ Two stops for Nadav belong to campaigns, besides the global gates the procedure 
 creatives (approval point A) before anything is built in Meta, and the launch summary (approval point
 B) before anything is published or extended. In every creative, Hebrew text and the client's logo are
 real text and the real file, never drawn or redrawn by an image model, and nothing is claimed that the
-client has not confirmed; generated photos are allowed (Nadav, 2026-11-10), never captioned as the
-client's own job.
+client has not confirmed; generated photos are allowed (Nadav, 2026-11-10); the kit's own limit, from that
+no-unconfirmed-claims rule, is that one is never captioned as the client's own job.
 
 ## Visibility: read first
 
