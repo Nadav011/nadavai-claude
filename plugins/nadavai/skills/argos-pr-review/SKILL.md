@@ -7,6 +7,8 @@ description: >
   match the developer's intent before approving.
 ---
 
+> **nadavai preface (vendored, see VENDORED.md).** `review create --event approve`, `--event reject`, `change ignore` and any comment run only when Nadav asked for that review. `change ignore` also auto-approves the same change on every future build, so say exactly what it will ignore before running it.
+
 # Argos PR Review
 
 **Argos** is a visual testing platform: each CI build captures screenshots and

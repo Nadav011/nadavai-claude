@@ -1,16 +1,10 @@
 ---
 name: argos-upload
 description: >
-  Upload a screenshot, an image or a screen recording to Argos and get a
-  shareable URL plus ready-to-paste Markdown, so it can be embedded in a pull
-  request, an issue, a changelog or a chat message — or attached to a branch or
-  pull request, where Argos posts and maintains the comment itself. Use whenever
-  you have produced a visual artifact — a Playwright video or trace screenshot, a
-  before/after of a UI change, a recording of a reproduction — and need it visible
-  to a human who cannot run your shell. GitHub has no public API for comment
-  attachments, so this is how an agent working from a terminal gets an image into
-  a pull request at all. Also covers reading back the comments a human pinned to
-  those screenshots, so you can act on visual feedback you cannot see.
+  Upload a screenshot, image or recording to Argos for a shareable URL
+  and paste-ready Markdown, or attach it to a branch or pull request. Use when
+  a visual artifact (Playwright video, before/after, repro recording) must be
+  visible to a human in a PR, issue or chat, or to read comments pinned on it.
 license: MIT
 metadata:
   author: argos-ci
@@ -18,6 +12,8 @@ metadata:
   source: https://github.com/argos-ci/argos-javascript
 argument-hint: Needs a token (ARGOS_TOKEN, --token, or `argos login`); add `--project <owner/project>` when using a personal access token.
 ---
+
+> **nadavai preface (vendored, see VENDORED.md).** Argos is a third-party service: upload only when Nadav asks for that upload. Use `--visibility team` where the Argos plan allows it; on the free plan every share page is public to anyone with the link. Never upload a screenshot or recording of a screen that shows personal data (customers, patients, clients, staff); use seeded test data instead.
 
 # Argos media upload
 

@@ -1,16 +1,10 @@
 ---
 name: argos-cli
 description: >
-  Operate Argos visual testing from the terminal with the `argos` CLI — inspect
-  builds and snapshot diffs, submit reviews, request reviewers, post comments,
-  inspect a test's flakiness and its recurring changes, ignore flaky test
-  changes, configure a project and its contributors, manage a team's members,
-  invites and email domains, manage automation rules, fetch analytics, upload
-  screenshots, and manage CI builds. Use whenever running `argos` commands or
-  working with Argos builds, snapshots, flakiness, projects, teams, or
-  visual-regression reviews from a shell, script, or CI pipeline.
-  Load before running `argos` — it covers the token model and JSON output
-  contract that prevent silent failures.
+  Run Argos visual testing with the `argos` CLI (builds, diffs, baselines,
+  reviews, comments, flakiness, projects, teams, CI uploads, docs search).
+  Use whenever running `argos` commands, from a shell or CI. Load it first:
+  it covers the token model and the JSON output contract.
 license: MIT
 metadata:
   author: argos-ci
@@ -18,6 +12,8 @@ metadata:
   source: https://github.com/argos-ci/argos-javascript
 argument-hint: Needs a token (ARGOS_TOKEN, --token, or `argos login`); add `--project owner/project` for build-number refs on review/comment commands, for every `change`, `project` and `automation` command, and for `test` commands unless the token is a project token; `--account <slug>` (or ARGOS_ACCOUNT) for every `account` command.
 ---
+
+> **nadavai preface (vendored, see VENDORED.md).** `upload`, `deploy` and `media upload` send screenshots, recordings or a whole site to Argos, a third-party service: run them only when Nadav asked for that upload. Use `--visibility team` where the Argos plan allows it; on the free plan a media share page is public to anyone with the link. Never upload a screen that shows personal data (customers, patients, clients, staff); use seeded test data instead. Reviews, comments and `change ignore` follow the argos-pr-review preface. Commands that give a person access, move or delete something (`account invite`, `account member`, `account domain`, `account update`, `project contributor`, `project update`, `project transfer`, `media delete`, `automation`) are asked first, every time.
 
 # Argos CLI
 
@@ -49,9 +45,20 @@ Two token types — pick by command:
 
 | Commands                                                                                                                                                                                                                                                                                                         | Token                       | Resolution order                            |
 | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------- | ------------------------------------------- |
-| `build get`, `build snapshots`, `test list`, `test get`, `test changes`, `change list`, `project get`, `project deployments`, `project domain get`, `media get`, `media list`, `media versions`, `media update`, `media delete`                                                                                  | Project token               | `--token` › `ARGOS_TOKEN`                   |
+| `build list`, `build get`, `build snapshots`, `build download`, `baseline download`, `test list`, `test get`, `test changes`, `change list`, `project get`, `project deployments`, `project domain get`, `media get`, `media list`, `media versions`, `media update`, `media delete`                             | Project token               | `--token` › `ARGOS_TOKEN`                   |
 | `review *`, `comment *`, `test comment *`, `media comment *`, `test subscribe` / `unsubscribe`, `build subscribe` / `unsubscribe`, `change ignore` / `unignore`, `account *`, `project update`, `project transfer`, `project contributor *`, `project domain set`, `automation *`, `analytics`, `create-project` | Personal access token (PAT) | `--token` › `ARGOS_TOKEN` › `argos login`   |
 | `upload`, `finalize`, `skip`, `deploy`, `media upload`                                                                                                                                                                                                                                                           | CI / project token          | `--token` › `ARGOS_TOKEN` (or tokenless CI) |
+
+`baseline download` takes only a project token: the baseline lookup it relies on
+rejects a PAT, including the one from `argos login`.
+
+`argos login` asks the user which access to grant. Its default, "Read and
+write", covers reviews, comments and media but not administration: `account *`,
+`create-project`, `project update`, `project transfer`, `project contributor
+set|remove`, `project domain set` and `automation create|update|deactivate`
+need "Admin" access. An `Insufficient scope` error names the missing
+permission: ask the user to run `argos login` again and choose "Admin", or use
+a PAT.
 
 Project tokens read build data but **cannot** review, comment, ignore changes, or
 administer a project or team — those need a PAT. If no suitable token is
@@ -61,7 +68,8 @@ humans, not CI.
 
 ## Commands
 
-- **Inspect** — `build get <ref>` · `build snapshots <ref> [--needs-review] [--metrics-period 24h|3d|7d|30d|90d]` · `build subscribe|unsubscribe <ref>`
+- **Inspect** — `build list [--branch <b>] [--commit <sha>] [--search <q>]` · `build get <ref>` · `build snapshots <ref> [--needs-review] [--metrics-period 24h|3d|7d|30d|90d]` · `build subscribe|unsubscribe <ref>`
+- **Export** — `build download <ref> [-o <dir>]` · `baseline download [-o <dir>] [--branch <b>] [--build-name <name>] [--mode ci|monitoring]`
 - **Review** — `review list <ref>` · `review create <ref> --event <approve|reject|comment> [--body <md>]` · `review dismiss <ref> <reviewId>` · `review reviewer list <ref>` · `review reviewer add|remove <ref> <userId...>`
 - **Comment** — `comment list <ref>` · `comment create <ref> --body <md> [--reply-to <id>] [--diff <id>] [--draft]` · `comment get|edit|delete|resolve|unresolve|subscribe|unsubscribe <ref> <id>` · `comment react|unreact <ref> <id> <emoji>`
 - **Flakiness** — `test list [--build-name <name>] [--search <q>]` · `test get <testId>` · `test changes <testId> [--ignored true|false] [--metrics-period …]` · `test subscribe|unsubscribe <testId>` · `change list` · `change ignore|unignore <changeId> --project owner/project`
@@ -74,10 +82,11 @@ humans, not CI.
 - **Media comments** — `media comment list <mediaId> [--all]` (open threads by default) · `media comment create <mediaId>` · `media comment get|edit|delete|resolve|unresolve|subscribe|unsubscribe <mediaId> <id>` · `media comment react|unreact <mediaId> <id> <emoji>`
 - **CI** — `upload <dir>` · `finalize` · `skip` · `deploy <dir>`
 - **Auth** — `login` · `logout`
+- **Docs** — `docs search <query> [--limit <n>]` (no token; up to 10 results, 5 by default)
 
-List commands (`test list`, `change list`, `account member list`, `project
-contributor list`, `project deployments`, `automation list`, `account invite
-list`) follow pagination up to `--limit` (default 100).
+List commands (`build list`, `test list`, `change list`, `account member
+list`, `project contributor list`, `project deployments`, `automation list`,
+`account invite list`) follow pagination up to `--limit` (default 100).
 
 `build snapshots --json` enriches each diff with `test.metrics` (flakiness:
 `stability`, `consistency`, `flakiness`, all 0–1) and, on a change, `change`
@@ -121,6 +130,26 @@ ARGOS_TOKEN=<project-token> argos test get <testId> --json          # flakiness,
 ARGOS_TOKEN=<project-token> argos test changes <testId> --json      # occurrences + diff/base/head URLs per change
 # a change with occurrences > 1 that nothing in the UI explains is flaky:
 argos change ignore <changeId> --token <pat> --project owner/project
+```
+
+Export screenshots to a directory. Files are laid out by snapshot name
+(`chromium/home.png`), so screenshots uploaded from a directory come back under
+the same paths; a name without an image extension gets one. The directory must
+be empty or not exist yet. `baseline download` takes the newest build of the
+default branch (or `--branch`) that Argos can use as a baseline, for one
+`--build-name` (`default` unless given); failure screenshots are left out:
+
+```bash
+ARGOS_TOKEN=<project-token> argos build download <ref> -o ./screenshots --json   # { build, directory, files: [{ name, status, path, url }] }
+ARGOS_TOKEN=<project-token> argos baseline download -o ./baseline --build-name storybook
+```
+
+Look up how an Argos feature works before guessing at a config option or flag.
+Append `.md` to a result's URL to read the whole page as Markdown:
+
+```bash
+argos docs search "parallel builds" --json        # [{ title, url, excerpt }], best match first
+curl "$(argos docs search "parallel builds" --json | jq -r '.[0].url').md"
 ```
 
 Upload screenshots in CI:
