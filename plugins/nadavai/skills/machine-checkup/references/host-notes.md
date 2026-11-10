@@ -44,6 +44,17 @@ battery charge stops at 80% since 2026-11-10 (`61-battery-charge.rules`; it held
 capacity after living at 100% on AC);
 SSH via Tailscale only. The GPU was pinned at its highest state: Nadav's choice then.
 
+Undervolt worth test, 2026-11-10 (`scripts/cpu-ab.sh`, 5 interleaved rounds, CI agent paused for
+3 m 43 s through `ci-agent`, four agent sessions working): -40 mV against 0 mV at the same
+40/45 W gave whole-machine work 2368 (2301-2559) against 2186 (2062-2206), +8%, and 8-process
+work 6318 against 5238, +20%; the ranges do not overlap, so the undervolt stays. Both ran at
+94-96 C and throttled, so the machine is at its cooling limit and the undervolt is what buys
+clock speed inside 40 W. What it does not prove is safety: watch `rasdaemon` and
+`msi-tuning-check` ("no machine-check errors this boot") beside the CI flake rate, and go to
+0 mV at the first machine-check event. Pending a reboot window from Nadav (he logs in after
+it; tell the CI session first, it wants a Docker resolver change in the same reboot): 127
+package updates with kernel 7.3.1 to 7.3.3, and `/tmp` moving to disk.
+
 **LENOVO** (Legion Pro 5 16IAX10H, Core Ultra 9 275HX 24 cores, 62 GB, RTX 5070 Ti, CachyOS,
 BIOS Q6CN79WW = latest per `download.lenovo.com/catalog/83LU_Win11.xml`; the main machine since
 2026-11-03). On Linux the firmware leaves `intel-rapl-mmio:0` at 30/30 W, so check that first:
