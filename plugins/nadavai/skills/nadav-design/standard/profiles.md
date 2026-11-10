@@ -13,7 +13,7 @@ back office and the page its customers book on.
 
 | Group | work tool | consumer app |
 |---|---|---|
-| 1 Guidance | all of it | G-01, G-02, G-04, G-06, G-09, G-13, G-14, G-15; no "מה זה?" beside every field (G-03), no sample record (G-11); a tour only if the first screens cannot be made obvious (then G-07, G-08, G-16 and G-20 hold; G-17, G-18 and G-19 are work-tool rules) |
+| 1 Guidance | all of it | G-01, G-02, G-04, G-06, G-09, G-13, G-14, G-15; no "מה זה?" beside every field (G-03), no sample record (G-11); a tour only if the first screens cannot be made obvious (then G-07, G-08, G-16, G-20 and G-21 hold; G-17, G-18 and G-19 are work-tool rules) |
 | 2 When the person goes wrong | all | all |
 | 3 Input help | all | all |
 | 4 Simplicity | all | all except S-07 and S-13 |
