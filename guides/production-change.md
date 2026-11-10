@@ -1,6 +1,6 @@
 # A production change that runs without asking
 
-`rules/working-style.md` (Approval gates) says which engineering actions run without asking Nadav: a DB migration, a write to production data outside the app's own screens, an auth, permission or RLS change, a payment-code change, a deletion of backed-up data rows, and the deploy that carries one of these. This file is the procedure. The steps run in this order, by the session Nadav talks to. If a step cannot be done, stop and ask him, and say which step failed; an action in the rule's ask list is asked however well the steps went.
+`rules/working-style.md` (Approval gates) says which engineering actions run without asking Nadav: a DB migration, a write to production data outside the app's own screens, an auth, permission or RLS change, a payment-code change, a deletion of backed-up data rows, and the deploy that carries one of these. This file is the procedure. The steps run in this order, by the session Nadav talks to. If a step cannot be done, stop and ask him, and say which step failed; an action in the rule's ask list is asked however well the steps went, and a behaviour, a price or an access that only a spec the agent wrote "decided" is not decided.
 
 Nadav does not program and reads the report after, not the diff before. The reviewer and the way back stand where his yes used to stand, so neither is a formality.
 
@@ -20,14 +20,15 @@ Nadav does not program and reads the report after, not the diff before. The revi
 Each kind of change has its own, and "should be possible" is not a check.
 - Code: the deployment id that a rollback returns to (`nadavai-deploy pages-live <repo>`).
 - A schema, policy or permission change: a reverse migration, run in step 2 after the forward one. Rolling the code back does not revert a policy or a column.
-- Data that a step drops, rewrites or deletes: a backup of exactly those tables or rows, taken just before, kept inside the provider (a dated backup schema in the same database) or in the project's named backup location, never on a laptop. Check it by counting its rows against the source, inside the provider.
+- Data that a step drops, rewrites or deletes: a backup of exactly those tables or rows, taken just before, kept inside the provider or in the project's named backup location, never on a laptop. Inside the database it goes into its own schema (`backup_<yyyymmdd>`), never into `public` or any schema the API exposes, with no grants to `anon` or `authenticated` and RLS on; a table copied into an exposed schema starts with RLS off and is readable with the key that ships in the app. Confirm with one request that uses the anon key that the copy cannot be reached. Check the copy by counting its rows against the source, inside the provider.
+- A backup is a second copy of people's data: give it a drop date (30 days, or when the change is confirmed good) and drop it then. Dropping a backup the agent made on that date is part of this action, not a new deletion to ask about.
 - The provider's restore point is a second line only. Note its time, because restoring it erases everything every other user wrote since.
 - A change with no way back (data already exposed, a message already sent, money already charged) is not in this class. Ask.
 
 ## 4. The target
 - Confirm that the database or service is the one the live app uses now: the project ref or host in the live deployment's settings equals the one the recipe reaches.
 - Then use the project's own script or documented recipe. A recipe whose target differs, or that no longer runs, is not used: report it and ask.
-- One session changes a database at a time (take the repo's deploy lock or say so in the project's run log), and a change that rewrites or locks a large table runs outside the app's busy hours.
+- One session changes a database at a time: say so in the project's run log before starting, and check that no other session wrote there that it is in the middle of one. A change that rewrites or locks a large table runs outside the app's busy hours.
 
 ## 5. Apply and check
 - An additive migration goes before the code that needs it. A drop or a rename goes only after the live code no longer uses it.
@@ -41,5 +42,6 @@ Plain Hebrew, at the top of the reply that ends the turn, under "בוצע בלי
 - who is affected and how many (rows, users, clinics);
 - what a user would notice, and what Nadav would see if it went wrong;
 - which reviewer approved it;
-- the backup or restore point, by name and time;
-- how to undo it, as a sentence he can send back ("כתוב: לבטל את <שם>"), and what undoing would lose.
+- the backup or restore point, by name and time, and the date the backup will be dropped;
+- how to undo it, as a sentence he can send back ("כתוב: לבטל את <שם>"), and what undoing would lose;
+- the steps, one short line each with its evidence (the reviewer and where the verdict is, what the trial ran, the way back, the target, the checks after), so a skipped step shows.
