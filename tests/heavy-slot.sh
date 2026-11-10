@@ -119,6 +119,53 @@ HEAVY_SLOT_HELD="$other:$(start_of "$other")" timeout 3 "$hs" --slots 1 -- true 
 [ "$rc3" = 124 ] && ok "(3) a live holder that is not an ancestor is ignored" || bad "(3) a non-ancestor holder skipped the queue (exit $rc3)"
 kill "$(cat "$t/child2")" "$other" 2>/dev/null; wait "$holder" 2>/dev/null
 
+# Waiting jobs start in arrival order.
+: >"$t/order"
+"$hs" --slots 1 -- bash -c "echo \$\$ >'$t/q0'; exec sleep 60" & holder=$!; pids+=("$holder")
+wait_taken
+for n in A B C; do "$hs" --slots 1 -- bash -c "echo $n >>'$t/order'; sleep 0.3" 2>/dev/null & pids+=("$!"); sleep 0.6; done
+kill "$(cat "$t/q0")"; wait "$holder" 2>/dev/null
+for _ in $(seq 1 50); do [ "$(wc -l <"$t/order")" = 3 ] && break; sleep 0.2; done
+[ "$(tr -d '\n' <"$t/order")" = ABC ] && ok "waiting jobs start in arrival order" || bad "order: '$(tr '\n' ' ' <"$t/order")'"
+sleep 1   # the last of them leaves its slot
+
+# A waiting job that was SIGKILLed leaves a ticket that holds nobody up.
+"$hs" --slots 1 -- bash -c "echo \$\$ >'$t/q1'; exec sleep 60" & holder=$!; pids+=("$holder")
+wait_taken
+"$hs" --slots 1 -- true 2>/dev/null & dead=$!
+sleep 0.8; kill -9 "$dead"; wait "$dead" 2>/dev/null
+kill "$(cat "$t/q1")"; wait "$holder" 2>/dev/null
+if timeout 8 "$hs" --slots 1 -- true 2>/dev/null; then ok "a SIGKILLed waiting job does not block the queue"
+else bad "the queue stayed blocked behind a dead ticket (exit $?)"; fi
+
+# Beyond the floor, a job waits for memory and for the CPU; --status shows both lists.
+printf 'heavy_slots=3\nheavy_floor=1\nheavy_mem_min_gb=8\nheavy_cpu_max=85\n' >"$t/config/nadavai/capacity"
+export HEAVY_SLOT_TEST_MEMINFO=$t/meminfo HEAVY_SLOT_TEST_BUSY=$t/busy
+echo 'MemAvailable:    2097152 kB' >"$t/meminfo"; echo 10 >"$t/busy"
+"$hs" -- bash -c "echo \$\$ >'$t/l0'; exec sleep 60" & holder=$!; pids+=("$holder")
+wait_taken
+"$hs" -- bash -c "echo ran >'$t/l1'; exec sleep 60" 2>"$t/l1.err" & second=$!; pids+=("$second")
+sleep 2.5
+[ ! -e "$t/l1" ] && grep -q 'memory: 2 GB' "$t/l1.err" && ok "a job beyond the floor waits while memory is low, and says so" || bad "low memory: ran=$([ -e "$t/l1" ] && echo yes || echo no), said '$(cat "$t/l1.err")'"
+st=$("$hs" --status)
+grep -q '^running: 1$' <<<"$st" && grep -q '^waiting, in order: 1$' <<<"$st" && ok "--status lists 1 running and 1 waiting" || bad "--status: $st"
+echo 'MemAvailable:   52428800 kB' >"$t/meminfo"
+for _ in $(seq 1 40); do [ -e "$t/l1" ] && break; sleep 0.2; done
+[ -e "$t/l1" ] && ok "it starts once memory is back" || bad "it did not start with memory back"
+echo 95 >"$t/busy"
+"$hs" -- bash -c "echo ran >'$t/l2'" 2>"$t/l2.err" & third=$!; pids+=("$third")
+sleep 7.5   # past the 5 s gap after the second job's start
+[ ! -e "$t/l2" ] && ok "a job beyond the floor waits while the CPU is busy" || bad "it started at 95% busy"
+echo 10 >"$t/busy"
+for _ in $(seq 1 40); do [ -e "$t/l2" ] && break; sleep 0.2; done
+[ -e "$t/l2" ] && ok "it starts once the CPU has room" || bad "it did not start with the CPU free"
+grep -q 'CPU 95% busy' "$t/l2.err" || bad "the CPU wait gave no reason: '$(cat "$t/l2.err")'"
+kill "$(cat "$t/l0")" "$second" 2>/dev/null; wait "$holder" "$second" "$third" 2>/dev/null
+unset HEAVY_SLOT_TEST_MEMINFO HEAVY_SLOT_TEST_BUSY
+printf 'heavy_slots=2\nheavy_floor=5\n' >"$t/config/nadavai/capacity"
+"$hs" --status | grep -q '^always admitted: 2; ceiling: 2$' && ok "a floor above the ceiling is cut to the ceiling" || bad "floor above ceiling: $("$hs" --status | sed -n 2p)"
+printf 'heavy_slots=1\n' >"$t/config/nadavai/capacity"
+
 "$hs" --slots 0 -- true 2>/dev/null; [ $? = 64 ] && ok "--slots 0 is refused" || bad "--slots 0 accepted"
 [ "$fail" = 0 ] && echo "all passed"
 exit "$fail"

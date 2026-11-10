@@ -1,24 +1,37 @@
 #!/usr/bin/env bash
-# heavy-slot: run a heavy local job (a build, a full suite, e2e, DoD, a DB replay) only
-# when one of this machine's heavy slots is free, so agents never stack more of them
-# than the machine holds.
+# heavy-slot: run a heavy local job (a build, a full suite, e2e, DoD, a DB replay) when this
+# machine has room for it, so agents never stack more of them than the machine holds.
 #
 #   heavy-slot [--slots N] -- <command...>
+#   heavy-slot --status        what runs, what waits and what the machine measures now
 #
-# Slots: --slots N, else heavy_slots in ${XDG_CONFIG_HOME:-~/.config}/nadavai/capacity,
-# else 3. The capacity file is one per host, key=value per line, # for comments:
-#   heavy_slots=3          # heavy jobs at once (this script)
+# Admission is by measured load, not by a fixed count. The first heavy_floor jobs always
+# start. A job beyond the floor starts when the CPU is under heavy_cpu_max percent busy
+# (sampled over one second), at least heavy_mem_min_gb GB of memory is available, and 5 s have
+# passed since the last such start, so the job before it already shows in the sample.
+# heavy_slots is only the ceiling. Waiting jobs start in arrival order, and a waiting job
+# prints why it waits, once a minute. Why not a count: on 2026-11-10 six jobs that used a
+# third of the CPU held all six slots for over an hour while fifteen waited; started together,
+# the same jobs took the CPU to 100% busy, so no fixed number is right.
+#
+# Settings, one per line as key=value (# for comments), in
+# ${XDG_CONFIG_HOME:-~/.config}/nadavai/capacity, one file per host:
+#   heavy_slots=24         # ceiling (default: the number of CPUs)
+#   heavy_floor=6          # always admitted (default: a quarter of the CPUs, at least 2)
+#   heavy_cpu_max=85       # percent busy at which jobs beyond the floor wait (default 85)
+#   heavy_mem_min_gb=8     # GB available under which they wait (default 8)
 #   pg_pool_leases=12      # live pg-pool databases at once (pg-pool)
+# --slots N is a strict count for one call: N at once, no load check.
 #
-# Slot files live in ~/.cache/heavy-slot/ for every caller, so all of them share one pool.
-# Each is taken with flock: every free slot is tried at once, then one slot is waited on for
-# 2 s, round-robin. This process holds the lock and runs the command as its child, in the same
-# process group (a group kill or `timeout -s KILL` reaches both; /dev/tty and Ctrl-Z behave as
-# without heavy-slot), without the lock fd, so a daemon the command leaves behind never keeps a
-# slot. TERM, INT and HUP sent to this process are passed to the command, and the slot stays
-# held until the command has ended; then this exits 128+signal. Otherwise the command's exit
-# code is passed through. The command runs through `bash -c 'exec "$@"'`, so its words mean
-# what they would to bash (FOO=bar cmd is a command named FOO=bar, an error).
+# Slot files live in ~/.cache/heavy-slot/ for every caller, so all of them share one pool, and
+# the queue in ~/.cache/heavy-slot/queue/. Each slot is taken with flock. This process holds
+# the lock and runs the command as its child, in the same process group (a group kill or
+# `timeout -s KILL` reaches both; /dev/tty and Ctrl-Z behave as without heavy-slot), without
+# the lock fd, so a daemon the command leaves behind never keeps a slot. TERM, INT and HUP sent
+# to this process are passed to the command, and the slot stays held until the command has
+# ended; then this exits 128+signal. Otherwise the command's exit code is passed through. The
+# command runs through `bash -c 'exec "$@"'`, so its words mean what they would to bash
+# (FOO=bar cmd is a command named FOO=bar, an error).
 # What still escapes: a SIGKILL of this process frees the slot at once. The command itself then
 # gets TERM (setpriv --pdeathsig, where setpriv exists), but its own children do not, and a
 # signal sent to this process alone (not the group) reaches only the command, not its children.
@@ -28,51 +41,121 @@
 # directly. Any other value is ignored.
 set -uo pipefail
 
-usage() { sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage() { awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit "${1:-0}"; }
 
-slots=""
+slots="" strict=0 want_status=0
 while [ $# -gt 0 ]; do
   case "$1" in
     -h|--help) usage 0 ;;
-    --slots) slots=${2:-}; shift ;;
-    --slots=*) slots=${1#*=} ;;
+    --status) want_status=1 ;;
+    --slots) slots=${2:-}; strict=1; shift ;;
+    --slots=*) slots=${1#*=}; strict=1 ;;
     --) shift; break ;;
     -*) echo "heavy-slot: unknown option $1" >&2; usage 64 >&2 ;;
     *) break ;;
   esac
   shift
 done
-[ $# -gt 0 ] || usage 64 >&2
+[ "$want_status" = 1 ] || [ $# -gt 0 ] || usage 64 >&2
 
 stat_field() { [ -r "/proc/$1/stat" ] && awk -v f="$2" '{ sub(/^.*\) /, ""); print $(f - 2) }' "/proc/$1/stat"; }
 
 # HEAVY_SLOT_HELD counts only when its process is alive and one of this process's ancestors.
 held=${HEAVY_SLOT_HELD:-}
-if [[ $held =~ ^([0-9]+):([0-9]+)$ ]] && [ "$(stat_field "${BASH_REMATCH[1]}" 22)" = "${BASH_REMATCH[2]}" ]; then
+if [ "$want_status" = 0 ] && [[ $held =~ ^([0-9]+):([0-9]+)$ ]] && [ "$(stat_field "${BASH_REMATCH[1]}" 22)" = "${BASH_REMATCH[2]}" ]; then
   holder=${BASH_REMATCH[1]} p=$$
   while [ "$p" -gt 1 ] && [ "$p" != "$holder" ]; do p=$(stat_field "$p" 4) || break; done
   # shellcheck disable=SC2016  # expanded by the inner bash
   [ "$p" = "$holder" ] && exec bash -c 'exec "$@"' _ "$@"
 fi
 
-if [ -z "$slots" ]; then
-  conf=${XDG_CONFIG_HOME:-$HOME/.config}/nadavai/capacity
-  if [ -r "$conf" ]; then
-    while IFS='=' read -r k v; do
-      k=${k//[[:space:]]/}; v=${v%%#*}; v=${v//[[:space:]]/}
-      [ "$k" = heavy_slots ] && slots=$v
-    done <"$conf"
-  fi
+cores=$(nproc 2>/dev/null || echo 4)
+floor="" cpu_max="" mem_min=""
+conf=${XDG_CONFIG_HOME:-$HOME/.config}/nadavai/capacity
+if [ -r "$conf" ]; then
+  while IFS='=' read -r k v; do
+    k=${k//[[:space:]]/}; v=${v%%#*}; v=${v//[[:space:]]/}
+    case $k in
+      heavy_slots) [ -z "$slots" ] && slots=$v ;;
+      heavy_floor) floor=$v ;;
+      heavy_cpu_max) cpu_max=$v ;;
+      heavy_mem_min_gb) mem_min=$v ;;
+    esac
+  done <"$conf"
 fi
-slots=${slots:-3}
+slots=${slots:-$cores}
+if [ -z "$floor" ]; then floor=$((cores / 4)); [ "$floor" -lt 2 ] && floor=2; fi
+cpu_max=${cpu_max:-85} mem_min=${mem_min:-8}
 [[ $slots =~ ^[1-9][0-9]*$ ]] || { echo "heavy-slot: slots must be a positive whole number, got '$slots'" >&2; exit 64; }
+[[ $floor =~ ^[1-9][0-9]*$ ]] || { echo "heavy-slot: heavy_floor must be a positive whole number, got '$floor'" >&2; exit 64; }
+[[ $cpu_max =~ ^[1-9][0-9]*$ ]] && [ "$cpu_max" -le 100 ] || { echo "heavy-slot: heavy_cpu_max must be 1-100, got '$cpu_max'" >&2; exit 64; }
+[[ $mem_min =~ ^[0-9]+$ ]] || { echo "heavy-slot: heavy_mem_min_gb must be a whole number, got '$mem_min'" >&2; exit 64; }
+# A strict count, or a ceiling under the floor, leaves no job to the load check.
+{ [ "$strict" = 1 ] || [ "$floor" -gt "$slots" ]; } && floor=$slots
+stagger=5
 
 dir=$HOME/.cache/heavy-slot
-mkdir -p "$dir" || { echo "heavy-slot: cannot create $dir" >&2; exit 1; }
+qdir=$dir/queue
+mkdir -p "$qdir" || { echo "heavy-slot: cannot create $qdir" >&2; exit 1; }
+
+cpu_busy() { # percent of all CPUs busy over one second; iowait counts as idle
+  if [ -n "${HEAVY_SLOT_TEST_BUSY:-}" ]; then cat "$HEAVY_SLOT_TEST_BUSY" 2>/dev/null || echo 0; return; fi
+  local u n s i w q sq st u2 n2 s2 i2 w2 q2 sq2 st2 busy total
+  read -r _ u n s i w q sq st _ </proc/stat || { echo 0; return; }
+  sleep 1
+  read -r _ u2 n2 s2 i2 w2 q2 sq2 st2 _ </proc/stat || { echo 0; return; }
+  busy=$(((u2 + n2 + s2 + q2 + sq2 + st2) - (u + n + s + q + sq + st)))
+  total=$((busy + (i2 + w2) - (i + w)))
+  if [ "$total" -gt 0 ]; then echo $((100 * busy / total)); else echo 0; fi
+}
+mem_avail_gb() { awk '/^MemAvailable:/ { printf "%d", $2 / 1048576; f = 1 } END { if (!f) print 999 }' "${HEAVY_SLOT_TEST_MEMINFO:-/proc/meminfo}" 2>/dev/null || echo 999; }
+
+why=""
+load_ok() { # may a job beyond the floor start now? Sets $why when not.
+  local now last mem busy
+  now=$(date +%s); last=$(stat -c %Y "$dir/last-admit" 2>/dev/null || echo 0)
+  if [ $((now - last)) -lt "$stagger" ]; then why="another job started $((now - last)) s ago"; return 1; fi
+  mem=$(mem_avail_gb)
+  if [ "$mem" -lt "$mem_min" ]; then why="memory: $mem GB available, under the $mem_min GB floor"; return 1; fi
+  busy=$(cpu_busy)
+  if [ "$busy" -ge "$cpu_max" ]; then why="CPU $busy% busy, the limit is $cpu_max%"; return 1; fi
+  return 0
+}
+
+describe() { # pid -> "<age> s  <cwd>  <command>"
+  local pid=$1 since=$2 cmd
+  cmd=$(tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null); cmd=${cmd#*heavy-slot }; cmd=${cmd#-- }
+  printf '  %-8s %6s s  %s\n           %s\n' "$pid" "$(($(date +%s) - since))" "$(readlink "/proc/$pid/cwd" 2>/dev/null)" "${cmd:0:150}"
+}
+
+if [ "$want_status" = 1 ]; then
+  echo "CPU $(cpu_busy)% busy (jobs beyond the floor wait at $cpu_max%); memory $(mem_avail_gb) GB available (they wait under $mem_min GB)"
+  echo "always admitted: $floor; ceiling: $slots"
+  running=0 out=""
+  for f in "$dir"/slot.*; do
+    [[ $f =~ /slot\.[0-9]+$ ]] || continue
+    flock -n "$f" true 2>/dev/null && continue
+    running=$((running + 1)); pid="" since=""
+    read -r pid since <"$f" 2>/dev/null
+    if [[ $pid =~ ^[0-9]+$ ]] && [ -d "/proc/$pid" ]; then out+=$(describe "$pid" "${since:-0}")$'\n'
+    else out+="  (${f##*/}: held by a job started before this version)"$'\n'; fi
+  done
+  echo "running: $running"; printf '%s' "$out"
+  waiting=0 out=""
+  for t in "$qdir"/*; do
+    [ -e "$t" ] || continue
+    flock -n "$t" true 2>/dev/null && continue
+    n=${t##*/}; pid=${n#*.}; since=${n%%.*}; since=${since:0:10}
+    waiting=$((waiting + 1)); out+=$(describe "$pid" "$since")$'\n'
+  done
+  echo "waiting, in order: $waiting"; printf '%s' "$out"
+  exit 0
+fi
 
 run() { # holds fd 9's lock while the command runs as a child, without the fd
   local child="" rc sig=0 pre=()
   command -v setpriv >/dev/null 2>&1 && pre=(setpriv --pdeathsig TERM --)
+  # shellcheck disable=SC2329  # called from the traps
   fwd() { sig=$1; [ -n "$child" ] && kill "-$2" "$child" 2>/dev/null; }
   trap 'fwd 15 TERM' TERM
   trap 'fwd 2 INT' INT
@@ -96,18 +179,67 @@ run() { # holds fd 9's lock while the command runs as a child, without the fd
   exit "$rc"
 }
 
-round=0 said=0
-while :; do
-  for ((i = 0; i < slots; i++)); do
-    exec 9>>"$dir/slot.$i"
-    flock -n 9 && run "$@"
+# The queue: one ticket per waiting job, named by arrival time, locked by its owner for as long
+# as it waits. Only the oldest live ticket may take a slot. A ticket nobody holds a lock on
+# belongs to a job that is gone, and whoever finds it removes it.
+cmd=("$@")
+ticket=$qdir/$(date +%s%N).$$
+trap '[ -n "$ticket" ] && rm -f -- "${ticket:?}"' EXIT
+take_ticket() { exec 8>>"$ticket" && flock 8; }
+ahead=""
+am_head() { # sets $ahead to the live ticket in front of this one when there is one
+  local t
+  [ -e "$ticket" ] || take_ticket || return 0   # no queue is better than no job
+  for t in "$qdir"/*; do
+    [ "$t" = "$ticket" ] && return 0
+    [ -e "$t" ] || continue
+    if flock -n "$t" true 2>/dev/null; then rm -f -- "${qdir:?}/${t##*/}"; continue; fi
+    ahead=$t
+    return 1
   done
-  if [ "$said" = 0 ]; then
-    echo "heavy-slot: all $slots slots busy; waiting" >&2
-    said=1
+  return 0
+}
+admit() { # fd 9 holds slot $1
+  echo "$$ $(date +%s)" >"$dir/slot.$1" 2>/dev/null   # for --status; the lock is on the inode
+  [ "$1" -ge "$floor" ] && : >"$dir/last-admit"
+  rm -f -- "${ticket:?}"; ticket=""
+  exec 8>&-
+  run "${cmd[@]}"
+}
+said=-60 said_why=""
+say() { # the reason, when it changes and once a minute; the 5 s gap between starts is not worth a line
+  case $why in another\ job\ started*) return 0 ;; esac
+  local kind=${why%%[0-9]*}
+  [ "$kind" != "$said_why" ] || [ $((SECONDS - said)) -ge 60 ] || return 0
+  echo "heavy-slot: waiting ($why); $SECONDS s so far" >&2
+  said=$SECONDS said_why=$kind
+}
+
+take_ticket
+round=0
+while :; do
+  if am_head; then
+    for ((i = 0; i < floor; i++)); do
+      exec 9>>"$dir/slot.$i"
+      flock -n 9 && admit "$i"
+    done
+    why="all $slots slots busy"
+    if [ "$slots" -gt "$floor" ] && load_ok; then
+      for ((i = floor; i < slots; i++)); do
+        exec 9>>"$dir/slot.$i"
+        flock -n 9 && admit "$i"
+      done
+    fi
+    say
+    # Blocks up to 2 s on one always-admitted slot, so a freed one is taken at once and the
+    # loop never spins; the load is measured again on the next pass.
+    exec 9>>"$dir/slot.$((round % floor))"
+    flock -w 2 9 && admit "$((round % floor))"
+    round=$((round + 1))
+  else
+    why="earlier jobs are ahead in the queue"
+    say
+    # Wakes as soon as the job in front has started (it drops its ticket's lock) or is gone.
+    flock -w 2 "$ahead" true 2>/dev/null
   fi
-  # Blocks up to 2 s on one slot, so a freed slot is taken at once and the loop never spins.
-  exec 9>>"$dir/slot.$((round % slots))"
-  flock -w 2 9 && run "$@"
-  round=$((round + 1))
 done
