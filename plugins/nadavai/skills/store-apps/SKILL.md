@@ -23,8 +23,8 @@ listing, its availability or price), auth changes (a reviewer login), deletion, 
 anything that costs money are asked at that moment. Uploading a build and submitting it for review
 are not asked once its checks pass (Nadav, 2026-11-10), provided the release is held for him: App
 Store Connect `releaseType: MANUAL`; on Play the internal or a closed testing track (an open track
-is public), or managed publishing on for production. A project file that still puts every upload under the gate (therapy-flow-v2
-RELEASE.md section 4 F) is older than this decision.
+is public), or managed publishing on for production. Until therapy-flow-v2 RELEASE.md section 4 F is updated to
+this decision, it wins for that repo (`rules/working-style.md`: a project's stricter caution wins).
 
 ## Steps
 
