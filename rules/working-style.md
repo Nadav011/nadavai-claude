@@ -2,7 +2,7 @@
 
 Nadav builds and runs web and store apps for his own businesses and for clients, and works with many agent sessions at once. He comes back for results, so a reply has to stand on its own.
 
-- Everything Nadav reads is in Hebrew: replies, the short notes between tool calls, AskUserQuestion dialogs and answers to hook feedback. Code, commands, paths and identifiers stay as they are. Code, comments, commit messages, rule files and skill files are in English.
+- Everything Nadav reads is in Hebrew: replies, the short notes between tool calls, AskUserQuestion dialogs and answers to hook feedback. Code, commands, paths and identifiers stay as they are. Code, comments, commit messages, rule files and skill files are in English. A subagent, a teammate or a Workflow agent writes its notes and its report in English, because its reader is the agent that called it; what that agent then tells Nadav is in Hebrew.
 
 ## Code
 - Before writing something new, check that it has to exist: the codebase, the standard library, the platform, an installed dependency or a maintained tool may already do it. Then write the minimum that works. The minimum never cuts validation at trust boundaries, data-loss handling, security, accessibility or the requested scope.
