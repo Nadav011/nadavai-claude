@@ -25,7 +25,8 @@ check() {  # name  expect  reply  [transcript]  [stop_hook_active]  [session]  [
   expect "$1" "$2" "$(run "${7:-candor-guard.mjs}" "$json")"
 }
 
-# --- a reply written inside a subagent or teammate is not for Nadav: both guards pass it ---
+# --- a reply written by an in-process teammate is not for Nadav: both guards pass it. (A plain
+# subagent ends with SubagentStop, which these guards are not registered on.) ---
 agent_json() {  # reply -> Stop input as it arrives inside a subagent or in-process teammate
   jq -n --arg m "$1" '{hook_event_name:"Stop", last_assistant_message:$m, transcript_path:"/nonexistent",
     stop_hook_active:false, agent_id:"agent-abc123", agent_type:"oh-my-claudecode:executor"}'
@@ -34,6 +35,8 @@ EN_REPORT="The change is committed on the branch and both test files pass. I did
 expect "hebrew: english report from a teammate passes" allow "$(run hebrew-guard.mjs "$(agent_json "$EN_REPORT")")"
 expect "candor: praise inside a subagent passes" allow "$(run candor-guard.mjs "$(agent_json "You're absolutely right, fixing it.")")"
 check "hebrew: the same english report in a main session is blocked" block "$EN_REPORT" /nonexistent false "" hebrew-guard.mjs
+# A main session started with `claude --agent` carries agent_type but no agent_id: still checked.
+expect "hebrew: --agent main session (agent_type, no agent_id) is blocked" block "$(run hebrew-guard.mjs "$(jq -n --arg m "$EN_REPORT" '{hook_event_name:"Stop", last_assistant_message:$m, transcript_path:"/nonexistent", stop_hook_active:false, agent_type:"nadavai:executor"}')")"
 
 # --- candor: blocked ---
 check "en absolutely right"   block "You're absolutely right, I'll fix it."
