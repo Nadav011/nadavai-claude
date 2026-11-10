@@ -28,17 +28,19 @@ if [ -n "${GROK_SESSION_ID:-}" ]; then
   : >"$stamp" 2>/dev/null || true
 fi
 [ -d "$REPO/.git" ] || emit ""
+START_DIR="$PWD"
 cd "$REPO" || emit ""
 
-out=""
+out=""   # needs update.sh: worth one line to Nadav
+wip=""   # another session's work in progress: not Nadav's business
 
 dirty="$(git status --porcelain 2>/dev/null)"
 if [ -n "$dirty" ]; then
-  out+="- Uncommitted changes:"$'\n'"$(printf '%s\n' "$dirty" | head -8 | sed 's/^/    /')"$'\n'
+  wip+="- Uncommitted changes:"$'\n'"$(printf '%s\n' "$dirty" | head -8 | sed 's/^/    /')"$'\n'
 fi
 
 ahead="$(git rev-list --count '@{u}..HEAD' 2>/dev/null || echo 0)"
-[ "$ahead" -gt 0 ] && out+="- $ahead commit(s) not pushed to origin."$'\n'
+[ "$ahead" -gt 0 ] && wip+="- $ahead commit(s) not pushed to origin."$'\n'
 
 # Fetch at most once every 12 hours so session start stays fast and works offline.
 fetch_head=".git/FETCH_HEAD"
@@ -55,5 +57,12 @@ if [ -n "$installed" ] && [ -n "$head_sha" ] && [ "$installed" != "$head_sha" ] 
   out+="- Installed plugin is at ${installed:0:7}, repo is at ${head_sha:0:7}: run $REPO/update.sh."$'\n'
 fi
 
-[ -z "$out" ] && emit ""
-emit "$(printf 'nadavai repo (%s) needs attention. Mention this to Nadav once, then continue:\n%s' "$REPO" "$out")"$'\n'
+[ -z "$out$wip" ] && emit ""
+msg=""
+[ -n "$out" ] && msg+="$(printf 'nadavai (%s) is not up to date on this machine. Mention this to Nadav once, then continue:\n%s' "$REPO" "$out")"$'\n'
+# 66 sessions a week opened by telling Nadav about another session's half-done work in nadavai,
+# so work in progress is shown only to a session that starts inside the repo or one of its worktrees.
+case "$START_DIR/" in
+  "$REPO"/*|"$REPO-worktrees"/*) [ -n "$wip" ] && msg+="$(printf 'nadavai (%s) has work in progress (not a note for Nadav):\n%s' "$REPO" "$wip")"$'\n' ;;
+esac
+emit "$msg"
