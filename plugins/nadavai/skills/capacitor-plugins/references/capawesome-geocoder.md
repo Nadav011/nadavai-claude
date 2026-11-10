@@ -7,18 +7,13 @@ Capacitor plugin for geocoding (address to coordinates) and reverse geocoding (c
 **Platforms:** Android, iOS, Web
 **Documentation:** https://capawesome.io/docs/sdks/capacitor/geocoder/
 
-**Availability:** [Capawesome Insiders](https://capawesome.io/insiders/) only
+**Availability:** Capawesome Insiders only (paid licence)
 
 ## Installation
 
-First, set up the Capawesome npm registry:
+Paid plugin (Capawesome Insiders licence). Choosing it is a paid-service decision: ask Nadav first, and offer a free alternative from the `capacitor-plugins` index if one exists.
 
-```bash
-npm config set @capawesome-team:registry https://npm.registry.capawesome.io
-npm config set //npm.registry.capawesome.io/:_authToken <YOUR_LICENSE_KEY>
-```
-
-Then install:
+Install the package:
 
 ```bash
 npm install @capawesome-team/capacitor-geocoder universal-geocoder

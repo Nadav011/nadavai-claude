@@ -40,7 +40,7 @@ For full plugin setup, use the `capacitor-plugins` skill.
 **Best for**: Relational data, offline-first apps, large datasets, apps requiring complex queries.
 
 Options:
-- `@capawesome-team/capacitor-sqlite` — Capawesome SQLite plugin.
+- `@capawesome-team/capacitor-sqlite` — Capawesome SQLite plugin (paid, Capawesome Insiders: ask Nadav first).
 - `@capacitor-community/sqlite` — Community-maintained SQLite plugin.
 
 Both provide full SQLite database access on Android and iOS.
@@ -52,7 +52,7 @@ For plugin installation and configuration, use the `capacitor-plugins` skill.
 **Best for**: Authentication tokens, encryption keys, credentials, biometric-protected data.
 
 Options:
-- `@capawesome-team/capacitor-secure-preferences` — Encrypted key-value storage using platform Keychain (iOS) and Keystore (Android).
+- `@capawesome-team/capacitor-secure-preferences` — Encrypted key-value storage using platform Keychain (iOS) and Keystore (Android). Paid (Capawesome Insiders): ask Nadav first.
 
 For plugin installation and configuration, use the `capacitor-plugins` skill.
 
@@ -86,7 +86,7 @@ For plugin installation and configuration, use the `capacitor-plugins` skill. Se
 | Requirement | Recommended Solution |
 | ----------- | -------------------- |
 | App settings, user preferences | `@capacitor/preferences` |
-| Authentication tokens, sensitive keys | `@capawesome-team/capacitor-secure-preferences` |
-| Relational data, offline-first | SQLite (`@capawesome-team/capacitor-sqlite` or `@capacitor-community/sqlite`) |
+| Authentication tokens, sensitive keys | `@capawesome-team/capacitor-secure-preferences` (paid) |
+| Relational data, offline-first | SQLite (`@capacitor-community/sqlite`, or the paid `@capawesome-team/capacitor-sqlite`) |
 | Files, images, documents | `@capacitor/filesystem` |
 | Large binary blobs | `@capacitor/filesystem` (write to disk, reference by path) |

@@ -27,7 +27,7 @@ Do not store authentication tokens, encryption keys, or credentials in `localSto
 
 Plugins that wrap these APIs:
 
-- `@capawesome-team/capacitor-secure-preferences` — Encrypted key-value storage.
+- `@capawesome-team/capacitor-secure-preferences` — Encrypted key-value storage (paid, Capawesome Insiders: ask Nadav first).
 
 For plugin installation and configuration, use the `capacitor-plugins` skill.
 

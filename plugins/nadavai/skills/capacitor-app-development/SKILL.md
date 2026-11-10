@@ -1,6 +1,6 @@
 ---
 name: capacitor-app-development
-description: "Guides the agent through general Capacitor app development topics. Covers core concepts (native bridge, plugins, web layer), Capacitor CLI usage, app configuration (capacitor.config.ts, splash screens, app icons, deep links), platform management (Android, iOS, Electron, PWA), edge-to-edge and safe area handling on Android, live reload setup, storage solutions, file handling, security best practices, CI/CD references, iOS package managers (SPM, CocoaPods), and troubleshooting for Android and iOS. Do not use for creating new Capacitor apps, Capacitor plugin APIs, creating Capacitor plugins, in-app purchases, upgrading Capacitor versions, Cordova or PhoneGap migration, or framework-specific patterns (Angular, React, Vue)."
+description: "Guides the agent through general Capacitor app development topics. Covers core concepts (native bridge, plugins, web layer), Capacitor CLI usage, app configuration (capacitor.config.ts, splash screens, app icons, deep links), platform management (Android, iOS, Electron, PWA), edge-to-edge and safe area handling on Android, live reload setup, storage solutions, file handling, security best practices, iOS package managers (SPM, CocoaPods), and troubleshooting for Android and iOS. Do not use for creating new Capacitor apps, Capacitor plugin APIs, creating Capacitor plugins, in-app purchases, upgrading Capacitor versions, Cordova or PhoneGap migration, or framework-specific patterns (Angular, React, Vue)."
 license: MIT
 compatibility: "Requires Node.js and npm. Xcode on macOS is required for iOS and Android Studio for Android."
 metadata:
@@ -65,7 +65,6 @@ Read the reference file for the matched topic and apply the instructions to the 
 | File handling best practices | `references/file-handling.md` |
 | Security best practices | `references/security.md` |
 | iOS package managers (SPM, CocoaPods) | `references/ios-package-managers.md` |
-| CI/CD for Capacitor apps | `references/ci-cd.md` |
 | Testing (unit and E2E) | `references/testing.md` |
 | Cross-platform best practices | `references/cross-platform-best-practices.md` |
 | Android troubleshooting | `references/troubleshooting-android.md` |
@@ -89,6 +88,5 @@ Read the reference file for the matched topic and apply the instructions to the 
 - **`capacitor-plugins`** — Install and configure Capacitor plugins.
 - **`capacitor-plugin-development`** — Create custom Capacitor plugins.
 - **`capacitor-app-upgrades`** — Upgrade Capacitor to a newer major version.
+- **`capacitor-android-dex-optimization`** — Enable R8 and meet the Google Play DEX code optimization requirement.
 - **`capacitor-in-app-purchases`** — Set up in-app purchases.
-- **`capawesome-cloud`** — Cloud builds, live updates, and app store publishing.
-- **`capacitor-mcp`** — Connect an MCP client to the current Capacitor documentation.
