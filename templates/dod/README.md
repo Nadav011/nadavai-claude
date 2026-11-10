@@ -19,7 +19,8 @@ Each route starts at 100 and loses:
 | Finding | Penalty |
 |---|---|
 | horizontal overflow | -15 per entry (route x viewport x scheme) |
-| axe violation | -5 per failing node, any impact (minor, moderate, serious, critical); the impact of each is kept in `axe.by_impact` and in every violation |
+| axe violation, critical or serious | -5 per failing node |
+| axe violation, moderate or minor | recorded in `axe.by_impact` and `totals.axe_recorded`, and -5 per node only with `e2e/dod/scoring.json` `{ "axe": { "minorModerate": "enforce" } }` (default `"report"`) |
 | console error | -5 each |
 | more than 2 font families | -10 |
 | touch target under 44 px | -2 each, at most -20 |
@@ -29,6 +30,9 @@ Each route starts at 100 and loses:
 | an experience-standard check with findings, `mode: "enforce"` only | -10 per check id per route |
 
 Page findings (axe, console, touch, motion) count once per route, the highest of its four entries.
+axe runs every impact with the WCAG 2.1 tags added, so a project moving to this template finds more;
+minor and moderate nodes cost nothing until it switches `minorModerate` to `"enforce"`, so adopting
+the template does not turn its nightly red on the first day. Switch once they are fixed.
 `dod.json` records the axe-core version that judged the run (`axe.core_version`): a newer axe adds
 rules, so a score that moved with no code change is read against it first.
 
@@ -48,9 +52,15 @@ The run is authenticated as the QA account, which must be able to open every pag
 logs in once into `reports/dod/qa-storage-state.json` and every entry reuses it. A page the session cannot
 open is recorded as `unreachable` and the score drops to 0: an unmeasured page is never a passing page.
 Unreachable means: an HTTP status of 400 or more, a redirect away from the route (unless declared in
-`_alias`), the app's not-found page (its wording, or a line that is only `404`), an access-denied
-screen (its wording: a `401` or `403` in the body text is not enough, since a price or an id can
-contain those digits), or the app's own error screen.
+`_alias`), the standard's own markers (a visible `[data-state="no-access"]` or
+`[data-state="not-found"]`, unless the route is that `?state=` variant), the app's real not-found
+screen, or, as a fallback, not-found or denial wording ("העמוד לא נמצא", "שגיאה 404", "אין לך
+הרשאה", "access denied", ...) or the app's own error screen. The real not-found screen is printed
+once in global-setup: it opens a made-up route as the session and keeps its text
+(`reports/dod/not-found-print.json`); an entry whose region shows that same text renders it, in
+whatever words the app uses. A catch-all redirect, or a not-found route that shows the same
+screen as `DOD_READY_PATH`, leaves no print. The wording is always a phrase: a bare `404` (a stat
+card), a `401` in a price or the word "forbidden" in content never make a page unreachable.
 
 A public page is measured as a visitor sees it: list it as an object with `"audience": "anonymous"`
 and its entries run in a fresh context with no cookies and no storage.
@@ -73,18 +83,28 @@ Then, in the project:
    An entry is a string or an object:
    ```json
    [
-     { "route": "/", "audience": "anonymous", "static": true },
+     { "route": "/", "audience": "anonymous", "static": true, "noHelp": "the public landing page" },
      "/plans",
      "/plans?state=empty",
      "/plans?state=error"
    ]
    ```
-   `audience` is `qa` (the default) or `anonymous`; `static: true` marks a page with no data states.
-   A string is `{ "route": …, "audience": "qa", "static": false }`. `routes.mjs` keeps object entries
-   as they are when it writes the file. `node e2e/dod/routes.mjs --check` exits 1 when the app has a
-   route the file does not cover, when a dynamic segment has no sample at all, and when the file lists
-   a route the app no longer has (a stale entry measures a 404; query variants of a real route are not
+   `audience` is `qa` (the default) or `anonymous`. `static: true` marks a page with no data states
+   (it exempts state coverage only); `noHelp: "<reason>"` exempts a page from the help door and its
+   help file. The old form, `static: true` with no `noHelp` key, still exempts both and prints a
+   deprecation note; write `"noHelp": false` for a static page that keeps its door. A string is
+   `{ "route": …, "audience": "qa", "static": false }`. `routes.mjs` keeps object entries as they are
+   when it writes the file. `node e2e/dod/routes.mjs --check` exits 1 when the app has a route the
+   file does not cover, when a dynamic segment has no sample at all, and when the file lists a route
+   the app no longer has (a stale entry measures a 404; query variants of a real route are not
    stale): run it in CI so a new page cannot ship unmeasured.
+   The scan reads Next's `app/` and `pages/` and React Router's `<Route path>` and `{ path: }` in a
+   router file. It misses nested relative routes, path constants and route arrays elsewhere, and a
+   route kept on purpose (a not-found sample): list those in `route-params.json` under `_listed`,
+   each with its reason, and the stale check skips them (`routes.mjs` writes them back into
+   `routes.json` if they go missing; a blank reason fails `--check`):
+   `"_listed": { "/missing-page-sample": "the app's own not-found page, measured on purpose" }`.
+   `routes.mjs` reads `DOD_ROOT` like the rest of the template.
 1b. When `routes.json` cannot say what the project needs, replace it with a TypeScript module
    (`e2e/dod/routes.ts`) and move the `--check` into the project's own test suite. Two shapes need
    this: several products from one codebase, each with its own list (`routesFor(vertical)`), and a
@@ -136,7 +156,10 @@ the project has `e2e/dod/standard.json`. Without it nothing changes and `dod.jso
   door, and the rules only a work tool owes (G-03, G-11, S-07, S-13) are reviewer checks.
 - `mode`: `report` (the default) writes the findings into `dod.json` and leaves the score alone;
   `enforce` deducts 10 for every check id with findings on a route, counted once per route like the
-  other page findings. Start in `report`, fix, then switch. The static checks follow the same
+  other page findings. Start in `report`, fix, then switch. Report mode never moves a number: the
+  checks run in their own try, pause the console count while they resize the page, and a check that
+  fails (a bad `coreUnit.selector`) writes an `error` on that check and in `standard.errors`, never
+  an unreachable page. The static checks follow the same
   mode: in `report` `routes.mjs --check` prints them and passes, in `enforce` it fails on them.
 - `textFloorPx`: the smallest text the probe accepts (default 12).
 - `helpDir` (optional): turns on `help-route`.
@@ -144,28 +167,36 @@ the project has `e2e/dod/standard.json`. Without it nothing changes and `dod.jso
 - `languages` (optional): with two or more, turns on `both-directions`. A language matches the
   routes under its `routePrefix` or with its `query` (`"lang=en"`); one with neither is the default
   language and matches the routes no other language claims.
-- `forbiddenWords` (optional): added to the built-in list, matched as whole words.
+- `forbiddenWords` (optional): added to the built-in list, matched as whole words. What people
+  wrote is not the interface's wording: mark it `data-user-content` (a client's message, a name
+  they typed) or `translate="no"`, and forbidden-words skips it; typed field values are never read.
+- A `coreUnit.route` that is not in `routes.json` is a configuration error: `routes.mjs --check`
+  fails on it in either mode, and the DoD run lists it under `standard.config_errors`.
+
+Every page check is held to stock shadcn/Radix markup as well as its own fixture
+(`tests/fixtures/real-settings.html`, `real-table.html`): a check that fails a well-built screen
+teaches people to ignore the checks.
 
 What each check reads (the markers are the standard's: `data-help`, `data-state`):
 
 | Check | Where | Fires on |
 |---|---|---|
-| `help-door` | every entry, except routes flagged `static` | no visible `[data-help="door"]` inside a `header`/`[role="banner"]` or in the first 120px, or no visible `[data-help="screen"]` |
-| `tooltip-only` | every entry | a visible element with a `title` and no readable text of its own (a lone `?` is not text), no `aria-describedby` to visible text, outside `[data-help]`; or one described only by a hidden `[role="tooltip"]` |
-| `disabled-reason` | every entry | a disabled control (or `aria-disabled="true"`) outside `[aria-busy="true"]` with no `aria-describedby` to visible text |
-| `placeholder-label` | every entry | an input with a placeholder and no visible `<label>` or `aria-labelledby` to visible text (`aria-label` is not visible) |
-| `input-attrs` | every entry | a text-like `<input>` with no `autocomplete`; a phone, email or number field (read from its name, id, label, placeholder, `autocomplete`) without the matching `type` or `inputmode`; an input, textarea or select under 16px |
-| `one-primary` | every entry | more than one action whose computed background equals the resolved `--primary` token, counted in the last open `[role="dialog"]`/`[role="alertdialog"]`/`dialog[open]` alone when one is open; skipped (and said so) when `--primary` is missing |
+| `help-door` | every entry, except routes with `noHelp` (or the old `static: true`) | no visible `[data-help="door"]` inside a `header`/`[role="banner"]` or in the first 120px, or no visible `[data-help="screen"]` |
+| `tooltip-only` | every entry | a visible element with a `title` and no readable text of its own (a lone `?` is not text), no `aria-describedby` to visible text, outside `[data-help]`, whose title words are not shown within three levels around it (an avatar beside its name passes); or one described only by a hidden `[role="tooltip"]` in the DOM. A Radix tooltip is not in the DOM until hover, so its trigger is not judged |
+| `disabled-reason` | every entry | a disabled control (or `aria-disabled="true"`) outside `[aria-busy="true"]` with no `aria-describedby` to visible text. Not judged where the position is the reason: inside `[role="grid"]`, `[role="row"]` or `[role="gridcell"]` (calendar days), a pager (`[data-slot="pagination"]`, `[aria-label="pagination"]`, a `nav[aria-label]` of previous/next/page numbers, or a control labelled previous/next/a page number), and a stepper (`[role="spinbutton"]`, a number input's buttons) |
+| `placeholder-label` | every entry | an input with a placeholder and no visible `<label>` or `aria-labelledby` to visible text (`aria-label` is not visible). A search box (`type="search"`, `role="searchbox"` or `combobox`) with an accessible name passes |
+| `input-attrs` | every entry | a text-like `<input>` with no `autocomplete`; a phone, email or number field without the matching `type` or `inputmode`, decided by its `autocomplete`, `name` or `id`, or by two weak signals together (label words and a placeholder that looks like one: "טלפון" with "050-1234567"), never by a label alone ("נושא המייל" is a subject) and never on a field that declares another kind; at phone widths only, an input, textarea or select under 16px (iOS zooms; shadcn's `md:text-sm` is fine on a desktop). Search boxes and comboboxes are judged on the 16px floor only |
+| `one-primary` | every entry | more than one action whose computed background equals the resolved `--primary` token, counted in the last open `[role="dialog"]`/`[role="alertdialog"]`/`dialog[open]` alone when one is open; skipped (and said so) when `--primary` is missing. A thing filled to show its state is not an action: switches, checkboxes, radios, tabs, options, calendar cells, and anything with `aria-selected`, `aria-pressed`, `aria-checked` or `aria-current` |
 | `nav-count` | 375 only | a fixed or sticky bottom `nav` with more than five items, or a badge there with no digit (`[data-badge]`, or a small absolutely placed filled element) |
 | `empty-action` | every entry | a `[data-state="empty"]` with no visible button or link inside (`clear` needs none) |
 | `error-toast` | every entry | an error (`[role="alert"]`, `[data-state="error"]`, `[data-type="error"]`) inside a toast region (`[data-toast-region]`, Sonner, Radix, or a region labelled "notifications"), or an error element removed from the page while nobody touched it |
 | `error-field` | every entry | an `[aria-invalid="true"]` field with no `aria-describedby` to visible text. Only this static half is built; the half that submits a form and checks the focus is a later step |
-| `forbidden-words` | every entry | on visible text, placeholders and button values: "נא", "אנא", "ניתן", "כעת", "אופס" as words (with a ו prefix, and "שניתן"), "!", emoji, slash or dot gender forms ("מטפל/ית", "מטפל.ת"), and the project's words |
+| `forbidden-words` | every entry | on the interface's visible text, placeholders and button values, outside `[data-user-content]` and `[translate="no"]`: "נא", "אנא", "ניתן", "כעת", "אופס" as words (with a ו prefix, and "שניתן"), "!", emoji, slash or dot gender forms ("מטפל/ית", "מטפל.ת"), and the project's words |
 | `core-unit` | its route, the light entry nearest its viewport | fewer than `min` of `selector` fully visible at `viewport`, above any fixed bottom bar and inside every clipping box |
-| `probe` | the two light entries | at 320x700, 390x844, 768x1024, 1024x768 and 1280x648, without reloading: sideways scroll, text under `textFloorPx`, one word of a control's label on two lines, and touch targets under 44 px (at 320, 390 and 768 only). "An icon covered by its badge" is not built |
-| `state-coverage` | `routes.mjs --check` | a route not flagged `static`, and not itself a `?state=` variant, with no `?state=empty` or no `?state=error` variant (other query parameters must match) |
-| `help-route` | `routes.mjs --check`, with `helpDir` | a route not flagged `static` with no file `<helpDir>/<slug>.<any extension>`, the slug taken from the route pattern the way report slugs are: `/orders/[id]` and `/orders/:id` are `orders-id.md`, `/` is `root.md`. Every non-static route counts: the menu is not read |
-| `brand-assets` | `routes.mjs --check` | no PRODUCT.md at the root, no `Brand` (or `מותג`) heading in it, or a file path the section names (a link target or an inline code span with an extension) that does not exist |
+| `probe` | the two light entries | at 320x700, 390x844, 768x1024, 1024x768 and 1280x648: sideways scroll, text under `textFloorPx`, one word of a control's label on two lines, and touch targets under 44 px. The two desktop sizes resize the entry's page; 320, 390 and 768 are measured in one extra page in a touch context (`hasTouch`), so a project that sizes controls by pointer type (S-12) is measured the way a finger meets it. "An icon covered by its badge" is not built |
+| `state-coverage` | `routes.mjs --check`, and every `?state=empty` / `?state=error` entry | a route not flagged `static`, and not itself a `?state=` variant, with no `?state=empty` or no `?state=error` variant (other query parameters must match); and a `?state=empty` entry that renders no visible `[data-state]` of `empty`, `clear` or `filtered-empty`, or a `?state=error` entry with no visible `[data-state="error"]` |
+| `help-route` | `routes.mjs --check`, with `helpDir` | a route without `noHelp` (or the old `static: true`) with no file `<helpDir>/<slug>.<any extension>`, the slug taken from the route pattern the way report slugs are: `/orders/[id]` and `/orders/:id` are `orders-id.md`, `/` is `root.md`. Every such route counts: the menu is not read |
+| `brand-assets` | `routes.mjs --check` | no PRODUCT.md at the root, no `Brand` (or `מותג`, `המותג`) heading in it, or a file path the section names that does not exist: a link target with an extension, or a code span with a `/` and an extension or with an asset extension (`.svg`, `.png`, `.woff2`, ...). `--primary` or `tokens.ts` in a code span is a value, not a path |
 | `both-directions` | `routes.mjs --check`, with two or more `languages` | a language with no route in `routes.json` |
 
 `tour-no-commit` is not built: no project has a tour manifest for it to read yet.
@@ -174,6 +205,35 @@ In `dod.json` each route has `standard: { <check-id>: { count, samples, skipped?
 entry), each entry its own `standard` and, on the light entries, `probe` by size; the top level has
 `standard` (mode, profile, per check id the routes and findings, and what is not built) and
 `totals.standard_findings` / `totals.standard_failures`.
+
+## Moving a project to this template
+
+Five projects run an older copy. What changes for each, in the order it bites:
+
+- **Field renames in `dod.json`.** `axe.critical_serious` is gone: an entry has `axe.counted` (every
+  node), `axe.scored` (the nodes that cost points) and `axe.by_impact`; `totals.axe_critical_serious`
+  is `totals.axe_violations` (scored), next to `totals.axe_recorded` (all). Who reads the old names
+  today, to update in the same change: therapy-flow-v2 `tests/fidelity/dod-clinic-words.test.ts`;
+  sportchat-web its `dod-baseline`, `dodExtraViewports`, `dod-locale-twin` and `dod-narrow` tests and
+  `e2e/baseline/look-asserting-files.json`; cash-next-app `e2e/dod/dod.spec.ts`,
+  `global-teardown.ts`, `dod-shared.ts` and `states.spec.ts`.
+- **The stale check.** `routes.mjs --check` now fails on a listed route the scan cannot find. Run it
+  once; add each real route it reports to `_listed` with its reason (mexicani-shifts:
+  `/missing-page-sample`), and remove the ones that are really gone.
+- **axe.** The run adds the WCAG 2.1 tags and records every impact. With no `scoring.json` only
+  critical and serious nodes cost points, as before, so the score moves only by what the new tags
+  find at those impacts. Expect `axe_recorded` well above `axe_violations` at first; fix those, then
+  set `"minorModerate": "enforce"`.
+- **Unreachable pages.** A body that only says "forbidden", a `404` stat card or a `401` in a price no
+  longer fails a page; an SPA's own not-found screen and the `data-state` markers now do. A route
+  that newly reports "renders the not-found page" was never being measured.
+- **`static`.** It now exempts state coverage only; add `"noHelp": "<reason>"` where the page has no
+  help door on purpose. Until then the old form keeps working and prints a deprecation note.
+- **Run from the root.** The template finds its files from the working directory (or `DOD_ROOT`),
+  not from `__dirname`; an ESM project drops its `import.meta` and JSON-attribute patch.
+- **Heavily customised copies port by hand**, check by check, instead of copying the files over:
+  SportChat (27 DoD files), therapy-flow-v2 (its own `routes.ts` and verticals), cash-next-app
+  (`dod-probes.ts`, `states.spec.ts`, its auto sign-in).
 
 ## Tests of this template
 

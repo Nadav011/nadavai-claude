@@ -175,9 +175,9 @@ for that part.
 
 | Check id | What fails it | Rules | Built |
 |---|---|---|---|
-| `help-door` | a measured route, other than one flagged `static` in `routes.json`, with no `[data-help="door"]` in its top bar or no `[data-help="screen"]` in its header | G-01 | yes (top bar: inside a `header` or `[role="banner"]`, or in the first 120px of the page) |
+| `help-door` | a measured route, other than one flagged `static` in `routes.json`, with no `[data-help="door"]` in its top bar or no `[data-help="screen"]` in its header | G-01 | yes (top bar: inside a `header` or `[role="banner"]`, or in the first 120px of the page). The exemption is now its own flag, `"noHelp": "<reason>"`; `static` exempts state coverage only, and the old `static` still exempts both with a deprecation note |
 | `help-route` | a route reachable from the menu with no help content file | G-09 | yes, for every route not flagged `static` (the menu is not read) |
-| `tooltip-only` | a control or hint whose only text is in `title` or a hover tooltip: no visible text, no `aria-describedby` pointing at visible text, and not a `[data-help]` entry | G-04 | yes |
+| `tooltip-only` | a control or hint whose only text is in `title` or a hover tooltip: no visible text, no `aria-describedby` pointing at visible text, and not a `[data-help]` entry | G-04 | half: a `title` attribute with no visible words, and an element described only by a hidden `[role="tooltip"]` that is in the DOM; a tooltip mounted only on hover (Radix) is not seen |
 | `tour-no-commit` | a tour step whose target is a committing control and whose action is a click | G-08 | no: not built until a project defines a tour manifest |
 | `error-field` | after submitting a form with a bad value: an `aria-invalid` field with no `aria-describedby` message, or focus not on the first invalid field | E-01 | half: the `aria-invalid` field with no visible message, as the page renders; submitting a form and the focus half are deferred |
 | `disabled-reason` | a disabled control that is not waiting on its own action (`aria-busy`) and has no `aria-describedby` pointing at visible text | E-02 | yes |
@@ -187,9 +187,9 @@ for that part.
 | `one-primary` | more than one accent-filled action in the top layer (the page alone, or the open dialog or sheet alone) | S-03 | yes |
 | `nav-count` | more than five items in the phone bottom bar; a badge with no number | S-06 | yes |
 | `core-unit` | at the BRIEF's real small screen, fewer of its core units visible than it requires; this is also what catches a card stacked above the work | S-11, G-15 | yes |
-| `state-coverage` | a route not flagged `static` in `routes.json` that has no `?state=empty` or no `?state=error` variant there | T-01 | yes |
+| `state-coverage` | a route not flagged `static` in `routes.json` that has no `?state=empty` or no `?state=error` variant there | T-01 | yes, and a listed `?state=empty` or `?state=error` variant that does not render that `data-state` fails it too |
 | `empty-action` | a `[data-state="empty"]` root with no button or link inside it (a `[data-state="clear"]` line needs none) | T-02 | yes |
-| `forbidden-words` | a banned word or form in a user-facing string or a message template | E-04, C-01, C-03, O-01 | half: the visible text of measured routes; strings that are not on a measured screen and message templates are deferred |
+| `forbidden-words` | a banned word or form in a user-facing string or a message template | E-04, C-01, C-03, O-01 | half: the listed Hebrew words, "!", emoji and gender forms in the interface's visible text on measured routes (text marked `data-user-content` is people's, not the interface's); English and technical words (C-03), strings not on a measured screen, and message templates are deferred |
 | `brand-assets` | PRODUCT.md without the Brand section, or the section pointing at a file that does not exist | B-01 | yes |
 | `both-directions` | a bilingual app whose measured routes cover one language only | B-02 | yes |
 | `probe` | sideways scroll, text under the project's floor, a word broken mid-word, an icon covered by its badge, a touch target under 44px, at 320, 390, 768, 1024 and 1280x648 | the mechanical floor under every rule above | yes, except an icon covered by its badge (deferred); touch targets at 320, 390 and 768 |

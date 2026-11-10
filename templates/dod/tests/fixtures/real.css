@@ -1,0 +1,57 @@
+/* The computed styles of stock shadcn/ui (new-york, Tailwind v4 tokens) for the classes the two
+   real-markup pages use, written out because the fixtures run without Tailwind. Sizes follow
+   shadcn (h-9 buttons, text-base md:text-sm inputs, a 32x18 switch, size-8 calendar days), and
+   reach 44px on a touch pointer the way a project does it under S-12: by pointer type. */
+:root { --primary: oklch(0.205 0 0); --primary-foreground: oklch(0.985 0 0); --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0); --muted: oklch(0.97 0 0); --muted-foreground: oklch(0.45 0 0); }
+* { box-sizing: border-box; }
+body { margin: 0; font: 16px/1.5 system-ui, sans-serif; color: oklch(0.145 0 0); background: #fff; }
+header { display: flex; align-items: center; justify-content: space-between; gap: 8px; height: 56px; padding: 0 16px; border-bottom: 1px solid var(--border); }
+main { padding: 16px 16px 96px; max-width: 960px; }
+h1 { font-size: 24px; margin: 0; } h2 { font-size: 18px; margin: 24px 0 8px; }
+.page-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+[data-slot="button"], [data-slot="pagination-link"] { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 36px; padding: 0 16px;
+  border-radius: 6px; font: inherit; font-size: 14px; border: 1px solid transparent; background: transparent; color: inherit; text-decoration: none; }
+[data-slot="button"].bg-primary { background: var(--primary); color: var(--primary-foreground); }
+[data-slot="button"].border { border-color: var(--border); background: #fff; }
+[data-slot="button"].size-9 { width: 36px; padding: 0; }
+[data-slot="button"]:disabled, [aria-disabled="true"] { opacity: .5; }
+[data-slot="label"] { display: block; font-size: 14px; font-weight: 500; margin: 16px 0 6px; }
+[data-slot="input"] { display: block; width: 100%; max-width: 320px; height: 36px; padding: 0 12px; border: 1px solid var(--input);
+  border-radius: 6px; font: inherit; font-size: 16px; background: transparent; }
+@media (min-width: 768px) { [data-slot="input"] { font-size: 14px; } }
+.row { display: flex; align-items: center; gap: 12px; margin: 12px 0; flex-wrap: wrap; }
+[data-slot="switch"] { position: relative; width: 32px; height: 18px; border-radius: 999px; border: 0; padding: 0; background: var(--input); }
+[data-slot="switch"][data-state="checked"] { background: var(--primary); }
+[data-slot="checkbox"], [data-slot="radio-group-item"] { position: relative; width: 16px; height: 16px; padding: 0; border: 1px solid var(--primary); border-radius: 4px; background: #fff; }
+[data-slot="radio-group-item"] { border-radius: 999px; }
+[data-slot="checkbox"][data-state="checked"] { background: var(--primary); }
+[data-slot="select-trigger"] { display: inline-flex; align-items: center; justify-content: space-between; width: 180px; height: 36px;
+  padding: 0 12px; border: 1px solid var(--input); border-radius: 6px; background: #fff; font: inherit; font-size: 14px; }
+[data-slot="tabs-list"] { position: relative; display: inline-flex; gap: 4px; padding: 3px; border-radius: 8px; background: var(--muted); }
+[data-slot="tabs-trigger"] { height: 30px; padding: 0 12px; border: 0; border-radius: 6px; background: transparent; font: inherit; font-size: 14px; }
+[data-slot="tabs-trigger"][data-state="active"] { background: #fff; }
+.tabs-indicator { position: absolute; bottom: 0; inset-inline-start: 8px; width: 40px; height: 2px; background: var(--primary); }
+[data-slot="avatar"] { display: inline-flex; width: 32px; height: 32px; border-radius: 999px; overflow: hidden; background: var(--muted); }
+[data-slot="table"] { border-collapse: collapse; width: 100%; font-size: 14px; }
+[data-slot="table"] td, [data-slot="table"] th { padding: 8px; border-bottom: 1px solid var(--border); text-align: start; }
+[data-slot="calendar"] table { border-collapse: collapse; }
+[data-slot="calendar"] button { width: 32px; height: 32px; border: 0; border-radius: 6px; background: transparent; font: inherit; font-size: 14px; }
+[data-slot="calendar"] button[data-selected-single="true"] { background: var(--primary); color: var(--primary-foreground); }
+[data-slot="pagination"] ul { display: flex; gap: 4px; list-style: none; padding: 0; }
+.msg { padding: 8px 12px; border-radius: 12px; background: var(--muted); max-width: 280px; }
+[data-slot="dialog-overlay"] { position: fixed; inset: 0; background: rgb(0 0 0 / .5); }
+[data-slot="dialog-content"] { position: fixed; top: 20%; inset-inline: 16px; max-width: 420px; margin-inline: auto; padding: 24px; border-radius: 8px; background: #fff; }
+nav.bottom { position: fixed; inset-inline: 0; bottom: 0; display: flex; background: #fff; border-top: 1px solid var(--border); }
+nav.bottom a { flex: 1; position: relative; display: flex; align-items: center; justify-content: center; height: 56px; color: inherit; text-decoration: none; }
+nav.bottom .indicator { position: absolute; bottom: 6px; width: 20px; height: 3px; border-radius: 2px; background: var(--primary); }
+section[aria-label^="Notifications"] ol { position: fixed; bottom: 72px; inset-inline-end: 16px; list-style: none; margin: 0; padding: 0; }
+[data-sonner-toast] { padding: 12px 16px; border: 1px solid var(--border); border-radius: 8px; background: #fff; font-size: 14px; }
+/* S-12: on a touch pointer every control reaches 44px, by size or by an invisible hit area. */
+@media (pointer: coarse) {
+  [data-slot="button"], [data-slot="pagination-link"], [data-slot="select-trigger"], [data-slot="input"], [data-slot="tabs-trigger"], [data-slot="calendar"] button { height: 44px; min-width: 44px; }
+  [data-slot="button"].size-9 { width: 44px; }
+  [data-slot="switch"]::before, [data-slot="checkbox"]::before, [data-slot="radio-group-item"]::before {
+    content: ""; position: absolute; inset: -14px; }
+  header a, main a:not([data-slot]) { display: inline-flex; align-items: center; min-height: 44px; min-width: 44px; }
+}

@@ -34,6 +34,24 @@ export const SCREENS_DIR = path.join(REPORTS_DIR, "screens");
 export const RESULTS_DIR = path.join(REPORTS_DIR, "results");
 // QA session reused by every entry, written by global-setup. Untracked: reports/ is git-ignored.
 export const STORAGE_STATE = path.join(REPORTS_DIR, "qa-storage-state.json");
+// What the app shows for a route that does not exist, taken once by global-setup.
+export const NOT_FOUND_PRINT = path.join(REPORTS_DIR, "not-found-print.json");
+
+export interface NotFoundPrint {
+  /** The made-up path that was requested; removed from texts before they are compared. */
+  path: string;
+  status: number | null;
+  /** Where the request landed: a catch-all redirect makes the print useless. */
+  landed: string;
+  /** The page's own region text, whitespace collapsed, without the requested path. */
+  text: string;
+}
+
+/** Text of the route's own region, the way reachRoute reads it, for the not-found print. */
+export function normalizeRegionText(text: string, requestedPath: string): string {
+  const without = requestedPath.length > 1 ? text.split(requestedPath).join("") : text;
+  return without.replace(/\s+/g, " ").trim();
+}
 
 export const VIEWPORTS = [
   { width: 375, height: 812 },
@@ -70,6 +88,26 @@ export function loadArgos(): Promise<ArgosScreenshot> {
   return argos;
 }
 
+/**
+ * How axe findings cost points, from the optional e2e/dod/scoring.json:
+ * { "axe": { "minorModerate": "report" | "enforce" } }. Critical and serious nodes always cost
+ * 5 each. Minor and moderate nodes are always recorded; they cost points only with "enforce".
+ * The default is "report", so adopting the template's wider axe run does not turn a nightly red
+ * on the first day; a project switches to "enforce" once its minor and moderate findings are fixed.
+ */
+export interface Scoring {
+  axe: { minorModerate: "report" | "enforce" };
+}
+
+export function loadScoring(): Scoring {
+  const raw = readJson<{ axe?: { minorModerate?: unknown } }>(path.join(DOD_DIR, "scoring.json"), {});
+  const mm = raw.axe?.minorModerate ?? "report";
+  if (mm !== "report" && mm !== "enforce") {
+    throw new Error('[dod] e2e/dod/scoring.json: "axe.minorModerate" must be "report" or "enforce"');
+  }
+  return { axe: { minorModerate: mm } };
+}
+
 export const SCHEMES = ["light", "dark"] as const;
 export type Scheme = (typeof SCHEMES)[number];
 
@@ -97,21 +135,29 @@ export type Audience = "anonymous" | "qa";
 export interface RouteEntry {
   route: string;
   audience: Audience;
-  /** A page with no data states (no empty, no error variant). */
+  /** A page with no data states: exempt from state-coverage only. */
   static: boolean;
+  /** Why the page has no help door (exempts help-door and help-route); null when it must have one. */
+  noHelp: string | null;
+  /** `static: true` with no `noHelp` key: the old form, which still exempts help as well. */
+  legacyStatic: boolean;
 }
 
 /**
  * routes.json holds strings ("/plans") or objects
- * ({ "route": "/", "audience": "anonymous", "static": true }); both mean the same thing
- * everywhere, a string being { route, audience: "qa", static: false }.
+ * ({ "route": "/", "audience": "anonymous", "static": true, "noHelp": "the sign-in page" });
+ * a string is { route, audience: "qa", static: false, noHelp: null }.
+ *
+ * `static` used to exempt a page from the help door as well. An entry that has `static: true`
+ * and no `noHelp` key is read that old way, with a deprecation note; `"noHelp": false` says
+ * the static page must still have its door.
  */
 export function loadRoutes(): RouteEntry[] {
   const raw = readJson<unknown>(path.join(DOD_DIR, "routes.json"), []);
   if (!Array.isArray(raw)) throw new Error("[dod] e2e/dod/routes.json must be a JSON array");
   return raw.map((e: unknown, i): RouteEntry => {
-    if (typeof e === "string") return { route: e, audience: "qa", static: false };
-    const o = e as { route?: unknown; audience?: unknown; static?: unknown } | null;
+    if (typeof e === "string") return { route: e, audience: "qa", static: false, noHelp: null, legacyStatic: false };
+    const o = e as { route?: unknown; audience?: unknown; static?: unknown; noHelp?: unknown } | null;
     if (!o || typeof o.route !== "string") {
       throw new Error(`[dod] routes.json entry ${i} is neither a string nor an object with a "route"`);
     }
@@ -119,12 +165,19 @@ export function loadRoutes(): RouteEntry[] {
     if (audience !== "qa" && audience !== "anonymous") {
       throw new Error(`[dod] routes.json entry ${o.route}: audience must be "qa" or "anonymous"`);
     }
-    return { route: o.route, audience, static: o.static === true };
+    if (o.noHelp !== undefined && o.noHelp !== false && (typeof o.noHelp !== "string" || !o.noHelp.trim())) {
+      throw new Error(`[dod] routes.json entry ${o.route}: "noHelp" is a reason (a non-empty string) or false`);
+    }
+    const legacyStatic = o.static === true && o.noHelp === undefined;
+    const noHelp = typeof o.noHelp === "string" ? o.noHelp : legacyStatic ? "static (old form: add \"noHelp\")" : null;
+    return { route: o.route, audience, static: o.static === true, noHelp, legacyStatic };
   });
 }
 
 export interface RouteParams {
   _exclude?: Record<string, string>;
+  /** Routes kept in routes.json although the route scan cannot find them, each with its reason. */
+  _listed?: Record<string, string>;
   _gated?: string[];
   _alias?: Record<string, string>;
   [key: string]: unknown;
@@ -254,13 +307,23 @@ export interface EntryResult {
    * `moderate` contrast or language defect is a defect a person meets, and counting only
    * serious and critical let those pass at 100. `by_impact` keeps the split.
    */
-  axe: { version: string | null; counted: number; by_impact: Record<string, number>; violations: AxeViolation[] };
+  /** `scored` is the part that costs points: critical and serious nodes, plus minor and
+   *  moderate ones when scoring.json says "enforce". */
+  axe: {
+    version: string | null;
+    counted: number;
+    scored: number;
+    by_impact: Record<string, number>;
+    violations: AxeViolation[];
+  };
   console_errors: string[];
   fonts: { families: string[]; count: number };
   touch_targets: { checked: boolean; failures: number; samples: string[] };
   reduced_motion: { violations: number; samples: string[] };
   /** The standard's checks on this entry, by check id; absent when standard.json is. */
   standard?: Record<string, CheckResult>;
+  /** A failure of the standard's machinery itself (never of the page): recorded, never scored. */
+  standard_error?: string;
   /** The mechanical probe, by size ("320x700"); light scheme only. */
   probe?: Record<string, ProbeAt>;
 }
@@ -269,7 +332,10 @@ export interface Totals {
   unreachable: number;
   unreached: number;
   overflow_failures: number;
+  /** Scored axe nodes (they cost points). */
   axe_violations: number;
+  /** Every axe node found, scored or not. */
+  axe_recorded: number;
   console_errors: number;
   font_families: number;
   touch_target_failures: number;
@@ -284,7 +350,8 @@ export interface Totals {
 /**
  * Scoring: start at 100.
  *  -15 per overflow (each route × viewport × scheme entry)
- *  -5 per axe violation node, any impact (minor, moderate, serious, critical)
+ *  -5 per axe violation node that is scored: critical and serious always, minor and moderate
+ *     only with scoring.json "axe.minorModerate": "enforce"
  *  -5 per console error
  *  -10 if font families > 2
  *  -2 per touch-target failure (capped at -20)
@@ -326,6 +393,7 @@ export function aggregate(entries: EntryResult[], enforceStandard = false): Tota
     unreached: entries.filter((e) => !e.unreachable && !e.reached).length,
     overflow_failures: entries.filter((e) => e.overflow.failed).length,
     axe_violations: 0,
+    axe_recorded: 0,
     console_errors: 0,
     font_families: max(entries.map((e) => e.fonts.count)),
     touch_target_failures: 0,
@@ -338,7 +406,8 @@ export function aggregate(entries: EntryResult[], enforceStandard = false): Tota
       t.standard_findings += c.count;
       if (c.count > 0) t.standard_failures++;
     }
-    t.axe_violations += max(es.map((e) => e.axe.counted));
+    t.axe_violations += max(es.map((e) => e.axe.scored));
+    t.axe_recorded += max(es.map((e) => e.axe.counted));
     t.console_errors += max(es.map((e) => e.console_errors.length));
     t.touch_target_failures += max(es.filter((e) => e.touch_targets.checked).map((e) => e.touch_targets.failures));
     t.reduced_motion_violations += max(es.map((e) => e.reduced_motion.violations));
@@ -358,7 +427,14 @@ export function routeStandard(es: EntryResult[]): Record<string, CheckResult> {
       const at = `${e.viewport.width}/${e.scheme}`;
       const cur = out[id];
       if (!cur || c.count > cur.count || (cur.skipped && !c.skipped))
-        out[id] = { count: c.count, samples: c.samples.map((x) => `${at}: ${x}`), ...(c.skipped ? { skipped: c.skipped } : {}) };
+        out[id] = {
+          count: c.count,
+          samples: c.samples.map((x) => `${at}: ${x}`),
+          ...(c.skipped ? { skipped: c.skipped } : {}),
+          ...(cur?.error ? { error: cur.error } : {}),
+        };
+      // A check that failed on any entry says so on the route, whatever its count.
+      if (c.error) out[id].error ??= `${at}: ${c.error}`;
     }
   }
   return out;

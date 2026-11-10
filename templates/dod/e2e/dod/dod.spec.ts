@@ -2,7 +2,7 @@
 // reports/results/*.json and merged into reports/dod.json by global-teardown.
 import fs from "node:fs";
 import path from "node:path";
-import { test, type Page } from "@playwright/test";
+import { test, type Browser, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import {
   AXE_TAGS,
@@ -13,9 +13,15 @@ import {
   loadArgos,
   loadParams,
   loadRoutes,
+  loadScoring,
   loadStandard,
+  NOT_FOUND_PRINT,
+  normalizeRegionText,
   routeSlug,
   type EntryResult,
+  type NotFoundPrint,
+  type RouteEntry,
+  type StandardConfig,
 } from "./dod-shared";
 import {
   BUILT_IN_FORBIDDEN,
@@ -30,6 +36,11 @@ const SETTLE_MS = 1200;
 const routes = loadRoutes();
 const params = loadParams();
 const standard = loadStandard();
+const scoring = loadScoring();
+// The app's own not-found page, printed once by global-setup (absent: no comparison).
+const notFoundPrint: NotFoundPrint | null = fs.existsSync(NOT_FOUND_PRINT)
+  ? (JSON.parse(fs.readFileSync(NOT_FOUND_PRINT, "utf8")) as NotFoundPrint)
+  : null;
 const FORBIDDEN = [...BUILT_IN_FORBIDDEN, ...(standard?.forbiddenWords ?? []).map(forbiddenWordSource)];
 
 /**
@@ -43,6 +54,8 @@ const PROBE_SIZES = [
   { width: 1024, height: 768 },
   { width: 1280, height: 648 },
 ] as const;
+// The phone and tablet sizes: measured in a touch context (hasTouch), so a project that sizes
+// its controls by pointer type (S-12) is measured the way a finger meets it.
 const PROBE_TOUCH_MAX_WIDTH = 768;
 // After a resize: media queries apply at once, a resize listener may need a frame or two.
 const RESIZE_MS = 250;
@@ -96,6 +109,24 @@ async function reachRoute(page: Page): Promise<string | null> {
   }
   return reason;
 }
+
+/** The route's own region text, the same region reachRoute reads. */
+function regionText(page: Page): Promise<string> {
+  return page.evaluate(() => {
+    const region = document.querySelector("main, #main-content, #root, #__next") ?? document.body;
+    return (region as HTMLElement).innerText ?? "";
+  });
+}
+
+/**
+ * Not-found and denial wording, the fallback when the page carries neither the standard's
+ * markers nor the app's printed not-found text. Each is a phrase, never a bare number or a
+ * bare word: "forbidden" or a "404" on a stat card is content.
+ */
+const NOT_FOUND_WORDING =
+  /הדף לא נמצא|העמוד לא נמצא|הדף שחיפשת|שגיאה 404|page not found|this page could not be found|404 not found|error 404/i;
+const DENIED_WORDING =
+  /אין לך הרשאה|אין לך גישה|שגיאה 403|שגיאה 401|access denied|you (do not|don't) have (permission|access)|not authorized to|403 forbidden|401 unauthorized/i;
 
 async function fontFamilies(page: Page): Promise<string[]> {
   return page.evaluate(() => {
@@ -225,6 +256,105 @@ async function reducedMotionViolations(page: Page) {
   });
 }
 
+/** What a `?state=` variant must render: one of these `data-state` values, or null. */
+function expectedState(route: string): string[] | null {
+  const state = new URLSearchParams(route.split("?")[1] ?? "").get("state");
+  if (state === "empty") return ["empty", "clear", "filtered-empty"];
+  if (state === "error") return ["error"];
+  return null;
+}
+
+async function runStandard(
+  cfg: StandardConfig,
+  page: Page,
+  browser: Browser,
+  entry: RouteEntry,
+  viewport: { width: number; height: number },
+  scheme: string,
+  result: EntryResult,
+) {
+  const { route } = entry;
+  const checks = await page.evaluate(domChecks, {
+    noHelp: entry.noHelp,
+    navCount: viewport.width === 375,
+    phone: viewport.width <= 480,
+    forbidden: FORBIDDEN,
+    expectState: expectedState(route),
+  });
+  result.standard = checks;
+  const failed = (err: unknown) => ({ count: 0, samples: [], error: err instanceof Error ? err.message.slice(0, 300) : String(err) });
+
+  // core-unit: on its own route, at the BRIEF's real small screen, measured from the light
+  // entry nearest that size (a resize, not a reload, so the page keeps its state).
+  const cu = cfg.coreUnit;
+  if (cu && cu.route === route && scheme === "light" && viewport.width === (cu.viewport[0] <= 768 ? 375 : 1440)) {
+    try {
+      const [width, height] = cu.viewport;
+      await page.setViewportSize({ width, height });
+      await page.waitForTimeout(RESIZE_MS);
+      const visible = await page.evaluate(coreUnitVisible, cu.selector);
+      checks["core-unit"] =
+        visible < cu.min
+          ? { count: 1, samples: [`${visible} of ${cu.min} "${cu.selector}" fully visible at ${width}x${height}`] }
+          : { count: 0, samples: [] };
+    } catch (err) {
+      checks["core-unit"] = failed(err);
+    }
+  }
+
+  // probe: the mechanical floor at five more sizes. The desktop sizes resize this page; the
+  // phone and tablet sizes resize one page in a touch context (hasTouch), opened once, since
+  // touch cannot be switched on in a context that exists.
+  if (scheme !== "light") return;
+  const probe: NonNullable<EntryResult["probe"]> = {};
+  const samples: string[] = [];
+  let count = 0;
+  const errors: string[] = [];
+  const measure = async (p: Page, size: { width: number; height: number }, touch: boolean) => {
+    const key = `${size.width}x${size.height}`;
+    try {
+      await p.setViewportSize(size);
+      await p.waitForTimeout(RESIZE_MS);
+      const at = await p.evaluate(probeAt, cfg.textFloorPx);
+      const t = touch ? await touchTargets(p) : null;
+      probe[key] = { ...at, touch: t && { failures: t.failures, samples: t.samples } };
+      if (at.overflow) {
+        count++;
+        samples.push(`${key}: sideways scroll ${at.overflow.scrollWidth}>${at.overflow.clientWidth}`);
+      }
+      count += at.small_text.count + at.broken_words.count + (t?.failures ?? 0);
+      samples.push(
+        ...at.small_text.samples.map((x) => `${key}: text under ${cfg.textFloorPx}px ${x}`),
+        ...at.broken_words.samples.map((x) => `${key}: word broken across lines ${x}`),
+        ...(t?.samples ?? []).map((x) => `${key}: touch target under 44px ${x}`),
+      );
+    } catch (err) {
+      errors.push(`${key}: ${err instanceof Error ? err.message.slice(0, 200) : String(err)}`);
+    }
+  };
+  const touchSizes = PROBE_SIZES.filter((s) => s.width <= PROBE_TOUCH_MAX_WIDTH);
+  const ctx = await browser.newContext({
+    viewport: touchSizes[0],
+    hasTouch: true,
+    colorScheme: "light",
+    locale: test.info().project.use.locale,
+    storageState: await page.context().storageState(),
+  });
+  try {
+    const touchPage = await ctx.newPage();
+    await touchPage.goto(page.url(), { waitUntil: "domcontentloaded" });
+    await settle(touchPage);
+    for (const size of touchSizes) await measure(touchPage, size, true);
+  } catch (err) {
+    errors.push(`touch context: ${err instanceof Error ? err.message.slice(0, 200) : String(err)}`);
+  } finally {
+    await ctx.close();
+  }
+  for (const size of PROBE_SIZES.filter((s) => s.width > PROBE_TOUCH_MAX_WIDTH)) await measure(page, size, false);
+  result.probe = probe;
+  checks.probe = { count, samples: samples.slice(0, 8), ...(errors.length ? { error: errors.join("; ") } : {}) };
+}
+
 for (const entry of routes) {
   const { route } = entry;
   for (const viewport of VIEWPORTS) {
@@ -241,12 +371,17 @@ for (const entry of routes) {
           ...(entry.audience === "anonymous" ? { storageState: { cookies: [], origins: [] } } : {}),
         });
 
-        test(`dod ${name}`, async ({ page }) => {
+        test(`dod ${name}`, async ({ page, browser }) => {
           const consoleErrors: string[] = [];
+          // Paused while the standard's checks resize the page: an error a resize provokes
+          // belongs to those checks, not to the page's console score.
+          const console_ = { collecting: true };
           page.on("console", (m) => {
-            if (m.type() === "error") consoleErrors.push(m.text().slice(0, 300));
+            if (console_.collecting && m.type() === "error") consoleErrors.push(m.text().slice(0, 300));
           });
-          page.on("pageerror", (e) => consoleErrors.push(`pageerror: ${e.message.slice(0, 300)}`));
+          page.on("pageerror", (e) => {
+            if (console_.collecting) consoleErrors.push(`pageerror: ${e.message.slice(0, 300)}`);
+          });
 
           const result: EntryResult = {
             route,
@@ -262,7 +397,7 @@ for (const entry of routes) {
             not_reached_reason: null,
             screenshot: null,
             overflow: { scrollWidth: 0, clientWidth: 0, failed: false },
-            axe: { version: null, counted: 0, by_impact: {}, violations: [] },
+            axe: { version: null, counted: 0, scored: 0, by_impact: {}, violations: [] },
             console_errors: consoleErrors,
             fonts: { families: [], count: 0 },
             touch_targets: { checked: false, failures: 0, samples: [] },
@@ -313,19 +448,39 @@ for (const entry of routes) {
             const deniedText = await page
               .locator("body")
               .innerText()
-              .then((x) => x.slice(0, 400))
               .catch(() => "");
+            // The standard's own markers are the first signal: a page that renders its
+            // no-access or not-found state says so in markup, whatever its words. A route that
+            // asks for that state (?state=no-access) is the designed screen, not a refusal.
+            const askedState = new URLSearchParams(route.split("?")[1] ?? "").get("state");
+            const marker = await page
+              .evaluate(() =>
+                ["no-access", "not-found"].find((s) =>
+                  [...document.querySelectorAll(`[data-state="${s}"]`)].some((el) =>
+                    el.checkVisibility({ opacityProperty: true, visibilityProperty: true }),
+                  ),
+                ),
+              )
+              .catch(() => undefined);
+            // Then the app's real not-found page, printed in global-setup: the same region
+            // text means this route rendered it.
+            const rendersNotFound =
+              !!notFoundPrint &&
+              notFoundPrint.text.length > 0 &&
+              normalizeRegionText(await regionText(page).catch(() => ""), expected) === notFoundPrint.text;
             if (result.status !== null && result.status >= 400) {
               result.unreachable = true;
               result.unreachable_reason = `HTTP ${result.status}`;
             } else if (bounced) {
               result.unreachable = true;
               result.unreachable_reason = `redirected to ${landed}: the QA account has no access`;
+            } else if (marker === "no-access" && askedState !== "no-access") {
+              result.unreachable = true;
+              result.unreachable_reason = 'access-denied screen rendered ([data-state="no-access"])';
             } else if (
-              // The code only as a line of its own (how a not-found page shows it), never
-              // inside a sentence: "₪404" or an order number is content, not a 404.
-              /הדף לא נמצא|page not found|could not be found|^\s*404\s*$/im.test(deniedText) &&
-              !route.includes("404")
+              !route.includes("404") &&
+              askedState !== "not-found" &&
+              (marker === "not-found" || rendersNotFound || NOT_FOUND_WORDING.test(deniedText))
             ) {
               // A route in the list that answers with the app's own not-found page is
               // not being measured — it is the 404 screen being measured 110 times.
@@ -334,12 +489,12 @@ for (const entry of routes) {
               // their door code was never opened. A route list is only as good as the
               // parameters that make its pages real.
               result.unreachable = true;
-              result.unreachable_reason =
-                "renders the not-found page — the route needs a query parameter (add it to routes.json)";
-            } else if (/אין לך הרשאה|אין הרשאה|access denied|unauthorized|forbidden/i.test(deniedText)) {
-              // Wording only. A 401 or 403 is a status code and is caught above through the
-              // response status; matching the digits in the body text marked a healthy page
-              // unreachable whenever a price or an id contained them.
+              result.unreachable_reason = `renders the not-found page (${
+                marker === "not-found" ? "[data-state=\"not-found\"]" : rendersNotFound ? "the app's not-found text" : "not-found wording"
+              }) — the route needs a query parameter (add it to routes.json)`;
+            } else if (DENIED_WORDING.test(deniedText)) {
+              // A phrase, never the digits: a 401 or 403 is a status code and is caught above
+              // through the response status, while "401" in a price is content.
               result.unreachable = true;
               result.unreachable_reason = "access-denied screen rendered";
             } else if (/משהו השתבש|שגיאה בטעינה|something went wrong|try again later/i.test(deniedText)) {
@@ -402,6 +557,8 @@ for (const entry of routes) {
               const impact = v.impact ?? "unknown";
               result.axe.by_impact[impact] = (result.axe.by_impact[impact] ?? 0) + v.nodes.length;
               result.axe.counted += v.nodes.length;
+              if (impact === "critical" || impact === "serious" || scoring.axe.minorModerate === "enforce")
+                result.axe.scored += v.nodes.length;
             }
 
             result.fonts.families = await fontFamilies(page);
@@ -409,59 +566,19 @@ for (const entry of routes) {
 
             if (viewport.width === 375) result.touch_targets = await touchTargets(page);
 
-            // The experience standard's checks, on a page that really painted. In `report`
-            // mode they are written down; in `enforce` mode global-teardown deducts for them.
+            // The experience standard's checks, on a page that really painted. Their own try:
+            // whatever goes wrong in them is recorded on the check, and never turns the page
+            // unreachable or changes any other number, so report mode leaves the score alone.
             if (standard && result.reached && !result.unreachable) {
-              const checks = await page.evaluate(domChecks, {
-                helpDoor: !entry.static,
-                navCount: viewport.width === 375,
-                forbidden: FORBIDDEN,
-              });
-              result.standard = checks;
-
-              // core-unit: on its own route, at the BRIEF's real small screen, measured from the
-              // light entry nearest that size (a resize, not a reload, so the page keeps its state).
-              const cu = standard.coreUnit;
-              if (cu && cu.route === route && scheme === "light" && viewport.width === (cu.viewport[0] <= 768 ? 375 : 1440)) {
-                const [width, height] = cu.viewport;
-                await page.setViewportSize({ width, height });
+              console_.collecting = false;
+              try {
+                await runStandard(standard, page, browser, entry, viewport, scheme, result);
+              } catch (err) {
+                result.standard_error = err instanceof Error ? err.message.slice(0, 500) : String(err);
+              } finally {
+                await page.setViewportSize({ width: viewport.width, height: viewport.height }).catch(() => {});
                 await page.waitForTimeout(RESIZE_MS);
-                const visible = await page.evaluate(coreUnitVisible, cu.selector);
-                checks["core-unit"] =
-                  visible < cu.min
-                    ? { count: 1, samples: [`${visible} of ${cu.min} "${cu.selector}" fully visible at ${width}x${height}`] }
-                    : { count: 0, samples: [] };
-                await page.setViewportSize({ width: viewport.width, height: viewport.height });
-                await page.waitForTimeout(RESIZE_MS);
-              }
-
-              // probe: the mechanical floor at five more sizes, without reloading.
-              if (scheme === "light") {
-                const probe: NonNullable<EntryResult["probe"]> = {};
-                const samples: string[] = [];
-                let count = 0;
-                for (const size of PROBE_SIZES) {
-                  const key = `${size.width}x${size.height}`;
-                  await page.setViewportSize(size);
-                  await page.waitForTimeout(RESIZE_MS);
-                  const at = await page.evaluate(probeAt, standard.textFloorPx);
-                  const touch = size.width <= PROBE_TOUCH_MAX_WIDTH ? await touchTargets(page) : null;
-                  probe[key] = { ...at, touch: touch && { failures: touch.failures, samples: touch.samples } };
-                  if (at.overflow) {
-                    count++;
-                    samples.push(`${key}: sideways scroll ${at.overflow.scrollWidth}>${at.overflow.clientWidth}`);
-                  }
-                  count += at.small_text.count + at.broken_words.count + (touch?.failures ?? 0);
-                  samples.push(
-                    ...at.small_text.samples.map((x) => `${key}: text under ${standard.textFloorPx}px ${x}`),
-                    ...at.broken_words.samples.map((x) => `${key}: word broken across lines ${x}`),
-                    ...(touch?.samples ?? []).map((x) => `${key}: touch target under 44px ${x}`),
-                  );
-                }
-                await page.setViewportSize({ width: viewport.width, height: viewport.height });
-                await page.waitForTimeout(RESIZE_MS);
-                result.probe = probe;
-                checks.probe = { count, samples: samples.slice(0, 8) };
+                console_.collecting = true;
               }
             }
 

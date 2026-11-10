@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import {
   aggregate,
+  loadScoring,
   AXE_TAGS,
   excludedRoutes,
   loadParams,
@@ -22,6 +23,16 @@ export default async function globalTeardown() {
   const excluded = excludedRoutes(loadParams());
   const standard = loadStandard();
   const enforce = standard?.mode === "enforce";
+  const scoring = loadScoring();
+  // Configuration the run could not act on: said in dod.json and on the console, never silent.
+  const configErrors: string[] = [];
+  if (standard?.coreUnit && !routes.some((r) => r.route === standard.coreUnit!.route))
+    configErrors.push(`coreUnit.route ${standard.coreUnit.route} is not in routes.json, so core-unit never ran`);
+  const legacy = routes.filter((r) => r.legacyStatic).map((r) => r.route);
+  if (standard && legacy.length)
+    configErrors.push(
+      `deprecated: "static": true without "noHelp" also exempts the help door (${legacy.slice(0, 5).join(", ")}${legacy.length > 5 ? ", …" : ""}); add "noHelp": "<reason>" or "noHelp": false`,
+    );
   const entries: EntryResult[] = fs.existsSync(RESULTS_DIR)
     ? fs
         .readdirSync(RESULTS_DIR)
@@ -69,19 +80,28 @@ export default async function globalTeardown() {
   // The standard's checks, summed: per check id, how many routes have findings and how many.
   const standardSummary = standard
     ? (() => {
-        const checks: Record<string, { routes: number; findings: number }> = {};
-        for (const r of Object.values(perRoute))
+        const checks: Record<string, { routes: number; findings: number; errors: number }> = {};
+        const errors: string[] = [];
+        for (const [route, r] of Object.entries(perRoute)) {
           for (const [id, c] of Object.entries(r.standard ?? {})) {
-            const cur = (checks[id] ??= { routes: 0, findings: 0 });
+            const cur = (checks[id] ??= { routes: 0, findings: 0, errors: 0 });
             cur.findings += c.count;
             if (c.count) cur.routes++;
+            if (c.error) {
+              cur.errors++;
+              errors.push(`${route} ${id}: ${c.error}`);
+            }
           }
+          for (const e of r.entries) if (e.standard_error) errors.push(`${route} (${e.viewport.width}/${e.scheme}): ${e.standard_error}`);
+        }
         return {
           mode: standard.mode,
           profile: standard.profile,
           text_floor_px: standard.textFloorPx,
           penalty: enforce ? `-${STANDARD_PENALTY} per check id with findings on a route` : "none (report mode)",
           checks,
+          errors,
+          config_errors: configErrors,
           not_built: STANDARD_NOT_BUILT,
         };
       })()
@@ -91,7 +111,10 @@ export default async function globalTeardown() {
     generated_at: new Date().toISOString(),
     base_url: `http://localhost:${process.env.PORT ?? "3000"}`,
     scoring:
-      "100 -15/overflow(entry) -5/axe violation node (any impact) -5/console error -10 if fonts>2 -2/touch-target (cap 20) -10/reduced-motion violation" +
+      `100 -15/overflow(entry) -5/axe violation node (critical, serious${
+        scoring.axe.minorModerate === "enforce" ? ", moderate, minor" : "; moderate and minor recorded only"
+      }) -5/console error` +
+      " -10 if fonts>2 -2/touch-target (cap 20) -10/reduced-motion violation" +
       (enforce ? ` -${STANDARD_PENALTY}/standard check id with findings (route)` : "") +
       "; per-page findings counted once per route (max across viewport×scheme)",
     axe: {
@@ -99,6 +122,7 @@ export default async function globalTeardown() {
       // with no code change is read against this first.
       core_version: entries.find((e) => e.axe.version)?.axe.version ?? null,
       tags: AXE_TAGS,
+      minor_moderate: scoring.axe.minorModerate,
     },
     standard: standardSummary,
     totals: { ...aggregate(entries, enforce), score: notMeasured.length ? 0 : aggregate(entries, enforce).score },
@@ -141,9 +165,14 @@ export default async function globalTeardown() {
     for (const k of excludedKeys) console.log(`[dod]   ${k} — ${excluded[k]}`);
   }
 
+  if (typeof standardSummary === "object" && (standardSummary.errors.length || standardSummary.config_errors.length)) {
+    console.log(`\n[dod] the experience standard's checks could not all run (recorded in dod.json, never scored):`);
+    for (const e of [...standardSummary.config_errors, ...standardSummary.errors].slice(0, 20)) console.log(`[dod]   ${e}`);
+  }
+
   const t = report.totals;
   console.log(
-    `\n[dod] score=${t.score} unreachable=${t.unreachable} unreached=${t.unreached} overflow=${t.overflow_failures} axe=${t.axe_violations} console=${t.console_errors} fonts=${t.font_families} touch=${t.touch_target_failures} reduced-motion=${t.reduced_motion_violations}` +
+    `\n[dod] score=${t.score} unreachable=${t.unreachable} unreached=${t.unreached} overflow=${t.overflow_failures} axe=${t.axe_violations} (recorded ${t.axe_recorded}) console=${t.console_errors} fonts=${t.font_families} touch=${t.touch_target_failures} reduced-motion=${t.reduced_motion_violations}` +
       (standard ? ` standard(${standard.mode})=${t.standard_failures} check(s), ${t.standard_findings} finding(s)` : ""),
   );
   for (const [route, r] of Object.entries(perRoute)) {

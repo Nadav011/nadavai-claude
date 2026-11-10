@@ -17,7 +17,10 @@ export const routeSlug = (route) =>
     .replace(/^-+|-+$/g, "") || "root";
 
 const routeOf = (e) => (typeof e === "string" ? e : e.route);
+// `static` exempts a page from state-coverage. `noHelp` (a reason) exempts it from the help
+// checks; `static: true` with no `noHelp` key is the old form and still exempts both.
 const isStatic = (e) => typeof e === "object" && e.static === true;
+const noHelp = (e) => typeof e === "object" && (typeof e.noHelp === "string" || (e.static === true && e.noHelp === undefined));
 
 /** "/x?b=2&state=empty" -> { key: "/x?b=2", state: "empty" }: the route a variant belongs to. */
 const splitState = (route) => {
@@ -36,7 +39,17 @@ const splitState = (route) => {
  * @returns {null | { mode: string, failures: { check: string, message: string }[] }}
  *   null when the project has no e2e/dod/standard.json.
  */
-export function standardCheck({ root, entries, patternOf = new Map() }) {
+export function standardCheck(o) {
+  try {
+    return check(o);
+  } catch (err) {
+    // A file the checks could not read is a finding to fix, not a crash: in report mode it is
+    // printed and the check still passes.
+    return { mode: "report", failures: [{ check: "standard-check", message: `could not run: ${err.message}` }] };
+  }
+}
+
+function check({ root, entries, patternOf = new Map() }) {
   const file = path.join(root, "e2e", "dod", "standard.json");
   if (!fs.existsSync(file)) return null;
   let cfg;
@@ -49,6 +62,17 @@ export function standardCheck({ root, entries, patternOf = new Map() }) {
   const failures = [];
   const fail = (check, message) => failures.push({ check, message });
   if (mode !== "enforce" && mode !== "report") fail("standard.json", `mode must be "enforce" or "report", not ${JSON.stringify(mode)}`);
+  if (cfg.coreUnit && !entries.some((e) => routeOf(e) === cfg.coreUnit.route))
+    fail("standard.json", `coreUnit.route ${cfg.coreUnit.route} is not in routes.json, so core-unit would never run`);
+  for (const e of entries)
+    if (typeof e === "object" && e.noHelp !== undefined && e.noHelp !== false && (typeof e.noHelp !== "string" || !e.noHelp.trim()))
+      fail("standard.json", `${e.route}: "noHelp" is a reason (a non-empty string) or false`);
+  const legacy = entries.filter((e) => typeof e === "object" && e.static === true && e.noHelp === undefined);
+  if (legacy.length)
+    console.log(
+      `dod-standard: deprecated: "static": true without "noHelp" also exempts the help checks (${legacy.length} entr(ies)); ` +
+        'add "noHelp": "<reason>", or "noHelp": false for a static page that has a help door.',
+    );
 
   // The screens themselves: entries with no `state` in their query, not flagged static.
   const all = entries.map((e) => ({ e, route: routeOf(e), ...splitState(routeOf(e)) }));
@@ -66,7 +90,7 @@ export function standardCheck({ root, entries, patternOf = new Map() }) {
   if (cfg.helpDir) {
     const dir = path.join(root, cfg.helpDir);
     const files = fs.existsSync(dir) ? fs.readdirSync(dir) : [];
-    for (const s of screens) {
+    for (const s of all.filter((x) => x.state === null && !noHelp(x.e))) {
       const pattern = patternOf.get(s.key.split("?")[0]) ?? s.key.split("?")[0];
       const slug = routeSlug(pattern);
       if (!files.some((f) => f.replace(/\.[^.]+$/, "") === slug))
@@ -79,21 +103,23 @@ export function standardCheck({ root, entries, patternOf = new Map() }) {
   if (!fs.existsSync(productFile)) fail("brand-assets", "PRODUCT.md not found at the project root");
   else {
     const lines = fs.readFileSync(productFile, "utf8").split("\n");
-    const start = lines.findIndex((l) => /^#{1,6}\s+(Brand|מותג)(?!\p{L})/iu.test(l));
+    const start = lines.findIndex((l) => /^#{1,6}\s+(Brand|ה?מותג)(?!\p{L})/iu.test(l));
     if (start < 0) fail("brand-assets", 'PRODUCT.md has no "Brand" section (a heading "## Brand")');
     else {
       const level = lines[start].match(/^#+/)[0].length;
       let end = lines.findIndex((l, i) => i > start && /^#+\s/.test(l) && l.match(/^#+/)[0].length <= level);
       if (end < 0) end = lines.length;
       const body = lines.slice(start + 1, end).join("\n");
-      // A file path is a markdown link target or an inline code span that names a file:
-      // it has an extension and is not a URL.
+      // A file path is a markdown link target with an extension, or an inline code span that
+      // looks like a path: it has a "/" or an asset extension. `oklch(0.2 0 0)` or `--primary`
+      // in a code span is a value, not a file. URLs and anchors are never paths.
+      const ASSET = /\.(svg|png|jpe?g|webp|avif|gif|ico|pdf|woff2?|ttf|otf|eps|ai)$/i;
       const named = [
-        ...[...body.matchAll(/\]\(([^)\s]+)\)/g)].map((m) => m[1]),
-        ...[...body.matchAll(/`([^`\s]+)`/g)].map((m) => m[1]),
-      ].filter((p) => !/^([a-z]+:|#)/i.test(p) && /\.[a-z0-9]{2,5}$/i.test(p));
+        ...[...body.matchAll(/\]\(([^)\s]+)\)/g)].map((m) => m[1]).filter((p) => /\.[a-z0-9]{2,5}$/i.test(p)),
+        ...[...body.matchAll(/`([^`\s]+)`/g)].map((m) => m[1]).filter((p) => (p.includes("/") && /\.[a-z0-9]{2,5}$/i.test(p)) || ASSET.test(p)),
+      ].filter((p) => !/^([a-z]+:|#|\/\/)/i.test(p));
       for (const p of new Set(named)) {
-        if (!fs.existsSync(path.resolve(root, p))) fail("brand-assets", `PRODUCT.md's Brand section names ${p}, which does not exist`);
+        if (!fs.existsSync(path.join(root, p))) fail("brand-assets", `PRODUCT.md's Brand section names ${p}, which does not exist`);
       }
     }
   }

@@ -10,15 +10,22 @@ export interface CheckResult {
   samples: string[];
   /** Why the check did not run on this entry, when it did not. */
   skipped?: string;
+  /** The check itself failed (a bad selector in standard.json, a page that threw): recorded and
+   *  printed, never counted as a finding and never turned into an unreachable page. */
+  error?: string;
 }
 
 export interface DomCheckArgs {
-  /** help-door does not apply to a route flagged `static`. */
-  helpDoor: boolean;
+  /** Why help-door does not apply (the entry's `noHelp`), or null when it does. */
+  noHelp: string | null;
   /** nav-count runs at 375 only. */
   navCount: boolean;
+  /** The 16px input text floor is an iOS zoom rule, so it is checked at phone widths only. */
+  phone: boolean;
   /** forbidden-words patterns, as RegExp sources (a RegExp does not cross into the page). */
   forbidden: { label: string; source: string }[];
+  /** On a `?state=` variant: the `data-state` values one of which the page must render. */
+  expectState: string[] | null;
 }
 
 /** Built-in forbidden wording, from rules C-01 and C-03. A project adds to it, never removes. */
@@ -42,7 +49,18 @@ export function forbiddenWordSource(word: string): { label: string; source: stri
   return { label: word, source: `(?<!\\p{L})${esc}(?!\\p{L})` };
 }
 
-/** Every per-entry DOM check, in one pass over the page. */
+/**
+ * Text people did not write for the product: a client's message, a name they typed. The
+ * interface's words are checked; theirs are not. A project marks it with `data-user-content`
+ * (or `translate="no"`, which a message list usually carries already).
+ */
+export const USER_CONTENT = '[data-user-content], [translate="no"]';
+
+/**
+ * Every per-entry DOM check, in one pass over the page. Each check is judged against stock
+ * shadcn/Radix markup as well as its own fixture: a check that fails a well-built screen
+ * teaches people to ignore the checks.
+ */
 export function domChecks(args: DomCheckArgs): Record<string, CheckResult> {
   const MAX = 6;
   const vis = (el: Element | null): el is HTMLElement => {
@@ -58,7 +76,9 @@ export function domChecks(args: DomCheckArgs): Record<string, CheckResult> {
   const describe = (el: Element) => {
     const tag = el.tagName.toLowerCase();
     const id = el.id ? `#${el.id}` : "";
-    const label = (el.getAttribute("aria-label") || text(el) || el.getAttribute("placeholder") || "").slice(0, 40);
+    const label = Array.from(el.getAttribute("aria-label") || text(el) || el.getAttribute("placeholder") || "")
+      .slice(0, 40)
+      .join("");
     return `${tag}${id}${label ? ` "${label}"` : ""}`;
   };
   const byIds = (ids: string | null) =>
@@ -68,85 +88,130 @@ export function domChecks(args: DomCheckArgs): Record<string, CheckResult> {
       .map((id) => document.getElementById(id));
   const pointsAtVisibleText = (el: Element, attr: string) =>
     byIds(el.getAttribute(attr)).some((t) => vis(t) && readable(text(t)));
-  const mk = (): CheckResult => ({ count: 0, samples: [] });
+  const labelText = (el: Element) =>
+    [...((el as HTMLInputElement).labels ?? [])].map((l) => text(l)).join(" ");
   const add = (c: CheckResult, s: string) => {
     c.count++;
     if (c.samples.length < MAX) c.samples.push(s);
   };
   const out: Record<string, CheckResult> = {};
+  // One check that throws is recorded as that check's error; the others still run.
+  const check = (id: string, fn: (c: CheckResult) => void) => {
+    const c: CheckResult = { count: 0, samples: [] };
+    try {
+      fn(c);
+      out[id] = c;
+    } catch (err) {
+      out[id] = { count: 0, samples: [], error: err instanceof Error ? err.message : String(err) };
+    }
+  };
+  const SEARCH = 'input[type="search"], [role="searchbox"], [role="combobox"]';
 
   // help-door (G-01): the door in the top bar, and the screen's own entry in its header.
-  {
-    const c = mk();
-    if (!args.helpDoor) c.skipped = "static route";
-    else {
-      const doors = [...document.querySelectorAll('[data-help="door"]')].filter(vis);
-      // The top bar: inside a header or banner, or in the first 120px of the page.
-      const inTopBar = doors.some(
-        (d) => d.closest('header, [role="banner"]') || d.getBoundingClientRect().top + window.scrollY < 120,
-      );
-      if (!inTopBar) add(c, doors.length ? 'the [data-help="door"] is not in the top bar' : 'no visible [data-help="door"]');
-      if (![...document.querySelectorAll('[data-help="screen"]')].some(vis)) add(c, 'no visible [data-help="screen"]');
+  check("help-door", (c) => {
+    if (args.noHelp) {
+      c.skipped = `noHelp: ${args.noHelp}`;
+      return;
     }
-    out["help-door"] = c;
-  }
+    const doors = [...document.querySelectorAll('[data-help="door"]')].filter(vis);
+    // The top bar: inside a header or banner, or in the first 120px of the page.
+    const inTopBar = doors.some(
+      (d) => d.closest('header, [role="banner"]') || d.getBoundingClientRect().top + window.scrollY < 120,
+    );
+    if (!inTopBar) add(c, doors.length ? 'the [data-help="door"] is not in the top bar' : 'no visible [data-help="door"]');
+    if (![...document.querySelectorAll('[data-help="screen"]')].some(vis)) add(c, 'no visible [data-help="screen"]');
+  });
 
-  // tooltip-only (G-04): the only words are in a title or a hover tooltip.
-  {
-    const c = mk();
+  // tooltip-only (G-04): the only words are in a title or a hover tooltip. What it can see: a
+  // `title` attribute, and an element described only by a [role=tooltip] that is in the DOM but
+  // hidden. A Radix tooltip is not in the DOM until hover, so its trigger is not judged here.
+  check("tooltip-only", (c) => {
     const ownWords = (el: HTMLElement) => {
-      if (el.matches("input, select, textarea")) {
-        const f = el as HTMLInputElement;
-        return [...(f.labels ?? [])].some((l) => vis(l) && readable(text(l))) || pointsAtVisibleText(el, "aria-labelledby");
-      }
+      if (el.matches("input, select, textarea"))
+        return readable(labelText(el)) || pointsAtVisibleText(el, "aria-labelledby");
       return readable(text(el)) || pointsAtVisibleText(el, "aria-labelledby");
+    };
+    // The same words already on screen beside it (within three levels up): an avatar whose
+    // title repeats the name next to it explains nothing that is not visible.
+    const besideIt = (el: Element, words: string) => {
+      let a = el.parentElement;
+      for (let i = 0; a && i < 3; i++, a = a.parentElement) if (text(a).includes(words)) return true;
+      return false;
     };
     const seen = new Set<Element>();
     for (const el of document.body.querySelectorAll("[title]")) {
-      if (!vis(el) || !el.getAttribute("title")?.trim() || el.matches("iframe, svg *")) continue;
+      const title = el.getAttribute("title")?.trim() ?? "";
+      if (!vis(el) || !title || el.matches("iframe, svg *")) continue;
       if (el.closest("[data-help]") || ownWords(el) || pointsAtVisibleText(el, "aria-describedby")) continue;
+      if (besideIt(el, title)) continue;
       seen.add(el);
-      add(c, `${describe(el)} title="${el.getAttribute("title")!.slice(0, 40)}"`);
+      add(c, `${describe(el)} title="${title.slice(0, 40)}"`);
     }
-    // A tooltip component that is described-by a hidden [role=tooltip] and has no words.
     for (const el of document.body.querySelectorAll("[aria-describedby]")) {
       if (seen.has(el) || !vis(el) || el.closest("[data-help]") || ownWords(el)) continue;
       const targets = byIds(el.getAttribute("aria-describedby")).filter(Boolean) as Element[];
       if (targets.length && targets.every((t) => t.matches('[role="tooltip"]') && !vis(t)))
         add(c, `${describe(el)} described only by a hidden tooltip`);
     }
-    out["tooltip-only"] = c;
-  }
+  });
 
-  // disabled-reason (E-02): a disabled control shows why, in a visible line.
-  {
-    const c = mk();
+  // disabled-reason (E-02): a disabled control shows why, in a visible line. Not judged where
+  // the reason is the control's own position: a day of a calendar grid or a grid row, a pager's
+  // previous/next or page number, a stepper at its limit.
+  check("disabled-reason", (c) => {
+    const PAGER_WORD = /^(הקודם|הבא|הקודמת|הבאה|ראשון|אחרון|previous|prev|next|first|last|[«‹›»<>]|\d+)$/i;
+    const pagerLabel = (el: Element) =>
+      PAGER_WORD.test((el.getAttribute("aria-label") || text(el)).replace(/\s+/g, " ").trim()) ||
+      /^(go to )?(previous|next|first|last) page$|^(לעמוד|עמוד) (הקודם|הבא|הראשון|האחרון)$/i.test(el.getAttribute("aria-label") ?? "");
+    const inPager = (el: Element) => {
+      if (el.closest('[data-slot="pagination"], [aria-label="pagination" i]')) return true;
+      const nav = el.closest("nav[aria-label]");
+      return !!nav && [...nav.querySelectorAll('a, button, [role="button"]')].every(pagerLabel);
+    };
+    const inStepper = (el: Element) =>
+      el.matches('[role="spinbutton"], input[type="number"]') ||
+      !!el.parentElement?.querySelector('input[type="number"], [role="spinbutton"]');
     for (const el of document.body.querySelectorAll(
       'button:disabled, input:disabled:not([type="hidden"]), select:disabled, textarea:disabled, [aria-disabled="true"]',
     )) {
       if (!vis(el) || el.closest('[aria-busy="true"]')) continue;
+      if (el.closest('[role="grid"], [role="row"], [role="gridcell"]') || inPager(el) || pagerLabel(el) || inStepper(el)) continue;
       if (pointsAtVisibleText(el, "aria-describedby")) continue;
       add(c, describe(el));
     }
-    out["disabled-reason"] = c;
-  }
+  });
 
-  // placeholder-label (I-01): a placeholder is never the label.
-  {
-    const c = mk();
+  // placeholder-label (I-01): a placeholder is never the label. A search box with an accessible
+  // name is the exception: its role and icon say what it is, and a label above it is not the
+  // stock pattern.
+  check("placeholder-label", (c) => {
     for (const el of document.body.querySelectorAll<HTMLInputElement>("input[placeholder], textarea[placeholder]")) {
       if (!vis(el) || !el.placeholder.trim()) continue;
+      if (el.matches(SEARCH) && (el.getAttribute("aria-label")?.trim() || el.hasAttribute("aria-labelledby"))) continue;
       const labelled =
         [...(el.labels ?? [])].some((l) => vis(l) && readable(text(l))) || pointsAtVisibleText(el, "aria-labelledby");
       if (!labelled) add(c, describe(el));
     }
-    out["placeholder-label"] = c;
-  }
+  });
 
-  // input-attrs (I-03): autocomplete always; the keyboard that fits; text of 16px or more.
-  {
-    const c = mk();
+  // input-attrs (I-03): autocomplete always; the keyboard that fits; 16px text on a phone.
+  check("input-attrs", (c) => {
     const NOT_TEXT = /^(hidden|submit|button|reset|image|checkbox|radio|file|range|color)$/;
+    // What a field is for, decided by what the developer declared (type, name, id, autocomplete,
+    // inputmode). Words in its label or placeholder are a weak hint: they count only when two
+    // of them agree (the label says phone AND the placeholder looks like a number), so "נושא
+    // המייל" (an e-mail's subject) is not an e-mail field.
+    const KINDS = {
+      phone: { declared: /(^|[^a-z])(tel|phone|mobile|cell)([^a-z]|$)/, ac: /^tel/, words: /טלפון|נייד|phone|mobile/i, looks: /^[+\d][\d\s()-]{6,}$/ },
+      email: { declared: /(^|[^a-z])e?-?mail([^a-z]|$)/, ac: /^email$/, words: /דוא"ל|אימייל|מייל|e-?mail/i, looks: /@/ },
+      number: {
+        declared: /(^|[^a-z])(amount|price|qty|quantity|otp|zip|postal)([^a-z]|$)/,
+        ac: /^(one-time-code|cc-number|cc-csc|postal-code|transaction-amount)$/,
+        words: /סכום|מחיר|כמות|מיקוד|קוד אימות/,
+        looks: /^\d+([.,]\d+)?$/,
+      },
+    } as const;
+    const tokens = (s: string) => s.replace(/([a-z])([A-Z])/g, "$1-$2").toLowerCase();
     for (const el of document.body.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(
       "input, textarea, select",
     )) {
@@ -154,129 +219,118 @@ export function domChecks(args: DomCheckArgs): Record<string, CheckResult> {
       const isInput = el instanceof HTMLInputElement;
       if (isInput && NOT_TEXT.test(el.type)) continue;
       const px = Number.parseFloat(getComputedStyle(el).fontSize);
-      if (px < 16) add(c, `${describe(el)} text ${px}px (under 16px zooms the page on iOS)`);
-      if (!isInput) continue;
+      if (args.phone && px < 16) add(c, `${describe(el)} text ${px}px (under 16px zooms the page on iOS)`);
+      if (!isInput || el.matches(SEARCH)) continue;
       if (!el.hasAttribute("autocomplete")) add(c, `${describe(el)} has no autocomplete attribute`);
-      const ac = (el.getAttribute("autocomplete") ?? "").toLowerCase();
-      const hint = [
-        el.name,
-        el.id,
-        ac,
-        el.getAttribute("aria-label"),
-        el.placeholder,
-        ...[...(el.labels ?? [])].map((l) => text(l)),
-      ]
-        .join(" ")
-        .toLowerCase();
+      const ac = (el.getAttribute("autocomplete") ?? "").toLowerCase().split(/\s+/).pop() ?? "";
+      const declared = tokens(`${el.name} ${el.id}`);
       const type = el.type.toLowerCase();
       const mode = (el.getAttribute("inputmode") ?? "").toLowerCase();
-      if ((/(^|\s)tel/.test(ac) || /\b(tel|phone|mobile)\b|טלפון|נייד/.test(hint)) && type !== "tel" && mode !== "tel")
-        add(c, `${describe(el)} is a phone field without type="tel" or inputmode="tel"`);
-      else if (
-        (/(^|\s)email/.test(ac) || /e-?mail|דוא"ל|אימייל|מייל/.test(hint)) &&
-        type !== "email" &&
-        mode !== "email"
-      )
-        add(c, `${describe(el)} is an email field without type="email" or inputmode="email"`);
-      else if (
-        (/one-time-code|cc-number|cc-csc|postal-code/.test(ac) ||
-          /\b(amount|price|qty|quantity|otp|zip)\b|סכום|מחיר|כמות|מיקוד|קוד אימות/.test(hint)) &&
-        type !== "number" &&
-        !/^(numeric|decimal)$/.test(mode)
-      )
-        add(c, `${describe(el)} is a number field without type="number" or inputmode="numeric"/"decimal"`);
+      const fits = { phone: type === "tel" || mode === "tel", email: type === "email" || mode === "email", number: type === "number" || /^(numeric|decimal)$/.test(mode) };
+      for (const [kind, k] of Object.entries(KINDS) as [keyof typeof KINDS, (typeof KINDS)[keyof typeof KINDS]][]) {
+        if (fits[kind]) continue;
+        // A field that declares another kind is that kind: a type="email" named "contact" is not a phone.
+        if (Object.entries(fits).some(([other, f]) => other !== kind && f)) continue;
+        const strong = k.ac.test(ac) || k.declared.test(declared);
+        const weak = [labelText(el), el.getAttribute("aria-label") ?? ""].some((w) => k.words.test(w)) && k.looks.test(el.placeholder.trim());
+        if (strong || weak) add(c, `${describe(el)} is a ${kind} field without the matching type or inputmode`);
+      }
     }
-    out["input-attrs"] = c;
-  }
+  });
 
-  // one-primary (S-03): one accent-filled action in the top layer.
-  {
-    const c = mk();
+  // one-primary (S-03): one accent-filled action in the top layer. A selected or checked thing
+  // (a switch, a checkbox, a selected day, the current tab or page) is filled with the accent
+  // to show its state, not because it is an action: those are not counted.
+  check("one-primary", (c) => {
     const layers = [...document.querySelectorAll('[role="dialog"], [role="alertdialog"], dialog[open]')].filter(vis);
     // The top layer is the last open dialog or sheet, alone; the page only when none is open.
     const scope: Element = layers[layers.length - 1] ?? document.body;
     const token = getComputedStyle(document.documentElement).getPropertyValue("--primary").trim();
-    if (!token) c.skipped = "no --primary token on :root";
-    else {
-      // The token resolved by the browser itself, in the same layer: a hex, an oklch() or bare
-      // HSL channels (`222 47% 11%`, the older shadcn form, used as hsl(var(--primary))).
-      const probe = document.createElement("div");
-      probe.style.display = "none";
-      scope.appendChild(probe);
-      const resolve = (v: string) => {
-        probe.style.backgroundColor = "";
-        probe.style.backgroundColor = v;
-        return probe.style.backgroundColor ? getComputedStyle(probe).backgroundColor : "";
-      };
-      const TRANSPARENT = /^(rgba\(0, 0, 0, 0\)|transparent)$/;
-      let accent = resolve("var(--primary)");
-      if (!accent || TRANSPARENT.test(accent)) accent = resolve("hsl(var(--primary))");
-      probe.remove();
-      if (!accent || TRANSPARENT.test(accent)) c.skipped = `--primary (${token}) does not resolve to a colour`;
-      else {
-        const filled = [
-          ...scope.querySelectorAll('button, a[href], [role="button"], input[type="submit"], input[type="button"]'),
-        ].filter((el) => vis(el) && getComputedStyle(el).backgroundColor === accent);
-        if (filled.length > 1) {
-          c.count = filled.length;
-          c.samples = filled.slice(0, MAX).map(describe);
-        }
-      }
+    if (!token) {
+      c.skipped = "no --primary token on :root";
+      return;
     }
-    out["one-primary"] = c;
-  }
+    // The token resolved by the browser itself, in the same layer: a hex, an oklch() or bare
+    // HSL channels (`222 47% 11%`, the older shadcn form, used as hsl(var(--primary))).
+    const probe = document.createElement("div");
+    probe.style.display = "none";
+    scope.appendChild(probe);
+    const resolve = (v: string) => {
+      probe.style.backgroundColor = "";
+      probe.style.backgroundColor = v;
+      return probe.style.backgroundColor ? getComputedStyle(probe).backgroundColor : "";
+    };
+    const TRANSPARENT = /^(rgba\(0, 0, 0, 0\)|transparent)$/;
+    let accent = resolve("var(--primary)");
+    if (!accent || TRANSPARENT.test(accent)) accent = resolve("hsl(var(--primary))");
+    probe.remove();
+    if (!accent || TRANSPARENT.test(accent)) {
+      c.skipped = `--primary (${token}) does not resolve to a colour`;
+      return;
+    }
+    const STATE =
+      '[role="switch"], [role="checkbox"], [role="radio"], [role="tab"], [role="gridcell"], [role="option"], ' +
+      '[role="menuitemcheckbox"], [role="menuitemradio"], [aria-selected], [aria-pressed], [aria-checked], [aria-current]';
+    const filled = [
+      ...scope.querySelectorAll('button, a[href], [role="button"], input[type="submit"], input[type="button"]'),
+    ].filter((el) => vis(el) && !el.matches(STATE) && !el.closest('[role="gridcell"]') && getComputedStyle(el).backgroundColor === accent);
+    if (filled.length > 1) {
+      c.count = filled.length;
+      c.samples = filled.slice(0, MAX).map(describe);
+    }
+  });
 
   // nav-count (S-06): at most five destinations in the phone bottom bar; a count is a number.
-  {
-    const c = mk();
-    if (!args.navCount) c.skipped = "phone width only";
-    else {
-      const pinned = (el: Element) => {
-        for (let a: Element | null = el; a && a !== document.documentElement; a = a.parentElement)
-          if (/fixed|sticky/.test(getComputedStyle(a).position)) return true;
-        return false;
-      };
-      const bars = [...document.querySelectorAll('nav, [role="navigation"], [role="tablist"]')].filter((el) => {
-        if (!vis(el) || !pinned(el)) return false;
+  check("nav-count", (c) => {
+    if (!args.navCount) {
+      c.skipped = "phone width only";
+      return;
+    }
+    const pinned = (el: Element) => {
+      for (let a: Element | null = el; a && a !== document.documentElement; a = a.parentElement)
+        if (/fixed|sticky/.test(getComputedStyle(a).position)) return true;
+      return false;
+    };
+    const bars = [...document.querySelectorAll('nav, [role="navigation"], [role="tablist"]')].filter((el) => {
+      if (!vis(el) || !pinned(el)) return false;
+      const r = el.getBoundingClientRect();
+      return r.bottom >= window.innerHeight - 4 && r.top >= window.innerHeight / 2;
+    });
+    for (const bar of bars.filter((b) => !bars.some((o) => o !== b && o.contains(b)))) {
+      const ITEM = 'a[href], button, [role="tab"], [role="link"]';
+      const items = [...bar.querySelectorAll(ITEM)].filter((el) => vis(el) && !el.parentElement?.closest(ITEM));
+      if (items.length > 5) add(c, `bottom bar with ${items.length} items (at most 5; the rest under "עוד")`);
+      for (const el of bar.querySelectorAll<HTMLElement>("*")) {
+        if (el.closest("svg") || items.includes(el) || !vis(el)) continue;
+        const cs = getComputedStyle(el);
         const r = el.getBoundingClientRect();
-        return r.bottom >= window.innerHeight - 4 && r.top >= window.innerHeight / 2;
-      });
-      for (const bar of bars.filter((b) => !bars.some((o) => o !== b && o.contains(b)))) {
-        const ITEM = 'a[href], button, [role="tab"], [role="link"]';
-        const items = [...bar.querySelectorAll(ITEM)].filter((el) => vis(el) && !el.parentElement?.closest(ITEM));
-        if (items.length > 5) add(c, `bottom bar with ${items.length} items (at most 5; the rest under "עוד")`);
-        for (const el of bar.querySelectorAll<HTMLElement>("*")) {
-          if (el.closest("svg") || items.includes(el) || !vis(el)) continue;
-          const cs = getComputedStyle(el);
-          const r = el.getBoundingClientRect();
-          const badge =
-            el.hasAttribute("data-badge") ||
-            (cs.position === "absolute" &&
-              r.width <= 24 &&
-              r.height <= 24 &&
-              !/^(rgba\(0, 0, 0, 0\)|transparent)$/.test(cs.backgroundColor));
-          if (badge && !/\d/.test(el.textContent ?? "")) add(c, `badge with no number in ${describe(el.closest(ITEM) ?? bar)}`);
-        }
+        // A badge is a small filled dot or pill; an active-item underline (20x3) is not one.
+        const roundish = r.width >= 4 && r.height >= 4 && Math.max(r.width, r.height) / Math.min(r.width, r.height) <= 2.5;
+        const badge =
+          el.hasAttribute("data-badge") ||
+          (cs.position === "absolute" &&
+            r.width <= 24 &&
+            r.height <= 24 &&
+            roundish &&
+            !/^(rgba\(0, 0, 0, 0\)|transparent)$/.test(cs.backgroundColor));
+        if (badge && !/\d/.test(el.textContent ?? "")) add(c, `badge with no number in ${describe(el.closest(ITEM) ?? bar)}`);
       }
     }
-    out["nav-count"] = c;
-  }
+  });
 
   // empty-action (T-02): an empty state gives one action; a "clear" line needs none.
-  {
-    const c = mk();
+  check("empty-action", (c) => {
     for (const el of document.querySelectorAll('[data-state="empty"]')) {
       if (!vis(el)) continue;
       if (![...el.querySelectorAll('a[href], button, [role="button"]')].some(vis)) add(c, describe(el));
     }
-    out["empty-action"] = c;
-  }
+  });
 
   // error-toast (E-05): an error is never a toast and never leaves by itself.
-  {
-    const c = mk();
+  check("error-toast", (c) => {
     const REGION =
-      '[data-toast-region], [data-sonner-toaster], [data-radix-toast-viewport], [role="region"][aria-label*="otification" i]';
+      '[data-toast-region], [data-sonner-toaster], [data-radix-toast-viewport], ' +
+      '[role="region"][aria-label*="otification" i], section[aria-label*="otification" i]';
     const ERROR = '[data-state="error"], [role="alert"], [data-type="error"]';
     for (const region of document.querySelectorAll(REGION))
       for (const el of region.querySelectorAll(ERROR)) add(c, `error inside the toast region: "${text(el).slice(0, 60)}"`);
@@ -287,46 +341,57 @@ export function domChecks(args: DomCheckArgs): Record<string, CheckResult> {
       [...document.querySelectorAll('[role="alert"], [data-state="error"]')].map((e) => (e.textContent ?? "").trim().slice(0, 80)),
     );
     for (const t of new Set(removed)) if (!now.has(t)) add(c, `error removed from the page by itself: "${t.slice(0, 60)}"`);
-    out["error-toast"] = c;
-  }
+  });
 
   // error-field (E-01), the static half: an invalid field says why, beside it. The other half
   // (focus on the first invalid field after submit) is not built yet.
-  {
-    const c = mk();
+  check("error-field", (c) => {
     for (const el of document.querySelectorAll('[aria-invalid="true"]')) {
       if (!vis(el)) continue;
       if (!pointsAtVisibleText(el, "aria-describedby")) add(c, `${describe(el)} is invalid with no visible message`);
     }
-    out["error-field"] = c;
-  }
+  });
 
-  // forbidden-words (E-04, C-01, C-03): on visible text only.
-  {
-    const c = mk();
+  // forbidden-words (E-04, C-01, C-03): on the interface's visible text only, never on what
+  // people wrote (USER_CONTENT) and never on the values typed into fields.
+  check("forbidden-words", (c) => {
     const res = args.forbidden.map((f) => ({ label: f.label, re: new RegExp(f.source, "gu") }));
+    // The same list as USER_CONTENT, written out: a module constant does not reach the page.
+    const SKIP = 'script, style, noscript, template, [data-user-content], [translate="no"]';
     const chunks: string[] = [];
     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
     for (let n = walker.nextNode(); n; n = walker.nextNode()) {
       const p = n.parentElement;
-      if (!p || !n.textContent?.trim() || p.closest("script, style, noscript, template") || !vis(p)) continue;
+      if (!p || !n.textContent?.trim() || p.closest(SKIP) || !vis(p)) continue;
       chunks.push(n.textContent);
     }
     for (const el of document.body.querySelectorAll<HTMLInputElement>(
       'input[placeholder], textarea[placeholder], input[type="submit"], input[type="button"]',
     )) {
-      if (!vis(el)) continue;
+      if (!vis(el) || el.closest(SKIP)) continue;
       if (el.placeholder) chunks.push(el.placeholder);
       if (/^(submit|button)$/.test(el.type) && el.value) chunks.push(el.value);
     }
     for (const chunk of chunks)
       for (const { label, re } of res)
         for (const m of chunk.matchAll(re)) {
-          const at = m.index ?? 0;
-          add(c, `${label}: "${chunk.slice(Math.max(0, at - 20), at + 20).replace(/\s+/g, " ").trim()}"`);
+          // Context by code point, so an emoji is never cut in half.
+          const before = Array.from(chunk.slice(0, m.index ?? 0)).slice(-20).join("");
+          const after = Array.from(chunk.slice(m.index ?? 0)).slice(0, 20).join("");
+          add(c, `${label}: "${(before + after).replace(/\s+/g, " ").trim()}"`);
         }
-    out["forbidden-words"] = c;
-  }
+  });
+
+  // state-coverage (T-01), the page half: a `?state=empty` or `?state=error` variant that does
+  // not render that state is a variant in name only.
+  if (args.expectState)
+    check("state-coverage", (c) => {
+      const want = args.expectState!;
+      const shown = [...document.querySelectorAll("[data-state]")].some(
+        (el) => vis(el) && want.includes(el.getAttribute("data-state") ?? ""),
+      );
+      if (!shown) add(c, `the route asks for a state but no visible [data-state] is one of ${want.join(", ")}`);
+    });
 
   return out;
 }

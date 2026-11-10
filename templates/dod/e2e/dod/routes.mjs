@@ -30,7 +30,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { standardCheck } from "./standard-check.mjs";
 
-const ROOT = process.cwd();
+const ROOT = path.resolve(process.env.DOD_ROOT ?? process.cwd());
 const DIR = path.join(ROOT, "e2e", "dod");
 const OUT = path.join(DIR, "routes.json");
 const PARAMS = path.join(DIR, "route-params.json");
@@ -46,6 +46,15 @@ const params = fs.existsSync(PARAMS) ? JSON.parse(fs.readFileSync(PARAMS, "utf8"
  * read, which is why it lives in the file with its reason rather than in code.
  */
 const EXCLUDE = new Set(Object.keys(params._exclude ?? {}));
+/**
+ * Routes kept in routes.json that the scan below cannot find, each with its reason, under
+ * `_listed` in route-params.json: a React Router app whose routes are nested relative paths,
+ * path constants or route arrays outside a router file, or a page added for one measurement
+ * (`"/missing-page-sample": "the app's own not-found page, measured on purpose"`). The stale
+ * check skips them. The reason is required: a blank one fails --check, because an entry
+ * nobody can explain is the stale entry this check exists to catch.
+ */
+const LISTED = Object.fromEntries(Object.entries(params._listed ?? {}).filter(([k]) => !k.startsWith("_")));
 const skipped = [];
 const MISSING = "%%MISSING%%";
 const SKIP_FILE = /\.(test|spec|stories|d)\.[tj]sx?$/;
@@ -171,7 +180,8 @@ const missing = found.filter((r) => !covered(r));
 // A listed route whose path the app no longer has is measured as a 404 (or a redirect)
 // on every run, and a renamed page hides behind it. Query variants of a real route
 // ("/plans?state=empty") are not stale: their path is the route's.
-const stale = listed.filter((r) => !routes.has(r.split("?")[0]));
+const stale = listed.filter((r) => !routes.has(r.split("?")[0]) && !(r in LISTED) && !(r.split("?")[0] in LISTED));
+const blankListed = Object.entries(LISTED).filter(([, why]) => typeof why !== "string" || !why.trim()).map(([r]) => r);
 
 if (process.argv.includes("--check")) {
   if (skipped.length) {
@@ -188,12 +198,22 @@ if (process.argv.includes("--check")) {
     console.error("Run `node e2e/dod/routes.mjs` to add them. The DoD score must cover every screen.");
     process.exit(1);
   }
+  if (blankListed.length) {
+    console.error(
+      `dod-routes: ${blankListed.length} route(s) under _listed in route-params.json have no reason:\n  ` + blankListed.join("\n  "),
+    );
+    console.error("Write why each one is kept although the route scan does not find it.");
+    process.exit(1);
+  }
   if (stale.length) {
     console.error(
       `dod-routes: ${stale.length} entr(ies) in e2e/dod/routes.json name a route the app no longer has:\n  ` +
         stale.join("\n  "),
     );
-    console.error("Remove them (or fix the sample value in route-params.json): a stale entry measures a 404, not a screen.");
+    console.error(
+      "Remove them (or fix the sample value in route-params.json): a stale entry measures a 404, not a screen.\n" +
+        "If the route is real and the scan cannot see it, list it under _listed in route-params.json with the reason.",
+    );
     process.exit(1);
   }
   console.log(`dod-routes: ${found.length} app routes, all covered by routes.json (${existing.length} entries).`);
@@ -206,19 +226,23 @@ if (process.argv.includes("--check")) {
     process.exit(0);
   }
   for (const f of std.failures) console.error(`dod-standard: ${f.check}: ${f.message}`);
-  const enforce = std.mode === "enforce" || std.failures.some((f) => f.check === "standard.json");
+  // A configuration error (standard.json itself, routes.json flags) fails in either mode: the
+  // checks cannot be trusted until it is fixed. Findings fail only in enforce mode.
+  const configError = std.failures.some((f) => f.check === "standard.json");
+  const enforce = std.mode === "enforce";
   console.log(
     `dod-standard (${std.mode}): ${std.failures.length} finding(s) in the static checks` +
-      (std.failures.length && !enforce ? " (report mode: not failing)" : "") +
+      (std.failures.length && !enforce && !configError ? " (report mode: not failing)" : "") +
       ".",
   );
-  process.exit(std.failures.length && enforce ? 1 : 0);
+  process.exit(configError || (std.failures.length && enforce) ? 1 : 0);
 }
 
 // Write every app route, keeping the entries already there (state variants such as
 // "?state=error", and object entries with their audience and static flag) as they are.
 // Stale entries are kept too, so a write never deletes a decision; --check reports them.
-const merged = [...existing, ...found.filter((r) => !listed.includes(r))]
+// A route under _listed is written in even when routes.json lost it: it is measured on purpose.
+const merged = [...existing, ...[...found, ...Object.keys(LISTED)].filter((r, i, a) => !listed.includes(r) && a.indexOf(r) === i)]
   .filter((e) => !EXCLUDE.has(routeOf(e)))
   .sort((a, b) => (routeOf(a) < routeOf(b) ? -1 : routeOf(a) > routeOf(b) ? 1 : 0));
 fs.writeFileSync(OUT, JSON.stringify(merged, null, 2) + "\n");
