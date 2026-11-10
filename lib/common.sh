@@ -184,7 +184,7 @@ merge_settings() {
 }
 
 apply_model_policy() {
-  # Re-apply only the policy keys of settings.base.json on update (model, availableModels,
+  # Re-apply only the policy keys of settings.base.json on update (model, availableModels, missing modelSettings entries,
   # deniedMcpServers, and env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE). A full merge would also reset per-machine values such as the concurrency
   # caps. Every Orca account profile keeps its own settings.json, so the keys go to each one,
   # not only to the profile update.sh happens to run in (on 2026-11-07 only one of the
@@ -205,6 +205,11 @@ apply_model_policy() {
       if (!cur || typeof cur !== "object" || Array.isArray(cur)) { console.log("  skipped unreadable " + target); process.exit(0); }
       // A key dropped from base is dropped here too, so removing a deny later takes effect.
       for (const k of ["model", "availableModels", "deniedMcpServers"]) { if (k in b) cur[k] = b[k]; else delete cur[k]; }
+      // Effort per model: add the entries a profile lacks (a new model), keep the ones it has.
+      for (const [m, v] of Object.entries(b.modelSettings || {})) {
+        cur.modelSettings = cur.modelSettings || {};
+        if (!(m in cur.modelSettings)) cur.modelSettings[m] = v;
+      }
       // Policy env vars are set one by one, so the other env vars of the machine (tokens, paths) stay.
       for (const k of ["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"]) {
         const v = (b.env || {})[k];

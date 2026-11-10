@@ -1,5 +1,5 @@
 {
-  "model": "claude-sonnet-5-5",
+  "model": "fable",
   "availableModels": [
     "opus",
     "sonnet",
@@ -7,6 +7,9 @@
     "fable"
   ],
   "modelSettings": {
+    "claude-fable-5-2": {
+      "effortLevel": "high"
+    },
     "claude-opus-5-5": {
       "effortLevel": "xhigh"
     },

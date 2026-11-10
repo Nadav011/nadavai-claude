@@ -10,10 +10,9 @@ by each line's own timestamp). Prints:
   - tool-result volume by tool, Read by file type, Bash by command kind
   - why the prompt cache was rewritten (gap past the cache lifetime, model switch, ...)
 
-Weights are relative API prices per token type: input 1, 5-minute cache write 1.25, 1-hour
-cache write 2, cache read 0.1, output 5. They leave out the price difference between models,
-and the subscription quota's exact weighting is not published, so shares are estimates;
-token counts are exact.
+Shares are weighted by each model's API list price per token type (PRICES below), so they
+show API-equivalent dollars. The subscription quota's exact weighting is not published, so the
+shares are estimates; token counts are exact. A model missing from PRICES is priced as Opus.
 """
 import collections, glob, json, os, re, sys, time
 from datetime import datetime
@@ -24,6 +23,23 @@ try:
 except ValueError:
     sys.exit('usage: ' + USAGE)
 CUT = time.time() - DAYS * 86400
+# $ per million tokens: input, 5-minute cache write, 1-hour cache write, cache read, output.
+# Haiku's cache prices are derived from its input price (1.25x, 2x, 0.1x); the rest are list prices.
+PRICES = [
+    ('fable-5-2', (8, 10, 16, 0.20, 40)),
+    ('opus-5-5', (4, 5, 8, 0.20, 20)),
+    ('sonnet-5-5', (2, 2.5, 4, 0.10, 10)),
+    ('haiku-5-5', (0.10, 0.125, 0.20, 0.01, 0.50)),
+]
+
+
+def price(model):
+    for key, p in PRICES:
+        if key in model:
+            return p
+    return PRICES[1][1]
+
+
 ROOTS = [os.path.expanduser('~/.claude/projects')] + glob.glob(os.path.expanduser('~/.config/orca/claude-profiles/*/home/projects'))
 BASH_KINDS = [
     ('search (grep/rg/find/ls)', r'\b(grep|rg|find|fd|ls|tree)\b'),
@@ -127,8 +143,9 @@ for root in ROOTS:
                     cw = u.get('cache_creation_input_tokens') or 0
                     cw_1h = cc.get('ephemeral_1h_input_tokens') or 0
                     cw_5m = max(cw - cw_1h, 0)
-                    cww = cw_5m * 1.25 + cw_1h * 2.0
-                    w = (u.get('input_tokens') or 0) + cww + (u.get('cache_read_input_tokens') or 0) * 0.1 + (u.get('output_tokens') or 0) * 5
+                    p = price(model)
+                    cww = (cw_5m * p[1] + cw_1h * p[2]) / 1e6
+                    w = cww + ((u.get('input_tokens') or 0) * p[0] + (u.get('cache_read_input_tokens') or 0) * p[3] + (u.get('output_tokens') or 0) * p[4]) / 1e6
                     ctx = (u.get('input_tokens') or 0) + cw + (u.get('cache_read_input_tokens') or 0)
                     n_req += 1
                     c = by[(t, model)]
@@ -178,11 +195,12 @@ tw = sum(c['w'] for c in by.values()) or 1
 cwt = cw_total or 1
 print(f"token-audit: last {DAYS:g} days, {n_req} requests, {len(seen_files)} transcripts")
 print('tokens (M): ' + ', '.join(f"{k} {v/1e6:,.1f}" for k, v in tok.items()))
+print(f"API-equivalent cost at list prices: ${sum(c['w'] for c in by.values()):,.0f}")
 
 agg = collections.defaultdict(collections.Counter)
 for (t, mo), c in by.items():
     agg[('main' if t == 'main' else 'sub', mo)].update(c)
-print('\n== weighted share by main/subagent x model')
+print('\n== cost share by main/subagent x model')
 for (k, mo), c in sorted(agg.items(), key=lambda x: -x[1]['w']):
     print(f"  {k:4} {mo:22} {c['w']/tw*100:5.1f}%  req {c['req']:7}  avg ctx {c['ctx']//max(c['req'],1):>7}")
 for k, v in first_ctx.items():

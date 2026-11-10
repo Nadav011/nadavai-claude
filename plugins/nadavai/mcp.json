@@ -12,14 +12,6 @@
       "env": {
         "TMPDIR": "/dev/shm"
       }
-    },
-    "rea": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "rea-agents@6.7.0",
-        "mcp"
-      ]
     }
   }
 }
