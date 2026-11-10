@@ -82,8 +82,12 @@ His standing rules for it:
 - Every other component gets a bake-off: the platform's against the custom one, captured on the
   device, and he picks where the screenshots differ.
 
-In `screen` on this app, steps 6 to 8 of SKILL.md (lint of web files, the DoD, DoD screenshots)
-are replaced by the rows below; touch targets are 48 dp, not the web's 44px.
+In `screen` on this app only the DOM parts of steps 6 to 8 of SKILL.md are replaced by the rows
+below: the DoD and its four screenshots. The rest stays. Step 6's lint runs on the `apps/native`
+files with that app's own `lint` script. Step 8's visual change gate runs on the device captures:
+Nadav still says keep, change or revert before anything is committed. Step 8b's reviewer gets the
+gate results of the rows below in place of the DoD score. Touch targets are 48 dp, not the web's
+44px.
 
 "Exists today" was read from the SportChat repo on 2026-11-10. A row that says "not built" has
 no script: the gate is reported as "not built, owner: the SportChat sessions", and a check
@@ -96,7 +100,7 @@ improvised for one run is reported as improvised, never as the gate.
 | Smallest text | a source check on tokens and `fontSize` | not built | the same source check |
 | Accessibility | names and sizes from the hierarchy, contrast from the capture, an a11y lint | names and sizes only (`device-a11y.mjs`); no contrast check, no lint | TalkBack and VoiceOver are a person's pass on both |
 | Task walkthrough | a scripted flow counting swipes until the primary action's `testID` shows | `apps/native/scripts/chat-journey.sh` runs a flow; nothing counts swipes | by Nadav on TestFlight |
-| Parity with the demo | inventory both ways, then computed bounds, then pixels under a threshold | `scripts/parity/check.mjs`: missing texts and controls only; no bounds diff; pixels are information only | by Nadav on TestFlight |
+| Parity with the demo | inventory both ways, then computed bounds, then pixels under a threshold | `scripts/parity/check.mjs`: missing texts and controls only; no bounds diff; pixels gate only when `--threshold` is passed, and no run passes it | by Nadav on TestFlight |
 | Light and dark | `adb shell cmd uimode night yes` and `night no` on every route | on 24 fixture states (`apps/native/scripts/smoke-routes.sh`), not every route | by Nadav on TestFlight |
 | Text size | `adb shell settings put system font_scale 1.3` and `2.0`, with a capture | not built | Dynamic Type, by Nadav on TestFlight |
 | Safe areas, keyboard | the composer's bounds against the keyboard window | not built | by Nadav on TestFlight |
