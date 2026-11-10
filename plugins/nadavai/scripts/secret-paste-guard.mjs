@@ -38,12 +38,18 @@ const NOT_UNIT = String.raw`(?![\/.-]?\d|[a-z%₪$€£]|\s?(?:[%₪$€£]|ש["
 const EXPIRY = String.raw`(?:0[1-9]|1[0-2])\s?[\/.-]\s?${YEAR}${NOT_UNIT}`;
 const EXPIRY_RE = new RegExp(String.raw`(?<![\d\/.-])${EXPIRY}`, "i");
 // Away from the number only MM/YY with a slash counts: "12.30" nearby is usually a price.
-const SLASH_EXPIRY = new RegExp(String.raw`(?<![\d\/.-])(?:0[1-9]|1[0-2])\s?\/\s?${YEAR}${NOT_UNIT}`, "i");
+// A past month ("since 03/2025") is a date, so only this year and the next twelve count.
+const NOW_YEAR = new Date().getFullYear();
+const FUTURE_YEAR = `(?:${Array.from({ length: 13 }, (_, i) => NOW_YEAR + i).map((y) => `(?:20)?${String(y).slice(2)}`).join("|")})`;
+const SLASH_EXPIRY = new RegExp(String.raw`(?<![\d\/.-])(?:0[1-9]|1[0-2])\s?\/\s?${FUTURE_YEAR}${NOT_UNIT}`, "i");
 const EXP_LABEL = String.raw`exp(?:iry|ires|iration)?(?:\.?\s?date)?|valid(?:\s(?:thru|until))?|good\sthru|ו?ב?תוקף(?:\sעד)?`;
 const CODE_LABEL = String.raw`security\scode|cvv2?(?:\scode)?|cvc2?|cid|ו?קוד(?:\sאבטחה)?|\d\sספרות(?:\sבגב)?`;
 const CARD_SEP = String.raw`[\s"',|;:=\/-]{0,8}(?:(?:${EXP_LABEL}|${CODE_LABEL})[\s"':=.-]{0,6})?`;
 const CARD_PRE = String.raw`(?:(?:${CODE_LABEL})\s{0,2}[:=]?\s{0,4}\d{3,4}|(?:(?:${EXP_LABEL})[\s:=-]{0,4})?${EXPIRY})[\s"',|;:=]{1,8}(?:(?:card(?:\s(?:number|no\.?))?|(?:מספר\s)?ה?כרטיס|number)[\s"':=-]{0,6})?`;
-const CARD_WORD = /כרטיס|אשראי|תוקף|\b(?:cvv2?|cvc|cards?|visa|mastercard|amex)\b/i;
+// Whole words only: "כרטיסים" are tickets, "בתוקף" is "in force", "מסגרת האשראי" is a credit line.
+const CARD_WORD = /(?<![א-ת])(?:[הבלמשוכ]{0,2}כרטיס|אשראי)(?![א-ת])|\b(?:cvv2?|cvc|cards?|visa|mastercard|amex)\b/i;
+// Stripe's own JSON keeps month and year apart: "exp_month":12,"exp_year":2029.
+const EXP_PART = String.raw`[\s"',|;:=]{0,8}exp_(?:month|year)[\s"':=]{0,6}\d{1,4}(?!\d)`;
 // Public test numbers from the Stripe, PayPal and Adyen docs: payment work pastes them all the time.
 const TEST_CARDS = new Set(["4242424242424242", "4000056655665556", "5555555555554444", "2223003122003222",
   "5200828282828210", "5105105105105100", "378282246310005", "371449635398431", "6011111111111117",
@@ -89,12 +95,13 @@ const PATTERNS = [
   // Luhn-valid, not a public test number, not inside a URL or path, and an expiry next to it, or a
   // card word or an MM/YY within ~60 characters: an order number, a phone, an ID or a timestamp
   // alone passes.
-  [CARD, new RegExp(String.raw`(?:${CARD_PRE})?(?<![\w.\/\\-])(?<num>${CARD_NUM})(?![\w\/\\]|\.\w)(?:${CARD_SEP}(?:${EXPIRY}|\d{3,4}(?![\w\/]|[.-]\d))){0,2}`, "gi"),
+  [CARD, new RegExp(String.raw`(?:${CARD_PRE})?(?<![\w.\/\\-])(?<num>${CARD_NUM})(?![\w\/\\]|\.\w)(?:${EXP_PART}|${CARD_SEP}(?:${EXPIRY}|\d{3,4}(?![\w\/]|[.-]\d))){0,4}`, "gi"),
     (v, _line, before, after, m) => {
       const num = m.groups.num, at = v.indexOf(num), digits = num.replace(/\D/g, "");
       if (!luhn(digits) || TEST_CARDS.has(digits)) return false;
-      // "#" alone may be "card #4242…"; after a "/" the token is a URL and is caught by the "/".
-      if (/[\/\\?&@]|www\./i.test((before + v.slice(0, at)).match(/\S*$/)[0])) return false;
+      // Inside a URL, a path or an address it is an id. "#" alone may be "card #4242…", and "&" or
+      // "?" alone is a form body (card[number]=…&cvc=…), which is a card.
+      if (/[\/\\@]|www\./i.test((before + v.slice(0, at)).match(/\S*$/)[0])) return false;
       const rest = v.slice(at + num.length);
       if (EXPIRY_RE.test(rest)) return true;
       const near = before.slice(-60) + " " + v.slice(0, at) + " " + rest + " " + after.slice(0, 60);
@@ -228,8 +235,17 @@ async function scrubFile([file, lock], forms) {
   try { rewrite(file, forms); } finally { try { fs.rmdirSync(dir); } catch {} }
 }
 
+// The values file of the scrub child holds what must not stay on disk (card details too), so it
+// goes to the user's runtime dir (tmpfs, 700) and to the secrets folder only when there is none.
+function scrubDir() {
+  const r = process.env.XDG_RUNTIME_DIR;
+  try { if (r && path.isAbsolute(r) && fs.statSync(r).isDirectory()) return r; } catch {}
+  secretsDir();
+  return SECRETS;
+}
+
 async function scrubMain(valuesFile) {
-  if (path.dirname(valuesFile || "") !== SECRETS || !/^\.scrub-[0-9a-f]+\.json$/.test(path.basename(valuesFile))) return;
+  if (path.dirname(valuesFile || "") !== scrubDir() || !/^\.scrub-[0-9a-f]+\.json$/.test(path.basename(valuesFile))) return;
   let values = [];
   try { values = JSON.parse(fs.readFileSync(valuesFile, "utf8")); } catch {}
   try { fs.unlinkSync(valuesFile); } catch {}
@@ -245,11 +261,16 @@ async function scrubMain(valuesFile) {
 }
 
 function startScrub(values) {
-  secretsDir(); // the scrub never touches this folder, and the child deletes the file on start
-  const file = path.join(SECRETS, `.scrub-${crypto.randomBytes(8).toString("hex")}.json`);
+  const file = path.join(scrubDir(), `.scrub-${crypto.randomBytes(8).toString("hex")}.json`);
+  const drop = () => { try { fs.unlinkSync(file); } catch {} };
   fs.writeFileSync(file, JSON.stringify(values), { mode: 0o600, flag: "wx" });
-  spawn(process.execPath, [new URL(import.meta.url).pathname, "--scrub", file],
-    { detached: true, stdio: "ignore", cwd: "/" }).unref();
+  try {
+    // The child deletes the file as it starts; when it cannot start, the file goes here.
+    const child = spawn(process.execPath, [new URL(import.meta.url).pathname, "--scrub", file],
+      { detached: true, stdio: "ignore", cwd: "/" });
+    child.on("error", drop);
+    child.unref();
+  } catch (e) { drop(); throw e; }
 }
 
 // --- main ---
@@ -272,18 +293,21 @@ if (!found.length) process.exit(0);
 const keys = found.filter((f) => f.type !== CARD), cards = found.length - keys.length;
 let saved = null;
 if (keys.length) try { saved = saveSecrets(keys); } catch {}
-try { startScrub(found.map((f) => f.value)); } catch {}
+let scrubbing = true;
+try { startScrub(found.map((f) => f.value)); } catch { scrubbing = false; }
 
 const SHOWN = 5;
-const list = found.slice(0, SHOWN).map((f) => `- ${f.type} שמסתיים ב-${tail(f)}`);
+// Keys first, so the key that the rotate line speaks about is always among the listed ones.
+const list = [...keys, ...found.filter((f) => f.type === CARD)].slice(0, SHOWN).map((f) => `- ${f.type} שמסתיים ב-${tail(f)}`);
 if (found.length > SHOWN) list.push(`- ועוד ${capped ? "לפחות " : ""}${found.length - SHOWN} ${cards ? "פריטים" : "מפתחות"}`);
 const many = keys.length > 1;
 const savedLine = saved
   ? `${many ? "המפתחות נשמרו" : "המפתח נשמר"} בקובץ ${saved} (הרשאות 600).`
   : `השמירה בתיקייה ${SECRETS} נכשלה, ולכן ${many ? "המפתחות לא נשמרו" : "המפתח לא נשמר"} בשום מקום.`;
 const keyName = many ? "המפתחות" : "המפתח";
+const manyCards = cards > 1, cardName = manyCards ? "הכרטיסים" : "הכרטיס";
 const reason = [
-  `ההודעה נעצרה ולא הגיעה למודל: היא מכילה ${keys.length ? "מפתח סודי" : ""}${keys.length && cards ? " ו" : ""}${cards ? "פרטי כרטיס אשראי" : ""}.`,
+  `ההודעה נעצרה ולא הגיעה למודל: היא מכילה ${keys.length ? (many ? "מפתחות סודיים" : "מפתח סודי") : ""}${keys.length && cards ? " ו" : ""}${cards ? (manyCards ? "פרטי כרטיסי אשראי" : "פרטי כרטיס אשראי") : ""}.`,
   ...list,
   ...(keys.length ? [
     savedLine,
@@ -291,11 +315,13 @@ const reason = [
     "בפעם הבאה שים סודות בקובץ ~/.claude/secrets/<service>.env, או השתמש ב-vault-login-add לסיסמאות.",
   ] : []),
   ...(cards ? [
-    "פרטי הכרטיס לא נשמרו בשום קובץ, והם נמחקים מההיסטוריה המקומית תוך כמה שניות.",
-    "הפרטים לא נשלחו למודל, ולכן אין צורך לבטל את הכרטיס בגלל ההודעה הזאת. אם הדבקת אותם גם במקום אחר, שקול לבטל אותו.",
+    scrubbing
+      ? `פרטי ${cardName} לא נשמרו בשום קובץ, והם נמחקים מההיסטוריה המקומית תוך כמה שניות.`
+      : `פרטי ${cardName} לא נשמרו בשום קובץ, אבל המחיקה מההיסטוריה המקומית לא הופעלה: הם עדיין בקובץ ההיסטוריה של Claude Code במחשב הזה.`,
+    `הפרטים לא נשלחו למודל, ולכן אין צורך לבטל את ${cardName} בגלל ההודעה הזאת. אם הדבקת אותם גם במקום אחר, שקול לבטל ${manyCards ? "אותם" : "אותו"}.`,
     "אל תדביק פרטי כרטיס בצ'אט: כשתשלום שאישרת צריך כרטיס, הסוכן פותח את דף התשלום ואתה מקליד את הפרטים שם בעצמך.",
   ] : []),
-  `אפשר לשלוח את ההודעה שוב בלי ${keys.length ? keyName : ""}${keys.length && cards ? " ו" : ""}${cards ? "פרטי הכרטיס" : ""}.`,
+  `אפשר לשלוח את ההודעה שוב בלי ${keys.length ? keyName : ""}${keys.length && cards ? " ו" : ""}${cards ? `פרטי ${cardName}` : ""}.`,
 ].join("\n");
 
 process.stdout.write(JSON.stringify({

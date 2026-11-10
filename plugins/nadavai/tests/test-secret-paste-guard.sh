@@ -10,6 +10,7 @@ GUARD="$(cd "$(dirname "$0")/.." && pwd)/scripts/secret-paste-guard.mjs"
 PASS=0; FAIL=0
 tmp=$(mktemp -d); trap 'rm -rf -- "${tmp:?}"' EXIT
 export HOME="$tmp/home" CLAUDE_CONFIG_DIR="$tmp/cfg" TMPDIR="$tmp/tmp" ORCA_AGENT_HOOK_ENDPOINT="$tmp/orca/endpoint.env"
+export XDG_RUNTIME_DIR="$tmp/run"; mkdir -m 700 -p "$XDG_RUNTIME_DIR"   # the scrub child's values file goes here
 SPOOL="$HOME/.config/orca/agent-hooks/spool"
 mkdir -p "$HOME/.claude/paste-cache" "$CLAUDE_CONFIG_DIR/paste-cache" "$TMPDIR" "$SPOOL" "$tmp/orca/spool"
 
@@ -41,7 +42,7 @@ TEST16G="$(rep '4242 ' 3)4242"
 TESTAMEX="3782""82246310005"
 C16=$(luhn "453201511283036"); C16G=$(grp4 "$C16")
 CAMEX=$(luhn "37144963539849"); CAMEX_D="${CAMEX:0:4}-${CAMEX:4:6}-${CAMEX:10}"
-ORD=$(luhn "532610238495002"); ID16=$(luhn "455812093847561")
+ORD=$(luhn "532610238495002"); ID16=$(luhn "455812093847561"); C14=$(luhn "3612345678901")
 NB=$(printf '\302\240'); NNB=$(printf '\342\200\257'); THIN=$(printf '\342\200\211')
 # A generated 43-character mixed-case token (base64url of a fixed hash), not a real one.
 TOK=$(node -e 'process.stdout.write(require("crypto").createHash("sha256").update("paste-guard-test").digest("base64url"))')
@@ -145,6 +146,10 @@ check "test card amex"     allow "תכניס גם ותבדוק שעובד $TESTA
 check "order + price 12.30" allow "ההזמנה מספר $ORD בסך 12.30 ש\"ח"
 check "order + glued price" allow "הזמנה $ORD 12.30 ₪"
 check "id took 12.35ms"    allow "request id=$ID16 took 12.35ms"
+check "tickets, not a card" allow "הזמנת כרטיסים להופעה, מספר הזמנה $ORD"
+check "in force, not expiry" allow "החוזה בתוקף עד סוף 2027, מספר לקוח $ID16"
+check "credit line"        allow "מסגרת האשראי של העסק $C14 הוגדלה"
+check "past month is a date" allow "קמפיין $ID16 רץ מאז 03/2025"
 check "firebase key alone" allow "AIza""Sy${TOK:0:33}"
 check "pk_live alone"      allow "pk_""live_${TOK:0:34}"
 check "sb_publishable alone" allow "sb_""publishable_${TOK:0:32}"
@@ -173,6 +178,7 @@ t0=$(date +%s%N); got=$(raw "$(cat "$tmp/big.json")"); ms=$(( ($(date +%s%N) - t
 expect "1 MB distinct keys block" block "$got"
 if [ "$ms" -lt 1000 ]; then expect "1 MB distinct under 1 s (${ms} ms)" ok ok; else expect "1 MB distinct under 1 s" ok "${ms} ms"; fi
 REASON_BIG=$(jq -r '.reason' "$tmp/out")
+expect "several keys: plural first line" 1 "$(grep -c 'היא מכילה מפתחות סודיים\.' <<<"$REASON_BIG")"
 expect "reason lists 5 + more" 5 "$(grep -c '^- AWS access key' <<<"$REASON_BIG")"
 case "$REASON_BIG" in *"ועוד לפחות 45 מפתחות"*) expect "reason +N more" ok ok ;; *) expect "reason +N more" ok bad ;; esac
 awk 'BEGIN { for (i = 0; i < 50000; i++) printf "AKIA%016d\n", 7 }' >"$tmp/big.txt"
@@ -237,6 +243,19 @@ card_block "code before"     "cvv 123 card $C16G 12/29" "$R" "${C16: -4}" "$C16G
 card_block "expiry before"   "12/29 $C16G 123" "$R" "${C16: -4}" "$C16G" "$C16" 12/29 123
 card_block "json object"     "{\"number\":\"$C16\",\"exp\":\"12/29\",\"cvc\":\"123\"}" "{\"number\":\"$R\"}" "${C16: -4}" "$C16" 12/29 123
 card_block "labels on lines" "Card number: $C16G"$'\n'"Expiry: 12/29"$'\n'"CVV: 123" "Card number: $R" "${C16: -4}" "$C16G" "$C16" 12/29 123
+card_block "form body"       "curl -d \"amount=100&card[number]=$C16&card[cvc]=123\"" "curl -d \"amount=100&card[number]=$R&card[cvc]=123\"" "${C16: -4}" "$C16"
+card_block "stripe json"     "{\"number\":\"$C16\",\"exp_month\":12,\"exp_year\":2029,\"cvc\":\"123\"}" "{\"number\":\"$R\"}" "${C16: -4}" "$C16" 2029
+card_block "the card + word" "זה הכרטיס $C16" "זה הכרטיס $R" "${C16: -4}" "$C16"
+# The scrub child cannot start: the values file is removed at once and the message says so.
+NS="$tmp/nospawn"; mkdir -p "$NS/home"
+printf '%s\n' 'import cp from "node:child_process"; import { syncBuiltinESMExports } from "node:module";' \
+  'cp.spawn = () => { throw Object.assign(new Error("spawn EAGAIN"), { code: "EAGAIN" }); }; syncBuiltinESMExports();' >"$NS/nospawn.mjs"
+(export HOME="$NS/home" CLAUDE_CONFIG_DIR="$NS/home/.claude" XDG_RUNTIME_DIR="$NS/run"; mkdir -m 700 -p "$XDG_RUNTIME_DIR"
+ jq -n --arg p "card $C16G 12/29 123" '{hook_event_name:"UserPromptSubmit",prompt:$p}' | node --import "$NS/nospawn.mjs" "$GUARD" >"$NS/out" 2>"$NS/err")
+expect "no spawn: still blocks" block "$(jq -r '.decision // "allow"' "$NS/out" 2>/dev/null)"
+expect "no spawn: message says the history was not cleaned" 1 "$(jq -r '.reason' "$NS/out" | grep -c 'המחיקה מההיסטוריה המקומית לא הופעלה')"
+expect "no spawn: no values file left" 0 "$(find "$NS" -name '.scrub-*' | wc -l)"
+expect "no spawn: nothing in secrets" 0 "$(find "$NS/home/.claude/secrets" -type f 2>/dev/null | wc -l)"
 read -r -d '' WANT <<EOF
 ההודעה נעצרה ולא הגיעה למודל: היא מכילה פרטי כרטיס אשראי.
 - כרטיס אשראי שמסתיים ב-${C16: -4}
@@ -288,6 +307,7 @@ done
 # The scrub child's values file is gone by now; only the key's file is left.
 expect "key+card: card not on disk" 0 "$(grep -rlF -e "$C16G" -e "$C16" -e 12/29 "$KC/.claude/secrets" | wc -l)"
 grep -rqF -- "PASTED_1='$ANT'" "$S" && expect "secrets not scrubbed" ok ok || expect "secrets not scrubbed" ok scrubbed
+expect "runtime dir empty after the scrub" 0 "$(find "$XDG_RUNTIME_DIR" -type f | wc -l)"
 expect "no scrub temp left" 0 "$(find "$tmp" -name '*.scrub-*' | wc -l)"
 expect "nothing left in TMPDIR" 0 "$(find "$TMPDIR" -type f | wc -l)"
 expect "history lock released" no "$([ -e "$H.lock" ] && echo yes || echo no)"
