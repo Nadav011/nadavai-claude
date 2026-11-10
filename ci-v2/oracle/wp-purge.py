@@ -21,7 +21,8 @@ SERVER = os.environ.get("WOODPECKER_SERVER", "https://ci.nadavc.ai").rstrip("/")
 ENV = os.path.expanduser("~/deploy/secrets/woodpecker.env")
 KEEP_DAYS = int(os.environ.get("WP_KEEP_DAYS", "30"))
 KEEP_MIN = int(os.environ.get("WP_KEEP_MIN", "30"))
-FINISHED = {"success", "failure", "killed", "error", "declined", "skipped", "blocked"}
+# "blocked" waits for an approval and is not finished; "canceled" is what the server calls a cancelled run.
+FINISHED = {"success", "failure", "killed", "canceled", "error", "declined", "skipped"}
 
 
 def token():

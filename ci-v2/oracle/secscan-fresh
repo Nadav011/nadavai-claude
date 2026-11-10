@@ -13,4 +13,7 @@ last=$(prop ExecMainExitTimestamp)
 [ -n "$last" ] || { echo "secscan's poll has not run since boot"; exit 1; }
 age=$(( $(date +%s) - $(date -d "$last" +%s) ))
 [ "$age" -lt 900 ] || { echo "secscan's poll last ran $((age / 60)) minutes ago ($last)"; exit 1; }
+# The nightly full scan (04:20): a run that failed is reported until the next one passes.
+nresult=$(systemctl show secscan-nightly.service -p Result --value)
+[ "$nresult" = success ] || { echo "secscan's last nightly ended with: $nresult (sudo tail /home/secscan/secscan/logs/secscan.log)"; exit 1; }
 echo "poll ran ${age}s ago"

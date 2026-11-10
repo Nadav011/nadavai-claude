@@ -67,8 +67,9 @@ def set_paused(name, paused):
     agent["no_schedule"] = paused
     call("PATCH", "/api/agents/%d" % agent["id"], agent)
     after = find(name)
-    if bool(after.get("no_schedule")) != paused or after.get("name") != name or after.get("capacity") != agent.get("capacity"):
-        sys.exit("the server did not apply it as asked: %s" % {k: after.get(k) for k in ("name", "no_schedule", "capacity")})
+    # The server takes name, filters and no_schedule from the body (3.20), so these three are checked.
+    if bool(after.get("no_schedule")) != paused or after.get("name") != name or after.get("filters") != agent.get("filters"):
+        sys.exit("the server did not apply it as asked: %s" % {k: after.get(k) for k in ("name", "no_schedule", "filters")})
     busy = len(running_on(agent["id"]))
     print("%s: %s%s" % (name, "paused" if paused else "taking work",
                         "; %d workflow(s) still running on it" % busy if paused and busy else ""))

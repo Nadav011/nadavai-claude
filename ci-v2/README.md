@@ -21,7 +21,7 @@ setup can be rebuilt after a reformat. No secrets live here: they are in the vau
     (the LENOVO's `~/.ssh/nadavai_vm.pub`) and mirrored to nadavai-svc, user `wpbackup`, folder
     `/home/wpbackup/in`, with root's key `/root/.ssh/wpbackup_ed25519`, which that side limits to
     `rrsync -wo -no-del -munge` (it can add, not read or delete); `/etc/cron.daily/wpbackup-prune`
-    there keeps the newest 30. To read one: `ssh nadavai-svc 'sudo cat /home/wpbackup/in/<file>.age' | age -d -i ~/.ssh/nadavai_vm > x.sqlite`
+    there keeps the newest 30 by the date in the name. To read one: `ssh nadavai-svc 'sudo cat /home/wpbackup/in/<file>.age' | age -d -i ~/.ssh/nadavai_vm > x.sqlite`
     (restore drill passed on 2026-11-10: integrity ok, 7 repos, 358 pipelines, 6 crons).
   - Growth: Woodpecker has no retention setting, so `oracle/wp-purge.py` (`~/wp-watchdog/`, user
     timer `wp-purge.timer`, daily 03:30 UTC) deletes finished pipelines older than 30 days through
@@ -67,8 +67,13 @@ Each machine's role is in `rules/ci-policy.md`, "Machines"; this is where things
     the user: `state/` (the baselines Nadav approved), `logs/`, `work/`, `repos/`, `cache/`. The
     token is in `/etc/secscan/gh.env` (root, 600), read by systemd; the scanner's user cannot read
     the file, and `bin/secscan` strips the token from the environment of everything that parses
-    PR content. A scanner bug could still read it from its parent process: the user is one, so the
-    sandbox limits what such a bug can change, not what it can post. The token is the fine-grained
+    PR content. Known gap (verified 2026-11-10 with a dummy variable): a scanner that a hostile PR
+    took over can still read the token from its parent's `/proc/<pid>/environ`, because both run
+    as one user, and it can write `state/`, which holds the baselines. The sandbox limits what
+    such a bug can change on the host, not what it can post. Closing it means running
+    extract-raw, extract-range and security-scan under a second user with no token and read-only
+    baselines; not done, because the five repos are private and only Nadav's sessions open PRs.
+    Do it before a repo takes PRs from anyone else. The token is the fine-grained
     "nadavai-secscan (Oracle svc)": five repos, Contents and Pull requests read, Commit statuses
     and Issues write, expires 2027-11-04.
   - Measured there: a PR scan 8 to 70 s, therapy-flow-v2's full scan 100 s, against the merge
@@ -92,7 +97,9 @@ Each machine's role is in `rules/ci-policy.md`, "Machines"; this is where things
     session), both mains "nothing new" on 2026-11-09; and the 14 secret-like findings of
     therapy-flow-v2 PR #98, each read with its value hidden (file hashes, therapist ids, fake
     tokens in tests, an RFC 6238 vector, migration file names), same verdict as omarchy's on that
-    head. The October files are kept in `cache/`.
+    head. What the statuses prove is that the old host's baseline covered these entries, not who
+    approved them there; Nadav was told which entries went back and can have any removed. The
+    October files are kept in `cache/`.
   - omarchy still has its old copy with enabled user timers. When it comes back, disable them
     there (`systemctl --user disable --now secscan-poll.timer secscan-nightly.timer`) before
     anything else, or two services post the same status. Its `~/secscan/state` holds what was
