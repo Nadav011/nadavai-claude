@@ -135,9 +135,11 @@ users `nadavai-build`, `nadavai-upload` and `nadavai-ota`, work dirs in `/srv/na
   `supabase/migrations/`, `migrations*/`, `supabase/release-candidates/` or `supabase/schemas/`, not
   `__tests__/`; therapy-flow-v2's `scripts/*.sql` are out until Nadav decides), the deploy refuses
   with exit 5, lists the files and prints an approval key (12 hex of sha256 over the live commit,
-  the sha and the sorted files). `--migration-approved "<key>:<reason>"`, passed only after Nadav
-  approved the migration, lets exactly that range through; another key is refused. The reason goes
-  into the run log and the `deploys.log` line. An unreadable live commit counts as a migration.
+  the sha and the sorted files). `--migration-approved "<key>:<reason>"` lets exactly that range
+  through; another key is refused. The reason says who approved it: `nadav: <what he approved>`, or
+  `review: <where the verdict is>; back: <the way back>` when the migration ran under
+  `rules/working-style.md` (Approval gates) and `guides/production-change.md`. It goes into the run
+  log and the `deploys.log` line, so the log shows which approvals were his. An unreadable live commit counts as a migration.
 - Nightly gate: the latest finished (success, failure, error or killed) Woodpecker cron run named
   `nightly` on branch main (`GET /api/repos/<id>/pipelines?event=cron&branch=main`, filtered again
   on `cron`, `branch` and `event`; ids 2 snooker-smart, 3 cash-next-app, 4 therapy-flow-v2, 5

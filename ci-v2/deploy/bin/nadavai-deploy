@@ -63,8 +63,9 @@
 # nightly verdict are read again, without a second wait:
 # - Migrations: when the live production commit and the sha differ in a database migration
 #   (MIGRATION_RE), the deploy refuses (exit 5) and prints an approval key (sha256 of the live
-#   commit, the sha and the sorted files). --migration-approved "<key>:<reason>", passed only after
-#   Nadav approved that migration, lets exactly that range through; the reason is logged.
+#   commit, the sha and the sorted files). --migration-approved "<key>:<reason>" lets exactly that range
+#   through; the reason says who approved it ("nadav: <what he approved>", or "review: <where the
+#   verdict is>; back: <the way back>" under rules/working-style.md, Approval gates) and is logged.
 # - Nightly: the latest finished Woodpecker nightly (cron) of main. Green passes. Red refuses
 #   (exit 6) when the sha is that red commit or older; when the sha is newer (a fix may have
 #   landed), the nightly cron runs now and the deploy waits for it (NADAVAI_DEPLOY_NIGHTLY_WAIT,
@@ -364,11 +365,11 @@ migration_gate() { # repo live-commit sha approved
   MIG_KEY=$(migration_key "$live" "$3" "$files")
   say "migrations: approval key $MIG_KEY (live ${live:0:7}, target ${3:0:7}, these files)"
   if [ -n "$4" ]; then
-    if [ "${4%%:*}" = "$MIG_KEY" ]; then say "migrations: approved by Nadav ($MIG_KEY): ${4#*:}"; return 0; fi
-    err "refusing: the approval is for key ${4%%:*}, but this range is $MIG_KEY (the live commit, the target or the migrations differ); ask Nadav again"
+    if [ "${4%%:*}" = "$MIG_KEY" ]; then say "migrations: approved ($MIG_KEY): ${4#*:}"; return 0; fi
+    err "refusing: the approval is for key ${4%%:*}, but this range is $MIG_KEY (the live commit, the target or the migrations differ); the approval steps run again for this range"
     return 5
   fi
-  err "refusing: the deploy changes database migrations; ask Nadav (AskUserQuestion), and only after his yes deploy with --migration-approved \"$MIG_KEY:<what he approved>\""
+  err "refusing: the deploy changes database migrations; follow rules/working-style.md (Approval gates) and guides/production-change.md, then deploy with --migration-approved \"$MIG_KEY:review: <where the verdict is>; back: <the way back>\", or after Nadav's yes with \"$MIG_KEY:nadav: <what he approved>\""
   return 5
 }
 
@@ -1064,14 +1065,14 @@ cmd_deploy() { # repo sha [--dry-run] [--auto] [--migration-approved key:reason]
       --auto) auto=1 ;;
       --migration-approved)
         approved=${2:-}; approved=${approved//[$'\t\r\n']/ }
-        # "<key>:<reason>": the key the refusal printed for this range, and what Nadav approved.
+        # "<key>:<reason>": the key the refusal printed for this range, and who approved it.
         [[ $approved =~ ^[0-9a-f]{12}:.*[[:graph:]] ]] || usage
         shift ;;
       *) usage ;;
     esac
     shift
   done
-  # The timer never approves a migration: only a session that asked Nadav does.
+  # The timer never approves a migration: only a session does (rules/working-style.md, Approval gates).
   [ -z "$auto" ] || [ -z "$approved" ] || usage
   mkdir -p "$STATE" "$LOGS"
   sha=$(ghr api "repos/$OWNER/$repo/commits/$ref" | jq -r '.sha // empty')

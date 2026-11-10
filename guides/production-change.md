@@ -1,0 +1,45 @@
+# A production change that runs without asking
+
+`rules/working-style.md` (Approval gates) says which engineering actions run without asking Nadav: a DB migration, a write to production data outside the app's own screens, an auth, permission or RLS change, a payment-code change, a deletion of backed-up data rows, and the deploy that carries one of these. This file is the procedure. The steps run in this order, by the session Nadav talks to. If a step cannot be done, stop and ask him, and say which step failed; an action in the rule's ask list is asked however well the steps went.
+
+Nadav does not program and reads the report after, not the diff before. The reviewer and the way back stand where his yes used to stand, so neither is a formality.
+
+## 1. Review
+- The reviewer comes from Second model (`working-style.md`) and is never the author's context. The single-file exemption there does not apply here: a migration or a policy change is often one file.
+- Give it the diff, the exact commands, the target from step 4 and the way back from step 3, and this question: "Should this run on production without Nadav? Argue against it." Do not give it your conclusion.
+- It passes with `APPROVE` and no open CRITICAL or HIGH finding, for the sha it read. Post the verdict with the reviewer's name as a comment on the PR; with no PR, write it into the repo's run log or the task's plan file.
+- A rejection stands until the change is fixed and reviewed again. Another provider does not overturn it.
+- Any change to the reviewed files, commands or target after the verdict needs a new review.
+
+## 2. Try it where it cannot hurt
+- Run the repo's migration tests, or a throwaway database built from production's schema only (no rows; `pg-pool get <repo>`), with made-up rows shaped like the ones the change touches. A repo that has neither gets the throwaway database built first; that is part of the work.
+- Payment code runs in the provider's test mode.
+- Real customers' rows never leave the provider for a trial: not to a laptop, not to `/tmp`, not to a scratchpad.
+
+## 3. The way back, checked now
+Each kind of change has its own, and "should be possible" is not a check.
+- Code: the deployment id that a rollback returns to (`nadavai-deploy pages-live <repo>`).
+- A schema, policy or permission change: a reverse migration, run in step 2 after the forward one. Rolling the code back does not revert a policy or a column.
+- Data that a step drops, rewrites or deletes: a backup of exactly those tables or rows, taken just before, kept inside the provider (a dated backup schema in the same database) or in the project's named backup location, never on a laptop. Check it by counting its rows against the source, inside the provider.
+- The provider's restore point is a second line only. Note its time, because restoring it erases everything every other user wrote since.
+- A change with no way back (data already exposed, a message already sent, money already charged) is not in this class. Ask.
+
+## 4. The target
+- Confirm that the database or service is the one the live app uses now: the project ref or host in the live deployment's settings equals the one the recipe reaches.
+- Then use the project's own script or documented recipe. A recipe whose target differs, or that no longer runs, is not used: report it and ask.
+- One session changes a database at a time (take the repo's deploy lock or say so in the project's run log), and a change that rewrites or locks a large table runs outside the app's busy hours.
+
+## 5. Apply and check
+- An additive migration goes before the code that needs it. A drop or a rename goes only after the live code no longer uses it.
+- A deploy that the deploy service refused with exit 5 is rerun only now, with `--migration-approved "<key>:review: <where the verdict is>; back: <the way back>"`. Exit 3 (a held repo) and exit 6 (a red nightly) stay closed.
+- Check right after: the health check, the exact thing that changed (rows counted before and after, the policy read back, a login of each affected role through the QA account) and the app's main flow. After a payment change, read the first real charges or documents it produced.
+- If a check fails, take the way back at once and tell Nadav at once, in the session and with a desktop notification (or `nadavai-alert` on the Oracle VM), without waiting for the end of the turn.
+
+## 6. Report
+Plain Hebrew, at the top of the reply that ends the turn, under "בוצע בלי לשאול", one block per action. Post the same block as a comment on the PR so it survives the session. Each block says:
+- what changed, in the words a user would use;
+- who is affected and how many (rows, users, clinics);
+- what a user would notice, and what Nadav would see if it went wrong;
+- which reviewer approved it;
+- the backup or restore point, by name and time;
+- how to undo it, as a sentence he can send back ("כתוב: לבטל את <שם>"), and what undoing would lose.

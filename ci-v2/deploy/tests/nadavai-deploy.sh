@@ -310,12 +310,12 @@ check "migrations: none in range passes" "0 1" "$(mg "$c1" "$c2") $(grep -c 'mig
 check "migrations: a migration in range is refused with 5" 5 "$(mg "$c0" "$c2")"
 k02=$(key)
 check "migrations: the refusal names the file, the key and how to approve" "1 1" \
-  "$(grep -c '^  supabase/migrations/20261104_init.sql$' "$t/mg.out") $(grep -c -- "--migration-approved \"$k02:<what he approved>\"" "$t/mg.out")"
+  "$(grep -c '^  supabase/migrations/20261104_init.sql$' "$t/mg.out") $(grep -c -- "--migration-approved \"$k02:review: <where the verdict is>; back: <the way back>\", or after Nadav's yes with \"$k02:nadav: <what he approved>\"" "$t/mg.out")"
 check "migrations: tests and docs in the migrations folder do not count" 0 "$(mg "$c2" "$c3")"
 check "migrations: a hand-applied migrations-gal1/ file counts" 5 "$(mg "$c3" "$c4")"
 check "migrations: a deploy behind production (back over a migration) is refused too" 5 "$(mg "$c2" "$c0")"
 check "migrations: the approval with this range's key lets it through and says so" "0 1" \
-  "$(mg "$c0" "$c2" "$k02:Nadav approved 20261104_init") $(grep -c "approved by Nadav ($k02): Nadav approved 20261104_init" "$t/mg.out")"
+  "$(mg "$c0" "$c2" "$k02:nadav: approved 20261104_init") $(grep -c "migrations: approved ($k02): nadav: approved 20261104_init" "$t/mg.out")"
 check "migrations: an approval with another key is refused" "5 1" "$(mg "$c0" "$c2" "0123456789ab:old approval") $(grep -c 'the approval is for key 0123456789ab' "$t/mg.out")"
 mg "$c0" "$c3" >/dev/null
 check "migrations: another target gives another key" yes "$([ "$(key)" != "$k02" ] && echo yes)"
