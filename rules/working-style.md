@@ -77,6 +77,7 @@ Many sessions run at once, and any of them can end on a restart, a usage limit o
 - Memory loads per project, so before proposing a tool or asking Nadav something again, search every project's memory: `grep -ril '<term>' ~/.claude/projects/*/memory/`. Earlier decisions against a tool are recorded there.
 
 ## UI and product work
+- Work that builds or changes a screen a user sees, in a new project or an existing one, first reads the experience standard: `~/nadavai/plugins/nadavai/skills/nadav-design/standard/experience.md` and `profiles.md` beside it, also when the nadav-design skill is not loaded. A text or spacing change needs neither. An app in the middle of a large release is measured against the standard, not rebuilt to it (`profiles.md`). `nadavai:action-safety` still owns whether an action really completed and how it recovers.
 - Reviewing an existing screen whose code is in the repo: `/interfaces:better-interface`. Reviewing a diff: `/interfaces:interface-review`.
 - Fixing visual design in code after a review named the problems: impeccable (`polish`, `harden`, `clarify`, `adapt`, `layout`, `typeset`). Never `craft`, `bolder` or `overdrive` on an existing app: they redesign more than was asked.
 - Keep the existing design and change only what the content forces. For everything else (intent agents, accessibility, copy, motion, mobile, product docs, PostHog, impeccable `critique`), read `~/nadavai/guides/ui-routing.md` before choosing a skill.
