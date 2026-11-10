@@ -32,6 +32,14 @@ sudo install -m 644 "$here/msi-turbo.service" "$here/cpu-maxfreq.service" "$here
 # Always-on box (CI agent): closing the lid must not suspend it.
 sudo install -D -m 644 "$here/50-lid-ignore.conf" /etc/systemd/logind.conf.d/50-lid-ignore.conf
 
+# DNS for the CI step containers (CI session, 2026-11-10): the home router was the only resolver, and
+# every clone failure of that week was "Could not resolve host: github.com". Docker copies the host's
+# list into each new container, so the Wi-Fi connection gets two public resolvers behind the router.
+if nmcli -g connection.id connection show Nadav_5G >/dev/null 2>&1; then
+  nmcli connection modify Nadav_5G ipv4.dns "192.168.1.1 1.1.1.1 9.9.9.9" ipv4.ignore-auto-dns yes
+  nmcli device reapply wlan0 >/dev/null 2>&1 || true
+fi
+
 # Battery: stop charging at 80% (always on AC).
 sudo install -m 644 "$here/61-battery-charge.rules" /etc/udev/rules.d/
 echo 80 | sudo tee /sys/class/power_supply/BAT1/charge_control_end_threshold >/dev/null

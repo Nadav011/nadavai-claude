@@ -39,6 +39,8 @@ chk "ssh sessions not SCHED_IDLE"          "! ps -o cls= -p $S | grep -q IDL"
 chk "docker-wifi-block rule present"       "! systemctl is-active -q docker || sudo iptables -C DOCKER-USER -i wlan0 -m conntrack --ctstate NEW -j DROP 2>/dev/null"
 chk "lid close ignored"                    "[ -f /etc/systemd/logind.conf.d/50-lid-ignore.conf ]"
 chk "desktop never locks (Autolock off, msi-keep-unlocked active)" "[ \"\$(kreadconfig6 --file kscreenlockerrc --group Daemon --key Autolock)\" = false ] && systemctl --user is-active -q msi-keep-unlocked"
+echo "== Network"
+chk "three resolvers for CI containers (router + 2 public)" "[ \"\$(grep -c '^nameserver' /run/systemd/resolve/resolv.conf 2>/dev/null)\" -ge 3 ]"
 echo "== Errors"
 chk "no machine-check errors this boot"    "! sudo journalctl -k -b | grep -qiE 'machine check|hardware error'"
 exit $bad
