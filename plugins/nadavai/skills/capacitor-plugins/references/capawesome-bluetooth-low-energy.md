@@ -7,18 +7,13 @@ Capacitor plugin for Bluetooth Low Energy (BLE) communication in central and per
 **Platforms:** Android, iOS
 **Documentation:** https://capawesome.io/docs/sdks/capacitor/bluetooth-low-energy/
 
-**Availability:** [Capawesome Insiders](https://capawesome.io/insiders/) only
+**Availability:** Capawesome Insiders only (paid licence)
 
 ## Installation
 
-First, set up the Capawesome npm registry:
+Paid plugin (Capawesome Insiders licence). Choosing it is a paid-service decision: ask Nadav first, and offer a free alternative from the `capacitor-plugins` index if one exists.
 
-```bash
-npm config set @capawesome-team:registry https://npm.registry.capawesome.io
-npm config set //npm.registry.capawesome.io/:_authToken <YOUR_LICENSE_KEY>
-```
-
-Then install the package:
+Install the package:
 
 ```bash
 npm install @capawesome-team/capacitor-bluetooth-low-energy

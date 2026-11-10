@@ -39,8 +39,9 @@ headless recipe) and on Nadav's phone over wireless debugging (`adb pair`, then 
 iOS on a Codemagic macOS simulator run for screenshots and smoke, and on Nadav's iPhone through
 TestFlight for touch, Face ID, push and links (no iOS simulator runs on Linux).
 
-Sources (rows 9, 15, 16, 19, 20): https://github.com/Cap-go/capgo-skills (capacitor-accessibility,
-capacitor-push-notifications, capacitor-performance, debugging-capacitor),
+Sources (rows 9, 15, 16, 19, 20): https://github.com/Cap-go/capacitor-skills (capacitor-accessibility,
+capacitor-push-notifications, capacitor-performance, debugging-capacitor; installed here as
+skills of the same names since 2026-11-10),
 https://capacitorjs.com/docs/apis/text-zoom,
 https://developer.android.com/training/app-links/verify-android-applinks,
 https://developer.apple.com/documentation/xcode/supporting-associated-domains.

@@ -182,6 +182,8 @@ end
 
 #### 5. Run IntuneMAMConfigurator
 
+> nadavai note: this downloads and runs a binary from Microsoft's repository at whatever its default branch holds. Ask Nadav before running it, and clone a release tag (`--branch <tag>`) instead of the default branch.
+
 ```bash
 git clone https://github.com/msintuneappsdk/ms-intune-app-sdk-ios tmp --depth 1
 cp tmp/IntuneMAMConfigurator .

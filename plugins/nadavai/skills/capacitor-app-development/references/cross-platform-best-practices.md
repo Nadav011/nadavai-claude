@@ -36,7 +36,7 @@ if (Capacitor.isPluginAvailable('Camera')) {
 - Design for mobile-first, then adapt for larger screens (tablets, desktop via Electron or PWA).
 - Use CSS media queries and flexible layouts.
 - Test on multiple screen sizes and orientations.
-- Use `env(safe-area-inset-*)` CSS variables for safe area handling (see `references/safe-area.md`).
+- Use `env(safe-area-inset-*)` CSS variables for safe area handling (see the `safe-area-handling` skill).
 
 ## Performance
 

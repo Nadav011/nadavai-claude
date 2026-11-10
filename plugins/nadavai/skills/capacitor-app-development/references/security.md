@@ -27,7 +27,7 @@ Do not store authentication tokens, encryption keys, or credentials in `localSto
 
 Plugins that wrap these APIs:
 
-- `@capawesome-team/capacitor-secure-preferences` — Encrypted key-value storage.
+- `@capawesome-team/capacitor-secure-preferences` — Encrypted key-value storage (paid, Capawesome Insiders: ask Nadav first).
 
 For plugin installation and configuration, use the `capacitor-plugins` skill.
 
@@ -63,7 +63,7 @@ Adjust the policy based on the app's requirements:
 - Never send sensitive data (tokens, credentials) through URL scheme parameters.
 - For OAuth2 flows, use **PKCE (Proof Key for Code Exchange)** to prevent token interception during the callback.
 
-See `references/deep-links.md` for deep link setup.
+See the `capacitor-deep-linking` skill for deep link setup.
 
 ## WebView Debugging
 

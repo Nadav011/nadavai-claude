@@ -2,9 +2,11 @@
 
 Capacitor plugin for Over-the-Air (OTA) updates. Download and apply web asset bundles without app store submissions.
 
+> nadavai: Nadav's bundled apps use this plugin self-hosted (`autoUpdateStrategy: 'none'`, signed bundles, no Capawesome Cloud). The OTA flow belongs to the `store-apps` skill (`references/ota.md`); follow it instead of this file for anything beyond the plugin API.
+
 **Package:** `@capawesome/capacitor-live-update`
 
-**Platforms:** Android, iOS
+**Platforms:** Android, iOS, Electron (Capacitor 8 only; `@capawesome/capacitor-electron` >= 0.2.0, plugin >= 8.5.0)
 **Documentation:** https://capawesome.io/docs/sdks/capacitor/live-update/
 
 ## Installation
@@ -70,6 +72,27 @@ Add `NSPrivacyAccessedAPICategoryUserDefaults` to `ios/App/PrivacyInfo.xcprivacy
 </plist>
 ```
 
+### Electron
+
+Requires Capacitor 8, `@capawesome/capacitor-electron` >= 0.2.0, and plugin version >= 8.5.0. No additional configuration is required; sync with the full package name (`npx cap sync @capawesome/capacitor-electron`). The app version is `version` in `electron/package.json`, only `zip` bundles are delivered, and the rollback is kill-safe (performed on the next start if the app quits before `ready()`).
+
+#### Channel (optional)
+
+For versioned channels, add to `electron/capacitor.electron.config.ts` (takes precedence over `defaultChannel` in the Capacitor config):
+
+```typescript
+import { defineConfig } from '@capawesome/capacitor-electron/config';
+import packageJson from './package.json';
+
+export default defineConfig({
+  plugins: {
+    LiveUpdate: {
+      defaultChannel: `production-${packageJson.version}`,
+    },
+  },
+});
+```
+
 ## Configuration
 
 In `capacitor.config.ts`:
@@ -82,9 +105,8 @@ import { CapacitorConfig } from '@capacitor/cli';
 const config: CapacitorConfig = {
   plugins: {
     LiveUpdate: {
-      appId: '6e351b4f-69a7-415e-a057-4567df7ffe94',
       autoDeleteBundles: true,
-      autoUpdateStrategy: 'background',
+      autoUpdateStrategy: 'none',
       defaultChannel: 'production',
       readyTimeout: 10000,
     },
@@ -96,8 +118,7 @@ export default config;
 
 Key config options:
 
-- `appId`: Capawesome Cloud app ID.
-- `autoUpdateStrategy`: `'none'` (default) or `'background'` (auto-download at startup/resume).
+- `autoUpdateStrategy`: `'none'` (default; the app downloads bundles itself).
 - `defaultChannel`: Default update channel.
 - `readyTimeout`: Milliseconds to wait for `ready()` before rollback (default: `0` = disabled). Recommended: `10000`.
 - `autoDeleteBundles`: Auto-delete unused bundles after `ready()` (default: `false`).
@@ -106,19 +127,6 @@ Key config options:
 - `httpTimeout`: HTTP request timeout in ms (default: `60000`).
 
 ## Usage
-
-### Sync with Capawesome Cloud
-
-```typescript
-import { LiveUpdate } from '@capawesome/capacitor-live-update';
-
-const sync = async () => {
-  const result = await LiveUpdate.sync({ channel: 'production-5' });
-  if (result.nextBundleId) {
-    await LiveUpdate.reload();
-  }
-};
-```
 
 ### Manual Bundle Management
 
@@ -155,8 +163,7 @@ const ready = async () => {
 - Call `ready()` as soon as the app is usable to prevent rollback when `readyTimeout` is configured.
 - Live updates only work for binary-compatible changes (HTML, CSS, JS). Native code changes require an app store submission.
 - Do not use Live Reload during testing; it bypasses the local file system.
-- Channel priority (lowest to highest): Capacitor config `defaultChannel`, native config, `setChannel()`, `sync()` channel parameter.
-- Capawesome Cloud forced channel assignments override all other channel settings.
+- Channel priority (lowest to highest): Capacitor config `defaultChannel`, native config, `setChannel()`.
 - The Live Update plugin is **not compatible with service workers**. Service workers cache web assets and intercept network requests, which prevents live updates from being applied correctly. Disable service worker registration on native platforms (Android and iOS).
 
   **Angular:** When using `provideServiceWorker`, set `enabled` to `Capacitor.getPlatform() === 'web'`:

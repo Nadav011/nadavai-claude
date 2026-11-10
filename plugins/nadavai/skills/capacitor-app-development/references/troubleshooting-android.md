@@ -14,7 +14,7 @@ Common Android issues and their solutions.
    - Capacitor 8: JDK 21.
    Check: `java -version`. In Android Studio: File > Settings > Build, Execution, Deployment > Build Tools > Gradle > Gradle JDK.
 2. Invalidate caches: File > Invalidate Caches in Android Studio.
-3. Delete `.gradle` cache: `rm -rf ~/.gradle/caches && rm -rf android/.gradle`.
+3. Stop the daemons and delete the project's own cache: `./gradlew --stop`, then remove `android/.gradle`. The machine-wide `~/.gradle/caches` is shared by every project and session on the machine: clear it only as a last resort, after asking (nadavai note; upstream cleared both).
 4. Check that `android/variables.gradle` has the correct SDK and tool versions.
 
 ### `compileSdkVersion` or `targetSdkVersion` Errors
@@ -166,14 +166,16 @@ And reference it in `AndroidManifest.xml`:
 
 ### ProGuard / R8 Stripping Plugin Code
 
-**Symptom**: Plugin works in debug but crashes in release builds.
+**Symptom**: Plugin works in debug but crashes in release builds with `minifyEnabled true`. A `NullPointerException` at `com.getcapacitor.Plugin.getPermissionStates` during startup means R8 full mode removed the Capacitor annotations, which happens on Capacitor below 8.6.0.
 
-**Solution**: Add ProGuard keep rules in `android/app/proguard-rules.pro`:
+**Solution**: Upgrade to Capacitor 8.6.0, which ships the annotation keep rule, or add it to `android/app/proguard-rules.pro`. In both cases, also add the rules a plugin documents in its README:
 
 ```
--keep class com.getcapacitor.** { *; }
+-keep @interface com.getcapacitor.** { *; }
 -keep class your.plugin.package.** { *; }
 ```
+
+Do not add `-keep class com.getcapacitor.** { *; }`. `@capacitor/android` already ships consumer rules for plugin classes, and the broad rule blocks the optimization that Google Play measures. For the full R8 setup, including the Google Play DEX code optimization requirement, use the `capacitor-android-dex-optimization` skill.
 
 ## Debugging
 

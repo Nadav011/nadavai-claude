@@ -5,16 +5,11 @@ Securely store key/value pairs such as passwords, tokens, or other sensitive inf
 **Package:** `@capawesome-team/capacitor-secure-preferences`
 **Platforms:** Android, iOS, Web
 **Documentation:** https://capawesome.io/docs/sdks/capacitor/secure-preferences/
-**Capawesome Insiders:** Yes (requires license key)
+**Capawesome Insiders:** Yes (paid licence)
 
 ## Installation
 
-Set up the Capawesome npm registry:
-
-```bash
-npm config set @capawesome-team:registry https://npm.registry.capawesome.io
-npm config set //npm.registry.capawesome.io/:_authToken <YOUR_LICENSE_KEY>
-```
+Paid plugin (Capawesome Insiders licence). Choosing it is a paid-service decision: ask Nadav first, and offer a free alternative from the `capacitor-plugins` index if one exists.
 
 Install the package:
 

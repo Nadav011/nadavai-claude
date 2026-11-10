@@ -175,7 +175,7 @@ const config: CapacitorConfig = {
   plugins: {
     Keyboard: {
       resize: 'none',           // 'body', 'ionic', 'native', 'none'
-      resizeOnFullScreen: false, // Required when using edge-to-edge plugins
+      resizeOnFullScreen: false, // Required when using edge-to-edge plugins (nadavai note: on Capacitor 8+ the `capacitor-keyboard` skill says to omit this key; follow that skill there)
     },
   },
 };
