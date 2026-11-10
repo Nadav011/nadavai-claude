@@ -351,7 +351,9 @@ echo "=== landing on Woodpecker: main takes a tree whose landing has every ci/wo
 # trailing comment ignored) and its owner is Nadav011. This gh answers commits/<sha>/statuses from WP:
 # entries "<sha>:<context>=<state>,..." oldest first (ids rise in that order; the list comes back
 # newest first, as GitHub sends it). pr/<x> is ci/woodpecker/pr/<x>, push/<x> ci/woodpecker/push/<x>,
-# sec nadavai-security; any other name is the context itself. WP_GH=down fails every read.
+# sec nadavai-security; any other name is the context itself. A state may end in @<seconds>: its
+# created_at is that long before now (by date), else now. WP_GH=down fails every read, WP_DOWN="<sha>..."
+# the reads of those commits.
 mkdir -p "$t/wbin" "$t/wp/lib"; cp "$t/bin/npm" "$t/bin/npx" "$t/bin/trivy" "$t/wbin/"
 printf '# fixture\nSportChat-Web   # cut over\ntherapy-flow-v2\n' >"$t/wp/lib/woodpecker-repos.txt"
 cat >"$t/wbin/gh" <<'GH'
@@ -360,14 +362,17 @@ echo "gh $*" >>"$REC"
 [ "${WP_GH:-}" = down ] && { echo "error connecting to api.github.com" >&2; exit 1; }
 all="$*"; case $all in *"/statuses"*) ;; *) exit 0 ;; esac
 ref=${all#*commits/}; ref=${ref%%/*}
+for d in ${WP_DOWN:-}; do [[ $d == "$ref"* ]] && { echo "error connecting to api.github.com" >&2; exit 1; }; done
 out=() id=0
 for e in ${WP:-}; do
   [[ ${e%%:*} == "$ref"* ]] || continue
   IFS=, read -r -a sts <<<"${e#*:}"
   for s in "${sts[@]}"; do
-    c=${s%=*} id=$((id + 1))
+    c=${s%=*} st=${s##*=} ago=0 id=$((id + 1))
+    [[ $st == *@* ]] && { ago=${st#*@}; st=${st%@*}; }
+    at=$(date -u -d "@$(( $(date +%s) - ago ))" +%Y-%m-%dT%H:%M:%SZ)
     case $c in sec) c=nadavai-security ;; pr/*|push/*) c=ci/woodpecker/$c ;; esac
-    out=("$(printf '{"id":%s,"context":"%s","state":"%s","description":"x","created_at":"2026-11-10T10:00:00Z"}' "$id" "$c" "${s##*=}")" "${out[@]}")
+    out=("$(printf '{"id":%s,"context":"%s","state":"%s","description":"x","created_at":"%s"}' "$id" "$c" "$st" "$at")" "${out[@]}")
   done
 done
 (IFS=,; echo "[${out[*]}]")
@@ -403,19 +408,33 @@ land "two workflows, both green, goes" ok "$m0" "$c1" WP="$c1:pr/web=success,pr/
 land "the newest status of a workflow counts: red, then green, goes" ok "$m0" "$c1" WP="$c1:pr/landing=failure,pr/landing=success,sec=success"
 land "the newest status of a workflow counts: green, then red, is refused" refused "$m0" "$c1" WP="$c1:pr/landing=success,pr/landing=failure,sec=success"
 land "only a push-event run and a nadavai-ci pass are no landing: refused" refused "$m0" "$c1" WP="$c1:push/landing=success,nadavai-ci=success,sec=success"
-# nadavai-security on the landed commit: failure or error refuses; missing or pending goes with a
-# warning and landing=ok-nosec (the scanner has been down for days at a time).
+# nadavai-security on the landed commit: failure or error refuses, and so does pending under 15
+# minutes old (landing=refused-sec); missing, or pending for longer, goes with a warning and
+# landing=ok-nosec (the scanner has been down for days at a time).
+refused_sec() { # name
+  if grep -q $'\tlanding=refused-sec$' "$t/home/.cache/nadavai/pre-push.log"; then ok "landing: ... $1, logged landing=refused-sec"
+  else bad "landing: $1 log" "$(cat "$t/home/.cache/nadavai/pre-push.log")"; fi
+}
 LREFUSED='security scan (nadavai-security) of [0-9a-f]* is failure' \
   land "a green landing with a red security scan is refused" refused "$m0" "$c1" WP="$c1:pr/landing=success,sec=failure"
+refused_sec "red scan"
+grep -q "ssh nadavai-svc sudo cat /home/secscan/secscan/logs/sportchat-web-${c1:0:7}-security.txt" "$t/out" &&
+  ok "landing: ... and names where the report is" || bad "landing: report path" "$(grep -i report "$t/out")"
 LREFUSED='security scan (nadavai-security) of [0-9a-f]* is error' \
   land "a green landing with a security scan in error is refused" refused "$m0" "$c1" WP="$c1:pr/landing=success,sec=error"
+LREFUSED='security scan (nadavai-security) of [0-9a-f]* is queued or running' \
+  land "a green landing with the security scan pending for 1 minute is refused" refused "$m0" "$c1" WP="$c1:pr/landing=success,sec=pending@60"
+refused_sec "pending scan"
+grep -q 'run the push again in a few minutes' "$t/out" && ok "landing: ... and says to push again in a few minutes" || bad "landing: pending text" "$(grep -A2 'queued' "$t/out")"
+LREFUSED='security scan (nadavai-security) of [0-9a-f]* is queued or running' \
+  land "pending for 14 minutes is still refused" refused "$m0" "$c1" WP="$c1:pr/landing=success,sec=pending@840"
 land "the newest security status counts: red, then green, goes" ok "$m0" "$c1" WP="$c1:pr/landing=success,sec=failure,sec=success"
 LREFUSED='security scan (nadavai-security) of [0-9a-f]* is failure' \
   land "the newest security status counts: green, then red, is refused" refused "$m0" "$c1" WP="$c1:pr/landing=success,sec=success,sec=failure"
-for sec in none pending; do
-  wp="$c1:pr/landing=success"; [ "$sec" = none ] || wp="$wp,sec=$sec"
+for spec in "none|has not run, going on without it" "pending@1200|is still pending after 20 minutes, going on without it"; do
+  sec=${spec%%|*} wp="$c1:pr/landing=success"; [ "$sec" = none ] || wp="$wp,sec=$sec"
   land "a green landing with the security scan $sec goes with a warning" ok "$m0" "$c1" WP="$wp"
-  if grep -q $'\tlanding=ok-nosec$' "$t/home/.cache/nadavai/pre-push.log" && grep -q "security scan (nadavai-security) is $sec" "$t/out"; then
+  if grep -q $'\tlanding=ok-nosec$' "$t/home/.cache/nadavai/pre-push.log" && grep -q "security scan (nadavai-security) ${spec#*|}" "$t/out"; then
     ok "landing: ... and logs landing=ok-nosec"
   else bad "landing: nosec $sec" "$(grep landing "$t/out" | head -2)"; fi
   wafter "a landing with the scan $sec" ci-pass-skip no
@@ -428,6 +447,10 @@ es=("$c1"); for i in 1 2 3 4 5 6; do es+=("$(git -C "$ld" commit-tree "$c1^{tree
 land "a same-tree commit on a green landing head goes" ok "$m0" "${es[1]}" WP="$c1:$G"
 land "five same-tree commits up, the landing head is still found" ok "$m0" "${es[5]}" WP="$c1:$G"
 land "six same-tree commits up, it is not looked for: refused" refused "$m0" "${es[6]}" WP="$c1:$G"
+# A red scan beats "GitHub unreadable": the pushed commit's read fails, its same-tree parent is red.
+LREFUSED='security scan (nadavai-security) of [0-9a-f]* is failure' \
+  land "one read fails, a same-tree parent's scan is red: refused" refused "$m0" "${es[1]}" WP_DOWN="${es[1]}" WP="$c1:pr/landing=success,sec=failure"
+refused_sec "red scan behind an unread commit"
 am=$(git -C "$ld" commit-tree "$c1^{tree}" -p "$m0" -m "reworded $c1")
 land "a reworded landing head off its history has no landing of its own: refused" refused "$m0" "$am" WP="$c1:$G"
 land "... and goes once that commit landed itself" ok "$m0" "$am" WP="$am:$G"

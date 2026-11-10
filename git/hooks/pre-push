@@ -534,17 +534,21 @@ if [ -n "$MAIN_LOCAL_SHA" ] && [ "${MAIN_LOCAL_SHA//0/}" != "" ]; then
     # push to main passes when the pushed commit (or a commit with the same tree: itself, a merge's
     # second parent, five first parents) has every ci/woodpecker/pr/* status green, or only documentation
     # changed since main. Same rule family as agent-guard's wp_merge_check. A red nadavai-security
-    # (failure or error) on that commit refuses; a missing or pending one goes with a warning
-    # (landing=ok-nosec), because the scanner has been down for days at a time. A landed tree sets
-    # WP_LANDED, so Layer 2 does not run again on what Woodpecker passed (rules 1 and 7).
+    # (failure or error) on that commit refuses (landing=refused-sec), and so does a pending one under
+    # 15 minutes old: the scanner runs every 2 minutes, and agent-guard denies the merge meanwhile. A
+    # missing scan or an older pending one goes with a warning (landing=ok-nosec), because the scanner
+    # has been down for days at a time. A landed tree sets WP_LANDED, so Layer 2 does not run again on
+    # what Woodpecker passed (rules 1 and 7).
     if [ "${gh_owner,,}" = nadav011 ] && grep -qixF "$gh_name" <(sed 's/[[:space:]]*#.*//; /^$/d' "${NADAVAI_HOME:-$HOME/nadavai}/lib/woodpecker-repos.txt" 2>/dev/null); then
       on_ci=""
       MAIN_REMOTE=""; case "$MAIN_REMOTE_SHA" in *[!0]*) git cat-file -e "$MAIN_REMOTE_SHA^{commit}" 2>/dev/null && MAIN_REMOTE=$MAIN_REMOTE_SHA ;; esac
-      wp_ok="" wp_unread=0 wp_sec=""
+      wp_ok="" wp_unread=0 wp_sec="" wp_sec_sha="" wp_sec_age=0
       if [ -n "${NADAVAI_LAND_URGENT:-}" ]; then
         echo "⚠️  pre-push [landing]: NADAVAI_LAND_URGENT ($NADAVAI_LAND_URGENT): ${MAIN_LOCAL_SHA:0:7} reaches main without a Woodpecker landing"
         LANDING="urgent:${NADAVAI_LAND_URGENT//[$'\t\n']/ }"; wp_ok=1
       elif [ -n "$MAIN_REMOTE" ] && landing_docs_only "$MAIN_REMOTE" "$MAIN_LOCAL_SHA"; then
+        # Rule 6 allows documentation only since main, so this skips the local checks too when the repo's
+        # forceRerunTriggers match the .md, and when main's own head came in through urgent or unreadable.
         echo "✅ pre-push [landing]: documentation only since main"; LANDING="ok"; wp_ok=1; WP_LANDED="documentation only since main"
       else
         wp_tree=$(git rev-parse -q --verify "$MAIN_LOCAL_SHA^{tree}" 2>/dev/null)
@@ -554,19 +558,27 @@ if [ -n "$MAIN_LOCAL_SHA" ] && [ "${MAIN_LOCAL_SHA//0/}" != "" ]; then
         for p in "${wp_cands[@]}"; do
           [ "$(git rev-parse -q --verify "$p^{tree}" 2>/dev/null)" = "$wp_tree" ] || continue
           # Every ci/woodpecker/pr/* context's newest status green (one repo has landing, another web + backend),
-          # then the newest nadavai-security state ("none" when there is none).
+          # then the newest nadavai-security state ("none" when there is none) and its created_at (epoch, 0 if unknown).
           r=$(timeout 10 gh api "repos/$GH_REPO/commits/$p/statuses?per_page=100" 2>/dev/null | jq -r 'if type == "array" then
               ([.[] | select(.context | startswith("ci/woodpecker/pr/"))] | group_by(.context) | map(sort_by(.id) | last | .state)) as $s
-              | ([.[] | select(.context == "nadavai-security")] | sort_by(.id) | last | .state // "none") as $sec
-              | (if ($s | length) == 0 then "none" elif all($s[]; . == "success") then "success" else "red" end) + " " + $sec
+              | ([.[] | select(.context == "nadavai-security")] | sort_by(.id) | last) as $q
+              | (if ($s | length) == 0 then "none" elif all($s[]; . == "success") then "success" else "red" end)
+                + " " + ($q.state // "none") + " " + ((try ($q.created_at | fromdateiso8601) catch 0) | floor | tostring)
             else "unread" end' 2>/dev/null)
           [ -n "$r" ] || r=unread
           [ "$r" = unread ] && wp_unread=1
-          case "$r" in
-            "success failure"|"success error") wp_sec="${p:0:7} ${r#success }"; break ;;
-            "success success") echo "✅ pre-push [landing]: the tree of ${p:0:7} passed its Woodpecker landing"; LANDING="ok" ;;
-            "success "*) echo "⚠️  pre-push [landing]: the tree of ${p:0:7} passed its Woodpecker landing; its security scan (nadavai-security) is ${r#success }, pushed without it"; LANDING="ok-nosec" ;;
-            *) continue ;;
+          read -r wp_l wp_s wp_t <<<"$r"
+          [ "$wp_l" = success ] || continue
+          wp_sec_age=$(( $(date +%s) - ${wp_t:-0} ))
+          case "$wp_s" in
+            failure|error) wp_sec=$wp_s wp_sec_sha=${p:0:7}; break ;;
+            success) echo "✅ pre-push [landing]: the tree of ${p:0:7} passed its Woodpecker landing"; LANDING="ok" ;;
+            pending)
+              if [ "$wp_sec_age" -lt 900 ]; then wp_sec=pending wp_sec_sha=${p:0:7}; break; fi
+              echo "⚠️  pre-push [landing]: the tree of ${p:0:7} passed its Woodpecker landing; its security scan (nadavai-security) is still pending after $((wp_sec_age / 60)) minutes, going on without it"
+              LANDING="ok-nosec" ;;
+            *) echo "⚠️  pre-push [landing]: the tree of ${p:0:7} passed its Woodpecker landing; its security scan (nadavai-security) has not run, going on without it"
+               LANDING="ok-nosec" ;;
           esac
           WP_LANDED="the tree of ${p:0:7} passed its Woodpecker landing"; wp_ok=1; break
         done
@@ -576,16 +588,22 @@ if [ -n "$MAIN_LOCAL_SHA" ] && [ "${MAIN_LOCAL_SHA//0/}" != "" ]; then
       fi
       if [ -z "$wp_ok" ]; then
         echo ""
-        if [ -n "$wp_sec" ]; then
-          echo "🚫 pre-push [landing]: the security scan (nadavai-security) of ${wp_sec% *} is ${wp_sec#* }: a new secret or a high/critical"
-          echo "   dependency advisory. Fix it on the branch, push, and land the new head once its scan is green."
+        if [ "$wp_sec" = pending ]; then
+          echo "🚫 pre-push [landing]: the security scan (nadavai-security) of $wp_sec_sha is queued or running ($((wp_sec_age / 60)) minutes)."
+          echo "   It runs every 2 minutes on nadavai-svc: run the push again in a few minutes. If it stays pending,"
+          echo "   check the service: ssh nadavai-svc 'sudo tail /home/secscan/secscan/logs/secscan.log'."
+        elif [ -n "$wp_sec" ]; then
+          echo "🚫 pre-push [landing]: the security scan (nadavai-security) of $wp_sec_sha is $wp_sec: a new secret or a high/critical"
+          echo "   dependency advisory. Remove the secret (and rotate it) or bump the dependency on the branch, push, and"
+          echo "   land the new head once it scans green. The report is on nadavai-svc"
+          echo "   (ssh nadavai-svc sudo cat /home/secscan/secscan/logs/$gh_name-$wp_sec_sha-security.txt); a false positive goes to Nadav for the baseline."
         else
           echo "🚫 pre-push [landing]: ${MAIN_LOCAL_SHA:0:7} has no green Woodpecker landing (every ci/woodpecker/pr/* status green)."
           echo "   $gh_name lands through a non-draft PR into main: push the branch, run"
           echo "   ci-wait $gh_name <branch> --land in the background, and merge the PR after it is green."
         fi
         echo "   Urgent fix: NADAVAI_LAND_URGENT='<reason>' git push ...   Emergency: git push --no-verify"
-        DECISION=landing-refused LANDING=refused
+        DECISION=landing-refused LANDING=refused; [ -n "$wp_sec" ] && LANDING=refused-sec
         kill $(jobs -p) 2>/dev/null; wait 2>/dev/null
         exit 1
       fi
