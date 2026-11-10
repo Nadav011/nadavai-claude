@@ -9,7 +9,8 @@
 #
 # Asserted: with no accepted CI pass a push runs exactly what it ran before (typecheck, and full
 # or related tests) unless it is documentation only, which runs nothing; no push that ran the
-# full suite runs less; only a full-scope nadavai-ci pass (directly, or one level through "same
+# full suite runs less, unless the old hook ran it only for markdown that misses forceRerunTriggers
+# (md_left_out); only a full-scope nadavai-ci pass (directly, or one level through "same
 # tree as" / "documentation only since") skips the checks; forceRerunTriggers are read only when
 # the reading is certain.
 set -u
@@ -18,6 +19,9 @@ NEW_HOOK=${NEW_HOOK:-$here/git/hooks/pre-push}
 OLD_REV=${OLD_REV:-3231dc1}   # the hook's last revision before the CI-pass and docs-only paths
 DAYS=${DAYS:-7}
 REPLAY_REPOS=${REPLAY_REPOS:-"$HOME/Desktop/SportChat/sportchat-web $HOME/Desktop/therapy-flow-v2 $HOME/Desktop/cash-next-app $HOME/Desktop/snooker-smart"}
+# The hook reads lib/woodpecker-repos.txt under NADAVAI_HOME: the list of the tree under test, not of
+# whatever checkout the shell points at. The landing sections below point it at their own fixtures.
+export NADAVAI_HOME=$here
 
 t=$(mktemp -d) || exit 1
 trap 'rm -rf -- "$t"' EXIT
@@ -68,7 +72,7 @@ ok() { echo "ok   $1"; }
 bad() { echo "FAIL $1: $2"; fail=1; }
 
 # Runs one hook on one push, then reads what it did: TC (typecheck yes|no), TESTS (full|related|
-# none), DEC (the new hook's logged decision), GHN (status reads).
+# none), REL (the files handed to vitest related), DEC (the new hook's logged decision), GHN (status reads).
 run() { # hook dir base head url
   : >"$t/rec"; rm -f "$t/home/.cache/nadavai/pre-push.log"
   (cd "$2" && printf 'refs/heads/main %s refs/heads/main %s\n' "$4" "$3" |
@@ -78,9 +82,23 @@ run() { # hook dir base head url
   TESTS=none
   grep -q '^vitest run' "$t/rec" && TESTS=full
   grep -q '^vitest related' "$t/rec" && TESTS=related
+  REL=$(sed -n 's/^vitest related --run --passWithNoTests //p' "$t/rec" | head -1)
   DEC=$(cut -f5 "$t/home/.cache/nadavai/pre-push.log" 2>/dev/null)
   # The landing check's "is this repo on NadavAI CI" read (main's statuses) is not a CI-pass read.
   GHN=$(grep '^gh ' "$t/rec" | grep -vc 'commits/main/statuses')
+}
+
+# OLD_REV ran the full suite whenever a file vitest ignores changed in a repo that sets
+# forceRerunTriggers; the new hook reads the trigger list and leaves out what misses it. A replay row
+# where the new hook runs less is right only for that reason: the old hook named a markdown file as
+# its reason, and every file the new hook left out of vitest related is markdown.
+md_left_out() { # dir old new old-reason related-files
+  local f
+  [ "${2//0/}" != "" ] && [[ $4 =~ ^full\ test\ suite:\ [^\ ]+\.md\ changed\ and\ .*\ sets\ forceRerunTriggers ]] || return 1
+  while IFS= read -r f; do
+    case " $5 " in *" $f "*) continue ;; esac
+    case "$f" in *.md) ;; *) return 1 ;; esac
+  done < <(git -C "$1" -c core.quotePath=false diff --name-only --no-renames "$2" "$3")
 }
 
 echo "=== replay: origin/main moves of the last $DAYS days, old hook ($OLD_REV) vs new ==="
@@ -99,7 +117,8 @@ for dir in $REPLAY_REPOS; do
     [ $((i + 1)) -lt ${#log[@]} ] && old=${log[i+1]%% *}
     pushes=$((pushes + 1))
     run "$t/old-pre-push" "$dir" "$old" "$new" "$url"; otc=$TC otests=$TESTS
-    GH_MODE=unavailable run "$NEW_HOOK" "$dir" "$old" "$new" "$url"; ntc=$TC ntests=$TESTS ndec=$DEC
+    oreason=$(grep -o 'full test suite: .*' "$t/out" | head -1)
+    GH_MODE=unavailable run "$NEW_HOOK" "$dir" "$old" "$new" "$url"; ntc=$TC ntests=$TESTS ndec=$DEC nrel=$REL
     GH_MODE=pass run "$NEW_HOOK" "$dir" "$old" "$new" "$url"; pdec=$DEC
     printf '%-15s %-15s %-16s %-16s %-30s %s\n' "${dir##*/}" "${old:0:6}..${new:0:6}" "tc=$otc/$otests" \
       "tc=$ntc/$ntests" "${ndec:0:30}" "$pdec"
@@ -107,9 +126,15 @@ for dir in $REPLAY_REPOS; do
     if [ "$ndec" = docs-only ]; then
       docs=$((docs + 1))
       [ "$ntc$ntests" = nonone ] || bad "${dir##*/} ${new:0:7}" "documentation only, yet ran tc=$ntc tests=$ntests"
-      [ "$otests" != full ] || bad "${dir##*/} ${new:0:7}" "documentation only now, the full suite before"
+      if [ "$otests" = full ]; then
+        if md_left_out "$dir" "$old" "$new" "$oreason" ""; then
+          ok "${dir##*/} ${new:0:7}: documentation only now; the old hook ran the full suite only for markdown that misses forceRerunTriggers"
+        else bad "${dir##*/} ${new:0:7}" "documentation only now, the full suite before ($oreason)"; fi
+      fi
     elif [ "$otc/$otests" != "$ntc/$ntests" ]; then
-      bad "${dir##*/} ${new:0:7}" "ran tc=$ntc tests=$ntests, before tc=$otc tests=$otests"
+      if [ "$otc/$otests/$ntc/$ntests" = yes/full/yes/related ] && md_left_out "$dir" "$old" "$new" "$oreason" "$nrel"; then
+        ok "${dir##*/} ${new:0:7}: related now; the old hook ran the full suite only for markdown that misses forceRerunTriggers"
+      else bad "${dir##*/} ${new:0:7}" "ran tc=$ntc tests=$ntests, before tc=$otc tests=$otests"; fi
     fi
   done
 done
@@ -225,8 +250,10 @@ for spec in \
   docs_case "$name" "$(printf '%b' "$cfg")" "$file" "$want"
 done
 
-echo "=== landing: a push to main of a repo on NadavAI CI needs a main-tier landing pass ==="
-# This gh answers commits/<sha>/statuses with a list, by sha: $LAND_MAIN a main-tier landing round
+echo "=== landing: a push to main of a repo on NadavAI CI (not on Woodpecker) needs a main-tier landing pass ==="
+# The nadavai-ci path of the hook, for a repo that lib/woodpecker-repos.txt does not list (an empty
+# list here: sportchat-web and therapy-flow-v2 stay on it through the hook's own nadavai-ci names).
+# The Woodpecker path is the next section. This gh answers commits/<sha>/statuses with a list, by sha: $LAND_MAIN a main-tier landing round
 # (a "running on NadavAI at main tier (landing request)" pending, then the pass), $LAND_FULL a full
 # pass with no landing pending (main's own run), $LAND_BRANCH a branch-tier pass, $LAND_TREE
 # "<sha>:<x>" pairs answered "same tree as <x>", $LAND_LIVE a live nadavai-deploy; nothing else.
@@ -253,12 +280,15 @@ for pr in ${LAND_TREE:-}; do [ "${pr%%:*}" = "$ref" ] && out+=("$(st 2 nadavai-c
 GH
 chmod +x "$t/lbin/gh"
 LURL=git@github.com:Nadav011/sportchat-web.git
+mkdir -p "$t/nowp/lib"; echo '# no repo on Woodpecker' >"$t/nowp/lib/woodpecker-repos.txt"
+# LBIN: the stub gh's folder, LNH: NADAVAI_HOME (its woodpecker-repos.txt), LREFUSED: the refusal text.
+LBIN=$t/lbin LNH=$t/nowp LREFUSED='no main-tier landing pass'
 land() { # name want(ok|refused) base head [env...]; LREFS: extra ref lines pushed after main
   local name=$1 want=$2 base=$3 head=$4 rc; shift 4
   : >"$t/rec"; rm -f "$t/home/.cache/nadavai/pre-push.log"
   (cd "$ld" && { printf 'refs/heads/main %s refs/heads/main %s\n' "$head" "$base"; [ -n "${LREFS:-}" ] && printf '%s\n' "$LREFS"; } |
-    env HOME="$t/home" PATH="$t/lbin:$PATH" REC="$t/rec" "$@" bash "$NEW_HOOK" origin "$LURL" >"$t/out" 2>&1); rc=$?
-  if { [ "$want" = ok ] && [ "$rc" = 0 ]; } || { [ "$want" = refused ] && [ "$rc" = 1 ] && grep -q 'pre-push \[landing\]: .* no main-tier landing pass' "$t/out"; }; then
+    env HOME="$t/home" PATH="$LBIN:$PATH" REC="$t/rec" NADAVAI_HOME="$LNH" "$@" bash "$NEW_HOOK" origin "$LURL" >"$t/out" 2>&1); rc=$?
+  if { [ "$want" = ok ] && [ "$rc" = 0 ]; } || { [ "$want" = refused ] && [ "$rc" = 1 ] && grep -q "pre-push \[landing\]: .* $LREFUSED" "$t/out"; }; then
     ok "landing: $name"
   else bad "landing: $name" "exit $rc: $(grep 'landing' "$t/out" | head -2)"; fi
 }
@@ -302,6 +332,106 @@ commit "$ld" STATUS.md 'train record'; d4=$(git -C "$ld" rev-parse HEAD)
 land "a docs push on a landing with unreadable forceRerunTriggers goes" ok "$c4" "$d4" LAND_MAIN="$c4"
 if ! grep -q '^typecheck' "$t/rec" && ! grep -qE '^vitest (run|related)' "$t/rec"; then ok "landing: ... and runs no local typecheck or tests"
 else bad "landing: docs local checks" "$(grep -E '^typecheck|^vitest' "$t/rec" | head -2)"; fi
+
+echo "=== landing on Woodpecker: main takes a tree whose landing has every ci/woodpecker/pr/* status green ==="
+# rules/ci-policy.md rule 6: a direct push to main needs a commit with the same tree and a green
+# landing, or documentation only since main. The hook looks for the tree in the pushed commit and its
+# five first parents. A repo is on Woodpecker when $LNH/lib/woodpecker-repos.txt lists it (any case, a
+# trailing comment ignored) and its owner is Nadav011. This gh answers commits/<sha>/statuses from WP:
+# entries "<sha>:<context>=<state>,..." oldest first (ids rise in that order; the list comes back
+# newest first, as GitHub sends it). pr/<x> is ci/woodpecker/pr/<x>, push/<x> ci/woodpecker/push/<x>,
+# sec nadavai-security; any other name is the context itself. WP_GH=down fails every read.
+mkdir -p "$t/wbin" "$t/wp/lib"; cp "$t/bin/npm" "$t/bin/npx" "$t/bin/trivy" "$t/wbin/"
+printf '# fixture\nSportChat-Web   # cut over\ntherapy-flow-v2\n' >"$t/wp/lib/woodpecker-repos.txt"
+cat >"$t/wbin/gh" <<'GH'
+#!/usr/bin/env bash
+echo "gh $*" >>"$REC"
+[ "${WP_GH:-}" = down ] && { echo "error connecting to api.github.com" >&2; exit 1; }
+all="$*"; case $all in *"/statuses"*) ;; *) exit 0 ;; esac
+ref=${all#*commits/}; ref=${ref%%/*}
+out=() id=0
+for e in ${WP:-}; do
+  [[ ${e%%:*} == "$ref"* ]] || continue
+  IFS=, read -r -a sts <<<"${e#*:}"
+  for s in "${sts[@]}"; do
+    c=${s%=*} id=$((id + 1))
+    case $c in sec) c=nadavai-security ;; pr/*|push/*) c=ci/woodpecker/$c ;; esac
+    out=("$(printf '{"id":%s,"context":"%s","state":"%s","description":"x","created_at":"2026-11-10T10:00:00Z"}' "$id" "$c" "${s##*=}")" "${out[@]}")
+  done
+done
+(IFS=,; echo "[${out[*]}]")
+GH
+chmod +x "$t/wbin/gh"
+LBIN=$t/wbin LNH=$t/wp LREFUSED='no green Woodpecker landing' LURL=git@github.com:Nadav011/sportchat-web.git
+ld=$t/wland; synth "$ld"; m0=$(git -C "$ld" rev-parse HEAD)
+commit "$ld" src/a.ts 'export const a = 3'; c1=$(git -C "$ld" rev-parse HEAD)
+G="pr/landing=success,sec=success"
+land "a code head with no status is refused" refused "$m0" "$c1"
+wlog=$(cat "$t/home/.cache/nadavai/pre-push.log" 2>/dev/null)
+[[ $wlog == *$'\tlanding-refused\t'*$'\tlanding=refused' ]] && ok "landing: ... and the log says landing-refused, landing=refused" || bad "landing: wp log" "$wlog"
+land "a code head whose landing is green goes" ok "$m0" "$c1" WP="$c1:$G"
+grep -q "the tree of ${c1:0:7} passed its Woodpecker landing" "$t/out" && ok "landing: ... and says why" || bad "landing: wp why" "$(grep landing "$t/out")"
+land "a pending landing is refused" refused "$m0" "$c1" WP="$c1:pr/landing=pending,sec=success"
+land "a red landing is refused" refused "$m0" "$c1" WP="$c1:pr/landing=failure,sec=success"
+land "two workflows, one red, is refused" refused "$m0" "$c1" WP="$c1:pr/web=success,pr/backend=failure,sec=success"
+land "two workflows, both green, goes" ok "$m0" "$c1" WP="$c1:pr/web=success,pr/backend=success,sec=success"
+land "the newest status of a workflow counts: red, then green, goes" ok "$m0" "$c1" WP="$c1:pr/landing=failure,pr/landing=success,sec=success"
+land "the newest status of a workflow counts: green, then red, is refused" refused "$m0" "$c1" WP="$c1:pr/landing=success,pr/landing=failure,sec=success"
+land "only a push-event run and a nadavai-ci pass are no landing: refused" refused "$m0" "$c1" WP="$c1:push/landing=success,nadavai-ci=success,sec=success"
+# KNOWN: rule 6 counts nadavai-security in a green landing, yet the hook never reads it: a red scan
+# on a green head goes to main. Enable when the hook checks it.
+# land "a green landing with a red security scan is refused" refused "$m0" "$c1" WP="$c1:pr/landing=success,sec=failure"
+LREFS="refs/tags/v1 $c1 refs/tags/v1 0000000000000000000000000000000000000000" \
+  land "main pushed with a tag after it is still checked" refused "$m0" "$c1"
+# Commits with the landing head's tree on top of it (a record commit with no change, a squash
+# re-commit): the tree is found in the five first parents, not further.
+es=("$c1"); for i in 1 2 3 4 5 6; do es+=("$(git -C "$ld" commit-tree "$c1^{tree}" -p "${es[i-1]}" -m "same tree $i")"); done
+land "a same-tree commit on a green landing head goes" ok "$m0" "${es[1]}" WP="$c1:$G"
+land "five same-tree commits up, the landing head is still found" ok "$m0" "${es[5]}" WP="$c1:$G"
+land "six same-tree commits up, it is not looked for: refused" refused "$m0" "${es[6]}" WP="$c1:$G"
+am=$(git -C "$ld" commit-tree "$c1^{tree}" -p "$m0" -m "reworded $c1")
+land "a reworded landing head off its history has no landing of its own: refused" refused "$m0" "$am" WP="$c1:$G"
+land "... and goes once that commit landed itself" ok "$m0" "$am" WP="$am:$G"
+# KNOWN: the hook's comment says "itself, a parent, five first parents", yet only first parents are
+# looked at: a local merge whose second parent is the green landing head is refused. Enable when fixed.
+# mt=$(git -C "$ld" commit-tree "$c1^{tree}" -p "$m0" -p "$c1" -m "merge $c1")
+# land "a merge with the tree of its green second parent goes" ok "$m0" "$mt" WP="$c1:$G"
+commit "$ld" STATUS.md 'record'; d1=$(git -C "$ld" rev-parse HEAD)
+land "a record commit on a green landing head, main still before it, is refused" refused "$m0" "$d1" WP="$c1:$G"
+land "the same record commit once main has the landing head: documentation only since main goes" ok "$c1" "$d1"
+grep -q 'documentation only since main' "$t/out" && ok "landing: ... and says why" || bad "landing: wp docs why" "$(grep landing "$t/out")"
+git -C "$ld" reset -q --hard "$c1"
+commit "$ld" src/b.ts 'export const b = 1'; c2=$(git -C "$ld" rev-parse HEAD)
+land "a code commit on a green landing head is refused" refused "$c1" "$c2" WP="$c1:$G"
+wdocs() { # name want path
+  git -C "$ld" reset -q --hard "$c2"; commit "$ld" "$3" docs
+  land "$1" "$2" "$c2" "$(git -C "$ld" rev-parse HEAD)"
+}
+wdocs "documentation only since main goes, with no status read" ok docs/notes.md
+grep -q '/statuses' "$t/rec" && bad "landing: wp docs reads" "$(grep '/statuses' "$t/rec" | head -1)" || ok "landing: ... and reads no landing status"
+wdocs "a Hebrew documentation path is documentation" ok 'docs/סיכום.md'
+wdocs "supabase/*.md is documentation" ok supabase/README.md
+wdocs "markdown under a code folder is not documentation: refused" refused src/README.md
+wdocs "a text file is not documentation: refused" refused docs/notes.txt
+land "NADAVAI_LAND_URGENT lets a fix through" ok "$m0" "$c2" NADAVAI_LAND_URGENT="prod down"
+grep -q 'landing=urgent:prod down' "$t/home/.cache/nadavai/pre-push.log" && ok "landing: ... and the log keeps the reason" || bad "landing: wp urgent log" "$(cat "$t/home/.cache/nadavai/pre-push.log")"
+land "GitHub unreadable lets the push through" ok "$m0" "$c2" WP_GH=down
+grep -q 'landing=unreadable' "$t/home/.cache/nadavai/pre-push.log" && ok "landing: ... and the log says landing=unreadable" || bad "landing: wp unreadable log" "$(cat "$t/home/.cache/nadavai/pre-push.log")"
+LURL=git@github.com:Nadav011/therapy-flow-v2.git
+land "a second listed repo is checked too" refused "$m0" "$c2"
+LURL=git@github.com:Nadav011/other-app.git
+land "a repo the list does not name is not checked here" ok "$m0" "$c2"
+LURL=git@github.com:someone/sportchat-web.git
+land "a listed name under another owner is not checked here" ok "$m0" "$c2"
+LURL=git@github.com:Nadav011/sportchat-web.git
+# KNOWN: on the nadavai-ci path a documentation push on a landed tree runs no local checks even when
+# classify_push cannot read forceRerunTriggers (cce881a, the case above); the Woodpecker path lost
+# that, and a STATUS.md push runs the typecheck and the full suite locally. Enable when fixed.
+# commit "$ld" vitest.config.ts 'export default { test: { forceRerunTriggers: forceRerunTriggersAt(process.cwd()) } }'; c4=$(git -C "$ld" rev-parse HEAD)
+# commit "$ld" STATUS.md 'train record'; d4=$(git -C "$ld" rev-parse HEAD)
+# land "a docs push with unreadable forceRerunTriggers goes" ok "$c4" "$d4"
+# if ! grep -q '^typecheck' "$t/rec" && ! grep -qE '^vitest (run|related)' "$t/rec"; then ok "landing: ... and runs no local typecheck or tests"
+# else bad "landing: wp docs local checks" "$(grep -E '^typecheck|^vitest' "$t/rec" | head -2)"; fi
 
 echo "----"
 [ "$fail" = 0 ] && echo "all passed"
