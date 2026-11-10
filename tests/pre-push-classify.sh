@@ -116,9 +116,13 @@ for dir in $REPLAY_REPOS; do
     old=0000000000000000000000000000000000000000
     [ $((i + 1)) -lt ${#log[@]} ] && old=${log[i+1]%% *}
     pushes=$((pushes + 1))
+    # These URLs name Woodpecker repos, so the new hook runs its landing check; this gh answers an
+    # object, never a status list, and the hook takes that as "GitHub unreadable" and lets the push
+    # through. The replay rides on that branch: it compares Layer 2, not the landing.
     run "$t/old-pre-push" "$dir" "$old" "$new" "$url"; otc=$TC otests=$TESTS
     oreason=$(grep -o 'full test suite: .*' "$t/out" | head -1)
     GH_MODE=unavailable run "$NEW_HOOK" "$dir" "$old" "$new" "$url"; ntc=$TC ntests=$TESTS ndec=$DEC nrel=$REL
+    nwpdocs=0; grep -q 'pre-push \[landing\]: documentation only since main' "$t/out" && nwpdocs=1
     GH_MODE=pass run "$NEW_HOOK" "$dir" "$old" "$new" "$url"; pdec=$DEC
     printf '%-15s %-15s %-16s %-16s %-30s %s\n' "${dir##*/}" "${old:0:6}..${new:0:6}" "tc=$otc/$otests" \
       "tc=$ntc/$ntests" "${ndec:0:30}" "$pdec"
@@ -131,6 +135,12 @@ for dir in $REPLAY_REPOS; do
           ok "${dir##*/} ${new:0:7}: documentation only now; the old hook ran the full suite only for markdown that misses forceRerunTriggers"
         else bad "${dir##*/} ${new:0:7}" "documentation only now, the full suite before ($oreason)"; fi
       fi
+    elif [ "$ndec" = ci-pass-skip ] && [ "$nwpdocs" = 1 ]; then
+      # With GitHub unreadable the only skip left is the Woodpecker landing's "documentation only since
+      # main" (WP_LANDED): main is a tested tree (ci-policy rule 7) and only markdown changed on top.
+      if [ "${old//0/}" != "" ] && ! git -C "$dir" -c core.quotePath=false diff --name-only --no-renames "$old" "$new" | grep -qv '\.md$'; then
+        ok "${dir##*/} ${new:0:7}: no local checks now; documentation only since main, a Woodpecker-landed tree"
+      else bad "${dir##*/} ${new:0:7}" "skipped as documentation only since main, yet a file is not markdown"; fi
     elif [ "$otc/$otests" != "$ntc/$ntests" ]; then
       if [ "$otc/$otests/$ntc/$ntests" = yes/full/yes/related ] && md_left_out "$dir" "$old" "$new" "$oreason" "$nrel"; then
         ok "${dir##*/} ${new:0:7}: related now; the old hook ran the full suite only for markdown that misses forceRerunTriggers"
@@ -139,6 +149,7 @@ for dir in $REPLAY_REPOS; do
   done
 done
 echo "$pushes pushes: $docs documentation only, $skipped would skip on a full CI pass"
+# The count moves with the window, so nothing asserts it beyond "at least one".
 [ "$pushes" -gt 0 ] || bad replay "no push to replay"
 
 # A throwaway repo on vitest with a typecheck script, a github remote URL, and one code commit.
@@ -335,8 +346,8 @@ else bad "landing: docs local checks" "$(grep -E '^typecheck|^vitest' "$t/rec" |
 
 echo "=== landing on Woodpecker: main takes a tree whose landing has every ci/woodpecker/pr/* status green ==="
 # rules/ci-policy.md rule 6: a direct push to main needs a commit with the same tree and a green
-# landing, or documentation only since main. The hook looks for the tree in the pushed commit and its
-# five first parents. A repo is on Woodpecker when $LNH/lib/woodpecker-repos.txt lists it (any case, a
+# landing, or documentation only since main. The hook looks for the tree in the pushed commit, a
+# merge's second parent and five first parents. A repo is on Woodpecker when $LNH/lib/woodpecker-repos.txt lists it (any case, a
 # trailing comment ignored) and its owner is Nadav011. This gh answers commits/<sha>/statuses from WP:
 # entries "<sha>:<context>=<state>,..." oldest first (ids rise in that order; the list comes back
 # newest first, as GitHub sends it). pr/<x> is ci/woodpecker/pr/<x>, push/<x> ci/woodpecker/push/<x>,
@@ -366,11 +377,25 @@ LBIN=$t/wbin LNH=$t/wp LREFUSED='no green Woodpecker landing' LURL=git@github.co
 ld=$t/wland; synth "$ld"; m0=$(git -C "$ld" rev-parse HEAD)
 commit "$ld" src/a.ts 'export const a = 3'; c1=$(git -C "$ld" rev-parse HEAD)
 G="pr/landing=success,sec=success"
+# After a push the landing let through: Layer 1 (trivy) still ran and logged its verdict, the push
+# reached the end of the hook, the logged decision is <decision>, and the local typecheck and tests
+# ran (yes) or not (no). Catches a hook that stops early after the landing check.
+wafter() { # name decision locals(yes|no)
+  local log scan locals=no
+  log=$(cat "$t/home/.cache/nadavai/pre-push.log" 2>/dev/null); scan=${log##*$'\tscan='}; scan=${scan%%$'\t'*}
+  grep -qE '^typecheck|^vitest (run|related)' "$t/rec" && locals=yes
+  if grep -q 'pre-push \[security\]' "$t/out" && grep -q 'Pushing to main' "$t/out" && [[ $scan =~ ^(ok|block|fail|skip)$ ]] &&
+     [ "$(cut -f5 <<<"$log")" = "$2" ] && [ "$locals" = "$3" ]; then
+    ok "landing: ... $1: trivy ran (scan=$scan), decision $2, local checks $3"
+  else bad "landing: after $1" "scan=$scan decision=$(cut -f5 <<<"$log") local checks=$locals: $(grep -E 'security|skipped|Pushing' "$t/out" | head -3)"; fi
+}
 land "a code head with no status is refused" refused "$m0" "$c1"
 wlog=$(cat "$t/home/.cache/nadavai/pre-push.log" 2>/dev/null)
 [[ $wlog == *$'\tlanding-refused\t'*$'\tlanding=refused' ]] && ok "landing: ... and the log says landing-refused, landing=refused" || bad "landing: wp log" "$wlog"
 land "a code head whose landing is green goes" ok "$m0" "$c1" WP="$c1:$G"
 grep -q "the tree of ${c1:0:7} passed its Woodpecker landing" "$t/out" && ok "landing: ... and says why" || bad "landing: wp why" "$(grep landing "$t/out")"
+grep -q $'\tlanding=ok$' "$t/home/.cache/nadavai/pre-push.log" && ok "landing: ... and the log says landing=ok" || bad "landing: wp ok log" "$(cat "$t/home/.cache/nadavai/pre-push.log")"
+wafter "a green landing" ci-pass-skip no
 land "a pending landing is refused" refused "$m0" "$c1" WP="$c1:pr/landing=pending,sec=success"
 land "a red landing is refused" refused "$m0" "$c1" WP="$c1:pr/landing=failure,sec=success"
 land "two workflows, one red, is refused" refused "$m0" "$c1" WP="$c1:pr/web=success,pr/backend=failure,sec=success"
@@ -378,9 +403,23 @@ land "two workflows, both green, goes" ok "$m0" "$c1" WP="$c1:pr/web=success,pr/
 land "the newest status of a workflow counts: red, then green, goes" ok "$m0" "$c1" WP="$c1:pr/landing=failure,pr/landing=success,sec=success"
 land "the newest status of a workflow counts: green, then red, is refused" refused "$m0" "$c1" WP="$c1:pr/landing=success,pr/landing=failure,sec=success"
 land "only a push-event run and a nadavai-ci pass are no landing: refused" refused "$m0" "$c1" WP="$c1:push/landing=success,nadavai-ci=success,sec=success"
-# KNOWN: rule 6 counts nadavai-security in a green landing, yet the hook never reads it: a red scan
-# on a green head goes to main. Enable when the hook checks it.
-# land "a green landing with a red security scan is refused" refused "$m0" "$c1" WP="$c1:pr/landing=success,sec=failure"
+# nadavai-security on the landed commit: failure or error refuses; missing or pending goes with a
+# warning and landing=ok-nosec (the scanner has been down for days at a time).
+LREFUSED='security scan (nadavai-security) of [0-9a-f]* is failure' \
+  land "a green landing with a red security scan is refused" refused "$m0" "$c1" WP="$c1:pr/landing=success,sec=failure"
+LREFUSED='security scan (nadavai-security) of [0-9a-f]* is error' \
+  land "a green landing with a security scan in error is refused" refused "$m0" "$c1" WP="$c1:pr/landing=success,sec=error"
+land "the newest security status counts: red, then green, goes" ok "$m0" "$c1" WP="$c1:pr/landing=success,sec=failure,sec=success"
+LREFUSED='security scan (nadavai-security) of [0-9a-f]* is failure' \
+  land "the newest security status counts: green, then red, is refused" refused "$m0" "$c1" WP="$c1:pr/landing=success,sec=success,sec=failure"
+for sec in none pending; do
+  wp="$c1:pr/landing=success"; [ "$sec" = none ] || wp="$wp,sec=$sec"
+  land "a green landing with the security scan $sec goes with a warning" ok "$m0" "$c1" WP="$wp"
+  if grep -q $'\tlanding=ok-nosec$' "$t/home/.cache/nadavai/pre-push.log" && grep -q "security scan (nadavai-security) is $sec" "$t/out"; then
+    ok "landing: ... and logs landing=ok-nosec"
+  else bad "landing: nosec $sec" "$(grep landing "$t/out" | head -2)"; fi
+  wafter "a landing with the scan $sec" ci-pass-skip no
+done
 LREFS="refs/tags/v1 $c1 refs/tags/v1 0000000000000000000000000000000000000000" \
   land "main pushed with a tag after it is still checked" refused "$m0" "$c1"
 # Commits with the landing head's tree on top of it (a record commit with no change, a squash
@@ -392,14 +431,15 @@ land "six same-tree commits up, it is not looked for: refused" refused "$m0" "${
 am=$(git -C "$ld" commit-tree "$c1^{tree}" -p "$m0" -m "reworded $c1")
 land "a reworded landing head off its history has no landing of its own: refused" refused "$m0" "$am" WP="$c1:$G"
 land "... and goes once that commit landed itself" ok "$m0" "$am" WP="$am:$G"
-# KNOWN: the hook's comment says "itself, a parent, five first parents", yet only first parents are
-# looked at: a local merge whose second parent is the green landing head is refused. Enable when fixed.
-# mt=$(git -C "$ld" commit-tree "$c1^{tree}" -p "$m0" -p "$c1" -m "merge $c1")
-# land "a merge with the tree of its green second parent goes" ok "$m0" "$mt" WP="$c1:$G"
+mt=$(git -C "$ld" commit-tree "$c1^{tree}" -p "$m0" -p "$c1" -m "merge $c1")
+land "a merge with the tree of its green second parent goes" ok "$m0" "$mt" WP="$c1:$G"
+mx=$(git -C "$ld" commit-tree "$(git -C "$ld" mktree </dev/null)" -p "$m0" -p "$c1" -m "merge $c1, another tree")
+land "a merge whose tree is not its green second parent's is refused" refused "$m0" "$mx" WP="$c1:$G"
 commit "$ld" STATUS.md 'record'; d1=$(git -C "$ld" rev-parse HEAD)
 land "a record commit on a green landing head, main still before it, is refused" refused "$m0" "$d1" WP="$c1:$G"
 land "the same record commit once main has the landing head: documentation only since main goes" ok "$c1" "$d1"
 grep -q 'documentation only since main' "$t/out" && ok "landing: ... and says why" || bad "landing: wp docs why" "$(grep landing "$t/out")"
+wafter "documentation only since main" docs-only no
 git -C "$ld" reset -q --hard "$c1"
 commit "$ld" src/b.ts 'export const b = 1'; c2=$(git -C "$ld" rev-parse HEAD)
 land "a code commit on a green landing head is refused" refused "$c1" "$c2" WP="$c1:$G"
@@ -415,8 +455,10 @@ wdocs "markdown under a code folder is not documentation: refused" refused src/R
 wdocs "a text file is not documentation: refused" refused docs/notes.txt
 land "NADAVAI_LAND_URGENT lets a fix through" ok "$m0" "$c2" NADAVAI_LAND_URGENT="prod down"
 grep -q 'landing=urgent:prod down' "$t/home/.cache/nadavai/pre-push.log" && ok "landing: ... and the log keeps the reason" || bad "landing: wp urgent log" "$(cat "$t/home/.cache/nadavai/pre-push.log")"
+wafter "an urgent push (no landing, so the local checks run)" related yes
 land "GitHub unreadable lets the push through" ok "$m0" "$c2" WP_GH=down
 grep -q 'landing=unreadable' "$t/home/.cache/nadavai/pre-push.log" && ok "landing: ... and the log says landing=unreadable" || bad "landing: wp unreadable log" "$(cat "$t/home/.cache/nadavai/pre-push.log")"
+wafter "an unread landing (so the local checks run)" related yes
 LURL=git@github.com:Nadav011/therapy-flow-v2.git
 land "a second listed repo is checked too" refused "$m0" "$c2"
 LURL=git@github.com:Nadav011/other-app.git
@@ -424,14 +466,13 @@ land "a repo the list does not name is not checked here" ok "$m0" "$c2"
 LURL=git@github.com:someone/sportchat-web.git
 land "a listed name under another owner is not checked here" ok "$m0" "$c2"
 LURL=git@github.com:Nadav011/sportchat-web.git
-# KNOWN: on the nadavai-ci path a documentation push on a landed tree runs no local checks even when
-# classify_push cannot read forceRerunTriggers (cce881a, the case above); the Woodpecker path lost
-# that, and a STATUS.md push runs the typecheck and the full suite locally. Enable when fixed.
-# commit "$ld" vitest.config.ts 'export default { test: { forceRerunTriggers: forceRerunTriggersAt(process.cwd()) } }'; c4=$(git -C "$ld" rev-parse HEAD)
-# commit "$ld" STATUS.md 'train record'; d4=$(git -C "$ld" rev-parse HEAD)
-# land "a docs push with unreadable forceRerunTriggers goes" ok "$c4" "$d4"
-# if ! grep -q '^typecheck' "$t/rec" && ! grep -qE '^vitest (run|related)' "$t/rec"; then ok "landing: ... and runs no local typecheck or tests"
-# else bad "landing: wp docs local checks" "$(grep -E '^typecheck|^vitest' "$t/rec" | head -2)"; fi
+# A documentation push with forceRerunTriggers classify_push cannot read (a function call): the
+# classifier alone would run the full suite, but the tree landed, so no local checks (as cce881a on
+# the nadavai-ci path).
+commit "$ld" vitest.config.ts 'export default { test: { forceRerunTriggers: forceRerunTriggersAt(process.cwd()) } }'; c4=$(git -C "$ld" rev-parse HEAD)
+commit "$ld" STATUS.md 'train record'; d4=$(git -C "$ld" rev-parse HEAD)
+land "a docs push with unreadable forceRerunTriggers goes" ok "$c4" "$d4"
+wafter "a docs push with unreadable forceRerunTriggers" ci-pass-skip no
 
 echo "----"
 [ "$fail" = 0 ] && echo "all passed"

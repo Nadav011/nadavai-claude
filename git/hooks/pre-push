@@ -430,7 +430,7 @@ run_tests() {
 # `gh pr merge`. NADAVAI_LAND_URGENT=<reason> lets an urgent fix through; GitHub unreadable lets the
 # push through. Both are logged (landing=). The rules mirror the runner's same_tree_pass and
 # docs_since_green, FULL_PASS_RE above and agent-guard's merge_guard: change them together.
-LANDING=""
+LANDING="" WP_LANDED=""
 # Documentation as the runner's docs_since_green reads it: every file *.md, none under a code
 # directory, supabase/*.md excepted.
 landing_docs_only() {  # base head
@@ -531,42 +531,59 @@ if [ -n "$MAIN_LOCAL_SHA" ] && [ "${MAIN_LOCAL_SHA//0/}" != "" ]; then
       esac
     fi
     # CI v2: a repo cut over to Woodpecker (lib/woodpecker-repos.txt) lands through a PR. A direct
-    # push to main passes when the pushed commit (or a commit with the same tree: itself, a parent,
-    # five first parents) has every ci/woodpecker/pr/* status green, or only documentation
-    # changed since main. Same rule family as agent-guard's wp_merge_check.
+    # push to main passes when the pushed commit (or a commit with the same tree: itself, a merge's
+    # second parent, five first parents) has every ci/woodpecker/pr/* status green, or only documentation
+    # changed since main. Same rule family as agent-guard's wp_merge_check. A red nadavai-security
+    # (failure or error) on that commit refuses; a missing or pending one goes with a warning
+    # (landing=ok-nosec), because the scanner has been down for days at a time. A landed tree sets
+    # WP_LANDED, so Layer 2 does not run again on what Woodpecker passed (rules 1 and 7).
     if [ "${gh_owner,,}" = nadav011 ] && grep -qixF "$gh_name" <(sed 's/[[:space:]]*#.*//; /^$/d' "${NADAVAI_HOME:-$HOME/nadavai}/lib/woodpecker-repos.txt" 2>/dev/null); then
       on_ci=""
       MAIN_REMOTE=""; case "$MAIN_REMOTE_SHA" in *[!0]*) git cat-file -e "$MAIN_REMOTE_SHA^{commit}" 2>/dev/null && MAIN_REMOTE=$MAIN_REMOTE_SHA ;; esac
-      wp_ok="" wp_unread=0
+      wp_ok="" wp_unread=0 wp_sec=""
       if [ -n "${NADAVAI_LAND_URGENT:-}" ]; then
         echo "⚠️  pre-push [landing]: NADAVAI_LAND_URGENT ($NADAVAI_LAND_URGENT): ${MAIN_LOCAL_SHA:0:7} reaches main without a Woodpecker landing"
         LANDING="urgent:${NADAVAI_LAND_URGENT//[$'\t\n']/ }"; wp_ok=1
       elif [ -n "$MAIN_REMOTE" ] && landing_docs_only "$MAIN_REMOTE" "$MAIN_LOCAL_SHA"; then
-        echo "✅ pre-push [landing]: documentation only since main"; LANDING="ok"; wp_ok=1
+        echo "✅ pre-push [landing]: documentation only since main"; LANDING="ok"; wp_ok=1; WP_LANDED="documentation only since main"
       else
         wp_tree=$(git rev-parse -q --verify "$MAIN_LOCAL_SHA^{tree}" 2>/dev/null)
         wp_c=$MAIN_LOCAL_SHA; wp_cands=("$MAIN_LOCAL_SHA")
         for ((i = 0; i < 5; i++)); do wp_c=$(git rev-parse -q --verify "$wp_c^1" 2>/dev/null) || break; wp_cands+=("$wp_c"); done
+        wp_c=$(git rev-parse -q --verify "$MAIN_LOCAL_SHA^2" 2>/dev/null) && wp_cands+=("$wp_c")
         for p in "${wp_cands[@]}"; do
           [ "$(git rev-parse -q --verify "$p^{tree}" 2>/dev/null)" = "$wp_tree" ] || continue
-          # Every ci/woodpecker/pr/* context's newest status green (one repo has landing, another web + backend).
+          # Every ci/woodpecker/pr/* context's newest status green (one repo has landing, another web + backend),
+          # then the newest nadavai-security state ("none" when there is none).
           r=$(timeout 10 gh api "repos/$GH_REPO/commits/$p/statuses?per_page=100" 2>/dev/null | jq -r 'if type == "array" then
               ([.[] | select(.context | startswith("ci/woodpecker/pr/"))] | group_by(.context) | map(sort_by(.id) | last | .state)) as $s
-              | if ($s | length) == 0 then "none" elif all($s[]; . == "success") then "success" else "red" end
+              | ([.[] | select(.context == "nadavai-security")] | sort_by(.id) | last | .state // "none") as $sec
+              | (if ($s | length) == 0 then "none" elif all($s[]; . == "success") then "success" else "red" end) + " " + $sec
             else "unread" end' 2>/dev/null)
           [ -n "$r" ] || r=unread
           [ "$r" = unread ] && wp_unread=1
-          [ "$r" = success ] && { echo "✅ pre-push [landing]: the tree of ${p:0:7} passed its Woodpecker landing"; LANDING="ok"; wp_ok=1; break; }
+          case "$r" in
+            "success failure"|"success error") wp_sec="${p:0:7} ${r#success }"; break ;;
+            "success success") echo "✅ pre-push [landing]: the tree of ${p:0:7} passed its Woodpecker landing"; LANDING="ok" ;;
+            "success "*) echo "⚠️  pre-push [landing]: the tree of ${p:0:7} passed its Woodpecker landing; its security scan (nadavai-security) is ${r#success }, pushed without it"; LANDING="ok-nosec" ;;
+            *) continue ;;
+          esac
+          WP_LANDED="the tree of ${p:0:7} passed its Woodpecker landing"; wp_ok=1; break
         done
-        if [ -z "$wp_ok" ] && [ "$wp_unread" = 1 ]; then
+        if [ -z "$wp_ok" ] && [ -z "$wp_sec" ] && [ "$wp_unread" = 1 ]; then
           echo "⚠️  pre-push [landing]: GitHub unreadable; main pushed without the landing check"; LANDING=unreadable; wp_ok=1
         fi
       fi
       if [ -z "$wp_ok" ]; then
         echo ""
-        echo "🚫 pre-push [landing]: ${MAIN_LOCAL_SHA:0:7} has no green Woodpecker landing (every ci/woodpecker/pr/* status green)."
-        echo "   $gh_name lands through a non-draft PR into main: push the branch, run"
-        echo "   ci-wait $gh_name <branch> --land in the background, and merge the PR after it is green."
+        if [ -n "$wp_sec" ]; then
+          echo "🚫 pre-push [landing]: the security scan (nadavai-security) of ${wp_sec% *} is ${wp_sec#* }: a new secret or a high/critical"
+          echo "   dependency advisory. Fix it on the branch, push, and land the new head once its scan is green."
+        else
+          echo "🚫 pre-push [landing]: ${MAIN_LOCAL_SHA:0:7} has no green Woodpecker landing (every ci/woodpecker/pr/* status green)."
+          echo "   $gh_name lands through a non-draft PR into main: push the branch, run"
+          echo "   ci-wait $gh_name <branch> --land in the background, and merge the PR after it is green."
+        fi
         echo "   Urgent fix: NADAVAI_LAND_URGENT='<reason>' git push ...   Emergency: git push --no-verify"
         DECISION=landing-refused LANDING=refused
         kill $(jobs -p) 2>/dev/null; wait 2>/dev/null
@@ -623,6 +640,8 @@ if [ "$IS_MAIN" = 1 ] && [ -f "package.json" ]; then
       # read a config's forceRerunTriggers (a function call: sportchat-web's forceRerunTriggersAt,
       # 2026-10-31, which ran the whole suite for 301 s on a STATUS.md push).
       DECISION=ci-pass-skip; CI_PASS="$LANDED (the landing check)"
+    elif [ -n "$WP_LANDED" ]; then
+      DECISION=ci-pass-skip; CI_PASS="$WP_LANDED"
     elif GH_T0=${EPOCHREALTIME//[!0-9]/}; ci_full_pass "$PUSH_LOCAL_SHA"; then
       GH_SEC=$(since "$GH_T0")
       DECISION=ci-pass-skip
@@ -687,7 +706,8 @@ echo "⚡ pre-push [main] — typecheck gate"
 echo "────────────────────────────────────────────────"
 
 case "$DECISION" in
-  ci-pass-skip) echo "✅ typecheck and tests skipped: nadavai-ci passed ${PUSH_LOCAL_SHA:0:7} in full ($CI_PASS)" ;;
+  ci-pass-skip) if [ -n "$WP_LANDED" ]; then echo "✅ typecheck and tests skipped: $WP_LANDED"
+                else echo "✅ typecheck and tests skipped: nadavai-ci passed ${PUSH_LOCAL_SHA:0:7} in full ($CI_PASS)"; fi ;;
   docs-only) echo "✅ typecheck and tests skipped: documentation only since ${PUSH_REMOTE_SHA:0:7}" ;;
 esac
 

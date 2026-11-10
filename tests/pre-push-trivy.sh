@@ -96,7 +96,7 @@ mkdir -p "$f/פרויקט"; lock >"$f/פרויקט/package-lock.json"; git -C "$
 push "$f" "$fh" "$z"; rc=$?
 [ "$rc" = 1 ] && grep -q 'c.env' "$t/out" && ok "a first push blocks on a key it added and removed" || bad "first push key: rc=$rc $(grep scanned "$t/out")"
 grep -q 'lodash' "$t/out" && ok "a first push scans a lockfile under a non-ASCII path" || bad "first push hebrew lockfile: $(grep -E 'scanned|lodash' "$t/out")"
-grep -qE 'scan=block$' "$t/home/.cache/nadavai/pre-push.log" && ok "the log records the trivy outcome (scan=block)" || bad "log: $(tail -1 "$t/home/.cache/nadavai/pre-push.log")"
+grep -qE $'\tscan=block(\t|$)' "$t/home/.cache/nadavai/pre-push.log" && ok "the log records the trivy outcome (scan=block)" || bad "log: $(tail -1 "$t/home/.cache/nadavai/pre-push.log")"
 
 # A push to a URL compares against the remote whose url that is: a key it already has does not block.
 bare=$t/bare.git; git init -q --bare -b main "$bare"
