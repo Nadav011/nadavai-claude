@@ -351,6 +351,27 @@ has "C6-1 B committed on main, not live: Deploy OPEN" "^OPEN +Deploy: therapy-fl
 live manual "$BC"
 out=$(check "$B")
 has "C6-1 B live: Deploy OK" "^OK +Deploy: therapy-flow-v2: production serves this session's commit ${BC:0:7}" "$out"
+# R4-1: an own commit on main that is live does not hide a later squash merge of a branch this session left
+git -C "$B" checkout -q -b feat2; echo g >"$B/g.txt"; git -C "$B" add g.txt; git -C "$B" commit -qm feat2
+git -C "$B" push -q -u origin feat2 2>/dev/null; F2=$(git -C "$B" rev-parse HEAD)
+git -C "$tmp/pusher" pull -q --ff-only; echo g >"$tmp/pusher/g.txt"; git -C "$tmp/pusher" add g.txt
+git -C "$tmp/pusher" commit -qm "feat2 (#21)"; git -C "$tmp/pusher" push -q origin main 2>/dev/null
+SQ2=$(git -C "$tmp/pusher" rev-parse HEAD)
+gh_says "[$(pr 21 MERGED main "$F2" "$SQ2")]"
+git -C "$B" switch -q main; git -C "$B" pull -q --ff-only
+out=$(check "$B")
+has "R4-1 own commit live, later squash merge not live: Deploy OPEN" "^OPEN +Deploy: therapy-flow-v2: this session's commit ${SQ2:0:7} is in origin/main but not live" "$out"
+hasnt "R4-1: never yes" '^CLOSE: yes' "$out"
+hasnt "R4-1: its own merge is not called other sessions' merges" "other sessions' merges" "$out"
+gh_says 'not json'
+out=$(check "$B")
+has "R4-1 gh fails after an own commit was found: Deploy UNCHECKED" '^UNCHECKED +Deploy: therapy-flow-v2: HEAD is in origin/main; whether this session landed work it left: PR of feat2 not checked' "$out"
+hasnt "R4-1 gh fails: never yes" '^CLOSE: yes' "$out"
+gh_says "[$(pr 21 MERGED main "$F2" "$SQ2")]"; live manual "$SQ2"
+out=$(check "$B")
+has "R4-1 both live: Deploy OK" '^OK +Deploy: therapy-flow-v2: production serves this session'"'"'s commit' "$out"
+has "R4-1 both live: CLOSE yes" '^CLOSE: yes$' "$out"
+gh_says '[]'
 # --- C6-3: a branch whose own commit was dropped (reset --hard origin/main) has nothing of its own in main ---
 C=$(clone_tf c)
 git -C "$C" checkout -q -b try; echo t >"$C/t.txt"; git -C "$C" add t.txt; git -C "$C" commit -qm try

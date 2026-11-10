@@ -187,15 +187,19 @@ def head_reflog(top):
 
 def find_landed(top, mref, branch, fetch_on):
     """HEAD is in main and has no commit of its own: look for this worktree's landed work that HEAD no longer shows.
-    Returns (landed commits, state, reason): commits made here in the window that are in main (on main itself, or
-    merged without a squash); else the PRs merged into main of the branches HEAD left in the window (and of the
-    current branch), found by head name, so also when `gh pr merge -d` deleted the branch."""
+    Returns (landed commits, state, reason). Both sources are collected, because one session can have both: the
+    newest commit made here in the window that is in main (on main itself, or merged without a squash), and the
+    PRs merged into main of the branches HEAD left in the window (and of the current branch), found by head name,
+    so also when `gh pr merge -d` deleted the branch. A PR lookup that failed stays 'pr-unknown' even when an own
+    commit was found: the squash merge it could not read may be the one that is not live."""
     base = mref.split('/', 1)[1]
     log = head_reflog(top)
     own = list(dict.fromkeys(sha for sha, gs in log if OWN.match(gs)))[:30]
-    for sha in own:  # newest first
+    landed = []
+    for sha in own:  # newest first: main holds its ancestors too, so the newest one in main is enough
         if git(top, 'merge-base', '--is-ancestor', sha, mref) is not None:
-            return [sha], 'own', None
+            landed.append(sha)
+            break
     left = [branch] if branch and branch not in ('main', 'master', base) else []
     for _, gs in log:
         m = re.match(r'checkout: moving from (\S+) to ', gs)
@@ -204,10 +208,10 @@ def find_landed(top, mref, branch, fetch_on):
             left.append(b)
     left = left[:3]
     if not left:
-        return [], 'none', None
+        return (landed, 'own', None) if landed else ([], 'none', None)
     if not fetch_on:
-        return [], 'pr-unknown', f'PRs of {", ".join(left)} not checked: --no-fetch'
-    landed, unknown = [], []
+        return landed, 'pr-unknown', f'PRs of {", ".join(left)} not checked: --no-fetch'
+    unknown = []
     for b in left:
         prs, why = prs_for(top, b)
         if prs is None:
@@ -216,7 +220,7 @@ def find_landed(top, mref, branch, fetch_on):
         for p in prs:
             if p.get('state') == 'MERGED' and p.get('baseRefName') == base:
                 oid = (p.get('mergeCommit') or {}).get('oid')
-                if oid:
+                if oid and oid not in landed:
                     landed.append(oid)
                 else:
                     unknown.append(f'PR #{p.get("number")} of {b} merged, but gh gave no merge commit')
