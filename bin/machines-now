@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# machines-now: one line per home machine (CPU, memory, heavy jobs, CI on the MSI) and where a
+# heavy session should start now. For Nadav, so the output is Hebrew.
+#
+#   machines-now
+#
+# Why: on 2026-11-10 the LENOVO ran at 93-99% CPU while the MSI was often idle, and Nadav chose
+# to start heavy sessions on the MSI when its CI agent is quiet, not to move a project there.
+# The MSI has about 28% of the LENOVO's throughput and is the only CI agent, so it is the
+# better place only when the LENOVO is full, the MSI has room and no CI run is on it.
+# Reads `heavy-slot --status` on each machine and `ci-agent status`; changes nothing.
+set -uo pipefail
+case "${1:-}" in -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;; esac
+
+probe='export PATH="$HOME/.local/bin:$PATH"; heavy-slot --status 2>/dev/null | head -6'
+parse() { # heavy-slot --status text on stdin -> "busy mem running waiting", or nothing
+  awk '/^CPU [0-9]+% busy/ { sub("%", "", $2); b = $2 }
+       /^memory [0-9]+ GB available/ { m = $2 }
+       /^running: / { r = $2 }
+       /^waiting, in order: / { w = $4 }
+       END { if (b != "") print b, m + 0, r + 0, w + 0 }'
+}
+line() { # name, "busy mem running waiting", extra text
+  local busy mem run wait
+  read -r busy mem run wait <<<"$2"
+  printf '%-7s מעבד %s%% תפוס · זיכרון פנוי %s ג׳יגה · עבודות כבדות: %s רצות, %s מחכות%s\n' "$1" "$busy" "$mem" "$run" "$wait" "$3"
+}
+
+here=$(hostname)
+l=$(bash -c "$probe" | parse)
+m="" ci="" ci_txt=""
+if [ "$here" = lenovo ]; then
+  m=$(ssh -o BatchMode=yes -o ConnectTimeout=5 msi bash -s <<<"$probe" 2>/dev/null | parse)
+  ci=$(ci-agent status 2>/dev/null | awk '$1 == "msi" { for (i = 1; i <= NF; i++) if ($i == "running") print $(i + 1); exit }')
+  [ -n "$ci" ] && ci_txt=" · CI: $ci ריצות"
+fi
+
+[ -n "$l" ] && line "${here^^}" "$l" "" || echo "${here^^}: אין קריאה (heavy-slot --status לא ענה)"
+[ "$here" = lenovo ] || exit 0
+if [ -z "$m" ]; then echo "MSI: לא עונה ברשת"; echo "איפה לפתוח סשן כבד: ב-LENOVO (ה-MSI לא זמין)"; exit 0; fi
+line MSI "$m" "$ci_txt"
+
+read -r lb _ _ lw <<<"$l"; read -r mb mm _ _ <<<"$m"
+if [ "$lb" -lt 85 ] && [ "$lw" = 0 ]; then echo "איפה לפתוח סשן כבד: ב-LENOVO, יש בו מקום"
+elif [ "${ci:-0}" -gt 0 ]; then echo "איפה לפתוח סשן כבד: ה-LENOVO מלא וב-MSI רץ CI עכשיו. לחכות כמה דקות, או ב-LENOVO אם זה דחוף"
+elif [ "$mb" -lt 60 ] && [ "$mm" -ge 12 ]; then echo "איפה לפתוח סשן כבד: ב-MSI, ה-LENOVO מלא וה-MSI פנוי בלי CI"
+else echo "איפה לפתוח סשן כבד: שני המחשבים עמוסים. לחכות, או ב-LENOVO (הוא חזק פי שלושה)"; fi
