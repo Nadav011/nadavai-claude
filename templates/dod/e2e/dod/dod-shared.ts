@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import type { CheckResult, ProbeAt } from "./standard-dom";
 
 /**
  * The project root: the directory the run starts from (`pnpm dod` runs in the package
@@ -138,6 +139,63 @@ export function excludedRoutes(params: RouteParams): Record<string, string> {
   return Object.fromEntries(Object.entries(params._exclude ?? {}).filter(([k]) => !k.startsWith("_")));
 }
 
+/**
+ * The experience standard (nadav-design `standard/experience.md`), configured per project in
+ * e2e/dod/standard.json. No file: the standard's checks do not run, and dod.json says
+ * `standard: "not configured"`.
+ */
+export interface StandardConfig {
+  profile: "work-tool" | "consumer";
+  /** `report` writes findings to dod.json and leaves the score alone; `enforce` deducts. */
+  mode: "enforce" | "report";
+  /** Smallest text the probe accepts, in px. */
+  textFloorPx: number;
+  helpDir?: string;
+  coreUnit?: { route: string; selector: string; min: number; viewport: [number, number] };
+  languages?: { lang: string; dir: "rtl" | "ltr"; routePrefix?: string; query?: string }[];
+  /** Added to the built-in Hebrew list (standard-dom.ts), never replacing it. */
+  forbiddenWords: string[];
+}
+
+/** In `enforce` mode: deducted once per check id that has findings on a route. */
+export const STANDARD_PENALTY = 10;
+
+/** Conditions of the standard's check table that this template does not measure yet. */
+export const STANDARD_NOT_BUILT: Record<string, string> = {
+  "error-field": "the focus half (focus on the first invalid field after submit) is a later step; only the static half runs",
+  probe: "an icon covered by its badge is not measured",
+  "tour-no-commit": "not built until a project defines a tour manifest",
+};
+
+export function loadStandard(): StandardConfig | null {
+  const file = path.join(DOD_DIR, "standard.json");
+  if (!fs.existsSync(file)) return null;
+  const raw = readJson<Partial<StandardConfig>>(file, {});
+  const bad = (why: string): never => {
+    throw new Error(`[dod] e2e/dod/standard.json: ${why}`);
+  };
+  const profile = raw.profile ?? bad('"profile" is required: "work-tool" or "consumer"');
+  if (profile !== "work-tool" && profile !== "consumer") bad('"profile" must be "work-tool" or "consumer"');
+  const mode = raw.mode ?? "report";
+  if (mode !== "enforce" && mode !== "report") bad('"mode" must be "enforce" or "report"');
+  const textFloorPx = raw.textFloorPx ?? 12;
+  if (typeof textFloorPx !== "number" || !(textFloorPx > 0)) bad('"textFloorPx" must be a positive number');
+  const cu = raw.coreUnit;
+  if (
+    cu &&
+    (typeof cu.route !== "string" ||
+      typeof cu.selector !== "string" ||
+      typeof cu.min !== "number" ||
+      !Array.isArray(cu.viewport) ||
+      cu.viewport.length !== 2)
+  )
+    bad('"coreUnit" must be { "route", "selector", "min", "viewport": [width, height] }');
+  const forbiddenWords = raw.forbiddenWords ?? [];
+  if (!Array.isArray(forbiddenWords) || forbiddenWords.some((w) => typeof w !== "string" || !w.trim()))
+    bad('"forbiddenWords" must be a list of non-empty strings');
+  return { ...raw, profile, mode, textFloorPx, forbiddenWords } as StandardConfig;
+}
+
 export function routeSlug(route: string): string {
   return (
     route
@@ -201,6 +259,10 @@ export interface EntryResult {
   fonts: { families: string[]; count: number };
   touch_targets: { checked: boolean; failures: number; samples: string[] };
   reduced_motion: { violations: number; samples: string[] };
+  /** The standard's checks on this entry, by check id; absent when standard.json is. */
+  standard?: Record<string, CheckResult>;
+  /** The mechanical probe, by size ("320x700"); light scheme only. */
+  probe?: Record<string, ProbeAt>;
 }
 
 export interface Totals {
@@ -212,6 +274,10 @@ export interface Totals {
   font_families: number;
   touch_target_failures: number;
   reduced_motion_violations: number;
+  /** The standard's findings: every count, summed over routes (each route's highest entry). */
+  standard_findings: number;
+  /** Check ids with findings, one per route and check id. Deducted only in `enforce` mode. */
+  standard_failures: number;
   score: number;
 }
 
@@ -223,13 +289,14 @@ export interface Totals {
  *  -10 if font families > 2
  *  -2 per touch-target failure (capped at -20)
  *  -10 per reduced-motion violation
+ *  -10 (STANDARD_PENALTY) per standard check id with findings on a route, in `enforce` mode only
  *  -100 if any entry was unreachable (non-2xx, a redirect to a login screen, or a load error):
  *     a page the QA account cannot open is not "passing", it is unmeasured.
  *  -100 if any entry was never reached: the response arrived but the app did not paint.
  *     Same reason, one layer up — averaging an unrendered page in as "perfect" is the
  *     single failure mode that makes the whole number a lie.
  */
-export function score(t: Omit<Totals, "score">): number {
+export function score(t: Omit<Totals, "score">, enforceStandard = false): number {
   if (t.unreachable > 0) return 0;
   if (t.unreached > 0) return 0;
   let s = 100;
@@ -239,6 +306,7 @@ export function score(t: Omit<Totals, "score">): number {
   if (t.font_families > 2) s -= 10;
   s -= Math.min(20, 2 * t.touch_target_failures);
   s -= 10 * t.reduced_motion_violations;
+  if (enforceStandard) s -= STANDARD_PENALTY * t.standard_failures;
   return Math.max(0, Math.min(100, s));
 }
 
@@ -246,9 +314,10 @@ export function score(t: Omit<Totals, "score">): number {
  * Aggregates entries for one route (or all routes). Per-page findings (axe, console,
  * touch targets, reduced motion) are counted once per route as the max across its
  * viewport/scheme entries, so the same defect isn't charged four times. Overflow is
- * counted per entry (mobile vs desktop overflow are distinct defects).
+ * counted per entry (mobile vs desktop overflow are distinct defects). The standard's
+ * checks are per page too: a check id counts once per route, at its highest entry.
  */
-export function aggregate(entries: EntryResult[]): Totals {
+export function aggregate(entries: EntryResult[], enforceStandard = false): Totals {
   const byRoute = new Map<string, EntryResult[]>();
   for (const e of entries) byRoute.set(e.route, [...(byRoute.get(e.route) ?? []), e]);
   const max = (xs: number[]) => (xs.length ? Math.max(...xs) : 0);
@@ -261,12 +330,36 @@ export function aggregate(entries: EntryResult[]): Totals {
     font_families: max(entries.map((e) => e.fonts.count)),
     touch_target_failures: 0,
     reduced_motion_violations: 0,
+    standard_findings: 0,
+    standard_failures: 0,
   };
   for (const es of byRoute.values()) {
+    for (const c of Object.values(routeStandard(es))) {
+      t.standard_findings += c.count;
+      if (c.count > 0) t.standard_failures++;
+    }
     t.axe_violations += max(es.map((e) => e.axe.counted));
     t.console_errors += max(es.map((e) => e.console_errors.length));
     t.touch_target_failures += max(es.filter((e) => e.touch_targets.checked).map((e) => e.touch_targets.failures));
     t.reduced_motion_violations += max(es.map((e) => e.reduced_motion.violations));
   }
-  return { ...t, score: score(t) };
+  return { ...t, score: score(t, enforceStandard) };
+}
+
+/**
+ * One route's standard checks from its entries: each check id at its highest entry, with
+ * that entry's samples labelled by viewport and scheme. `skipped` only when every entry
+ * that ran the check skipped it.
+ */
+export function routeStandard(es: EntryResult[]): Record<string, CheckResult> {
+  const out: Record<string, CheckResult> = {};
+  for (const e of es) {
+    for (const [id, c] of Object.entries(e.standard ?? {})) {
+      const at = `${e.viewport.width}/${e.scheme}`;
+      const cur = out[id];
+      if (!cur || c.count > cur.count || (cur.skipped && !c.skipped))
+        out[id] = { count: c.count, samples: c.samples.map((x) => `${at}: ${x}`), ...(c.skipped ? { skipped: c.skipped } : {}) };
+    }
+  }
+  return out;
 }

@@ -3,7 +3,9 @@
 //
 //   node e2e/dod/routes.mjs            write routes.json (merges: keeps extra entries you added)
 //   node e2e/dod/routes.mjs --check    exit 1 if the app has routes routes.json does not cover,
-//                                      or routes.json has a route the app no longer has
+//                                      or routes.json has a route the app no longer has;
+//                                      with e2e/dod/standard.json, also runs the experience
+//                                      standard's static checks (standard-check.mjs)
 //
 // An entry is a string ("/plans") or an object
 // ({ "route": "/", "audience": "anonymous", "static": true }); a write keeps objects as
@@ -26,6 +28,7 @@
 // in the score precisely because it never appears in it.
 import fs from "node:fs";
 import path from "node:path";
+import { standardCheck } from "./standard-check.mjs";
 
 const ROOT = process.cwd();
 const DIR = path.join(ROOT, "e2e", "dod");
@@ -89,10 +92,17 @@ const looksLikeRoute = (v) =>
   !/\.(tsx?|jsx?|css|json|png|svg)$/.test(v);
 
 const routes = new Set();
+// Measured route -> the pattern it was filled from ("/orders/1" -> "/orders/[id]"), for the
+// help-route check, which names help files by pattern.
+const patternOf = new Map();
 const add = (r, src) => {
   if (!looksLikeRoute(r)) return;
-  const f = fill(r.startsWith("/") ? r : "/" + r, src);
-  if (f) routes.add(f);
+  const pattern = r.startsWith("/") ? r : "/" + r;
+  const f = fill(pattern, src);
+  if (f) {
+    routes.add(f);
+    if (!patternOf.has(f)) patternOf.set(f, pattern);
+  }
 };
 
 // Next app router: app/**/page.*; (groups), @slots and _private do not appear in the URL.
@@ -187,7 +197,22 @@ if (process.argv.includes("--check")) {
     process.exit(1);
   }
   console.log(`dod-routes: ${found.length} app routes, all covered by routes.json (${existing.length} entries).`);
-  process.exit(0);
+
+  // In `report` mode the standard's findings are printed and the check still passes, so a
+  // project can adopt the standard before it meets it; in `enforce` mode they fail it.
+  const std = standardCheck({ root: ROOT, entries: existing, patternOf });
+  if (!std) {
+    console.log("dod-standard: no e2e/dod/standard.json, the experience standard's checks are skipped.");
+    process.exit(0);
+  }
+  for (const f of std.failures) console.error(`dod-standard: ${f.check}: ${f.message}`);
+  const enforce = std.mode === "enforce" || std.failures.some((f) => f.check === "standard.json");
+  console.log(
+    `dod-standard (${std.mode}): ${std.failures.length} finding(s) in the static checks` +
+      (std.failures.length && !enforce ? " (report mode: not failing)" : "") +
+      ".",
+  );
+  process.exit(std.failures.length && enforce ? 1 : 0);
 }
 
 // Write every app route, keeping the entries already there (state variants such as

@@ -13,13 +13,39 @@ import {
   loadArgos,
   loadParams,
   loadRoutes,
+  loadStandard,
   routeSlug,
   type EntryResult,
 } from "./dod-shared";
+import {
+  BUILT_IN_FORBIDDEN,
+  coreUnitVisible,
+  domChecks,
+  forbiddenWordSource,
+  probeAt,
+  watchRemovedErrors,
+} from "./standard-dom";
 
 const SETTLE_MS = 1200;
 const routes = loadRoutes();
 const params = loadParams();
+const standard = loadStandard();
+const FORBIDDEN = [...BUILT_IN_FORBIDDEN, ...(standard?.forbiddenWords ?? []).map(forbiddenWordSource)];
+
+/**
+ * The mechanical probe's sizes: the smallest phone, a common phone, a tablet both ways, and the
+ * short reception desktop. Touch targets are held to 44px at the first three only.
+ */
+const PROBE_SIZES = [
+  { width: 320, height: 700 },
+  { width: 390, height: 844 },
+  { width: 768, height: 1024 },
+  { width: 1024, height: 768 },
+  { width: 1280, height: 648 },
+] as const;
+const PROBE_TOUCH_MAX_WIDTH = 768;
+// After a resize: media queries apply at once, a resize listener may need a frame or two.
+const RESIZE_MS = 250;
 
 async function settle(page: Page) {
   await page.waitForLoadState("networkidle").catch(() => {});
@@ -244,6 +270,9 @@ for (const entry of routes) {
           };
 
           try {
+            // error-toast needs to know which error elements left the page by themselves,
+            // so the watcher is in place before the first byte of the page runs.
+            if (standard) await page.addInitScript(watchRemovedErrors);
             const resp = await page.goto(route, { waitUntil: "domcontentloaded" });
             result.status = resp?.status() ?? null;
             await settle(page);
@@ -380,6 +409,62 @@ for (const entry of routes) {
 
             if (viewport.width === 375) result.touch_targets = await touchTargets(page);
 
+            // The experience standard's checks, on a page that really painted. In `report`
+            // mode they are written down; in `enforce` mode global-teardown deducts for them.
+            if (standard && result.reached && !result.unreachable) {
+              const checks = await page.evaluate(domChecks, {
+                helpDoor: !entry.static,
+                navCount: viewport.width === 375,
+                forbidden: FORBIDDEN,
+              });
+              result.standard = checks;
+
+              // core-unit: on its own route, at the BRIEF's real small screen, measured from the
+              // light entry nearest that size (a resize, not a reload, so the page keeps its state).
+              const cu = standard.coreUnit;
+              if (cu && cu.route === route && scheme === "light" && viewport.width === (cu.viewport[0] <= 768 ? 375 : 1440)) {
+                const [width, height] = cu.viewport;
+                await page.setViewportSize({ width, height });
+                await page.waitForTimeout(RESIZE_MS);
+                const visible = await page.evaluate(coreUnitVisible, cu.selector);
+                checks["core-unit"] =
+                  visible < cu.min
+                    ? { count: 1, samples: [`${visible} of ${cu.min} "${cu.selector}" fully visible at ${width}x${height}`] }
+                    : { count: 0, samples: [] };
+                await page.setViewportSize({ width: viewport.width, height: viewport.height });
+                await page.waitForTimeout(RESIZE_MS);
+              }
+
+              // probe: the mechanical floor at five more sizes, without reloading.
+              if (scheme === "light") {
+                const probe: NonNullable<EntryResult["probe"]> = {};
+                const samples: string[] = [];
+                let count = 0;
+                for (const size of PROBE_SIZES) {
+                  const key = `${size.width}x${size.height}`;
+                  await page.setViewportSize(size);
+                  await page.waitForTimeout(RESIZE_MS);
+                  const at = await page.evaluate(probeAt, standard.textFloorPx);
+                  const touch = size.width <= PROBE_TOUCH_MAX_WIDTH ? await touchTargets(page) : null;
+                  probe[key] = { ...at, touch: touch && { failures: touch.failures, samples: touch.samples } };
+                  if (at.overflow) {
+                    count++;
+                    samples.push(`${key}: sideways scroll ${at.overflow.scrollWidth}>${at.overflow.clientWidth}`);
+                  }
+                  count += at.small_text.count + at.broken_words.count + (touch?.failures ?? 0);
+                  samples.push(
+                    ...at.small_text.samples.map((x) => `${key}: text under ${standard.textFloorPx}px ${x}`),
+                    ...at.broken_words.samples.map((x) => `${key}: word broken across lines ${x}`),
+                    ...(touch?.samples ?? []).map((x) => `${key}: touch target under 44px ${x}`),
+                  );
+                }
+                await page.setViewportSize({ width: viewport.width, height: viewport.height });
+                await page.waitForTimeout(RESIZE_MS);
+                result.probe = probe;
+                checks.probe = { count, samples: samples.slice(0, 8) };
+              }
+            }
+
             await page.emulateMedia({ reducedMotion: "reduce" });
             await page.reload({ waitUntil: "domcontentloaded" });
             await settle(page);
@@ -394,7 +479,14 @@ for (const entry of routes) {
           fs.writeFileSync(path.join(RESULTS_DIR, `${name}.json`), JSON.stringify(result, null, 2));
           test.info().annotations.push({
             type: "dod",
-            description: `status=${result.status} unreachable=${result.unreachable} reached=${result.reached} overflow=${result.overflow.failed} axe=${result.axe.counted} console=${consoleErrors.length} fonts=${result.fonts.count} touch=${result.touch_targets.failures} rm=${result.reduced_motion.violations}`,
+            description: `status=${result.status} unreachable=${result.unreachable} reached=${result.reached} overflow=${result.overflow.failed} axe=${result.axe.counted} console=${consoleErrors.length} fonts=${result.fonts.count} touch=${result.touch_targets.failures} rm=${result.reduced_motion.violations}${
+              result.standard
+                ? ` standard=${Object.entries(result.standard)
+                    .filter(([, c]) => c.count)
+                    .map(([id, c]) => `${id}:${c.count}`)
+                    .join(",") || "clean"}`
+                : ""
+            }`,
           });
         });
       });

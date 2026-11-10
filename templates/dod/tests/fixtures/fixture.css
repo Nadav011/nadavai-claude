@@ -1,0 +1,16 @@
+:root { --primary: #1d4ed8; }
+* { box-sizing: border-box; }
+body { margin: 0; font: 16px/1.5 system-ui, sans-serif; color: #111; background: #fff; }
+.top, .head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 16px; }
+main { padding: 0 16px 96px; }
+a, button { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; min-width: 44px;
+  padding: 0 12px; font: inherit; color: #1d4ed8; }
+button { color: #111; background: #e5e7eb; border: 1px solid #6b7280; border-radius: 6px; }
+.primary { background: var(--primary); color: #fff; border-color: var(--primary); }
+label { display: block; }
+input { display: block; font: inherit; font-size: 16px; min-height: 44px; width: 100%; max-width: 280px; }
+.bar { position: fixed; inset-inline: 0; bottom: 0; display: flex; background: #fff; border-top: 1px solid #6b7280; }
+.bar a { flex: 1; position: relative; padding: 0 4px; }
+.badge { position: absolute; top: 2px; inset-inline-end: 4px; min-width: 18px; height: 18px; border-radius: 9px;
+  background: #b91c1c; color: #fff; font-size: 12px; line-height: 18px; text-align: center; }
+.dot { position: absolute; top: 6px; inset-inline-end: 8px; width: 8px; height: 8px; border-radius: 4px; background: #b91c1c; }

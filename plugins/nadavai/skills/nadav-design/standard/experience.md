@@ -67,7 +67,7 @@ Markers the checks read (web): help entries carry `data-help="door"` (top bar), 
 | G-06 | First visit to a screen shows one small card ("ככה זה עובד") with what the screen is for. Once closed it never returns; the same content stays behind G-01. | #330 [N], #401 [N] | reviewer |
 | G-15 | That card sits inside the page flow, never above the work: one line on a phone, and it does not open by itself on a short screen. | [B], from the r10 and r11 critiques | auto: `core-unit` |
 | G-07 | A guided tour runs once per core screen, can be skipped and resumed, has at most five steps, never starts in the middle of a setup wizard, and at most one starts by itself per day. | #100 [A], #485 [A] | reviewer |
-| G-08 | A tour never presses a button that commits something. On a task that tells a real person or cannot be undone, the last step points at the button, says what it does in one sentence, and stops. Tours run on the sample record, not on real data. | [B] | auto: `tour-no-commit` |
+| G-08 | A tour never presses a button that commits something. On a task that tells a real person or cannot be undone, the last step points at the button, says what it does in one sentence, and stops. Tours run on the sample record, not on real data. | [B] | none: `tour-no-commit` is not built until a project defines a tour manifest |
 | G-09 | Every route a person can reach from the menu has a help entry. | plan of the help system [B] | auto: `help-route` |
 | G-10 | Help content follows the reader's role and plan: nobody reads how to do what they cannot do. | [B] | reviewer |
 | G-11 | *(work tool)* A new account gets a sample record to learn on, removable, never counted in reports. | #93 [A] | reviewer |
@@ -167,25 +167,29 @@ are that project's. Another project decides its own in its BRIEF.
 ## The automated checks
 
 Built in the steps named in the rebuild plan (`A2-checks` for the first group, `B` for the
-walkthrough). Until a check exists, its rules count as `none`.
+walkthrough). Until a check exists, its rules count as `none`. The built checks live in the DoD
+template (`templates/dod`): the page checks run in every DoD entry once a project has
+`e2e/dod/standard.json`, the file checks in `routes.mjs --check`; its README says how each is
+configured. A condition marked deferred below is not measured, and its rules count as `none`
+for that part.
 
-| Check id | What fails it | Rules |
-|---|---|---|
-| `help-door` | a measured route, other than one flagged `static` in `routes.json`, with no `[data-help="door"]` in its top bar or no `[data-help="screen"]` in its header | G-01 |
-| `help-route` | a route reachable from the menu with no help content file | G-09 |
-| `tooltip-only` | a control or hint whose only text is in `title` or a hover tooltip: no visible text, no `aria-describedby` pointing at visible text, and not a `[data-help]` entry | G-04 |
-| `tour-no-commit` | a tour step whose target is a committing control and whose action is a click | G-08 |
-| `error-field` | after submitting a form with a bad value: an `aria-invalid` field with no `aria-describedby` message, or focus not on the first invalid field | E-01 |
-| `disabled-reason` | a disabled control that is not waiting on its own action (`aria-busy`) and has no `aria-describedby` pointing at visible text | E-02 |
-| `error-toast` | a `[data-state="error"]` or `role="alert"` inside the toast region, or an error element that leaves the DOM by a timer | E-05 |
-| `placeholder-label` | an input with a placeholder and no visible `<label>` or `aria-labelledby` | I-01 |
-| `input-attrs` | an input with no `autocomplete` attribute at all; phone, email or number content without the matching `type` or `inputmode`; computed input text under 16px | I-03 |
-| `one-primary` | more than one accent-filled action in the top layer (the page alone, or the open dialog or sheet alone) | S-03 |
-| `nav-count` | more than five items in the phone bottom bar; a badge with no number | S-06 |
-| `core-unit` | at the BRIEF's real small screen, fewer of its core units visible than it requires; this is also what catches a card stacked above the work | S-11, G-15 |
-| `state-coverage` | a route not flagged `static` in `routes.json` that has no `?state=empty` or no `?state=error` variant there | T-01 |
-| `empty-action` | a `[data-state="empty"]` root with no button or link inside it (a `[data-state="clear"]` line needs none) | T-02 |
-| `forbidden-words` | a banned word or form in a user-facing string or a message template | E-04, C-01, C-03, O-01 |
-| `brand-assets` | PRODUCT.md without the Brand section, or the section pointing at a file that does not exist | B-01 |
-| `both-directions` | a bilingual app whose measured routes cover one language only | B-02 |
-| `probe` | sideways scroll, text under the project's floor, a word broken mid-word, an icon covered by its badge, a touch target under 44px, at 320, 390, 768, 1024 and 1280x648 | the mechanical floor under every rule above |
+| Check id | What fails it | Rules | Built |
+|---|---|---|---|
+| `help-door` | a measured route, other than one flagged `static` in `routes.json`, with no `[data-help="door"]` in its top bar or no `[data-help="screen"]` in its header | G-01 | yes (top bar: inside a `header` or `[role="banner"]`, or in the first 120px of the page) |
+| `help-route` | a route reachable from the menu with no help content file | G-09 | yes, for every route not flagged `static` (the menu is not read) |
+| `tooltip-only` | a control or hint whose only text is in `title` or a hover tooltip: no visible text, no `aria-describedby` pointing at visible text, and not a `[data-help]` entry | G-04 | yes |
+| `tour-no-commit` | a tour step whose target is a committing control and whose action is a click | G-08 | no: not built until a project defines a tour manifest |
+| `error-field` | after submitting a form with a bad value: an `aria-invalid` field with no `aria-describedby` message, or focus not on the first invalid field | E-01 | half: the `aria-invalid` field with no visible message, as the page renders; submitting a form and the focus half are deferred |
+| `disabled-reason` | a disabled control that is not waiting on its own action (`aria-busy`) and has no `aria-describedby` pointing at visible text | E-02 | yes |
+| `error-toast` | a `[data-state="error"]` or `role="alert"` inside the toast region, or an error element that leaves the DOM by a timer | E-05 | yes (an error element that leaves the DOM while nobody touches the page) |
+| `placeholder-label` | an input with a placeholder and no visible `<label>` or `aria-labelledby` | I-01 | yes |
+| `input-attrs` | an input with no `autocomplete` attribute at all; phone, email or number content without the matching `type` or `inputmode`; computed input text under 16px | I-03 | yes (content read from the field's name, id, label and `autocomplete`) |
+| `one-primary` | more than one accent-filled action in the top layer (the page alone, or the open dialog or sheet alone) | S-03 | yes |
+| `nav-count` | more than five items in the phone bottom bar; a badge with no number | S-06 | yes |
+| `core-unit` | at the BRIEF's real small screen, fewer of its core units visible than it requires; this is also what catches a card stacked above the work | S-11, G-15 | yes |
+| `state-coverage` | a route not flagged `static` in `routes.json` that has no `?state=empty` or no `?state=error` variant there | T-01 | yes |
+| `empty-action` | a `[data-state="empty"]` root with no button or link inside it (a `[data-state="clear"]` line needs none) | T-02 | yes |
+| `forbidden-words` | a banned word or form in a user-facing string or a message template | E-04, C-01, C-03, O-01 | half: the visible text of measured routes; strings that are not on a measured screen and message templates are deferred |
+| `brand-assets` | PRODUCT.md without the Brand section, or the section pointing at a file that does not exist | B-01 | yes |
+| `both-directions` | a bilingual app whose measured routes cover one language only | B-02 | yes |
+| `probe` | sideways scroll, text under the project's floor, a word broken mid-word, an icon covered by its badge, a touch target under 44px, at 320, 390, 768, 1024 and 1280x648 | the mechanical floor under every rule above | yes, except an icon covered by its badge (deferred); touch targets at 320, 390 and 768 |

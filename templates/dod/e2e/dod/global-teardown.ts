@@ -6,9 +6,13 @@ import {
   excludedRoutes,
   loadParams,
   loadRoutes,
+  loadStandard,
   REPORTS_DIR,
   RESULTS_DIR,
+  routeStandard,
   SCHEMES,
+  STANDARD_NOT_BUILT,
+  STANDARD_PENALTY,
   VIEWPORTS,
   type EntryResult,
 } from "./dod-shared";
@@ -16,6 +20,8 @@ import {
 export default async function globalTeardown() {
   const routes = loadRoutes();
   const excluded = excludedRoutes(loadParams());
+  const standard = loadStandard();
+  const enforce = standard?.mode === "enforce";
   const entries: EntryResult[] = fs.existsSync(RESULTS_DIR)
     ? fs
         .readdirSync(RESULTS_DIR)
@@ -37,7 +43,11 @@ export default async function globalTeardown() {
   const EXPECTED_ENTRIES = VIEWPORTS.length * SCHEMES.length;
   const perRoute: Record<
     string,
-    ReturnType<typeof aggregate> & { entries: EntryResult[]; not_measured?: string }
+    ReturnType<typeof aggregate> & {
+      standard?: ReturnType<typeof routeStandard>;
+      entries: EntryResult[];
+      not_measured?: string;
+    }
   > = {};
   const notMeasured: string[] = [];
   for (const { route } of routes) {
@@ -45,28 +55,53 @@ export default async function globalTeardown() {
     if (es.length < EXPECTED_ENTRIES) {
       notMeasured.push(`${route} (${es.length}/${EXPECTED_ENTRIES})`);
       perRoute[route] = {
-        ...aggregate(es),
+        ...aggregate(es, enforce),
         score: 0,
+        ...(standard ? { standard: routeStandard(es) } : {}),
         entries: es,
         not_measured: `${es.length} of ${EXPECTED_ENTRIES} entries produced a result`,
       };
       continue;
     }
-    perRoute[route] = { ...aggregate(es), entries: es };
+    perRoute[route] = { ...aggregate(es, enforce), ...(standard ? { standard: routeStandard(es) } : {}), entries: es };
   }
+
+  // The standard's checks, summed: per check id, how many routes have findings and how many.
+  const standardSummary = standard
+    ? (() => {
+        const checks: Record<string, { routes: number; findings: number }> = {};
+        for (const r of Object.values(perRoute))
+          for (const [id, c] of Object.entries(r.standard ?? {})) {
+            const cur = (checks[id] ??= { routes: 0, findings: 0 });
+            cur.findings += c.count;
+            if (c.count) cur.routes++;
+          }
+        return {
+          mode: standard.mode,
+          profile: standard.profile,
+          text_floor_px: standard.textFloorPx,
+          penalty: enforce ? `-${STANDARD_PENALTY} per check id with findings on a route` : "none (report mode)",
+          checks,
+          not_built: STANDARD_NOT_BUILT,
+        };
+      })()
+    : "not configured";
 
   const report = {
     generated_at: new Date().toISOString(),
     base_url: `http://localhost:${process.env.PORT ?? "3000"}`,
     scoring:
-      "100 -15/overflow(entry) -5/axe violation node (any impact) -5/console error -10 if fonts>2 -2/touch-target (cap 20) -10/reduced-motion violation; per-page findings counted once per route (max across viewport×scheme)",
+      "100 -15/overflow(entry) -5/axe violation node (any impact) -5/console error -10 if fonts>2 -2/touch-target (cap 20) -10/reduced-motion violation" +
+      (enforce ? ` -${STANDARD_PENALTY}/standard check id with findings (route)` : "") +
+      "; per-page findings counted once per route (max across viewport×scheme)",
     axe: {
       // The engine that judged this run: a new axe-core adds rules, so a score that moved
       // with no code change is read against this first.
       core_version: entries.find((e) => e.axe.version)?.axe.version ?? null,
       tags: AXE_TAGS,
     },
-    totals: { ...aggregate(entries), score: notMeasured.length ? 0 : aggregate(entries).score },
+    standard: standardSummary,
+    totals: { ...aggregate(entries, enforce), score: notMeasured.length ? 0 : aggregate(entries, enforce).score },
     not_measured: notMeasured,
     excluded,
     routes: perRoute,
@@ -108,7 +143,8 @@ export default async function globalTeardown() {
 
   const t = report.totals;
   console.log(
-    `\n[dod] score=${t.score} unreachable=${t.unreachable} unreached=${t.unreached} overflow=${t.overflow_failures} axe=${t.axe_violations} console=${t.console_errors} fonts=${t.font_families} touch=${t.touch_target_failures} reduced-motion=${t.reduced_motion_violations}`,
+    `\n[dod] score=${t.score} unreachable=${t.unreachable} unreached=${t.unreached} overflow=${t.overflow_failures} axe=${t.axe_violations} console=${t.console_errors} fonts=${t.font_families} touch=${t.touch_target_failures} reduced-motion=${t.reduced_motion_violations}` +
+      (standard ? ` standard(${standard.mode})=${t.standard_failures} check(s), ${t.standard_findings} finding(s)` : ""),
   );
   for (const [route, r] of Object.entries(perRoute)) {
     console.log(`[dod]   ${route.padEnd(34)} score=${r.score}`);
