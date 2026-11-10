@@ -14,7 +14,8 @@
 #   4. deploy (repos in lib/woodpecker-repos.txt): whether this session's landed commit is live, from
 #      `nadavai-deploy pages-live` and `hold-status` over `ssh nadavai-vm`. The landed commit is HEAD when it is
 #      in main and the branch is not main itself and has commits of its own (a commit, merge or cherry-pick in
-#      its reflog), or the merge commit of its PR; main ahead of live for other commits is a NOTE.
+#      its reflog), or the merge commit of its PR; main ahead of live for other commits is a NOTE. With no
+#      landed commit of its own while HEAD is in main, Deploy is SKIP and ssh is not called.
 #   5. other worktrees that are dirty, have commits on no remote or are not in main: listed as NOTE (other
 #      sessions'), not counted
 #   A repo with no remote at all is local-only: no fetch, and Branch, Main, Branches and Deploy are SKIP.
@@ -374,6 +375,9 @@ def check_deploy(top, mref, landed, state, fetch_on):
     if not re.fullmatch(r'[A-Za-z0-9._-]+', repo):
         add('UNCHECKED', 'Deploy', f'{repo}: unexpected repo name')
         return
+    if state == 'none':  # nothing of this session's to deploy: no ssh, so an unreachable VM changes nothing
+        add('SKIP', 'Deploy', f'{repo}: no commit of this session to deploy (HEAD is in {mref}, none of its own)')
+        return
     if not fetch_on:
         add('UNCHECKED', 'Deploy', f'{repo}: not checked: --no-fetch')
         return
@@ -414,9 +418,6 @@ def check_deploy(top, mref, landed, state, fetch_on):
         return
     if landed:
         add('OK', 'Deploy', f'{repo}: production serves this session\'s commit {short(landed)} (hold-status: {hold})')
-    elif state == 'none':
-        add('SKIP', 'Deploy', f'{repo}: no commit of this session\'s in {mref}, nothing of it to deploy '
-            f'(hold-status: {hold})')
     else:
         add('SKIP', 'Deploy', f'{repo}: this session\'s work is not in {mref} yet (hold-status: {hold})')
     if others:

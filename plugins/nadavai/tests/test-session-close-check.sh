@@ -74,6 +74,12 @@ R="$tmp/w/therapy-flow-v2"
 git clone -q "$tmp/origin.git" "$R" 2>/dev/null
 echo one >"$R/a.txt"; git -C "$R" add a.txt; git -C "$R" commit -qm one; git -C "$R" push -q -u origin main 2>/dev/null
 git clone -q "$tmp/origin.git" "$tmp/pusher" 2>/dev/null  # stands in for other sessions pushing to origin
+landed() {  # name: a branch with a commit of its own, pushed into origin/main (this session's landed commit)
+  git -C "$R" checkout -q -b "$1"; echo "$1" >"$R/$1.txt"; git -C "$R" add "$1.txt"; git -C "$R" commit -qm "$1"
+  git -C "$R" push -q origin HEAD:main 2>/dev/null
+}
+back_to_main() { git -C "$R" checkout -q main; git -C "$R" pull -q --ff-only; git -C "$R" branch -q -D "$1"; }
+landed own0
 MAIN=$(git -C "$R" rev-parse HEAD)
 live manual "$MAIN"
 
@@ -86,6 +92,11 @@ expect "no-fetch: no git fetch" "" "$(grep -E '^git .* fetch' "$CALLS")"
 expect "no-fetch: no FETCH_HEAD" no "$([ -e "$R/.git/FETCH_HEAD" ] && echo yes || echo no)"
 has "no-fetch: deploy unchecked" '^UNCHECKED +Deploy: therapy-flow-v2: not checked: --no-fetch' "$out"
 has "no-fetch: CLOSE unknown" '^CLOSE: unknown \(1 not checked: Deploy\)$' "$out"
+: >"$CALLS"
+out=$(check "$R")
+has "fetch: ssh called" '^ssh .*nadavai-deploy hold-status therapy-flow-v2' "$(cat "$CALLS")"
+has "own landed commit live: deploy OK" "^OK +Deploy: therapy-flow-v2: production serves this session's commit ${MAIN:0:7}" "$out"
+back_to_main own0
 
 # --- clean repo on main, with fetch: every repo check OK ---
 : >"$CALLS"
@@ -94,11 +105,11 @@ has "clean: working tree OK" '^OK +Working tree: clean' "$out"
 has "clean: stash OK" '^OK +Stash: none' "$out"
 has "clean: branch OK" '^OK +Branch: main: tracks origin/main, every commit is on a remote' "$out"
 has "clean: main OK" '^OK +Main: HEAD [0-9a-f]{7} is in origin/main' "$out"
-has "clean on main: deploy SKIP, no commit of its own (N5)" "^SKIP +Deploy: therapy-flow-v2: no commit of this session's in origin/main" "$out"
+has "clean on main: deploy SKIP, no commit of its own (N5)" "^SKIP +Deploy: therapy-flow-v2: no commit of this session to deploy" "$out"
 has "clean: worktrees OK" '^OK +Worktrees: no other worktree' "$out"
 expect "clean: last line is CLOSE yes" "CLOSE: yes" "$(tail -1 <<<"$out")"
 expect "fetch ran (the no-fetch probe can see one)" yes "$([ -e "$R/.git/FETCH_HEAD" ] && echo yes || echo no)"
-has "fetch: ssh called" '^ssh .*nadavai-deploy hold-status therapy-flow-v2' "$(cat "$CALLS")"
+expect "clean on main: ssh not called" "" "$(grep -E '^ssh ' "$CALLS")"
 # M6: the fetch starts no gc or maintenance in a repo other sessions share.
 has "fetch: no gc" '^git -C .* -c gc.auto=0 -c maintenance.auto=false fetch --quiet origin' "$(cat "$CALLS")"
 
@@ -221,14 +232,16 @@ git -C "$tmp/pusher" pull -q --ff-only; echo three >>"$tmp/pusher/a.txt"; git -C
 git -C "$tmp/pusher" push -q origin main 2>/dev/null
 git -C "$R" pull -q --ff-only
 live manual "$MAIN"
+: >"$CALLS"
 out=$(check "$R")
-has "N5 main after a pull: deploy SKIP" "^SKIP +Deploy: therapy-flow-v2: no commit of this session's in origin/main" "$out"
-has "N5 main after a pull: others' merge is a NOTE" "^NOTE +Deploy: origin/main is 1 commit\(s\) ahead of live" "$out"
+has "N5 main after a pull: deploy SKIP" "^SKIP +Deploy: therapy-flow-v2: no commit of this session to deploy" "$out"
+expect "N5 main after a pull: ssh not called" "" "$(grep -E '^ssh ' "$CALLS")"
+hasnt "N5 main after a pull: no Deploy NOTE" '^NOTE +Deploy' "$out"
 hasnt "N5 main after a pull: no deploy command" 'nadavai-deploy deploy' "$out"
 has "N5 main after a pull: CLOSE yes" '^CLOSE: yes$' "$out"
 git -C "$R" checkout -q -b fresh origin/main 2>/dev/null
 out=$(check "$R")
-has "N5 fresh branch from main: deploy SKIP" "^SKIP +Deploy: therapy-flow-v2: no commit of this session's in origin/main" "$out"
+has "N5 fresh branch from main: deploy SKIP" "^SKIP +Deploy: therapy-flow-v2: no commit of this session to deploy" "$out"
 hasnt "N5 fresh branch from main: no deploy command" 'nadavai-deploy deploy' "$out"
 has "N5 fresh branch from main: CLOSE yes" '^CLOSE: yes$' "$out"
 echo four >>"$R/a.txt"; git -C "$R" commit -qam four; git -C "$R" push -q origin HEAD:main 2>/dev/null
@@ -250,6 +263,7 @@ has "deploy held: CLOSE yes" '^CLOSE: yes$' "$out"
 git -C "$R" checkout -q main; git -C "$R" pull -q --ff-only; git -C "$R" branch -q -D fresh
 
 # --- H1: ssh down or hanging, a failed fetch: UNCHECKED and CLOSE unknown, within the timeout ---
+landed own1
 printf '' >"$tmp/fake/ssh.out"; printf 255 >"$tmp/fake/ssh.rc"
 out=$(check "$R")
 has "ssh down: UNCHECKED" '^UNCHECKED +Deploy: therapy-flow-v2: not checked: ssh nadavai-vm' "$out"
@@ -265,6 +279,13 @@ if [ "$took" -lt 8 ]; then PASS=$((PASS+1)); else echo "FAIL: hanging ssh took $
 printf 'manual\nrc=0\nnadavai-deploy: usage: nadavai-deploy pages-live <repo>\nrc=2\n' >"$tmp/fake/ssh.out"
 out=$(check "$R")
 has "unknown to deploy service: SKIP" '^SKIP +Deploy: therapy-flow-v2: not handled by the deploy service' "$out"
+# nothing of this session's in main: no ssh at all, so an unreachable VM leaves the answer yes
+back_to_main own1
+printf '' >"$tmp/fake/ssh.out"; printf 255 >"$tmp/fake/ssh.rc"; : >"$CALLS"
+out=$(check "$R")
+has "nothing of its own: Deploy SKIP" '^SKIP +Deploy: therapy-flow-v2: no commit of this session to deploy' "$out"
+expect "nothing of its own: ssh not called" "" "$(grep -E '^ssh ' "$CALLS")"
+has "nothing of its own: CLOSE yes with ssh down" '^CLOSE: yes$' "$out"
 live manual "$(git -C "$R" rev-parse origin/main)"
 # N10: a total deadline: a hanging gh is cut at it, later network checks are UNCHECKED, the CLOSE line prints
 git -C "$R" checkout -q -b dl; echo dl >"$R/dl.txt"; git -C "$R" add dl.txt; git -C "$R" commit -qm dl
@@ -427,6 +448,7 @@ hasnt "nadavai no upstream: never 'pushed'" '^OK +nadavai: clean, pushed' "$out"
 out=$("$TOOL" --no-fetch --json "$tmp/plain")
 expect "json: close yes" yes "$(jq -r '.close' <<<"$out" 2>/dev/null)"
 expect "N4 json: the dir that is not a repo" "$tmp/plain" "$(jq -r '.not_repos[0]' <<<"$out" 2>/dev/null)"
+landed own2
 out=$("$TOOL" --no-fetch --json "$R")
 expect "json: close unknown" "unknown 1" "$(jq -r '"\(.close) \(.unchecked)"' <<<"$out" 2>/dev/null)"
 "$TOOL" --bogus >/dev/null 2>&1; expect "usage error exit 2" 2 "$?"
