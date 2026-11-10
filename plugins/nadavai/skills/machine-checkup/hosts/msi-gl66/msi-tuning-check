@@ -18,6 +18,7 @@ done
 chk "msi-power-limits.timer active"        "systemctl is-active -q msi-power-limits.timer"
 chk "max clock 4.2 GHz on every CPU (timer active)" "[ \"\$(cat /sys/devices/system/cpu/cpu*/cpufreq/scaling_max_freq | sort -u)\" = 4200000 ] && systemctl is-active -q cpu-maxfreq.timer"
 chk "msi-fan-boost running (boost now: $(cat $E/cooler_boost 2>/dev/null))" "systemctl is-active -q msi-fan-boost"
+chk "battery stops charging at 80% ($(cat /sys/class/power_supply/BAT1/charge_control_end_threshold 2>/dev/null))" "[ \"\$(cat /sys/class/power_supply/BAT1/charge_control_end_threshold 2>/dev/null)\" = 80 ] && [ -f /etc/udev/rules.d/61-battery-charge.rules ]"
 echo "== Disk"
 chk "scheduler bfq, nr_requests 64"        "grep -q '\[bfq\]' $Q/scheduler && [ \"\$(cat $Q/nr_requests)\" = 64 ]"
 chk "APST off now"                         "sudo nvme get-feature /dev/nvme0 -f 0x0c -H 2>/dev/null | grep -q 'APSTE).*Disabled'"

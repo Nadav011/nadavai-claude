@@ -52,6 +52,8 @@ uptime; free -h; swapon --show; df -h /; cat /proc/pressure/{cpu,memory,io}
 ps -eo pid,ppid,ni,stat,pcpu,pmem,etime,args --sort=-pcpu | head -30
 ps -eo stat,comm | awk '$1~/^D/' | sort | uniq -c        # tasks stuck on disk
 sudo turbostat --quiet --show PkgWatt,PkgTmp,Bzy_MHz,Busy% -i 10 -n 1
+machine-baseline-check      # the shared OS baseline: ok / BAD / REBOOT per line
+heavy-slot --status         # heavy jobs running and waiting, and why
 ```
 
 Decide which resource is the bottleneck before touching anything: CPU (0% idle, run queue far
@@ -68,7 +70,8 @@ If Nadav says sessions or terminals "crashed" or vanished, first read
 systemd-oomd kills the whole Orca terminal scope (Claude and every child) that holds the most
 swap once swap passes 90%, so it looks like a crash with no coredump. Then check `findmnt /tmp`:
 `/tmp` must be on disk on every machine (fstab line commented out, `tmp.mount` masked,
-`/etc/tmpfiles.d/tmp.conf` with `q /tmp 1777 root root 3d`). Why: the CachyOS installer puts
+`/etc/tmpfiles.d/tmp.conf` with `q /tmp 1777 root root 3d`; `hosts/common/install.sh` sets all
+three, and the move itself happens at the next reboot). Why: the CachyOS installer puts
 `/tmp` on tmpfs; on the LENOVO (2026-11-07) agent scratchpads and `agent-browser` profiles
 (about 5 GB each) grew it to 24 GB, nearly all of it in zram, and oomd killed three terminals
 in two hours. The MSI had the same fix in September, and the migration did not carry it over.
@@ -155,6 +158,18 @@ Verify the persistent settings are live (host notes below). For disk changes use
 by the probe's p95/p99 and ">1 s" count against the writers' MB/s. Never trust a single round:
 on 2026-10-23 the same config measured 157 ms and 280 ms p50 a few minutes apart.
 
+For a CPU value (a power limit, a clock cap, an undervolt) the first question is whether it is
+worth having at all: `heavy-slot -- scripts/cpu-ab.sh --pause '<units>' <rounds> '<reset>' base=true <name>='<apply>'`
+runs real single-thread and 8-process V8 work under each configuration in interleaved rounds,
+with whatever the machine is doing, and prints that work, the whole machine's work, thermal
+throttle events, peak temperature and watts. `--pause` names the timers that would write the
+tested value back mid-run (`legion-power-limits.timer`; on the MSI `cpu-maxfreq.timer` and
+`msi-power-limits.timer`): without it every configuration measures the timer's value. Keep a value only when it wins by more than the spread between its own rounds. An
+undervolt that does not win goes to 0 mV with no stress run. An all-core stress test does not
+prove an undervolt safe (the MSI crashed in normal use at 89-93 C, not under stress), so beside
+it watch `rasdaemon` and the CI flake rate. Tell the CI session before a measurement on a
+machine that runs a CI agent, and pause the agent for it.
+
 ### 6. Updates and drivers, end to end
 
 `scripts/update-audit.sh` (read-only; over ssh: `ssh host bash -s < scripts/update-audit.sh`)
@@ -198,82 +213,23 @@ nvidia-container-toolkit + CDI for Docker GPU access.
 
 ## Host notes
 
-**MSI** (Pulse GL66, i7-11800H, 64 GB, Kingston OM8PCP3512F NVMe, passwordless sudo). Reinstalled
-on 2026-11-03 as CachyOS + KDE (user `nadavmsi`, fish shell, `ssh msi` = Tailscale `msi-1`),
-provisioned from the LENOVO with tools only (memory `msi-reinstall-2026-11.md`). BIOS
-E1581IMS.313 is the newest on download.msi.com; msi-ec now comes from AUR `msi-ec-dkms-git`
-(EC 1581EMS1.107). It also runs a Woodpecker CI agent (owned by the CI session). The whole tuning
-lives in `hosts/msi-gl66/`: after a reinstall run `hosts/msi-gl66/install.sh` (refuses any other
-model or as root, idempotent), and `msi-tuning-check` shows each layer (ok/BAD per line, exit 1 on any BAD).
-Also installs the lid-ignore drop-in (CI host), pins `bootctl set-default`, and sets rasdaemon's
-`DISABLE="signal:signal_generate"`.
-Measured on CachyOS on 2026-11-03: stock (EC mode unknown 192) ran 3.4 GHz at 51-59 W and 92-94 C,
-on the throttle line. With Turbo + -50 mV core + 4.2 GHz cap, a 3 min matrixprod A/B with
-`cooler_boost` on gave 40 W 2.8 GHz 85 C 0 throttles, 43 W +3% 89 C 2,604, 45 W +10% 92 C 7,124;
-with the fans on auto, 40 W ran 88 C with 3,692 throttles. Kept 40/45 W (the 2026-10-27 MCE came at
-89-93 C, and heat shrinks the undervolt margin) and `msi-fan-boost.service` (boost after >= 85 C for 9 s,
-off after <= 65 C for 90 s, quiet at idle; a plain 80/65 C switch toggled the fans every ~30 s under
-bursty CI load, which Nadav heard). Power limits live in `msi-power-limits.service` (+ a 1-minute timer) for both the MSR and MMIO
-RAPL zones (intel-undervolt only writes the MSR and warned "MSR and memory values are not equal").
-Undervolt: the effective core VID at a fixed 2.6 GHz (MSR 0x198 bits 47:32) was 819 mV at 0/0 and
-774 mV at both -50/0 and -50/-50, so the cache plane follows the core: the 2026-10-27 "cache to 0"
-fix changed nothing. Now -40 mV core (Nadav's choice, 10 mV under the crash). 10 min stress at -50: 0 MCE. NVMe: `disk-bench.sh`, 3 interleaved rounds: bfq probe p50 123-659 ms
-against kyber's 369-1397 ms, and the small fsync writer 2-7x faster. kyber stalled 8-15 s; the cost
-of bfq is ~25% less bulk write. Rounds 2-3 overlapped the CI agent's start, but every pair pointed the
-same way. APST is off (PS4 exit latency 25 ms) live and in the boot entries plus `/etc/sdboot-manage.conf`.
-The EFI default named the deleted Pop_OS entry, so it is now pinned with `bootctl set-default linux-cachyos.conf`.
-CachyOS ananicy puts node/bun/rsync AND sshd/sshd-session in BG_CPUIO (SCHED_IDLE), so every command
-run over ssh inherited idle priority. `/etc/ananicy.d/00-0-agents.rules` overrides both (as `zz-*` it
-was ignored on this machine), and `agent-nice.timer` then puts Claude trees at nice 10 (proven:
-0 -> 10 on all threads). The dGPU runtime-suspends with nothing on HDMI, so the old P0 pin was not
-restored. With a screen on the HDMI port (wired to the dGPU, which then idles at P8 ~12 W on the
-shared heat pipes) the final config (-40 mV, 40/45 W, boost) measured 2.9 GHz, 87 C avg, 92 C max,
-1,468 throttle events per 150 s, clock not lower than without the screen; kept. 2026-11-03 15:54:18 the dGPU went to NV_ERR_RESET_REQUIRED ("Failed to get GCx pre-requisite" every 5 s, then CUDA_ERROR_NO_DEVICE): no CPU test ran then and the CI containers had no GPU access; cause unproven, a reboot clears it. If it recurs, try `NVreg_DynamicPowerManagement=0x02` (what Pop!_OS had), at the cost of the dGPU staying powered while kwin holds it. Drive wear: 59% used, 89.9 TB written, 0 media errors (watch it). The Pop!_OS files are
-in the LENOVO's `~/Archive/msi-20261103/system/`. The old tuning, measured on Pop!_OS: msi-ec (DKMS, BeardOverflow) `shift_mode=turbo` via
-`msi-turbo.service`; `intel-undervolt` -50 mV core/cache (-85 mV crashed), PL1 40 W / PL2 45 W;
-`cpu-maxfreq.service` 4.2 GHz (same clock as 4.6 under the 40 W cap, 5-7 C cooler); HWP on and
-OC Lock off in the hidden BIOS menu; NVMe `bfq`, `nr_requests 64`, `wbt_lat_usec 2000`,
-`iostats 1` in `/etc/udev/rules.d/60-nvme-scheduler.rules`; fstrim weekly Sun 03:30;
-`agent-nice.timer` (Claude trees at nice 10); `docker-wifi-block.service`; logind lid ignore;
-SSH via Tailscale only. The GPU was pinned at its highest state: Nadav's choice then.
+**Every home machine** shares one OS baseline, `hosts/common/` (`install.sh`, idempotent, stops
+nothing; each host's `install.sh` calls it; `machine-baseline-check` prints it): `/tmp` on disk,
+compressed swap twice the RAM, a reboot 10 s after a kernel oops, 1 GB of journal, rasdaemon,
+weekly fstrim. Compressed swap is twice the RAM because systemd-oomd kills the Orca terminal with
+the most swap at 90% of the uncompressed size: on the LENOVO on 2026-11-10 a 62 GB device stood at
+56% while those pages took 5.8 GB of real memory (6.5 to 1) and 20 GB were free. A running
+machine gets the second half as a hot-added `/dev/zram1` (no swapoff); after a reboot the
+generator file makes one device. Heavy local jobs are admitted by `heavy-slot` on measured load
+(`~/.config/nadavai/capacity` per host, `heavy-slot --help`): raise or lower its numbers only
+from `heavy-slot --status` readings under real work, never to a fixed count again.
 
-**LENOVO** (Legion Pro 5 16IAX10H, Core Ultra 9 275HX 24 cores, 62 GB, RTX 5070 Ti, CachyOS,
-BIOS Q6CN79WW = latest per `download.lenovo.com/catalog/83LU_Win11.xml`; the main machine since
-2026-11-03). On Linux the firmware leaves `intel-rapl-mmio:0` at 30/30 W, so check that first:
-`legion-power-limits.timer` (script `/usr/local/bin/legion-power-limits`, every 15 s, plus udev on
-ADP0 and a system-sleep hook) sets PL1 110 W / PL2 125 W / tau 28 s in `performance` on AC
-(measured: 4-6x the work of 30 W, 85-87 C sustained, 0 throttle events; PL2 160 gained 6% on bursts
-at 104 C). `platform_profile` rejects `custom` and lenovo-wmi-other `ppt_*` writes return EBUSY, so
-the script owns the limit. Undervolt is locked (MSR 0x194 bit 20). BIOS options are readable without
-a reboot from efivars (`Setup-a04a27f4`, `CpuSetup-b08f97ff`, `SaSetup-72c5e28c`, 4-byte header;
-offsets from the IFR of the official image) but writes are refused (EACCES), so BIOS changes are made
-in F2. Read the dGPU's sleep state from `runtime_status`, never `nvidia-smi` (it wakes the card).
-rasdaemon needs `DISABLE="signal:signal_generate"` or it logs every SIGCHLD. Every file lives in
-`hosts/lenovo-83lu/`: after a reinstall run `hosts/lenovo-83lu/install.sh` (refuses any other
-model, idempotent), and `lenovo-tuning-check` shows each layer. A change to the live script is
-copied back there and committed. Details: memory `lenovo-performance-tuning-2026-11.md`.
-
-**Omarchy / NadavAI** (`ssh omarchy` = `nadav@100.93.63.88`, fish shell, passwordless sudo; ASUS ROG
-STRIX Z390-F GAMING, BIOS 2203 = newest on the ASUS support API, i7-9700K, 46 GB, GTX 1660 Ti,
-NVIDIA 615; usually no monitor attached). Reinstalled on 2026-11-03 as CachyOS + KDE and provisioned
-from the LENOVO without desktop apps (memory `omarchy-provision-2026-11.md`). It runs CI for every
-repo, owned by another session: never touch `~/ci`, the runners or dagu from here. BIOS settings
-survive a reinstall (DDR4-2666 manual, not XMP, because the kits are mixed; VT-x; SpeedShift; BIOS
-power limits off), so after a reinstall only the OS layer comes back: PL1 140 W in
-`/etc/tmpfiles.d/rapl-pl1.conf` (unlimited reached 93-97 C under CI and throttled),
-`power-profiles-daemon` enabled and set to performance with `sudo`, `/etc/sysctl.d/99-omarchy-restore.conf`
-(the rest of the old sysctl file is already in `70-cachyos-settings.conf`), USB autosuspend off, and
-the `LABEL=data` line in fstab, and `intel-undervolt` -70 mV core and cache (`enable yes`,
-service enabled; the MSR is not locked on this board). Measured 2026-11-03 with 5 min stress-ng
-`--verify` (8 CPU + 2x6 GB VM): stock 4.6-4.7 GHz, max 88 C; -50 mV 4.7 GHz, 87 C, 133 W; -80 mV
-4.7 GHz, 84 C, 130 W; all 0 throttle events and 0 failures. -70 keeps a 10 mV margin under the
-tested -80; if CI shows unexplained crashes or rasdaemon logs MCEs, go back to -50 before anything
-else. RAM stays at 2666 (mixed 3200 and 2400 kits, already above the slower kit's rating; any change
-is in the BIOS with a monitor attached, then memtest86+). The GPU power limit (130 of 160 W) is left
-at default: CI barely uses the GPU. The 2 TB disk is a 7200 rpm HDD (bfq): archives
-and CI data only, never tools, because nothing makes it as fast as the NVMe. Archive target:
-`/mnt/data/archive/<host>-<date>/`. Do not move agent work there unless a measurement shows spare
-capacity.
-
-**New NVMe for the MSI**: clone the old drive to the new one, boot from it, then run this skill's
-step 5 again; the bfq/nr_requests choice was made for the old drive and must be re-measured.
+Per machine (hardware, every measurement, where each file lives): `references/host-notes.md`.
+Read the machine's section before touching its tuning. In short:
+- **LENOVO** (Legion Pro 5, Core Ultra 9 275HX, the main agent machine): `hosts/lenovo-83lu/`,
+  check with `lenovo-tuning-check`. The firmware caps the CPU at 30 W on Linux, so check the
+  power limits first.
+- **MSI** (Pulse GL66, i7-11800H; also the CI agent): `hosts/msi-gl66/`, check with
+  `msi-tuning-check`. Tell the CI session before a stress run or a reboot.
+- **omarchy** (i7-9700K desktop): off since 2026-11-09; an unverified record in
+  `hosts/omarchy/README.md`, with what to do before it rejoins the network.

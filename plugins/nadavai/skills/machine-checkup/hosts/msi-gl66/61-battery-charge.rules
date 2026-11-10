@@ -1,0 +1,5 @@
+# Always on AC (CI host): charge to 80% and start again under 70%, instead of holding 100%.
+# Why: on 2026-11-10 the battery held 74% of its design capacity (4228 of 5675 mAh) after
+# living at 100%. msi-ec forgets the value when the EC loses power, so it is set whenever the
+# battery device appears.
+SUBSYSTEM=="power_supply", KERNEL=="BAT1", ATTR{charge_control_end_threshold}="80"

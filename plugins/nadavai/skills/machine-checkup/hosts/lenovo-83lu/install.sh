@@ -1,6 +1,6 @@
 #!/bin/bash
 # Restore the measured LENOVO tuning (Legion Pro 5 16IAX10H, type 83LU) after a reinstall.
-# Idempotent. Refuses to run on any other model. Context: ../../SKILL.md host notes.
+# Idempotent. Refuses to run on any other model. Context: ../../references/host-notes.md.
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 model=$(cat /sys/class/dmi/id/product_name 2>/dev/null)

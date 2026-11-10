@@ -5,9 +5,10 @@
 #   heavy-slot [--slots N] -- <command...>
 #   heavy-slot --status        what runs, what waits and what the machine measures now
 #
-# Admission is by measured load, not by a fixed count. The first heavy_floor jobs always
-# start. A job beyond the floor starts when all of these hold, and otherwise says which one
-# does not, once a minute:
+# Admission is by measured load, not by a fixed count. The first heavy_floor jobs start
+# without looking at the CPU or the disk (the first two whatever the machine measures, the
+# others while memory and swap have room). A job beyond the floor starts when all of these
+# hold, and otherwise says which one does not, once a minute:
 #   - 10 s have passed since the last such start, so the job before it shows in the numbers;
 #   - at least heavy_mem_min_gb GB of memory is available, swap is under heavy_swap_max percent
 #     used (systemd-oomd kills a terminal at 90), and memory pressure is under 10%;
@@ -138,14 +139,19 @@ mem_state() { # "<GB available> <percent of swap used>"; a failed read never blo
 }
 
 why=""
-load_ok() { # may a job beyond the floor start now? Sets $why when not.
-  local now last age mem swap v
-  printf -v now '%(%s)T' -1; last=$(stat -c %Y "$dir/last-admit" 2>/dev/null || echo 0)
-  age=$((now - last))   # negative after a clock step back: treated as long ago
-  if [ "$age" -ge 0 ] && [ "$age" -lt "$gap" ]; then why="another job started $age s ago"; return 1; fi
+mem_ok() { # is there memory for one more job? Sets $why when not. Two cheap reads, no sampling.
+  local mem swap
   read -r mem swap < <(mem_state)
   if [ "$mem" -lt "$mem_min" ]; then why="memory: $mem GB available, under the $mem_min GB floor"; return 1; fi
   if [ "$swap" -ge "$swap_max" ]; then why="swap $swap% used, the limit is $swap_max%"; return 1; fi
+  return 0
+}
+load_ok() { # may a job beyond the floor start now? Sets $why when not.
+  local now last age v
+  printf -v now '%(%s)T' -1; last=$(stat -c %Y "$dir/last-admit" 2>/dev/null || echo 0)
+  age=$((now - last))   # negative after a clock step back: treated as long ago
+  if [ "$age" -ge 0 ] && [ "$age" -lt "$gap" ]; then why="another job started $age s ago"; return 1; fi
+  mem_ok || return 1
   v=$(psi memory); if [ "$v" -ge "$mem_psi_max" ]; then why="memory pressure $v%, the limit is $mem_psi_max%"; return 1; fi
   v=$(psi io); if [ "$v" -ge "$io_psi_max" ]; then why="disk pressure $v%, the limit is $io_psi_max%"; return 1; fi
   v=$(psi cpu); if [ "$v" -ge "$cpu_psi_max" ]; then why="CPU pressure $v%, the limit is $cpu_psi_max%"; return 1; fi
@@ -162,10 +168,16 @@ read_locks() {
   locked=() have_locks=0
   [ -r /proc/locks ] || return 0
   have_locks=1
-  while read -r _ type _ _ _ id _; do [ "$type" = FLOCK ] && locked[${id##*:}]=1; done </proc/locks
+  while read -r _ type _ _ _ id _; do [ "$type" = FLOCK ] && locked[$id]=1; done </proc/locks
 }
-is_locked() { # $1 file, $2 its inode; call read_locks first
-  if [ "$have_locks" = 1 ]; then [ -n "${locked[$2]:-}" ]; else ! flock -n "$1" true 2>/dev/null; fi
+# stat format and its conversion to the kernel's "major:minor:inode" (major and minor in hex)
+lock_stat='%Hd %Ld %i %Y'
+lock_id() { printf '%02x:%02x:%s' "$1" "$2" "$3"; }
+is_locked() { # $1 file, $2 its lock id; call read_locks first
+  [ "$have_locks" = 1 ] && [ -n "${locked[$2]:-}" ] && return 0
+  # Not in the kernel's list (or no list: another PID namespace, a filesystem whose device
+  # number differs there): ask the file itself, opened for reading so nothing is created.
+  ! { flock -n 6; } 2>/dev/null 6<"$1"
 }
 
 describe() { # pid, start (epoch s), note -> two lines
@@ -185,8 +197,8 @@ if [ "$want_status" = 1 ]; then
   running=0 out=""
   for f in "$dir"/slot.*; do
     [[ $f =~ /slot\.[0-9]+$ ]] || continue
-    ino=$(stat -c %i "$f" 2>/dev/null) || continue
-    is_locked "$f" "$ino" || continue
+    read -r maj min ino _ < <(stat -c "$lock_stat" "$f" 2>/dev/null) || continue
+    is_locked "$f" "$(lock_id "$maj" "$min" "$ino")" || continue
     running=$((running + 1)); pid="" since=""
     read -r pid since <"$f" 2>/dev/null
     if [[ $pid =~ ^[0-9]+$ ]] && grep -qs heavy-slot "/proc/$pid/cmdline"; then out+=$(describe "$pid" "${since:-0}")$'\n'
@@ -195,8 +207,8 @@ if [ "$want_status" = 1 ]; then
   echo "running: $running"; printf '%s' "$out"
   waiting=0 out=""
   for t in "$qdir"/*; do
-    read -r ino mt < <(stat -c '%i %Y' "$t" 2>/dev/null) || continue
-    is_locked "$t" "$ino" || continue
+    read -r maj min ino mt < <(stat -c "$lock_stat" "$t" 2>/dev/null) || continue
+    is_locked "$t" "$(lock_id "$maj" "$min" "$ino")" || continue
     n=${t##*/}; pid=${n#*.}; since=${n%%.*}; since=${since:0:10}; note=""
     [ $((now - mt)) -gt "$stale" ] && note="  (stopped: others go first)"
     waiting=$((waiting + 1)); out+=$(describe "$pid" "$since" "$note")$'\n'
@@ -246,7 +258,7 @@ trap '[ -n "$ticket" ] && rm -f -- "${ticket:?}"' EXIT
 take_ticket() { exec 8>>"$ticket" && flock 8; }
 ahead=""
 am_head() { # sets $ahead to the live ticket in front of this one when there is one
-  local t ino mt now
+  local t maj min ino mt now
   [ -n "$ticket" ] || return 0
   [ -e "$ticket" ] || take_ticket || return 0   # no queue is better than no job
   echo >&8                                      # the sign of life
@@ -254,8 +266,8 @@ am_head() { # sets $ahead to the live ticket in front of this one when there is 
   printf -v now '%(%s)T' -1
   for t in "$qdir"/*; do
     [ "$t" = "$ticket" ] && return 0
-    read -r ino mt < <(stat -c '%i %Y' "$t" 2>/dev/null) || continue
-    if ! is_locked "$t" "$ino"; then rm -f -- "${qdir:?}/${t##*/}"; continue; fi
+    read -r maj min ino mt < <(stat -c "$lock_stat" "$t" 2>/dev/null) || continue
+    if ! is_locked "$t" "$(lock_id "$maj" "$min" "$ino")"; then rm -f -- "${qdir:?}/${t##*/}"; continue; fi
     [ $((now - mt)) -gt "$stale" ] && continue
     ahead=$t
     return 1
@@ -280,11 +292,22 @@ say() { # the reason, at most once a minute; the short gap between two starts is
 round=0
 while :; do
   if am_head; then
-    for ((i = 0; i < floor; i++)); do
+    # The first two slots take a job whatever the machine measures, so heavy work never stops
+    # altogether; the rest of the floor still waits for memory, because memory and swap are
+    # what systemd-oomd kills a terminal for. A --slots call checks nothing.
+    hard=$floor; [ "$strict" = 0 ] && [ "$hard" -gt 2 ] && hard=2
+    for ((i = 0; i < hard; i++)); do
       exec 9>>"$dir/slot.$i"
       flock -n 9 && admit "$i"
     done
     why="all $slots slots busy"
+    if [ "$floor" -gt "$hard" ] && mem_ok; then
+      why="all $slots slots busy"
+      for ((i = hard; i < floor; i++)); do
+        exec 9>>"$dir/slot.$i"
+        flock -n 9 && admit "$i"
+      done
+    fi
     if [ "$slots" -gt "$floor" ] && load_ok; then
       for ((i = floor; i < slots; i++)); do
         exec 9>>"$dir/slot.$i"
@@ -302,6 +325,6 @@ while :; do
     say
     # Wakes as soon as the job in front has started (it drops its ticket's lock) or is gone.
     # Opened for reading, which never creates a ticket that was just removed.
-    { flock -w 2 7; } 7<"$ahead" 2>/dev/null || sleep 0.2
+    { flock -w 2 7; } 2>/dev/null 7<"$ahead" || sleep 0.2
   fi
 done

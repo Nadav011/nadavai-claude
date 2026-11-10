@@ -14,7 +14,8 @@ if grep -qE '^[^#]*[[:space:]]/tmp[[:space:]]+tmpfs' /etc/fstab; then
   sudo cp -p /etc/fstab "/root/retired-tuning/fstab.$(date +%Y%m%d-%H%M%S)"
   sudo sed -i -E '/^[^#]*[[:space:]]\/tmp[[:space:]]+tmpfs/ s/^/# machine-checkup, \/tmp on disk: /' /etc/fstab
 fi
-[ "$(systemctl is-enabled tmp.mount 2>/dev/null)" = masked ] || sudo systemctl mask tmp.mount >/dev/null 2>&1
+[ "$(systemctl is-enabled tmp.mount 2>/dev/null)" = masked ] || sudo systemctl mask tmp.mount >/dev/null ||
+  later+=("tmp.mount could not be masked (a unit file of that name in /etc/systemd/system?): /tmp stays tmpfs")
 sudo install -m 644 "$here/tmp.conf" /etc/tmpfiles.d/tmp.conf
 [ "$(findmnt -no FSTYPE /tmp 2>/dev/null)" = tmpfs ] && later+=("/tmp is still tmpfs until the next reboot")
 
@@ -26,11 +27,14 @@ zram_kb=$(awk '$1 ~ /^\/dev\/zram/ { s += $3 } END { print s + 0 }' /proc/swaps)
 if [ "$zram_kb" -lt $((ram_kb * 19 / 10)) ] && [ -e /sys/class/zram-control/hot_add ]; then
   add_kb=$((ram_kb * 2 - zram_kb))
   id=$(sudo cat /sys/class/zram-control/hot_add)
-  echo zstd | sudo tee "/sys/block/zram$id/comp_algorithm" >/dev/null
-  echo "${add_kb}K" | sudo tee "/sys/block/zram$id/disksize" >/dev/null
-  sudo mkswap -q "/dev/zram$id"
-  sudo swapon -p 100 "/dev/zram$id"
-  echo "added /dev/zram$id ($((add_kb / 1048576)) GB) live"
+  if echo zstd | sudo tee "/sys/block/zram$id/comp_algorithm" >/dev/null &&
+    echo "${add_kb}K" | sudo tee "/sys/block/zram$id/disksize" >/dev/null &&
+    sudo mkswap -q "/dev/zram$id" && sudo swapon -p 100 "/dev/zram$id"; then
+    echo "added /dev/zram$id ($((add_kb / 1048576)) GB) live"
+  else # leave no half-made device behind, or every run would add another
+    echo "$id" | sudo tee /sys/class/zram-control/hot_remove >/dev/null || true
+    later+=("the second zram device could not be added live; the generator file applies at the next reboot")
+  fi
 fi
 
 # After a kernel oops, reboot 10 s later instead of limping on; keep 1 GB of journal.
@@ -42,9 +46,11 @@ sudo systemctl restart systemd-journald
 # rasdaemon records machine-check and memory errors; v1.0 logs every SIGCHLD unless signal
 # tracing is disabled.
 if pacman -Q rasdaemon >/dev/null 2>&1; then
-  grep -q '^DISABLE="signal:signal_generate"' /etc/sysconfig/rasdaemon 2>/dev/null ||
+  if ! grep -q '^DISABLE="signal:signal_generate"' /etc/sysconfig/rasdaemon 2>/dev/null; then
     echo 'DISABLE="signal:signal_generate"' | sudo tee -a /etc/sysconfig/rasdaemon >/dev/null
-  systemctl is-active -q rasdaemon || sudo systemctl enable --now rasdaemon
+    sudo systemctl try-restart rasdaemon
+  fi
+  sudo systemctl enable -q --now rasdaemon
 else
   later+=("rasdaemon is not installed: paru -S rasdaemon, then run this again")
 fi

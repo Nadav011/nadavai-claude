@@ -211,8 +211,21 @@ echo 'some avg10=55.20 avg60=0.00 avg300=0.00 total=1' >"$t/proc/pressure/io"; g
 echo 'some avg10=61.00 avg60=0.00 avg300=0.00 total=1' >"$t/proc/pressure/cpu"; gate cpu-pressure 'CPU pressure 61%'
 echo 95 >"$t/proc/busy"; gate cpu-busy 'CPU 95% busy'
 kill "$(cat "$t/l0")" 2>/dev/null; wait "$holder" 2>/dev/null
+# Inside the floor, the first two jobs start whatever the machine measures; the third waits for memory.
+printf 'heavy_slots=4\nheavy_floor=4\n' >"$t/config/nadavai/capacity"
+printf 'MemAvailable:    2097152 kB\nSwapTotal: 1000 kB\nSwapFree: 900 kB\n' >"$t/proc/meminfo"
+: >"$t/f.ran"
+for n in 1 2 3; do "$hs" -- bash -c "echo $n >>'$t/f.ran'; exec sleep 6" 2>"$t/f.$n.err" & pids+=("$!"); sleep 0.5; done
+sleep 2
+[ "$(wc -l <"$t/f.ran")" = 2 ] && grep -q 'memory: 2 GB' "$t/f.3.err" && ok "with low memory two floor jobs run and the third waits" || bad "floor under low memory: $(wc -l <"$t/f.ran") ran, third said '$(cat "$t/f.3.err")'"
+calm
+for _ in $(seq 1 30); do [ "$(wc -l <"$t/f.ran")" = 3 ] && break; sleep 0.2; done
+[ "$(wc -l <"$t/f.ran")" = 3 ] && ok "the third starts once memory is back" || bad "the third floor job did not start"
+wait 2>/dev/null
 unset HEAVY_SLOT_TEST_PROC
-OMP_NUM_THREADS=1 "$hs" --status | grep -q "^always admitted: 1; ceiling: 3$" && ok "OMP_NUM_THREADS does not change the pool" || bad "pool under OMP_NUM_THREADS=1: $(OMP_NUM_THREADS=1 "$hs" --status | sed -n 3p)"
+mv "$t/config/nadavai/capacity" "$t/capacity.off"
+[ "$(OMP_NUM_THREADS=1 "$hs" --status | sed -n 3p)" = "$("$hs" --status | sed -n 3p)" ] && OMP_NUM_THREADS=1 "$hs" --status | grep -q "ceiling: $(nproc --all)\$" && ok "OMP_NUM_THREADS does not change the pool" || bad "pool under OMP_NUM_THREADS=1: $(OMP_NUM_THREADS=1 "$hs" --status | sed -n 3p)"
+mv "$t/capacity.off" "$t/config/nadavai/capacity"
 printf 'heavy_slots=2\nheavy_floor=5\n' >"$t/config/nadavai/capacity"
 "$hs" --status | grep -q '^always admitted: 2; ceiling: 2$' && ok "a floor above the ceiling is cut to the ceiling" || bad "floor above ceiling: $("$hs" --status | sed -n 3p)"
 printf 'heavy_slots=1\n' >"$t/config/nadavai/capacity"

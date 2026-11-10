@@ -3,7 +3,7 @@
 # Idempotent. Refuses to run on any other model or as root (it sudos itself).
 # Run as the desktop user, e.g. from the LENOVO:  ssh msi 'bash ~/nadavai/plugins/nadavai/skills/machine-checkup/hosts/msi-gl66/install.sh < /dev/null'
 # Needs in the BIOS (hidden menu, survives a reinstall): Intel Speed Shift on, Overclocking Lock off.
-# Context and measurements: ../../SKILL.md host notes.
+# Context and measurements: ../../references/host-notes.md.
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 [ "$EUID" -ne 0 ] || { echo "run as the desktop user, not root; the script sudos itself" >&2; exit 1; }
@@ -31,6 +31,10 @@ sudo install -m 644 "$here/msi-turbo.service" "$here/cpu-maxfreq.service" "$here
 
 # Always-on box (CI agent): closing the lid must not suspend it.
 sudo install -D -m 644 "$here/50-lid-ignore.conf" /etc/systemd/logind.conf.d/50-lid-ignore.conf
+
+# Battery: stop charging at 80% (always on AC).
+sudo install -m 644 "$here/61-battery-charge.rules" /etc/udev/rules.d/
+echo 80 | sudo tee /sys/class/power_supply/BAT1/charge_control_end_threshold >/dev/null
 
 # Disk: bfq rule (won the fsync A/B) and APST off (PS4 exit latency 25 ms on this Kingston).
 sudo install -m 644 "$here/60-nvme-scheduler.rules" /etc/udev/rules.d/

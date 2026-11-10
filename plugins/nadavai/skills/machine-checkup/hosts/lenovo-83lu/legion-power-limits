@@ -12,6 +12,12 @@
 #   Sustained 4 min x2 rounds (PL2 125): PL1 110 = 20.6M ops, 109 W, 85-87 C, 0 throttle events;
 #   PL1 95 = 19.8M (-4%), 94 W, 79-81 C. Fan 4800 in both.
 #   tau 28 s = the OEM DPTF table (power_limit_0_tmin_us); 56 s made no measurable difference.
+# Measured again 2026-11-10 under real agent load (load average 50, scripts/cpu-ab.sh, 5
+# interleaved rounds, whole-machine work = turbostat Avg_MHz x IPC): 110/125 W = 5548
+# (5403-5850), 99-101 C, about 400 throttle events per 18 s; 100/110 W = 5208 (-6%), 0 events;
+# 90/110 W = 5042 (-9%), 88 C. A clock cap (5.0 or 4.7 GHz) and PL2 110 alone changed nothing
+# beyond the spread. So 110/125 stays: the machine sits at its cooling limit and trades about
+# 100 C for 6% more work. The dGPU was at 4 W, so the heat is the CPU's own.
 set -u
 M=/sys/class/powercap/intel-rapl-mmio:0
 if [ ! -w "$M/constraint_0_power_limit_uw" ]; then

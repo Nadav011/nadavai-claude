@@ -24,14 +24,15 @@ row "$s" "swap used (oomd kills at 90%)" "$pct%"
 row info "memory available" "$(awk '/^MemAvailable:/ { printf "%d GB", $2 / 1048576 }' /proc/meminfo)"
 
 [ "$(systemctl is-active systemd-oomd 2>/dev/null)" = active ] && s=ok || s=BAD
-row "$s" "systemd-oomd" "$(systemctl is-active systemd-oomd 2>/dev/null); kills in 7 days: $(journalctl -u systemd-oomd --since -7d 2>/dev/null | grep -ci 'killed')"
+# The kills are logged by the user's systemd manager, not by the systemd-oomd unit.
+row "$s" "systemd-oomd" "$(systemctl is-active systemd-oomd 2>/dev/null); terminals killed in 7 days: $(journalctl --since -7d -q -g 'systemd-oomd killed' 2>/dev/null | wc -l)"
 o=$(sysctl -n kernel.panic_on_oops 2>/dev/null) p=$(sysctl -n kernel.panic 2>/dev/null)
 [ "$o" = 1 ] && [ "$p" = 10 ] && s=ok || s=BAD
 row "$s" "reboot after a kernel oops" "panic_on_oops=$o panic=$p"
 grep -qs '^SystemMaxUse=1G' /etc/systemd/journald.conf.d/60-journal-size.conf && s=ok || s=BAD
 row "$s" "journal keeps 1 GB" "$(journalctl --disk-usage 2>/dev/null | grep -oE '[0-9.]+[MG]' | head -1) used"
-[ "$(systemctl is-active rasdaemon 2>/dev/null)" = active ] && s=ok || s=BAD
-row "$s" "rasdaemon (hardware errors)" "$(systemctl is-active rasdaemon 2>/dev/null)"
+[ "$(systemctl is-active rasdaemon 2>/dev/null)" = active ] && [ "$(systemctl is-enabled rasdaemon 2>/dev/null)" = enabled ] && s=ok || s=BAD
+row "$s" "rasdaemon (hardware errors)" "$(systemctl is-active rasdaemon 2>/dev/null), $(systemctl is-enabled rasdaemon 2>/dev/null)"
 mce=$(journalctl -k -b 2>/dev/null | grep -ciE 'machine check|mce: \[Hardware Error\]')
 [ "$mce" = 0 ] && s=ok || s=BAD
 row "$s" "machine-check errors this boot" "$mce"
