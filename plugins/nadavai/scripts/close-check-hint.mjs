@@ -8,20 +8,28 @@ import { readInput } from "./guard-turn.mjs";
 const MAX = 300; // longer prompts are instructions or pastes, not the closing question
 const H = "֐-׿"; // Hebrew block: JS \b does not see Hebrew letters as word characters
 const notAfter = `(?<![${H}A-Za-z])`;
+const end = "\\s*[?!.]*\\s*$";
 
-// Asking to close the session itself (not a tab, a PR or an issue).
+// Asking to close the session itself (not a tab, a PR, an issue or a chat with a client).
 const CLOSE = [
-  new RegExp(`${notAfter}[ולשת]?(?:ל|נ|א|ת)?סגור\\s+(?:את\\s+)?ה?(?:סשן|סשנים|שיחה|צ'?אט|session)`),
-  new RegExp(`${notAfter}(?:ו?אפשר\\s+)?(?:לסגור|נסגור|סוגרים|אסגור)(?:\\s+(?:פה|כאן|את\\s+זה))?\\s*[?!.]*\\s*$`),
+  new RegExp(`${notAfter}[ולשת]?(?:ל|נ|א|ת)?(?:סגור|סוגר(?:ים)?)\\s+(?:את\\s+)?ה?(?:סשן|סשנים|session)(?![${H}])`),
+  new RegExp(`${notAfter}(?:ו?אפשר\\s+)?(?:לסגור|נסגור|סוגרים|אסגור)(?:\\s+(?:פה|כאן|את\\s+זה))?${end}`),
   new RegExp(`${notAfter}סגור\\s+על\\s+זה\\s*[?!]`),
-  /\b(?:can|should|may)\s+(?:i|we)\s+close\s+(?:this|the)\s+(?:session|chat)\b/i,
+  new RegExp(`${notAfter}זהו\\s*\\?+[?!.\\s]*$`),
+  /\b(?:can|should|may)\s+(?:i|we)\s+close(?:\s+(?:this|the)\s+(?:session|chat))?\b\s*[?!.]*\s*$/i,
+  /\b(?:can|should|may)\s+(?:i|we)\s+close\s+(?:this|the)\s+session\b/i,
 ];
 // Saying the work is finished ("סיימנו עם X" is "done with X, next", not a question about the end).
 const FINISH = [
-  new RegExp(`(?:סי{1,2}מנו|סיימת(?:ם)?|גמרנו|גמרת(?:ם)?)(?![${H}])(?!\\s+עם(?![${H}]))`),
+  new RegExp(`(?:סי{1,2}מנו|סיימת(?:ם)?|גמרנו|גמרת(?:ם)?|סגרנו)(?![${H}])(?!\\s+עם(?![${H}]))`),
   new RegExp(`${notAfter}ו?לא\\s+נשאר(?:\\s+(?:לנו|לך|לכם|עוד|פה|כאן))?\\s+כלום`),
+  new RegExp(`${notAfter}נשאר\\s+עוד\\s+משהו|${notAfter}נשאר\\s+משהו${end}`),
+  new RegExp(`${notAfter}מה\\s+(?:עוד\\s+)?נשאר${end}`),
+  new RegExp(`${notAfter}(?:עוד\\s+)?משהו\\s+פתוח(?![${H}])`),
+  new RegExp(`${notAfter}נגמר(?:\\s+הכל)?${end}`),
   /עברנו\s+על\s+הכל/,
   new RegExp(`${notAfter}הכל\\s+(?:מוכן|גמור|סגור|הושלם)(?![${H}])`),
+  new RegExp(`${notAfter}הכל\\s+ב-?\\s*(?:מיין|main|פרודקשן|production|פרוד|דמיין)(?![${H}A-Za-z])`, "i"),
   /\b(?:are\s+we|is\s+everything|is\s+it\s+all)\s+(?:all\s+)?(?:done|finished|complete)\b[^?]*\?/i,
 ];
 // A question or a "that's it / sure / anything left" marker.
@@ -29,8 +37,10 @@ const MARK = [
   /\?/,
   new RegExp(`${notAfter}(?:ו|אז\\s+)?(?:זהו|בטוח[${H}]*|נשאר|מקצה\\s+לקצה)(?![${H}])`),
 ];
-// A next step in the same prompt makes it an instruction ("did we finish X? if so, do Y").
-const NEXT = new RegExp(`${notAfter}(?:אם\\s+כן|אם\\s+לא|עכשיו\\s+ת[${H}]+|ואז\\s+ת[${H}]+|אחרי\\s+זה\\s+ת[${H}]+)`);
+// A next step in the same prompt makes it an instruction ("did we finish X? if so, do Y" or "...? run Y").
+// "תגיד", "תאשר" and "תודה" after the question still ask for the answer.
+const NEXT = new RegExp(`${notAfter}(?:אם\\s+כן|אם\\s+לא|עכשיו\\s+ת[${H}]+|ואז\\s+ת[${H}]+|אחרי\\s+זה\\s+ת[${H}]+)` +
+  `|\\?\\s*(?!תגיד|תאשר|תודה)ת[${H}]{2,}|\\bthen\\b`, "i");
 
 function asksToClose(prompt) {
   const p = (prompt || "").trim();
@@ -40,10 +50,12 @@ function asksToClose(prompt) {
 }
 
 const CONTEXT = "Nadav is asking whether this session's work is finished or the session can be closed. " +
-  "Run `session-close-check` in the project directory before answering, and answer from its output. " +
-  "Start the reply with \"לסגור את הסשן: כן\" or \"לסגור את הסשן: לא, כי ...\" and then the open items, each with " +
-  "its owner. Add what only you know: background tasks still running, anything scheduled inside this session, " +
-  "and messages you received for another session and have not forwarded.";
+  "Run `session-close-check` in the project directory before answering (without --no-fetch), and answer from " +
+  "its output. Its last line is CLOSE: yes, no or unknown. Start the reply with \"לסגור את הסשן: כן\", " +
+  "\"לסגור את הסשן: לא, כי ...\" or \"לסגור את הסשן: לא ידוע, כי ...\" (naming what could not be checked), " +
+  "and then the open and unchecked items, each with its owner. NOTE lines are other sessions' and are not " +
+  "counted; name any that are in fact this session's. Add what only you know: background tasks still running, " +
+  "anything scheduled inside this session, and messages you received for another session and have not forwarded.";
 
 let input = null;
 try { input = await readInput(); } catch {}

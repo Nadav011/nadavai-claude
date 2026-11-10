@@ -4,18 +4,23 @@
 # (none). The hook never blocks: a hint is hookSpecificOutput.additionalContext with no decision.
 #
 # The matcher: at most 300 characters after trimming, and either
-#   - a request to close the session itself (לסגור את הסשן, לסגור פה / כאן at the end, סגור על זה?!,
-#     "can I close this session"), or
-#   - a finish word (סיימנו, גמרנו, לא נשאר כלום, עברנו על הכל, הכל מוכן; not "סיימנו עם X") together with
-#     a question mark or a marker (זהו, בטוח*, נשאר, מקצה לקצה), and no next step in the same prompt
-#     (אם כן, עכשיו ת..., ואז ת...).
-# Known false positives (hint where none was meant; the cost is one extra read-only check):
+#   - a request to close the session itself (לסגור את הסשן, אני סוגר את הסשן, לסגור פה / כאן at the end,
+#     סגור על זה?!, a bare "זהו?" at the end, "can we close?", "can I close this session"), or
+#   - a finish word (סיימנו, גמרנו, סגרנו, נגמר at the end, לא נשאר כלום, נשאר עוד משהו, מה נשאר? at the end,
+#     משהו פתוח, עברנו על הכל, הכל מוכן, הכל במיין/בפרודקשן; not "סיימנו עם X") together with a question mark
+#     or a marker (זהו, בטוח*, נשאר, מקצה לקצה), and no next step in the same prompt (אם כן, עכשיו ת...,
+#     ואז ת..., a question followed by an imperative other than תגיד/תאשר/תודה, English "then").
+# Known false positives (hint where none was meant; the cost is one extra read-only check and a forced opener):
 #   - "סיימנו את הדף הראשון?" (a progress question about one part) triggers.
 #   - "לא נשאר כלום בקאש?" (a technical question with "לא נשאר כלום") triggers.
+#   - "סגרנו את הדיל עם הלקוח?" (סגרנו about a deal) triggers.
 # Known false negatives (no hint; the model still answers, without the forced check):
 #   - a close question over 300 characters, or one with no finish/close word ("מה המצב? אפשר ללכת?").
 #   - typos that break the words themselves ("סימתנו", "לסגו").
-#   - English phrasings other than "can/should I close this session" and "are we done ...?".
+#   - "אפשר לסגור את השיחה" / "...את הצ'אט": שיחה and צ'אט were dropped as session nouns, because
+#     "תסגור את השיחה עם הלקוח" is an instruction about a client chat.
+#   - "סיימנו? תבדוק" (an imperative after the question reads as a next step).
+#   - English phrasings other than "can/should we close", "can I close this session" and "are we done ...?".
 set -uo pipefail
 HOOK="$(cd "$(dirname "$0")/.." && pwd)/scripts/close-check-hint.mjs"
 PASS=0; FAIL=0
@@ -43,11 +48,22 @@ check hint 'סגור על זה ?!?!?!?'
 check hint 'זהו סיימנו או שהסוכנים נפלו ?'
 # --- close variants: hint ---
 check hint '  אפשר לסגור?  '
-check hint 'אפשר לסגור את השיחה'
 check hint 'גמרנו? אפשר ללכת'
 check hint 'הכל מוכן ?'
 check hint 'can I close this session?'
 check hint 'Are we all done here?'
+check hint 'סיימנו? תודה'
+# --- M4: more of his phrasings: hint ---
+check hint 'נשאר עוד משהו?'
+check hint 'הכל במיין?'
+check hint 'סגרנו הכל?'
+check hint 'סגרנו?'
+check hint 'זהו נגמר?'
+check hint 'אז מה, זהו?'
+check hint 'יש עוד משהו פתוח?'
+check hint 'מה נשאר?'
+check hint 'אני סוגר את הסשן'
+check hint 'can we close?'
 
 # --- instructions that only contain the words: none ---
 check none 'תסגור את הטאב בדפדפן'
@@ -60,9 +76,23 @@ check none 'תבדוק אם סיימנו את המיגרציה ותריץ טסט
 check none 'Fix the build: the close() call in session.ts leaks, and we are done when tests pass.'
 check none 'Did the done callback fire? check the logs'
 check none 'מה נשאר לעשות בפיצר הזה'
+check none 'מה נשאר לעשות בפיצר הזה?'
+check none 'can we close the PR?'
+check none 'נגמר הזיכרון בשרת, תבדוק'
+# --- M5: instructions the first version gave a hint: none ---
+check none 'תסגור את השיחה עם הלקוח בוואטסאפ'
+check none 'אפשר לסגור את השיחה'
+check none 'סיימנו את המיגרציה? תריץ טסטים'
+check none 'are we done with the migration? then deploy it'
+check none 'is everything done? then open the PR'
 # A pasted brief of 2,000 characters that contains "סיימנו" and a question mark.
 long="סיימנו? $(printf 'שורה ארוכה של בריף שהודבק לשיחה, עם הוראות מפורטות לסוכן. %.0s' $(seq 1 40))"
 expect "long paste (${#long} chars)" none "$(run "$(jq -n --arg p "$long" '{hook_event_name:"UserPromptSubmit",prompt:$p}')")"
+
+# --- the context covers the unknown verdict and forbids --no-fetch (H1) ---
+ctx=$(jq -n '{hook_event_name:"UserPromptSubmit",prompt:"סגור על זה ?!"}' | node "$HOOK" | jq -r '.hookSpecificOutput.additionalContext')
+case "$ctx" in *"לסגור את הסשן: לא ידוע"*"without --no-fetch"*|*"without --no-fetch"*"לסגור את הסשן: לא ידוע"*) expect "context: unknown + no --no-fetch" ok ok ;;
+  *) expect "context: unknown + no --no-fetch" ok "missing in: $ctx" ;; esac
 
 # --- malformed input: exit 0, no output ---
 expect "empty stdin"   none "$(run '')"

@@ -3,31 +3,50 @@
 #
 # Why: Nadav asks "are we done, can I close?" about 13 times a day and then checks the same things
 # by hand. This answers from facts, for the git repo that holds dir (default: the current directory):
-#   1. working tree: uncommitted or untracked files, stashes
-#   2. branch: commits not pushed to its upstream (or to any remote, without one)
-#   3. main: HEAD contained in origin/main (or origin/master), else the branch's PR (gh)
-#   4. deploy (repos in lib/woodpecker-repos.txt): live commit (`nadavai-deploy pages-live`) vs origin/main,
-#      and `hold-status`, over `ssh nadavai-vm`
-#   5. other worktrees of the repo with uncommitted changes
+#   1. working tree: uncommitted or untracked files (not git-ignored ones), a rebase, merge, cherry-pick,
+#      revert or bisect in progress, and stashes on this branch or from the recent window
+#   2. branch: commits not pushed (to a branch upstream; against every remote when there is none, or when the
+#      upstream is main itself); other local branches whose tip is in the recent window with commits on no
+#      remote and no PR merged into main
+#   3. main: HEAD contained in origin/main (or origin/master), else a PR merged into main whose head is HEAD,
+#      else the open PR
+#   4. deploy (repos in lib/woodpecker-repos.txt): whether this session's landed commit (HEAD, or the merge
+#      commit of its PR) is live, from `nadavai-deploy pages-live` and `hold-status` over `ssh nadavai-vm`
+#   5. other worktrees with uncommitted changes: listed as NOTE (other sessions'), not counted
 #   6. nadavai: dirty, ahead/behind origin, installed plugin == HEAD (as plugins/nadavai/scripts/session-check.sh)
-#   7. client-message drafts changed in the last CLOSE_CHECK_RECENT_HOURS (24) hours
-#   8. timers that fire once more and were set in that window (user systemd: transient, fixed-date OnCalendar,
-#      OnActiveSec only; age = the unit file's mtime), and `atq`
-# Every line starts with OK, OPEN or SKIP; the last line is "CLOSE: yes" or "CLOSE: no (<n> open)".
-# Exit 0 either way, 2 on a usage error. It changes nothing; the only writes are `git fetch --quiet` of the repo
-# and of nadavai. --no-fetch makes no network call at all (no fetch, gh or ssh). Every call has a 10 s timeout.
-# Overrides (tests): NADAVAI_HOME, CLAUDE_CONFIG_DIR, CLOSE_CHECK_DRAFTS, CLOSE_CHECK_RECENT_HOURS.
-import json, os, re, shutil, subprocess, sys, time
+#   7. client-message drafts changed in the recent window
+#   8. user systemd timers that fire once more and were set in the recent window (transient, fixed-date
+#      OnCalendar, OnActiveSec only; age = the unit file's mtime); `atq` jobs as NOTE (their age is not readable)
+# The recent window is CLOSE_CHECK_RECENT_HOURS (24) hours.
+# Line statuses: OK, OPEN (counted), UNCHECKED (could not be checked: ssh, gh or fetch failed or timed out,
+# --no-fetch, a git error), SKIP (not applicable: no deploy for this repo, a held repo, not a git repo) and
+# NOTE (printed, never counted). The last line is "CLOSE: no (<n> open)" when anything is OPEN, else
+# "CLOSE: unknown (<k> not checked: <checks>)" when anything is UNCHECKED, else "CLOSE: yes".
+# Exit 0 in all three cases, 2 on a usage error. It changes nothing; the only writes are `git fetch --quiet` of the
+# repo and of nadavai (no gc). --no-fetch makes no network call at all (no fetch, gh or ssh), so the checks that
+# need one are UNCHECKED. Every call has a 10 s timeout and is stopped with SIGTERM first, so git cleans its locks.
+# Not seen: git-ignored files, unpushed submodule commits, commits reachable only from the reflog.
+# Overrides (tests): NADAVAI_HOME, CLAUDE_CONFIG_DIR, CLOSE_CHECK_DRAFTS, CLOSE_CHECK_RECENT_HOURS, CLOSE_CHECK_TIMEOUT.
+import json, os, re, shutil, signal, subprocess, sys, time
 
 HOME = os.path.expanduser('~')
 HERE = os.path.dirname(os.path.realpath(__file__))
-TIMEOUT = 10
-try:  # drafts and one-shot timers older than this are not counted as this session's
-    HOURS = float(os.environ.get('CLOSE_CHECK_RECENT_HOURS') or 24)
-except ValueError:
-    HOURS = 24.0
+
+
+def env_float(name, default):
+    try:
+        return float(os.environ.get(name) or default)
+    except ValueError:
+        return float(default)
+
+
+TIMEOUT = env_float('CLOSE_CHECK_TIMEOUT', 10)
+HOURS = env_float('CLOSE_CHECK_RECENT_HOURS', 24)
 CUT = time.time() - HOURS * 3600
+MAX_BRANCH_PRS = 10  # gh calls for other recent branches, at most
 ENV = dict(os.environ, LC_ALL='C', GIT_TERMINAL_PROMPT='0')
+OPS = (('rebase-merge', 'rebase'), ('rebase-apply', 'rebase or am'), ('MERGE_HEAD', 'merge'),
+       ('CHERRY_PICK_HEAD', 'cherry-pick'), ('REVERT_HEAD', 'revert'), ('BISECT_LOG', 'bisect'))
 lines = []  # (status, check, text, details)
 
 
@@ -35,20 +54,46 @@ def add(status, check, text, details=()):
     lines.append((status, check, text, list(details)))
 
 
-def run(cmd, cwd=None, timeout=TIMEOUT):
-    """(rc, stdout, stderr); rc None when the command is missing or timed out (reason in stderr)."""
+def run(cmd, cwd=None, timeout=None):
+    """(rc, stdout, stderr); rc None when the command is missing or timed out (reason in stderr).
+    On a timeout the whole process group gets SIGTERM, then SIGKILL 5 s later."""
+    timeout = timeout or TIMEOUT
     try:
-        p = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout, env=ENV, stdin=subprocess.DEVNULL)
-        return p.returncode, p.stdout, p.stderr
+        p = subprocess.Popen(cmd, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                             text=True, env=ENV, start_new_session=True)
     except FileNotFoundError:
         return None, '', f'{cmd[0]} not installed'
+    try:
+        out, err = p.communicate(timeout=timeout)
+        return p.returncode, out, err
     except subprocess.TimeoutExpired:
-        return None, '', f'timed out after {timeout} s'
+        for sig, wait in ((signal.SIGTERM, 5), (signal.SIGKILL, 2)):
+            try:
+                os.killpg(p.pid, sig)
+            except OSError:
+                pass
+            try:
+                p.communicate(timeout=wait)
+                break
+            except subprocess.TimeoutExpired:
+                continue
+        return None, '', f'timed out after {timeout:g} s'
 
 
 def git(path, *args):
     rc, out, _ = run(['git', '--no-optional-locks', '-C', path, *args])
     return out.strip() if rc == 0 else None
+
+
+def count(path, *args):
+    out = git(path, 'rev-list', '--count', *args)
+    return int(out) if out and out.isdigit() else None
+
+
+def fetch(path):
+    """None when fetched, else the reason. No gc or maintenance: the repo is shared by other sessions."""
+    rc, _, err = run(['git', '-C', path, '-c', 'gc.auto=0', '-c', 'maintenance.auto=false', 'fetch', '--quiet', 'origin'])
+    return None if rc == 0 else reason(err, rc)
 
 
 def short(s):
@@ -61,8 +106,19 @@ def reason(err, rc=None):
 
 
 def changed_files(path):
-    out = git(path, 'status', '--porcelain=v1', '-uall')
-    return None if out is None else [l[3:] for l in out.splitlines() if l]
+    rc, out, _ = run(['git', '--no-optional-locks', '-C', path, 'status', '--porcelain=v1', '-z', '-uall'])
+    if rc != 0:
+        return None
+    files, parts = [], out.split('\0')
+    i = 0
+    while i < len(parts):
+        e = parts[i]
+        if len(e) > 3:
+            files.append(e[3:])
+            if e[0] in 'RC':
+                i += 1  # the original path of a rename or copy follows
+        i += 1
+    return files
 
 
 def main_ref(path):
@@ -72,80 +128,174 @@ def main_ref(path):
     return None
 
 
-def check_repo(top, fetch):
-    # 1. working tree
+def prs_for(top, branch):
+    """The branch's PRs from gh, or (None, reason)."""
+    rc, out, err = run(['gh', 'pr', 'list', '--head', branch, '--state', 'all', '--limit', '10',
+                        '--json', 'number,isDraft,url,state,headRefOid,baseRefName,mergeCommit'], cwd=top)
+    try:
+        prs = json.loads(out) if rc == 0 else None
+    except ValueError:
+        prs = None
+    return (prs, None) if isinstance(prs, list) else (None, reason(err, rc))
+
+
+def merged_into(prs, base, head):
+    return next((p for p in prs if p.get('state') == 'MERGED' and p.get('baseRefName') == base
+                 and p.get('headRefOid') == head), None)
+
+
+def check_tree(top):
     files = changed_files(top)
     if files is None:
-        add('SKIP', 'Working tree', 'git status failed')
+        add('UNCHECKED', 'Working tree', 'git status failed')
     elif files:
         add('OPEN', 'Working tree', f'{len(files)} uncommitted or untracked file(s) in {top}', files[:5])
     else:
         add('OK', 'Working tree', f'clean ({top})')
-    stashes = git(top, 'stash', 'list')
-    n = len(stashes.splitlines()) if stashes else 0
-    if n:
-        add('OPEN', 'Stash', f'{n} stash(es) (shared by every worktree of the repo)', stashes.splitlines()[:3])
-    else:
-        add('OK', 'Stash', 'none')
 
-    # 2. branch
-    if fetch:
-        rc, _, err = run(['git', '-C', top, 'fetch', '--quiet', 'origin'])
-        if rc != 0:
-            add('SKIP', 'Fetch', f'not fetched: {reason(err, rc)} (comparisons use the last fetched refs)')
+    paths = git(top, 'rev-parse', '--path-format=absolute', *[a for n, _ in OPS for a in ('--git-path', n)])
+    if paths is None:
+        add('UNCHECKED', 'Operation', 'git rev-parse --git-path failed')
+    else:
+        busy = [label for (_, label), p in zip(OPS, paths.splitlines()) if os.path.exists(p)]
+        if busy:
+            add('OPEN', 'Operation', f'{" and ".join(dict.fromkeys(busy))} in progress: finish or abort it')
+
+
+def check_stash(top, branch):
+    out = git(top, 'stash', 'list', '--format=%ct%x09%gd%x09%gs')
+    if out is None:
+        add('UNCHECKED', 'Stash', 'git stash list failed')
+        return
+    mine, other = [], []
+    for l in out.splitlines():
+        ct, ref, subj = (l.split('\t', 2) + ['', ''])[:3]
+        m = re.match(r'(?:WIP on|On) (.+?): ', subj)
+        on = m.group(1) if m else ''
+        recent = ct.isdigit() and int(ct) >= CUT
+        (mine if (branch and on == branch) or recent else other).append(f'{ref} {subj}'[:110])
+    if mine:
+        add('OPEN', 'Stash', f'{len(mine)} stash(es) on {branch or "this HEAD"} or from the last {HOURS:g} h', mine[:3])
+    else:
+        add('OK', 'Stash', 'none on this branch or from the last ' f'{HOURS:g} h')
+    if other:
+        add('NOTE', 'Stash', f'{len(other)} older stash(es) of other branches, not counted', other[:3])
+
+
+def check_branch_and_main(top, fetch_on):
+    """Branch and Main lines. Returns (head, mref, landed commit or None)."""
+    fetched = None
+    if fetch_on:
+        fetched = fetch(top)
+        if fetched:
+            add('UNCHECKED', 'Fetch', f'not fetched: {fetched} (comparisons use the last fetched refs)')
     branch = git(top, 'symbolic-ref', '--quiet', '--short', 'HEAD')
-    head = git(top, 'rev-parse', 'HEAD')
+    head = git(top, 'rev-parse', '--verify', '-q', 'HEAD')
     if not head:
         add('SKIP', 'Branch', f'{branch or "?"}: no commits yet')
-        return None
+        return None, None, None
+    mref = main_ref(top)
+    base = mref.split('/', 1)[1] if mref else None
+
+    # Main first: a PR merged into main also settles the Branch line.
+    main_line, merged, landed = None, None, None
+    if not mref:
+        main_line = ('SKIP', 'no origin/main or origin/master')
+    elif git(top, 'merge-base', '--is-ancestor', 'HEAD', mref) is not None:
+        main_line, landed = ('OK', f'HEAD {short(head)} is in {mref}'), head
+    elif not branch:
+        main_line = ('OPEN', f'detached HEAD {short(head)} is not in {mref}')
+    elif not fetch_on:
+        main_line = ('UNCHECKED', f'{branch} is not in {mref}; its PR not checked: --no-fetch')
+    else:
+        prs, why = prs_for(top, branch)
+        if prs is None:
+            main_line = ('UNCHECKED', f'{branch} is not in {mref}; its PR not checked: {why}')
+        else:
+            opn = [p for p in prs if p.get('state') == 'OPEN']
+            merged = merged_into(prs, base, head)
+            other = next((p for p in prs if p.get('state') == 'MERGED' and p.get('headRefOid') == head), None)
+            if merged:
+                main_line = ('OK', f'{branch} merged into {base} as PR #{merged["number"]}: {merged.get("url", "")}')
+                landed = (merged.get('mergeCommit') or {}).get('oid')
+            elif opn:
+                p = opn[0]
+                main_line = ('OPEN', f'{branch} is not in {mref}; PR #{p["number"]} open into {p.get("baseRefName", "?")}'
+                             f'{" (draft)" if p.get("isDraft") else ""}: {p.get("url", "")}')
+            elif other:
+                main_line = ('OPEN', f'{branch} merged as PR #{other["number"]} into {other.get("baseRefName", "?")}, '
+                             f'not into {base}')
+            else:
+                main_line = ('OPEN', f'{branch} is not in {mref} and has no open PR')
+
+    # Branch: against a real branch upstream; against every remote when there is none or it is main itself.
     if not branch:
         add('OK', 'Branch', f'detached HEAD at {short(head)}')
     else:
-        up = git(top, 'rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}')
-        if up:
-            ahead = int(git(top, 'rev-list', '--count', '@{u}..HEAD') or 0)
-            if ahead:
+        info = git(top, 'for-each-ref', '--format=%(upstream:short)%09%(upstream:track)', f'refs/heads/{branch}') or ''
+        up, track = (info.split('\t') + [''])[:2]
+        if up and '[gone]' not in track and up != mref:
+            ahead = count(top, '@{u}..HEAD')
+            if ahead is None:
+                add('UNCHECKED', 'Branch', f'{branch}: git rev-list against {up} failed')
+            elif ahead:
                 add('OPEN', 'Branch', f'{branch}: {ahead} commit(s) not pushed to {up}')
             else:
                 add('OK', 'Branch', f'{branch}: pushed to {up}')
         else:
-            loose = int(git(top, 'rev-list', '--count', 'HEAD', '--not', '--remotes') or 0)
-            if loose:
-                add('OPEN', 'Branch', f'{branch}: no upstream, {loose} commit(s) on no remote')
-            else:
-                add('OK', 'Branch', f'{branch}: no upstream, every commit is on a remote')
-
-    # 3. main
-    mref = main_ref(top)
-    if not mref:
-        add('SKIP', 'Main', 'no origin/main or origin/master')
-    elif git(top, 'merge-base', '--is-ancestor', 'HEAD', mref) is not None:
-        add('OK', 'Main', f'HEAD {short(head)} is in {mref}')
-    elif not branch:
-        add('OPEN', 'Main', f'detached HEAD {short(head)} is not in {mref}')
-    elif not fetch:
-        add('OPEN', 'Main', f'{branch} is not in {mref} (PR not checked: --no-fetch)')
-    else:
-        rc, out, err = run(['gh', 'pr', 'list', '--head', branch, '--state', 'all', '--limit', '10',
-                            '--json', 'number,isDraft,url,state,headRefOid'], cwd=top)
-        try:
-            prs = json.loads(out) if rc == 0 else None
-        except ValueError:
-            prs = None
-        if prs is None:
-            add('OPEN', 'Main', f'{branch} is not in {mref} (PR not checked: {reason(err, rc)})')
-        else:
-            opn = [p for p in prs if p.get('state') == 'OPEN']
-            merged = [p for p in prs if p.get('state') == 'MERGED' and p.get('headRefOid') == head]
-            if opn:
-                p = opn[0]
-                add('OPEN', 'Main', f'{branch} is not in {mref}; PR #{p["number"]} open'
-                    f'{" (draft)" if p.get("isDraft") else ""}: {p.get("url", "")}')
+            loose = count(top, 'HEAD', '--not', '--remotes')
+            where = 'upstream gone' if '[gone]' in track else (f'tracks {up}' if up else 'no upstream')
+            if loose is None:
+                add('UNCHECKED', 'Branch', f'{branch}: git rev-list failed')
+            elif not loose:
+                add('OK', 'Branch', f'{branch}: {where}, every commit is on a remote')
             elif merged:
-                add('OK', 'Main', f'{branch} merged as PR #{merged[0]["number"]} (squash or rebase): {merged[0].get("url", "")}')
+                add('OK', 'Branch', f'{branch}: {where}, landed as PR #{merged["number"]}')
+            elif main_line and main_line[0] == 'UNCHECKED' and '[gone]' in track:
+                add('UNCHECKED', 'Branch', f'{branch}: upstream gone, {loose} commit(s) on no remote; '
+                    'whether its PR was merged is not checked')
             else:
-                add('OPEN', 'Main', f'{branch} is not in {mref} and has no open PR')
-    return mref
+                add('OPEN', 'Branch', f'{branch}: {where}, {loose} commit(s) on no remote')
+    add(main_line[0], 'Main', main_line[1])
+    return head, mref, landed
+
+
+def check_other_branches(top, current, mref, fetch_on):
+    out = git(top, 'for-each-ref', '--format=%(refname:short)%09%(objectname)%09%(committerdate:unix)', 'refs/heads')
+    if out is None:
+        add('UNCHECKED', 'Branches', 'git for-each-ref failed')
+        return
+    base = mref.split('/', 1)[1] if mref else None
+    loose, unchecked, calls = [], [], 0
+    for l in out.splitlines():
+        name, sha, ct = (l.split('\t') + ['', ''])[:3]
+        if name == current or not ct.isdigit() or int(ct) < CUT:
+            continue
+        n = count(top, sha, '--not', '--remotes')
+        if n is None:
+            unchecked.append(f'{name}: git rev-list failed')
+            continue
+        if not n:
+            continue
+        if not fetch_on:
+            unchecked.append(f'{name}: {n} commit(s) on no remote; PR not checked: --no-fetch')
+            continue
+        if calls >= MAX_BRANCH_PRS:
+            unchecked.append(f'{name}: {n} commit(s) on no remote; PR not checked: more than {MAX_BRANCH_PRS} branches')
+            continue
+        calls += 1
+        prs, why = prs_for(top, name)
+        if prs is None:
+            unchecked.append(f'{name}: {n} commit(s) on no remote; PR not checked: {why}')
+        elif not (base and merged_into(prs, base, sha)):
+            loose.append(f'{name}: {n} commit(s) on no remote')
+    if loose:
+        add('OPEN', 'Branches', f'{len(loose)} other local branch(es) changed in the last {HOURS:g} h with commits on '
+            f'no remote and no PR merged into {base or "main"}', loose[:5] + ([f'+{len(loose) - 5} more'] if len(loose) > 5 else []))
+    if unchecked:
+        add('UNCHECKED', 'Branches', f'{len(unchecked)} other recent local branch(es) not fully checked', unchecked[:5])
+    if not loose and not unchecked:
+        add('OK', 'Branches', f'no other local branch from the last {HOURS:g} h with unpushed or unmerged work')
 
 
 def repo_names(top):
@@ -160,59 +310,66 @@ def repo_names(top):
     return names
 
 
-def check_deploy(top, mref, fetch):
+def check_deploy(top, mref, landed, fetch_on):
     try:
         with open(os.path.join(HERE, '..', 'lib', 'woodpecker-repos.txt')) as f:
             known = [l.strip() for l in f if l.strip() and not l.startswith('#')]
     except OSError:
-        add('SKIP', 'Deploy', 'lib/woodpecker-repos.txt not readable')
+        add('UNCHECKED', 'Deploy', 'lib/woodpecker-repos.txt not readable')
         return
     hits = [r for r in known if r in repo_names(top)]
     if not hits:
         return  # not a deployed repo: no line
     repo = hits[0]
     if not re.fullmatch(r'[A-Za-z0-9._-]+', repo):
-        add('SKIP', 'Deploy', f'{repo}: unexpected repo name')
+        add('UNCHECKED', 'Deploy', f'{repo}: unexpected repo name')
         return
-    if not fetch:
-        add('SKIP', 'Deploy', f'{repo}: not checked: --no-fetch')
+    if not fetch_on:
+        add('UNCHECKED', 'Deploy', f'{repo}: not checked: --no-fetch')
         return
     remote = (f'nadavai-deploy hold-status {repo} 2>&1; echo "rc=$?"; '
               f'nadavai-deploy pages-live {repo} 2>&1; echo "rc=$?"')
     rc, out, err = run(['ssh', '-o', 'ConnectTimeout=8', '-o', 'BatchMode=yes', 'nadavai-vm', remote])
     parts = re.findall(r'(.*?)\nrc=(\d+)\n', out or '', re.S)
     if rc != 0 or len(parts) != 2:
-        add('SKIP', 'Deploy', f'{repo}: not checked: ssh nadavai-vm: {reason(err, rc)}')
+        add('UNCHECKED', 'Deploy', f'{repo}: not checked: ssh nadavai-vm: {reason(err, rc)}')
         return
     (hold, hrc), (live, lrc) = [(t.strip(), int(c)) for t, c in parts]
     if lrc == 2 or hrc == 2:
         add('SKIP', 'Deploy', f'{repo}: not handled by the deploy service')
         return
     if lrc != 0:
-        add('SKIP', 'Deploy', f'{repo}: live commit not readable: {reason(live, lrc)}')
+        add('UNCHECKED', 'Deploy', f'{repo}: live commit not readable: {reason(live, lrc)}')
         return
     fields = live.split()
     live_sha = fields[1] if len(fields) >= 2 else '-'
     main_sha = git(top, 'rev-parse', mref) if mref else None
-    if not main_sha or live_sha == '-' or not re.fullmatch(r'[0-9a-f]{7,40}', live_sha):
-        add('SKIP', 'Deploy', f'{repo}: live "{live}" or {mref or "main"} not comparable (hold-status: {hold})')
+    if not main_sha or not re.fullmatch(r'[0-9a-f]{7,40}', live_sha) or not git(top, 'rev-parse', '--verify', '-q',
+                                                                                  live_sha + '^{commit}'):
+        add('UNCHECKED', 'Deploy', f'{repo}: live "{live}" not comparable with {mref or "main"} (not in this clone?)')
         return
-    if main_sha.startswith(live_sha) or live_sha.startswith(main_sha):
-        add('OK', 'Deploy', f'{repo}: production serves {mref} {short(main_sha)} (hold-status: {hold})')
+    gap = count(top, f'{live_sha}..{main_sha}')
+    others = (f'{mref} is {gap} commit(s) ahead of live {short(live_sha)}' if gap else
+              f'live {short(live_sha)} is not on {mref}') if not main_sha.startswith(live_sha) else ''
+    if landed and git(top, 'merge-base', '--is-ancestor', landed, live_sha) is None:
+        text = f'{repo}: this session\'s commit {short(landed)} is in {mref} but not live (live {short(live_sha)})'
+        if hold in ('held', 'off'):
+            add('SKIP', 'Deploy', f'{text}; deploys are {hold}, so not this session\'s to deploy')
+        else:
+            add('OPEN', 'Deploy', f'{text}: ssh nadavai-vm nadavai-deploy deploy {repo} {main_sha}')
         return
-    behind = git(top, 'rev-list', '--count', f'{live_sha}..{main_sha}')
-    gap = f'{behind} commit(s) of {mref} not live' if behind else f'live {short(live_sha)} is not an ancestor of {mref}'
-    text = f'{repo}: production serves {short(live_sha)}, {mref} is {short(main_sha)}: {gap}'
-    if hold in ('held', 'off'):
-        add('SKIP', 'Deploy', f'{text}; deploys are {hold}, so not this session\'s to deploy')
+    if landed:
+        add('OK', 'Deploy', f'{repo}: production serves this session\'s commit {short(landed)} (hold-status: {hold})')
     else:
-        add('OPEN', 'Deploy', f'{text} (hold-status: {hold})')
+        add('SKIP', 'Deploy', f'{repo}: this session\'s work is not in {mref} yet (hold-status: {hold})')
+    if others:
+        add('NOTE', 'Deploy', f'{others}: other sessions\' merges, not counted (hold-status: {hold})')
 
 
 def check_worktrees(top):
     out = git(top, 'worktree', 'list', '--porcelain')
     if out is None:
-        add('SKIP', 'Worktrees', 'git worktree list failed')
+        add('UNCHECKED', 'Worktrees', 'git worktree list failed')
         return
     here = os.path.realpath(top)
     paths = [l[9:] for l in out.splitlines() if l.startswith('worktree ')]
@@ -224,30 +381,33 @@ def check_worktrees(top):
         if files:
             dirty.append((p, len(files)))
     if dirty:
-        add('OPEN', 'Worktrees', f'{len(dirty)} other worktree(s) with uncommitted changes (maybe another session\'s)',
+        add('NOTE', 'Worktrees', f'{len(dirty)} other worktree(s) with uncommitted changes, not counted (other sessions\'; '
+            'name any that are this session\'s)',
             [f'{p} ({n} file(s))' for p, n in dirty[:5]] + ([f'+{len(dirty) - 5} more'] if len(dirty) > 5 else []))
     else:
         add('OK', 'Worktrees', f'no other worktree with uncommitted changes ({len(paths) - 1} other(s))')
 
 
-def check_nadavai(fetch, top):
+def check_nadavai(fetch_on, top):
     repo = os.environ.get('NADAVAI_HOME') or os.path.join(HOME, 'nadavai')
     if not os.path.isdir(os.path.join(repo, '.git')):
         add('SKIP', 'nadavai', f'{repo} is not a git checkout')
         return
+    start = len(lines)
     files = changed_files(repo)
-    if files:
+    if files is None:
+        add('UNCHECKED', 'nadavai', 'git status failed')
+    elif files:
         add('OPEN', 'nadavai', f'{len(files)} uncommitted file(s) in {repo}', files[:5])
-    elif files is None:
-        add('SKIP', 'nadavai', 'git status failed')
     common = top and git(top, 'rev-parse', '--path-format=absolute', '--git-common-dir')
     same = bool(common) and os.path.realpath(common) == os.path.realpath(os.path.join(repo, '.git'))
-    if fetch and not same:  # the repo check already fetched it
-        rc, _, err = run(['git', '-C', repo, 'fetch', '--quiet', 'origin'])
-        if rc != 0:
-            add('SKIP', 'nadavai', f'not fetched: {reason(err, rc)}')
-    ahead = int(git(repo, 'rev-list', '--count', '@{u}..HEAD') or 0)
-    behind = int(git(repo, 'rev-list', '--count', 'HEAD..@{u}') or 0)
+    if fetch_on and not same:  # the repo check already fetched it
+        why = fetch(repo)
+        if why:
+            add('UNCHECKED', 'nadavai', f'not fetched: {why}')
+    ahead, behind = count(repo, '@{u}..HEAD'), count(repo, 'HEAD..@{u}')
+    if ahead is None or behind is None:
+        add('UNCHECKED', 'nadavai', 'no upstream, or git rev-list failed: push state unknown')
     if ahead:
         add('OPEN', 'nadavai', f'{ahead} commit(s) not pushed to origin')
     if behind:
@@ -256,11 +416,11 @@ def check_nadavai(fetch, top):
     cfg = os.environ.get('CLAUDE_CONFIG_DIR') or os.path.join(HOME, '.claude')
     installed = git(os.path.join(cfg, 'plugins', 'marketplaces', 'nadavai'), 'rev-parse', 'HEAD')
     if not installed:
-        add('SKIP', 'nadavai', 'installed plugin not found')
-    elif installed != head and not ahead and not behind:
+        add('UNCHECKED', 'nadavai', 'installed plugin not found')
+    elif installed != head and ahead == 0 and behind == 0:
         add('OPEN', 'nadavai', f'installed plugin is at {short(installed)}, repo at {short(head)}: run {repo}/update.sh')
-    if not any(l[1] == 'nadavai' and l[0] == 'OPEN' for l in lines) and files == []:
-        add('OK', 'nadavai', f'clean, pushed{" and installed" if installed == head else ""} ({short(head)})')
+    if len(lines) == start:
+        add('OK', 'nadavai', f'clean, pushed and installed ({short(head)}){"" if fetch_on else ", not fetched"}')
 
 
 def check_drafts():
@@ -288,7 +448,7 @@ def check_timers():
         except (ValueError, TypeError, KeyError):
             pass
     if timers is None:
-        add('SKIP', 'Timers', f'systemd user timers not read: {reason(err, rc)}')
+        add('UNCHECKED', 'Timers', f'systemd user timers not read: {reason(err, rc)}')
     else:
         new, old, recurring = [], [], 0
         if timers:
@@ -322,18 +482,19 @@ def check_timers():
         rc, out, err = run(['atq'])
         jobs = [l for l in (out or '').splitlines() if l.strip()]
         if rc != 0:
-            add('SKIP', 'at', f'atq failed: {reason(err, rc)}')
+            add('UNCHECKED', 'at', f'atq failed: {reason(err, rc)}')
         elif jobs:
-            add('OPEN', 'at', f'{len(jobs)} at job(s) queued', jobs[:5])
+            add('NOTE', 'at', f'{len(jobs)} at job(s) queued, not counted (atq shows no age): name any this session set',
+                jobs[:5])
         else:
             add('OK', 'at', 'no queued jobs')
 
 
 def main(argv):
-    fetch, as_json, target = True, False, None
+    fetch_on, as_json, target = True, False, None
     for a in argv:
         if a == '--no-fetch':
-            fetch = False
+            fetch_on = False
         elif a == '--json':
             as_json = True
         elif a in ('-h', '--help'):
@@ -353,27 +514,39 @@ def main(argv):
 
     top = git(target, 'rev-parse', '--show-toplevel')
     if top:
-        mref = check_repo(top, fetch)
-        check_deploy(top, mref, fetch)
+        branch = git(top, 'symbolic-ref', '--quiet', '--short', 'HEAD')
+        check_tree(top)
+        check_stash(top, branch)
+        head, mref, landed = check_branch_and_main(top, fetch_on)
+        if head:
+            check_other_branches(top, branch, mref, fetch_on)
+            check_deploy(top, mref, landed, fetch_on)
         check_worktrees(top)
     else:
         for c in ('Working tree', 'Branch', 'Main', 'Deploy', 'Worktrees'):
             add('SKIP', c, f'{target} is not in a git repo')
-    check_nadavai(fetch, top)
+    check_nadavai(fetch_on, top)
     check_drafts()
     check_timers()
 
     n_open = sum(1 for l in lines if l[0] == 'OPEN')
-    close = 'CLOSE: yes' if not n_open else f'CLOSE: no ({n_open} open)'
+    unchecked = [l[1] for l in lines if l[0] == 'UNCHECKED']
+    if n_open:
+        verdict, close = 'no', f'CLOSE: no ({n_open} open)'
+    elif unchecked:
+        names = ', '.join(dict.fromkeys(unchecked))
+        verdict, close = 'unknown', f'CLOSE: unknown ({len(unchecked)} not checked: {names})'
+    else:
+        verdict, close = 'yes', 'CLOSE: yes'
     if as_json:
-        print(json.dumps({'dir': target, 'repo': top, 'close': not n_open, 'open': n_open,
+        print(json.dumps({'dir': target, 'repo': top, 'close': verdict, 'open': n_open, 'unchecked': len(unchecked),
                           'checks': [{'status': s, 'check': c, 'text': t, 'details': d} for s, c, t, d in lines]},
                          ensure_ascii=False, indent=1))
         return 0
     for s, c, t, d in lines:
-        print(f'{s:<4} {c}: {t}')
+        print(f'{s:<9} {c}: {t}')
         for x in d:
-            print(f'       {x}')
+            print(f'            {x}')
     print(close)
     return 0
 
