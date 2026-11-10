@@ -3,7 +3,8 @@
   "availableModels": [
     "opus",
     "sonnet",
-    "haiku"
+    "haiku",
+    "fable"
   ],
   "modelSettings": {
     "claude-opus-5-5": {

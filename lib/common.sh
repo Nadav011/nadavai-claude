@@ -594,7 +594,7 @@ mirror_to_antigravity() {
 
 You are running in Google Antigravity with the `nadavai` environment. Apply the global rules below using Antigravity's native tools and model parameters:
 
-- **Subagent model parameter (`invoke_subagent`)**: Antigravity's `Model` enum accepts ONLY `inherit`, `pro`, `flash`, or `flash_lite`. Never pass Claude/Codex model names (`opus`, `sonnet`, `haiku`, `fable`) to `invoke_subagent`. Map complex architecture, debugging, security, and review work (`opus` in the rules below) to `pro` (or `inherit`), routine work (`sonnet`) to `inherit`, and quick lookups (`haiku`) to `flash`. Fable is never used.
+- **Subagent model parameter (`invoke_subagent`)**: Antigravity's `Model` enum accepts ONLY `inherit`, `pro`, `flash`, or `flash_lite`. Never pass Claude/Codex model names (`opus`, `sonnet`, `haiku`, `fable`) to `invoke_subagent`. Map complex architecture, debugging, security, and review work (`opus` in the rules below) to `pro` (or `inherit`), routine work (`sonnet`) to `inherit`, and quick lookups (`haiku`) to `flash`. Fable is chosen only by Nadav, never by an agent.
 - **Subagent types (`invoke_subagent`)**: Built-in types are `self` (full toolset in an isolated context), `research` (read-only exploration and web/docs lookup), and `image-generator`. Custom subagents (`ember`, `wren`, `vigil`, `rune`, `planner`, `executor`, `verifier`, `code-reviewer`, `debugger`, `architect`, `critic`, `security-reviewer`) are registered via `agents.json` or can be defined on demand with `define_subagent`.
 - **Tool mapping from Claude Code names in rules/skills**:
   - `AskUserQuestion` -> `ask_question`
