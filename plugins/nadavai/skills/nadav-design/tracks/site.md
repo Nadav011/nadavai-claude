@@ -26,8 +26,9 @@ here.
 
 1. **His words.** The understanding check on the words he used for this site ("שאפתני",
    "מתקדם", "כמו X"), with visible examples, before anything else. Read `REJECTED.md`.
-2. **The reference.** `shared/reference.md`: deconstruct into `REFERENCE.md`, list the assets it
-   needs, build the first row and show it, then row by row on one page.
+2. **The reference.** `shared/reference.md`: deconstruct into `REFERENCE.md`, check the ledger
+   (the coverage script, then a fresh reviewer), list the assets it needs, build the first row
+   and show it, then row by row on one page.
 3. **Content before effect.** Real copy, real photos and the real logo, or a row waits. A
    person-led hero needs a professional portrait.
 4. **The first real action first.** On a phone, what the visitor came to do (enter the shop,

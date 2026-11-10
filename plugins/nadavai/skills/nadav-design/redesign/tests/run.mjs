@@ -1136,13 +1136,48 @@ await test('P-tool', 'decisions-open.py counts every row that is not exactly «�
   let out; try { out = JSON.parse(r.stdout); } catch { return `exit ${r.status}: ${r.stdout}`; }
   return r.status === 0 && out.open === 3 && out.rows.join() === 'Q-2,Q-3,Q-4' ? '' : `exit ${r.status}: ${r.stdout}`;
 });
-await test('REF-1', 'decisions-open.py counts the open rows of a REFERENCE.md and ignores its «Differences on purpose» table', async () => {
+await test('REF-1', 'decisions-open.py counts the open rows of a REFERENCE.md (sections and «always there») and ignores its «Differences on purpose» table', async () => {
   const p = path.join(TMP, 'REFERENCE.md');
   const tpl = fs.readFileSync(path.join(SK, 'templates/REFERENCE.md'), 'utf8');
-  fs.writeFileSync(p, tpl.replace(/(\| R-1 \|.*\| )פתוח \|/, '$1הוכרע · תשובה 3 |').replace(/(\| id \| what differs \|[^\n]*\n\|[-|]*\n)/, '$1| R-9 | no film on a phone | his answer | 4 |\n'));
+  const closed = tpl.replace(/(\| R-1 \|.*\| )פתוח \|/, '$1הוכרע · תשובה 3 |').replace(/(\| id \| what differs \|[^\n]*\n\|[-|]*\n)/, '$1| R-9 | no film on a phone | his answer | 4 |\n');
+  if (closed === tpl) return 'the template no longer has the R-1 row or the differences table this test edits';
+  fs.writeFileSync(p, closed);
   const r = sh('python3', [path.join(T, 'decisions-open.py'), p]);
   let out; try { out = JSON.parse(r.stdout); } catch { return `exit ${r.status}: ${r.stdout}`; }
-  return r.status === 0 && out.open === 1 && out.rows.join() === 'R-2' ? '' : `exit ${r.status}: ${r.stdout}`;
+  return r.status === 0 && out.open === 2 && out.rows.join() === 'K-1,R-2' ? '' : `exit ${r.status}: ${r.stdout}`;
+});
+await test('REF-2', 'reference-coverage.py passes a ledger with no gap and fails on a missing stretch, an overlap, a short end, a row without a stretch and a missing frame', async () => {
+  const head = '| id | what | how it moves | measured | needs | frames | מצב |\n|---|---|---|---|---|---|---|\n';
+  const row = (id, span) => `| ${id} | ${span} a section | scroll | not measured | none | reference/${id}.png · built/${id}.png | פתוח |\n`;
+  const diff = '\n| id | what differs | why | answer |\n|---|---|---|---|\n| R-2 | no film | phone | 4 |\n';
+  const run = (name, body, extra = []) => {
+    const p = path.join(TMP, name);
+    fs.writeFileSync(p, head + body + diff);
+    const r = sh('python3', [path.join(T, 'reference-coverage.py'), p, '--total', '10', ...extra]);
+    let out = null; try { out = JSON.parse(r.stdout); } catch { /* reported below */ }
+    return { status: r.status, out, raw: r.stdout };
+  };
+  const why = [];
+  const good = run('ref-good.md', row('R-1', '[0–4.5 s]') + row('R-2', '[4.5–10 s]'));
+  if (good.status !== 0 || !good.out || good.out.rows !== 2 || good.out.problems.length) why.push(`good: exit ${good.status} ${good.raw}`);
+  const px = run('ref-px.md', row('R-1', '[0–400 px]') + row('R-2', '[400–10 px]'));
+  if (px.status !== 1) why.push(`a stretch that ends before it starts passed: ${px.raw}`);
+  const cases = [
+    ['gap', row('R-1', '[0–4 s]') + row('R-3', '[6–10 s]'), /no row covers 4 to 6/],
+    ['overlap', row('R-1', '[0–6 s]') + row('R-2', '[4–10 s]'), /R-2 overlaps/],
+    ['short', row('R-1', '[0–4 s]') + row('R-2', '[4–8 s]'), /no row covers 8 to 10 \(the end\)/],
+    ['nospan', row('R-1', '[0–10 s]') + row('R-2', ''), /R-2: no \[a–b s\]/],
+    ['mixed', row('R-1', '[0–5 s]') + row('R-2', '[5–10 px]'), /mix seconds and pixels/],
+  ];
+  for (const [name, body, re] of cases) {
+    const r = run(`ref-${name}.md`, body);
+    if (r.status !== 1 || !r.out || !r.out.problems.some(p => re.test(p))) why.push(`${name}: exit ${r.status} ${r.raw}`);
+  }
+  const frames = run('ref-frames.md', row('R-1', '[0–10 s]'), ['--frames-dir', TMP]);
+  if (frames.status !== 1 || !/reference\/R-1\.png is missing/.test(frames.raw)) why.push(`missing frame: exit ${frames.status} ${frames.raw}`);
+  const usage = sh('python3', [path.join(T, 'reference-coverage.py')]);
+  if (usage.status !== 2) why.push(`no arguments: exit ${usage.status}`);
+  return why.join(' · ');
 });
 await test('SHOW-1', 'early-show.sh refuses, without any request, a link that is not https, a vercel.app address, a host that is not his and a claude.ai link that is not an artifact', async () => {
   const run = (url, env = {}) => sh('bash', [path.join(T, 'early-show.sh'), url], { env: { ...process.env, EARLY_SHOW_HOSTS: '', ...env } });
