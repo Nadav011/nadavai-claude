@@ -25,6 +25,16 @@ check() {  # name  expect  reply  [transcript]  [stop_hook_active]  [session]  [
   expect "$1" "$2" "$(run "${7:-candor-guard.mjs}" "$json")"
 }
 
+# --- a reply written inside a subagent or teammate is not for Nadav: both guards pass it ---
+agent_json() {  # reply -> Stop input as it arrives inside a subagent or in-process teammate
+  jq -n --arg m "$1" '{hook_event_name:"Stop", last_assistant_message:$m, transcript_path:"/nonexistent",
+    stop_hook_active:false, agent_id:"agent-abc123", agent_type:"oh-my-claudecode:executor"}'
+}
+EN_REPORT="The change is committed on the branch and both test files pass. I did not push or merge, as the brief asked. Two deviations are listed below with their reasons."
+expect "hebrew: english report from a teammate passes" allow "$(run hebrew-guard.mjs "$(agent_json "$EN_REPORT")")"
+expect "candor: praise inside a subagent passes" allow "$(run candor-guard.mjs "$(agent_json "You're absolutely right, fixing it.")")"
+check "hebrew: the same english report in a main session is blocked" block "$EN_REPORT" /nonexistent false "" hebrew-guard.mjs
+
 # --- candor: blocked ---
 check "en absolutely right"   block "You're absolutely right, I'll fix it."
 check "en great idea"         block "Great idea! Let me build it."

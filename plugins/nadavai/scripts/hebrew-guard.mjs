@@ -62,6 +62,10 @@ if (input.hook_event_name === "PreToolUse" || input.hookEventName === "pre_tool_
 }
 
 if (input.hook_event_name && input.hook_event_name !== "Stop") process.exit(0);
+// A subagent or teammate reports to the agent that started it, not to Nadav, so the guard leaves
+// its final reply alone (hook input carries agent_id there). Before this, a teammate wrote each
+// report twice: in English for its lead, then again in Hebrew for the guard.
+if (input?.agent_id) process.exit(0);
 // Grok also fires Stop at session end (channel_closed / shutdown). That decision is ignored,
 // and counting it would mark the turn as already checked.
 if (input.reason === "channel_closed" || input.reason === "shutdown") process.exit(0);

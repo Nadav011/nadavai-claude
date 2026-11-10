@@ -9,6 +9,10 @@
 import { readInput, readTurn, firstTime } from "./guard-turn.mjs";
 
 const input = await readInput();
+// A subagent or teammate reports to the agent that started it, not to Nadav, so the guard leaves
+// its final reply alone (hook input carries agent_id there). Before this, a teammate wrote each
+// report twice: in English for its lead, then again in Hebrew for the guard.
+if (input?.agent_id) process.exit(0);
 if (!input) process.exit(0);
 if (input.hook_event_name && input.hook_event_name !== "Stop") process.exit(0);
 // Grok also fires Stop at session end. Its decision is ignored; skip so the turn stays correctable.
