@@ -253,16 +253,21 @@ for root in ROOTS:
         if st.st_mtime >= CUT:
             s.setdefault('subs', []).append((p, md if isinstance(md, dict) else {}))
 
+def atype(md):
+    # A teammate's agentType is its name (impl-1); its real type is in spawnedAgentType or customAgentType.
+    return str(md.get('spawnedAgentType') or md.get('customAgentType') or md.get('agentType') or '?')
+
+
 rows = []
 for sid, s in by_session.items():
     subs = s.get('subs', [])
-    if not s.get('parent') or not any(str(md.get('agentType', '')).endswith(('executor', 'executor-compact')) for _, md in subs):
+    if not s.get('parent') or not any(atype(md).endswith(('executor', 'executor-compact')) for _, md in subs):
         continue
     infos = []
     for p, md in subs:
         i = sub_info(p)
         if i['t0']:
-            i['type'] = str(md.get('agentType') or '?'); infos.append(i)
+            i['type'] = atype(md); infos.append(i)
     execs = [i for i in infos if i['type'].endswith(('executor', 'executor-compact')) and not LIMIT.search(i['last'][:400] or 'x')]
     pev = parent_events(s['parent'])
     reviews = [(i['t0'], verdict(i['last']), i['last']) for i in infos
