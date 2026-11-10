@@ -94,7 +94,9 @@ export function domChecks(args: DomCheckArgs): Record<string, CheckResult> {
   const describe = (el: Element) => {
     const tag = el.tagName.toLowerCase();
     const id = el.id ? `#${el.id}` : "";
-    const label = Array.from(el.getAttribute("aria-label") || text(el) || el.getAttribute("placeholder") || "")
+    // A slider's name is on its thumb (Radix Slider puts aria-disabled on the root).
+    const thumb = el.querySelector('[role="slider"][aria-label]')?.getAttribute("aria-label");
+    const label = Array.from(el.getAttribute("aria-label") || text(el) || el.getAttribute("placeholder") || thumb || "")
       .slice(0, 40)
       .join("");
     return `${tag}${id}${label ? ` "${label}"` : ""}`;
@@ -128,8 +130,9 @@ export function domChecks(args: DomCheckArgs): Record<string, CheckResult> {
   const isSearch = (el: Element) =>
     el.matches('input[type="search"], [role="searchbox"]') ||
     (el.matches('[role="combobox"]') && !!el.closest('[cmdk-root], [role="search"]'));
-  // A modal dialog that is open: Radix hides everything else with aria-hidden.
-  const modalOpen = [...document.querySelectorAll('[role="dialog"], [role="alertdialog"], dialog[open]')].some(vis);
+  // A modal dialog or menu that is open: Radix hides everything else with aria-hidden (a
+  // DropdownMenu or ContextMenu is modal by default).
+  const modalOpen = [...document.querySelectorAll('[role="dialog"], [role="alertdialog"], dialog[open], [role="menu"][data-state="open"]')].some(vis);
 
   // help-door (G-01): the door in the top bar, and the screen's own entry in its header.
   check("help-door", (c) => {
@@ -224,6 +227,9 @@ export function domChecks(args: DomCheckArgs): Record<string, CheckResult> {
     const CONTROL = 'a, button, [role="button"], [role="link"]';
     const inPager = (el: Element) => {
       if (el.closest('[data-slot="pagination"], [aria-label="pagination" i], .rdp-nav, [data-slot="calendar"] nav')) return true;
+      // A menu's back/forward at the end of history (a browser-like ContextMenu), named by its
+      // first word, before the shortcut.
+      if (el.closest('[role="menu"], [role="menubar"]') && /^(חזרה|אחורה|קדימה|back|forward)(?!\p{L})/iu.test(name(el))) return true;
       // A carousel's previous/next at its first or last slide (stock CarouselPrevious/Next).
       if (el.closest('[data-slot="carousel"], [aria-roledescription="carousel"]') && (isPrev(el) || isNext(el))) return true;
       const nav = el.closest("nav[aria-label]");

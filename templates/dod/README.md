@@ -168,29 +168,38 @@ the project has `e2e/dod/standard.json`. Without it nothing changes and `dod.jso
 - `mode`: `report` (the default) writes the findings into `dod.json` and leaves the score alone;
   `enforce` deducts 10 for every check id with findings on a route, counted once per route like the
   other page findings. `"enforce": ["help-door", ...]` in `report` mode deducts for those check ids
-  only, so a project moves checks to enforce one at a time. In enforce, a check that could not
-  measure is never a pass: one that errored costs its 10 points and its route's check says
-  `verdict: "errored"`, apart from `"found N"`. The static checks follow the same mode: in `report`
-  `routes.mjs --check` prints them and passes, except the ids under `enforce`; in `enforce` it fails
-  on them.
+  only, so a project moves checks to enforce one at a time. The ids are the ones in
+  `e2e/dod/standard-checks.json`, one list for both sides: the DoD run enforces the page checks,
+  `routes.mjs --check` the static ones (`help-route`, `brand-assets`, ...), each accepts the other's,
+  and an unknown id is a configuration error in both. In enforce, a check that could not measure is
+  never a pass: one that errored (also when the whole check call failed on the page, or the run
+  stopped the checks, below) costs its 10 points and its route's check says `verdict: "errored"`,
+  apart from `"found N"`; each route's check says `enforced: true|false`. The static checks follow
+  the same mode: in `report` `routes.mjs --check` prints them and passes, except the ids under
+  `enforce`; in `enforce` it fails on them.
 - A check of the standard is a heuristic, judged on markup it has not seen. A project keeps every
   check in `report` until a full run on its own routes shows no false alarm for that check, moves
   checks to `enforce` one at a time, and reports a false alarm to the design-skill session with the
   markup that caused it, so the kit's real-markup pages (`tests/fixtures/real-*.html`) grow.
-- Report mode never moves a number. The checks run in their own try, pause the console count while
-  they resize the page and load no extra page. One try ends at its 30 s deadline, whatever is still
-  running; the viewport goes back and the page must answer within 5 s, and a try that ran out of
-  time on a page that answers (a loaded machine), or any error under `CI`, gets one more try
-  (`standard_retried` on the entry says why). A resize that loads a new document (a navigation or a
-  same-URL reload) or changes the URL (`history.replaceState`) stops the measuring with an error that
-  says which; a reload too early to see is recorded as the raw "Execution context was destroyed".
-  The old document then ends (`about:blank`) before the console counts again and the route loads
-  for the reduced-motion check; a page that no longer answers is left behind and that load runs in a
-  new tab of the same context. All of it is bounded: the test's timeout grows by 85 s (two tries
-  and five 5 s waits). A check that fails or runs out of time (a bad `coreUnit.selector`, a hung
-  page) writes an `error` on that check and in `standard.errors`, never an unreachable page or, in
-  report mode, a changed score. After the standard's checks the route is loaded fresh (a `navigate`),
-  where a run without them reloads it (a `reload`).
+- Report mode never moves a number, by order: an entry first takes every scored measurement
+  (`measureEntry` in `dod.spec.ts`: the load, screenshot, overflow, axe, fonts, touch targets, the
+  reduced-motion reload and the console count over all of it), the same function with or without
+  `standard.json`, and writes its result. Only then do the standard's checks run, on the route loaded
+  again with motion back to normal, and what they return can hold only their own fields
+  (`standard`, `probe`, `standard_error`, `standard_retried`, `standard_skipped`). One try ends at
+  its 30 s deadline, whatever is still running; a try that ran out of time, a check call that failed
+  as a whole, or any error under `CI` (`true` or `1`) gets one more try on a page that still answers
+  (the viewport back and a trivial call, 5 s each), keeping the first try's result for every check
+  that did not error in it (`standard_retried` says why). The test's timeout grows by 75 s (two tries
+  and three waits). A resize that loads a new document (a navigation or a same-URL reload) or
+  changes the URL (`history.replaceState`) stops the measuring with an error that says which; a
+  reload too early to see is recorded as the raw "Execution context was destroyed". A check that
+  fails or runs out of time (a bad `coreUnit.selector`, a hung page) writes an `error` on that check
+  and in `standard.errors`, never an unreachable page or, in report mode, a changed score.
+- `maxTimeouts` (default 5): once that many entries of a run ran out of time in the standard's
+  checks (a loaded machine, a page that blocks on resize), the rest of the run neither retries nor
+  runs them: `standard.skipped_after_timeouts` in `dod.json` gives the count of entries not
+  checked, the summary prints it, and in enforce each of them is "errored".
 - `textFloorPx`: the smallest text the probe accepts (default 12).
 - `helpDir` (optional): turns on `help-route`.
 - `coreUnit` (optional): turns on `core-unit` for that one route.
@@ -211,9 +220,9 @@ What each check reads (the markers are the standard's: `data-help`, `data-state`
 
 | Check | Where | Fires on |
 |---|---|---|
-| `help-door` | every entry, except routes with `noHelp` (or the old `static: true`) | no visible `[data-help="door"]` inside a `header`/`[role="banner"]` or in the first 120px, or no visible `[data-help="screen"]`. With a modal dialog or sheet open on load, the aria-hidden Radix puts on the page is looked past: the door is still the page's |
+| `help-door` | every entry, except routes with `noHelp` (or the old `static: true`) | no visible `[data-help="door"]` inside a `header`/`[role="banner"]` or in the first 120px, or no visible `[data-help="screen"]`. With a modal dialog, sheet or menu open on load, the aria-hidden Radix puts on the page is looked past: the door is still the page's |
 | `tooltip-only` | every entry | a visible element with a `title` and no readable text of its own (a lone `?` is not text), no `aria-describedby` to visible text, outside `[data-help]`, unless the title's words are already beside it as its label: a text in its parent or its wrapper's parent with exactly the title's words, up to 60 characters, headings not counted (an avatar beside the name passes; an icon under a heading of the same word, or beside a cell "עריכה אחרונה: אתמול" for the title "עריכה", does not), or the title as whole words in the label of its labelled group; or one described only by a hidden `[role="tooltip"]` in the DOM. The sidebar rail (`[data-sidebar="rail"]`) is not judged. A Radix tooltip is not in the DOM until hover, so its trigger is not judged |
-| `disabled-reason` | every entry | a disabled control (or `aria-disabled="true"`) outside `[aria-busy="true"]` with no `aria-describedby` to visible text on it or on its group (a legend is linked that way: `aria-describedby` on the `role="group"` of time slots). Not judged where its place is the reason: the current page (`aria-current` other than `"false"`, a breadcrumb page), a numbered calendar day, a pager's, calendar's or carousel's previous/next (inside `[data-slot="pagination"]`, a pagination `nav`, `.rdp-nav`, a carousel's "השקופית הקודמת"/"Previous slide", or a previous and a next control side by side outside a form), a stepper beside a number field or a number shown as text whose whole name is +/-, a stepper word ("הפחתה", "הוספה", "decrease", ...) or nothing (an unnamed icon); and an option or item whose own text gives the reason, two words or more with a letter, in brackets or after a dash ("פדיקור (אין תורים החודש)"). A wizard's disabled "הבא", also beside "הקודם" in a form, a disabled action in a grid row or a carousel slide, an icon-only "הוספה לסל" beside a quantity, "ייצוא (CSV)" and "09:00 - 09:45" all fire |
+| `disabled-reason` | every entry | a disabled control (or `aria-disabled="true"`) outside `[aria-busy="true"]` with no `aria-describedby` to visible text on it or on its group (a legend is linked that way: `aria-describedby` on the `role="group"` of time slots). Not judged where its place is the reason: the current page (`aria-current` other than `"false"`, a breadcrumb page), a numbered calendar day, a pager's, calendar's or carousel's previous/next (inside `[data-slot="pagination"]`, a pagination `nav`, `.rdp-nav`, a carousel's "השקופית הקודמת"/"Previous slide", a menu's "חזרה"/"קדימה" (back/forward) item, or a previous and a next control side by side outside a form), a stepper beside a number field or a number shown as text whose whole name is +/-, a stepper word ("הפחתה", "הוספה", "decrease", ...) or nothing (an unnamed icon); and an option or item whose own text gives the reason, two words or more with a letter, in brackets or after a dash ("פדיקור (אין תורים החודש)"). A wizard's disabled "הבא", also beside "הקודם" in a form, a disabled action in a grid row or a carousel slide, an icon-only "הוספה לסל" beside a quantity, "ייצוא (CSV)" and "09:00 - 09:45" all fire |
 | `placeholder-label` | every entry | an input with a placeholder and no visible `<label>` or `aria-labelledby` to visible text (`aria-label` is not visible). A search box with an accessible name passes: `type="search"`, `role="searchbox"`, or a combobox inside a command palette (`[cmdk-root]`) or `[role="search"]`; any other combobox is a field |
 | `input-attrs` | every entry | a text-like `<input>` with no `autocomplete`; a phone, email or number field without the matching `type` or `inputmode`, decided by its `autocomplete`, or by the last meaningful word of its `name` or `id` ("emailSubject" is a subject; "email_address", "phoneNumber" are what they say), or by two weak signals together (label words and a placeholder that looks like one) when no `autocomplete` token names what it is ("אימייל או שם משתמש" with `autocomplete="username"` is a login), never by a label alone and never on a field that declares another kind; at phone widths only, an input, textarea or select under 16px (iOS zooms: stock shadcn `Input` is fine, stock `CommandInput`, `text-sm`, is not). Search boxes, as in `placeholder-label`, are judged on the 16px floor only |
 | `one-primary` | every entry | more than one action whose computed background equals the `--primary` that element itself inherits (so a multi-brand wrapper's own token counts), counted in the last open `[role="dialog"]`/`[role="alertdialog"]`/`dialog[open]` alone when one is open; skipped (and said so) when no `--primary` resolves. A thing filled to show its state is not an action: switches, checkboxes, radios, tabs, options, calendar cells, and anything with `aria-selected`, `aria-pressed`, `aria-checked` or `aria-current` |
@@ -231,10 +240,10 @@ What each check reads (the markers are the standard's: `data-help`, `data-state`
 
 `tour-no-commit` is not built: no project has a tour manifest for it to read yet.
 
-In `dod.json` each route has `standard: { <check-id>: { count, samples, skipped?, error?, verdict } }`
-(its highest entry; `verdict` is `"errored"`, `"found N"`, `"skipped"` or `"clean"`), each entry its
-own `standard`, `standard_retried` when it took a second try and, on the light entries, `probe` by
-size; the top level has `standard` (mode, the enforced ids, profile, per check id the routes,
+In `dod.json` each route has `standard: { <check-id>: { count, samples, skipped?, error?, verdict,
+enforced } }` (its highest entry; `verdict` is `"errored"`, `"found N"`, `"skipped"` or `"clean"`),
+each entry its own `standard`, `standard_retried` when it took a second try, `standard_skipped` when
+the run had stopped the checks and, on the light entries, `probe` by size; the top level has `standard` (mode, the enforced ids, profile, per check id the routes,
 findings, errors and skips, and what is not built) and `totals.standard_findings` (all findings),
 `totals.standard_failures` (check ids with findings), `totals.standard_errored` (check ids that
 errored) and `totals.standard_scored` (the enforced ones among both, which cost points).
@@ -277,6 +286,10 @@ Five projects run an older copy. What changes for each, in the order it bites:
   sideways scroll, so a score can move either way; one that swaps its interface on a pointer or hover
   query has that other interface measured at 375. Argos shows a one-time difference only on the 375
   screenshots of pages with pointer or hover queries.
+- **The reduced-motion reload must land on the route (plain runs too).** After the reload that
+  measures reduced motion, an entry whose path differs from the first load's (a session that expired
+  mid-run and sent it to sign-in) is now `unreachable`, and the score is 0 until the session lasts
+  the run. Before, that sign-in screen's motion was counted as the page's.
 - **Run from the root.** The template finds its files from the working directory (or `DOD_ROOT`),
   not from `__dirname`; an ESM project drops its `import.meta` and JSON-attribute patch.
 - **Heavily customised copies port by hand**, check by check, instead of copying the files over:
@@ -293,7 +306,7 @@ scores 100 in `enforce` mode, and the A3 repairs have their own (an anonymous en
 `routes.mjs --check` and the static checks run against small fake apps.
 
 ```bash
-heavy-slot -- node ~/nadavai/templates/dod/tests/run.mjs            # both runs, about 6 minutes
+heavy-slot -- node ~/nadavai/templates/dod/tests/run.mjs            # both runs, about 30 minutes
 heavy-slot -- node ~/nadavai/templates/dod/tests/run.mjs --only esm
 node ~/nadavai/templates/dod/tests/run.mjs --skip-browser          # tsc and the static checks
 ```

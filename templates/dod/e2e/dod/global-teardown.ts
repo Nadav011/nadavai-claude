@@ -73,13 +73,13 @@ export default async function globalTeardown() {
       perRoute[route] = {
         ...aggregate(es, enforce),
         score: 0,
-        ...(standard ? { standard: routeStandard(es) } : {}),
+        ...(standard ? { standard: routeStandard(es, enforce) } : {}),
         entries: es,
         not_measured: `${es.length} of ${EXPECTED_ENTRIES} entries produced a result`,
       };
       continue;
     }
-    perRoute[route] = { ...aggregate(es, enforce), ...(standard ? { standard: routeStandard(es) } : {}), entries: es };
+    perRoute[route] = { ...aggregate(es, enforce), ...(standard ? { standard: routeStandard(es, enforce) } : {}), entries: es };
   }
 
   // The standard's checks, summed: per check id, how many routes have findings and how many.
@@ -116,6 +116,11 @@ export default async function globalTeardown() {
           checks,
           errors,
           config_errors: configErrors,
+          // The run stopped the standard's checks after `maxTimeouts` entries ran out of time:
+          // how many entries were not checked (each one "errored" for an enforced check).
+          skipped_after_timeouts: entries.some((e) => e.standard_skipped)
+            ? { max_timeouts: standard.maxTimeouts, entries_not_checked: entries.filter((e) => e.standard_skipped).length }
+            : null,
           not_built: STANDARD_NOT_BUILT,
         };
       })()
@@ -187,6 +192,12 @@ export default async function globalTeardown() {
     );
     for (const e of [...standardSummary.config_errors, ...standardSummary.errors].slice(0, 20)) console.log(`[dod]   ${e}`);
   }
+
+  if (typeof standardSummary === "object" && standardSummary.skipped_after_timeouts)
+    console.log(
+      `\n[dod] the standard's checks stopped after ${standardSummary.skipped_after_timeouts.max_timeouts} entries ran out of time: ` +
+        `${standardSummary.skipped_after_timeouts.entries_not_checked} entr(ies) not checked (errored where enforced). A loaded machine or a page that blocks on resize; see standard.errors.`,
+    );
 
   const t = report.totals;
   console.log(

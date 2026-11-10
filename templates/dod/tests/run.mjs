@@ -156,11 +156,12 @@ function startServer() {
         "replace-resize",
         '<p>מסך ששומר את הרוחב בכתובת.</p><script>addEventListener("resize",()=>history.replaceState(null,"",location.pathname+"?w="+innerWidth))</script>',
       );
-    // The main thread blocked on the first resize only (a loaded machine), and on every resize.
+    // The main thread blocked on the tab's first resize only (a loaded machine; remembered in
+    // sessionStorage, since each try of the standard loads the page again), and on every resize.
     if (url.pathname === "/busy-once")
       return html(
         "busy-once",
-        `<p>מסך עם חישוב כבד בשינוי הגודל הראשון.</p><script>let once=false;addEventListener("resize",()=>{if(once)return;once=true;const e=Date.now()+${BUSY_ONCE_MS};while(Date.now()<e){}})</script>`,
+        `<p>מסך עם חישוב כבד בשינוי הגודל הראשון.</p><script>addEventListener("resize",()=>{if(sessionStorage.getItem("busy"))return;sessionStorage.setItem("busy","1");const e=Date.now()+${BUSY_ONCE_MS};while(Date.now()<e){}})</script>`,
       );
     if (url.pathname === "/busy-resize")
       return html(
@@ -173,6 +174,37 @@ function startServer() {
         '<p>מסך לטלפון בלבד, עם אנימציה.</p><div style="width:20px;height:20px;background:#333;animation:s 2s linear infinite"></div>' +
           '<style>@keyframes s{to{transform:rotate(360deg)}}</style><script>addEventListener("resize",()=>{if(innerWidth>1000&&!location.search.includes("w"))location.replace("/?w")})</script>',
       );
+    // Round 4 (the reviewer's pages): a page that logs on pagehide, logs once per tab without a
+    // sessionStorage flag (also while blocking on every resize), logs when loaded as a reload,
+    // starts an animation only when the window was scrolled (restored on reload), registers a
+    // service worker that reloads once, and one whose checkVisibility throws on dialogs.
+    const P = "<p>דף בדיקה עם מספיק תוכן כדי להיחשב כדף שצויר.</p>";
+    const SS = '<script>if(!sessionStorage.getItem("seen")){console.error("no session step");sessionStorage.setItem("seen","1")}</script>';
+    const R4 = {
+      "/pagehide-log": P + '<script>addEventListener("pagehide",()=>console.error("pagehide: flush failed"))</script>',
+      "/ss-same": P + SS,
+      "/ss-busy": P + SS + `<script>addEventListener("resize",()=>{const e=Date.now()+${BUSY_MS};while(Date.now()<e){}})</script>`,
+      "/navtype-log": P + '<script>if(performance.getEntriesByType("navigation")[0]?.type==="reload")console.error("reloaded")</script>',
+      "/scroll-anim":
+        '<div style="height:3000px">' + P + '</div><div id="b" style="width:40px;height:40px;background:#888"></div>' +
+        '<style>@keyframes s{from{transform:translateX(0)}to{transform:translateX(30px)}}</style>' +
+        '<script>addEventListener("load",()=>{if(!sessionStorage.getItem("sc")){sessionStorage.setItem("sc","1");scrollTo(0,2000)}setTimeout(()=>{if(scrollY>100)document.getElementById("b").style.animation="s 2s infinite"},50)})</script>',
+      "/sw-page": P + '<script>if("serviceWorker" in navigator){let r=false;navigator.serviceWorker.addEventListener("controllerchange",()=>{if(!r){r=true;location.reload()}});navigator.serviceWorker.register("/sw.js")}</script>',
+      "/tamper":
+        P + '<div role="dialog" aria-label="חלון" style="padding:8px">תוכן החלון</div>' +
+        '<script>const o=Element.prototype.checkVisibility;Element.prototype.checkVisibility=function(a){if(this.getAttribute("role")==="dialog")throw new Error("tampered");return o.call(this,a)}</script>',
+    };
+    if (R4[url.pathname]) return html(url.pathname.slice(1), R4[url.pathname]);
+    if (url.pathname === "/sw.js") {
+      res.writeHead(200, { "content-type": "text/javascript" });
+      return res.end('self.addEventListener("install",()=>self.skipWaiting());self.addEventListener("activate",e=>e.waitUntil(self.clients.claim()));self.addEventListener("fetch",e=>e.respondWith(fetch(e.request)))');
+    }
+    // F5: a session that expires after the first load: the reload is sent to sign-in.
+    if (url.pathname === "/expires") {
+      if (/(?:^|;\s*)seen-expires=1(?:;|$)/.test(req.headers.cookie ?? "")) return res.writeHead(302, { location: "/login" }).end();
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8", "set-cookie": "seen-expires=1; Path=/" });
+      return res.end(shell("expires", P));
+    }
     if (url.pathname === "/audience") {
       // Signed in, the page is wider than the screen; as a visitor it is not. An anonymous
       // entry that came out with an overflow would have been measured with the QA cookie.
@@ -273,7 +305,23 @@ const REAL_PAGES = ["real-settings", "real-table"];
 // shell with a breadcrumb, and the same shell nested deeper). No check may fire on any.
 // Round 3 adds the reviewer's drawer (vaul, the stock drawer-demo stepper) and a page with a
 // NavigationMenu, an open range picker and a Carousel at its first slide.
-const LANE_PAGES = [...REAL_PAGES, "real-booking", "real-dialog-form", "real-sheet", "real-shell", "real-shell-deep", "real-drawer", "real-nav-range"];
+// Round 4 adds the reviewer's AlertDialog, the form controls (Switch form, Slider, Toggle group),
+// and two list pages (Pagination with ellipsis, Tabs with a disabled tab, a context menu open as a
+// modal and as a non-modal).
+const LANE_PAGES = [
+  ...REAL_PAGES,
+  "real-booking",
+  "real-dialog-form",
+  "real-sheet",
+  "real-shell",
+  "real-shell-deep",
+  "real-drawer",
+  "real-nav-range",
+  "real-alert-dialog",
+  "real-form-controls",
+  "real-list-menus",
+  "real-list-nonmodal",
+];
 const STANDARD = {
   profile: "work-tool",
   mode: "enforce",
@@ -410,6 +458,13 @@ async function smallRuns(kind, port) {
     "/replace-resize",
     "/busy-once",
     "/busy-resize",
+    "/pagehide-log",
+    "/ss-same",
+    "/ss-busy",
+    "/navtype-log",
+    "/scroll-anim",
+    "/sw-page",
+    "/tamper",
   ];
   const plainDir = project(path.join(WORK, `${kind}-plain`), kind, { "e2e/dod/routes.json": ROUTES });
   const plain = await playwright(plainDir, port);
@@ -426,14 +481,41 @@ async function smallRuns(kind, port) {
   }
   const dir = project(path.join(WORK, `${kind}-report`), kind, {
     "e2e/dod/routes.json": ROUTES,
-    "e2e/dod/standard.json": { ...STANDARD, mode: "report", coreUnit: { route: "/clean", selector: "[[broken", min: 1, viewport: [390, 700] } },
+    // maxTimeouts above the slow pages' count, so every one of them is checked (and retried).
+    "e2e/dod/standard.json": { ...STANDARD, mode: "report", maxTimeouts: 50, coreUnit: { route: "/clean", selector: "[[broken", min: 1, viewport: [390, 700] } },
   });
   const run = await playwright(dir, port);
   ok(run.code === plain.code, `${kind}: report mode with a broken selector exits as the plain run does (${run.code} vs ${plain.code})`);
   if (p && run.code === 0) {
     const r = report(dir);
-    const same = ROUTES.every((x) => r.routes[x]?.score === p.routes[x]?.score && r.routes[x]?.console_errors === p.routes[x]?.console_errors);
-    ok(same && r.totals.score === p.totals.score, `${kind}: report mode leaves every score and console count as without standard.json (total ${r.totals.score} vs ${p.totals.score})`);
+    // The invariant itself (round 4): for every route, the score, the console count and every
+    // scored field of every entry are the same with and without standard.json (report mode, no
+    // "enforce" list), and so is the exit code (above).
+    const SCORED = (e) => ({
+      status: e.status,
+      unreachable: e.unreachable,
+      unreachable_reason: e.unreachable_reason,
+      reached: e.reached,
+      not_reached_reason: e.not_reached_reason,
+      overflow: e.overflow,
+      axe: { counted: e.axe.counted, scored: e.axe.scored, by_impact: e.axe.by_impact },
+      console_errors: e.console_errors,
+      fonts: e.fonts.count,
+      touch_targets: e.touch_targets.failures,
+      reduced_motion: e.reduced_motion.violations,
+    });
+    const diffs = [];
+    for (const x of ROUTES) {
+      const a = p.routes[x];
+      const b = r.routes[x];
+      if (a?.score !== b?.score || a?.console_errors !== b?.console_errors) diffs.push(`${x}: score ${a?.score}/${b?.score}, console ${a?.console_errors}/${b?.console_errors}`);
+      for (const ea of a?.entries ?? []) {
+        const eb = b?.entries.find((e) => e.viewport.width === ea.viewport.width && e.scheme === ea.scheme);
+        if (JSON.stringify(SCORED(ea)) !== JSON.stringify(eb && SCORED(eb))) diffs.push(`${x} ${ea.viewport.width}/${ea.scheme}: ${JSON.stringify(SCORED(ea))} vs ${JSON.stringify(eb && SCORED(eb))}`.slice(0, 400));
+      }
+    }
+    ok(diffs.length === 0 && r.totals.score === p.totals.score, `${kind}: invariant: every route's score, console count and scored entry fields are the same with and without standard.json (${ROUTES.length} routes, total ${r.totals.score} vs ${p.totals.score})`);
+    for (const d of diffs.slice(0, 10)) console.log(`      ${d}`);
     ok(Object.values(r.routes).every((x) => x.entries.every((e) => !e.unreachable)), `${kind}: a check that throws never makes a page unreachable`);
     ok(r.routes["/clean"]?.standard?.["core-unit"]?.error && r.standard?.errors?.some((e) => e.includes("core-unit")), `${kind}: the broken selector is recorded as core-unit's error in dod.json`);
     const nav = r.routes["/nav-resize"];
@@ -455,17 +537,17 @@ async function smallRuns(kind, port) {
       once.length === 2 && once.every((e) => e.standard_retried?.includes("out of time") && !e.standard?.probe?.error),
       `${kind}: a first try that ran out of time is retried and the second try's probe is kept (${once.map((e) => `${e.viewport.width}: ${e.standard_retried ?? "no retry"}; ${e.standard?.probe?.error ?? "no error"}`).join(" / ")})`,
     );
-    // M4: a page that blocks on every resize ends the standard at its deadline, and the entry is
-    // measured on a new tab; no entry passes its own timeout.
+    // M4: a page that blocks on every resize ends the standard at its deadline; no entry passes
+    // its own timeout.
     const busy = r.routes["/busy-resize"]?.entries.filter((e) => e.scheme === "light") ?? [];
     ok(busy.length === 2 && busy.every((e) => String(e.standard?.probe?.error).includes("out of time") && !e.unreachable), `${kind}: /busy-resize records the probe out of time and stays measured`);
     const dp = durations(plainDir);
     const dr = durations(dir);
     const added = ["375__light", "1440__light"].map((v) => dr[`dod busy-resize__${v}`] - dp[`dod busy-resize__${v}`]);
-    // Two tries (30 s each) and five 5 s waits at most; this page is not retried (it does not answer).
-    ok(added.every((x) => x > 25 && x < 85), `${kind}: /busy-resize adds ${added.map((x) => x.toFixed(1)).join(" s and ")} s to its light entries (bounded by 85 s)`);
+    // Two tries (30 s each) and three 5 s waits at most; this page is not retried (it does not answer).
+    ok(added.every((x) => x > 25 && x < 75), `${kind}: /busy-resize adds ${added.map((x) => x.toFixed(1)).join(" s and ")} s to its light entries (bounded by 75 s)`);
     // Time per light entry, without standard.json and in report mode.
-    for (const x of ["slow", "resize-log-slow", "reload-on-resize", "busy-once", "busy-resize"])
+    for (const x of ["slow", "resize-log-slow", "reload-on-resize", "busy-once", "busy-resize", "ss-busy"])
       for (const v of ["375__light", "1440__light"])
         console.log(`     ${kind} ${x}__${v}: ${dp[`dod ${x}__${v}`]?.toFixed(1)} s plain, ${dr[`dod ${x}__${v}`]?.toFixed(1)} s report`);
     ok(r.routes["/clean"]?.standard?.["core-unit"]?.verdict === "errored" && !r.routes["/clean"]?.entries.some((e) => e.standard_retried), `${kind}: report mode: the broken selector is "errored", costs nothing and is not retried outside CI`);
@@ -477,7 +559,7 @@ async function smallRuns(kind, port) {
   // M3: in enforce mode a check that errored is a failure of that check, said as "errored"; under
   // CI it is tried once more first. DOD_KEEP_STORAGE_STATE=1 keeps the session file (M5).
   const enfDir = project(path.join(WORK, `${kind}-enforce-errored`), kind, {
-    "e2e/dod/routes.json": ["/clean"],
+    "e2e/dod/routes.json": ["/clean", "/tamper"],
     "e2e/dod/standard.json": { ...STANDARD, coreUnit: { route: "/clean", selector: "[[broken", min: 1, viewport: [390, 700] } },
   });
   const enf = await playwright(enfDir, port, { CI: "1", DOD_KEEP_STORAGE_STATE: "1" });
@@ -485,18 +567,27 @@ async function smallRuns(kind, port) {
     const e = report(enfDir);
     const cu = e.routes["/clean"]?.standard?.["core-unit"];
     ok(
-      cu?.verdict === "errored" && e.routes["/clean"]?.score === 90 && e.totals.standard_errored === 1 && e.totals.standard_scored === 1,
+      cu?.verdict === "errored" && e.routes["/clean"]?.score === 90 && e.routes["/clean"]?.standard_errored === 1 && e.routes["/clean"]?.standard_scored === 1,
       `${kind}: enforce mode: an errored check costs its 10 points and is "errored", not "found" (${cu?.verdict}, score ${e.routes["/clean"]?.score})`,
     );
     const lightCu = e.routes["/clean"]?.entries.find((x) => x.viewport.width === 375 && x.scheme === "light");
     ok(lightCu?.standard_retried?.includes("core-unit"), `${kind}: under CI the errored check is tried once more (${lightCu?.standard_retried})`);
     const ss = path.join(enfDir, "node_modules", ".cache", "dod", "qa-storage-state.json");
     ok(fs.existsSync(ss) && (fs.statSync(ss).mode & 0o777) === 0o600, `${kind}: DOD_KEEP_STORAGE_STATE=1 keeps the session file, readable by its owner only`);
+    // F1: a page that breaks the whole DOM-check call: every planned check is errored, each costs
+    // its points in enforce mode, and the entry was tried twice.
+    const tp = e.routes["/tamper"];
+    const tv = Object.values(tp?.standard ?? {});
+    ok(
+      tv.length >= 11 && tv.every((c) => c.verdict === "errored" && c.enforced) && tp?.score === Math.max(0, 100 - 10 * tv.length) && tp?.entries.every((x) => x.standard_retried),
+      `${kind}: enforce: a DOM-check call that throws as a whole errs every check (${tv.length} checks, score ${tp?.score}), each tried twice`,
+    );
   }
   // Report mode with one check enforced: only that one costs points.
+  // F2: a static id under "enforce" ("help-route") is accepted by the run; F1 with a list; F5.
   const oneDir = project(path.join(WORK, `${kind}-enforce-one`), kind, {
-    "e2e/dod/routes.json": ["/one-primary", "/tooltip-only"],
-    "e2e/dod/standard.json": { ...STANDARD, mode: "report", enforce: ["one-primary"], coreUnit: undefined },
+    "e2e/dod/routes.json": ["/one-primary", "/tooltip-only", "/tamper", "/expires"],
+    "e2e/dod/standard.json": { ...STANDARD, mode: "report", enforce: ["one-primary", "help-route"], coreUnit: undefined },
   });
   const one = await playwright(oneDir, port);
   if (ranClean(one, `${kind}: report run with "enforce": ["one-primary"] exits 0`)) {
@@ -504,6 +595,37 @@ async function smallRuns(kind, port) {
     ok(
       o.routes["/one-primary"]?.score === 90 && o.routes["/tooltip-only"]?.score === 100 && o.routes["/tooltip-only"]?.standard?.["tooltip-only"]?.count > 0,
       `${kind}: "enforce": ["one-primary"] deducts for one-primary only (${o.routes["/one-primary"]?.score} / ${o.routes["/tooltip-only"]?.score})`,
+    );
+    const ts = o.routes["/tamper"]?.standard;
+    ok(
+      o.routes["/tamper"]?.score === 90 && ts?.["one-primary"]?.verdict === "errored" && ts?.["one-primary"]?.enforced === true && ts?.["tooltip-only"]?.enforced === false,
+      `${kind}: with an "enforce" list, the thrown DOM-check call costs the enforced check only (score ${o.routes["/tamper"]?.score}), and each check says enforced`,
+    );
+    const ex = o.routes["/expires"]?.entries ?? [];
+    ok(ex.length === 4 && ex.every((x) => x.unreachable && x.unreachable_reason?.includes("reduced-motion reload landed on /login")), `${kind}: a reduced-motion reload sent to sign-in marks the entry unreachable (${ex[0]?.unreachable_reason})`);
+  }
+  // F2: an unknown id under "enforce" stops the run with words, not "No tests found" alone.
+  const badDir = project(path.join(WORK, `${kind}-enforce-unknown`), kind, {
+    "e2e/dod/routes.json": ["/clean"],
+    "e2e/dod/standard.json": { ...STANDARD, mode: "report", enforce: ["help-rout"] },
+  });
+  const bad = await playwright(badDir, port);
+  ok(bad.code !== 0 && bad.log.includes('"enforce" must be a list of check ids'), `${kind}: an unknown id under "enforce" is a configuration error in the run (exit ${bad.code})`);
+  // F3: after maxTimeouts entries ran out of time, the rest of the run is not checked: one worker,
+  // /busy-once's 375 light entry runs out first, the 7 entries after it are skipped, and in
+  // enforce mode each of them is errored.
+  const capDir = project(path.join(WORK, `${kind}-cap`), kind, {
+    "e2e/dod/routes.json": ["/busy-once", "/clean"],
+    "e2e/dod/standard.json": { ...STANDARD, maxTimeouts: 1, coreUnit: undefined },
+  });
+  const cap = await playwright(capDir, port, { DOD_WORKERS: "1" });
+  if (ranClean(cap, `${kind}: a run that reaches maxTimeouts exits 0`)) {
+    const c = report(capDir);
+    const sk = c.standard?.skipped_after_timeouts;
+    ok(
+      sk?.max_timeouts === 1 && sk?.entries_not_checked === 7 && cap.log.includes("stopped after 1 entries ran out of time") &&
+        Object.values(c.routes["/clean"]?.standard ?? {}).every((x) => x.verdict === "errored") && c.routes["/clean"]?.score < 100,
+      `${kind}: maxTimeouts 1 skips the rest of the run, says so, and enforce counts it (${JSON.stringify(sk)}, /clean ${c.routes["/clean"]?.score})`,
     );
   }
   // Argos is optional: a token without the package stops the run with words.
@@ -564,6 +686,11 @@ function staticSuite(kind) {
     { name: "state-coverage-report", files: { "e2e/dod/routes.json": full.filter((r) => r !== "/orders/1?state=error"), "e2e/dod/standard.json": { ...std, mode: "report" } }, exit: 0, out: /^(?=[^]*state-coverage: \/orders\/1)(?=[^]*report mode: not failing)/ },
     // Round 3: a check id under "enforce" fails in report mode too.
     { name: "state-coverage-enforced", files: { "e2e/dod/routes.json": full.filter((r) => r !== "/orders/1?state=error"), "e2e/dod/standard.json": { ...std, mode: "report", enforce: ["state-coverage"] } }, exit: 1, out: /state-coverage: \/orders\/1/ },
+    // Round 4 (F2): one id list for both sides. A static id under "enforce" fails --check in report
+    // mode; a page id is accepted and not enforced here; an unknown id is a configuration error.
+    { name: "enforce-static-id", drop: ["src/help/orders-id.md"], files: { "e2e/dod/routes.json": full, "e2e/dod/standard.json": { ...std, mode: "report", enforce: ["help-route"] } }, exit: 1, out: /help-route: \/orders\/1 has no help file/ },
+    { name: "enforce-page-id", files: { "e2e/dod/routes.json": full.filter((r) => r !== "/orders/1?state=error"), "e2e/dod/standard.json": { ...std, mode: "report", enforce: ["one-primary"] } }, exit: 0, out: /report mode: not failing/ },
+    { name: "enforce-unknown", files: { "e2e/dod/routes.json": full, "e2e/dod/standard.json": { ...std, mode: "report", enforce: ["help-rout"] } }, exit: 1, out: /"enforce" must be a list of check ids/ },
     { name: "help-route", check: "help-route", drop: ["src/help/orders-id.md"], files: { "e2e/dod/routes.json": full, "e2e/dod/standard.json": std }, exit: 1, out: /help-route: \/orders\/1 has no help file src\/help\/orders-id/ },
     { name: "brand-assets", check: "brand-assets", files: { "PRODUCT.md": "# Product\n\n## Brand\n\nLogo: `public/missing.svg`.\n", "e2e/dod/routes.json": full, "e2e/dod/standard.json": std }, exit: 1, out: /brand-assets: .*public\/missing\.svg/ },
     // H1: a real route the scan cannot see is kept with its reason, never reported stale; a
@@ -647,11 +774,20 @@ const DEFECTS = [
   ["disabled-reason", "real-table", 390, M('<a role="link" aria-disabled="true" aria-current="false">דוח שנתי</a>'), null, 'aria-current="false" is not the current page'],
   ["disabled-reason", "real-nav-range", 390, `document.querySelector('[data-slot="carousel-item"] .card').insertAdjacentHTML("beforeend", '<button type="button" data-slot="button" class="border" disabled>הזמנת מקום</button>')`, null, "a disabled action inside a carousel slide"],
   ["tooltip-only", "real-table", 1440, M('<table><tr><td>עריכה אחרונה: אתמול</td><td><button type="button" data-slot="button" class="size-9" title="עריכה"><svg aria-hidden="true" width="16" height="16"></svg></button></td></tr></table>'), null, "an icon whose title is one word of the next cell"],
+  // Round 4.
+  ["disabled-reason", "real-form-controls", 390, M('<span dir="rtl" data-orientation="horizontal" aria-disabled="true" data-disabled="" data-slot="slider" style="display:flex;position:relative;width:200px;height:20px"><span data-slot="slider-track" style="flex-grow:1;height:6px;background:#eee"></span><span style="position:absolute;right:50%"><span role="slider" aria-label="עוצמה" aria-valuemin="0" aria-valuemax="100" aria-valuenow="50" data-disabled="" data-slot="slider-thumb" style="display:block;width:16px;height:16px;border:1px solid #000"></span></span></span>'), null, "a disabled Slider with no reason"],
+  ["disabled-reason", "real-form-controls", 390, M('<button type="button" aria-pressed="false" data-state="off" data-slot="toggle" aria-label="קו תחתון" disabled data-disabled="" style="width:36px;height:36px"><svg aria-hidden="true" width="16" height="16"></svg></button>'), null, "a disabled icon Toggle with no reason"],
+  ["tooltip-only", "real-form-controls", 390, M('<button type="button" aria-pressed="false" data-state="off" data-slot="toggle" aria-label="הדגשה" title="הדגשה (Ctrl+B)" style="width:36px;height:36px"><svg aria-hidden="true" width="16" height="16"></svg></button>'), null, "a Toggle with its shortcut only in its title"],
 ];
 // Round 3: markup that looked like a defect to a round-2 check and is not one. Nothing may fire.
 const CLEAN_CASES = [
   ["real-table", 390, M('<label for="lg">אימייל או שם משתמש</label><input data-slot="input" id="lg" name="login" autocomplete="username" placeholder="name@example.com">'), "a login field: autocomplete=username, label אימייל, a placeholder with @"],
   ["real-table", 390, M("<p>לזכר סבא משה ע.ה, ז.ל, נ.ב. הקובץ דוח.תשפו. אפשר לשלם במזומן ו/או בכרטיס.</p>"), "the abbreviations ע.ה, ז.ל and נ.ב, a file name, and ו/או"],
+  // Round 4.
+  ["real-form-controls", 390, M('<span class="rdp-dropdown_root" style="position:relative;display:inline-flex"><select class="rdp-dropdown" aria-label="בחירת חודש" name="months" style="position:absolute;inset:0;opacity:0"><option value="10">נוב׳</option><option value="11">דצמ׳</option></select><span class="rdp-caption_label" aria-hidden="true" style="display:flex;height:32px;align-items:center;font-size:14px">נוב׳<svg aria-hidden="true" width="16" height="16"></svg></span></span>'), "a Calendar dropdown caption (an invisible native select over its label)"],
+  ["real-form-controls", 390, M('<div style="display:flex;gap:8px;justify-content:flex-end"><button type="button" data-slot="button" class="border" disabled>הקודם</button><button type="button" data-slot="button" class="border">הבא</button></div>'), "a data-table pager outside a form, הקודם disabled"],
+  ["real-form-controls", 390, M('<section aria-label="Notifications alt+T" tabindex="-1" aria-live="polite" aria-relevant="additions text" aria-atomic="false"><ol dir="rtl" tabindex="-1" data-sonner-toaster="true" data-theme="light" data-y-position="bottom" data-x-position="right" style="position:fixed;bottom:24px;right:24px;list-style:none;margin:0;padding:0"><li tabindex="0" data-sonner-toast="" data-styled="true" data-mounted="true" data-type="success" data-visible="true" style="display:flex;gap:8px;padding:12px;border:1px solid #ddd;background:#fff;font-size:14px"><div data-content=""><div data-title="">התור נקבע</div><div data-description="">יום ראשון, 08:00</div></div><button data-button="true" data-action="true" style="height:24px;font-size:12px">ביטול</button></li></ol></section>'), "a Sonner success toast with an action"],
+  ["real-form-controls", 390, M('<div role="menu" aria-label="פעולות"><div role="menuitem" aria-disabled="true" data-disabled="" aria-describedby="why-m">ייצוא</div></div><p id="why-m">ייצוא זמין למנהלים בלבד.</p>'), "a disabled menu item whose reason is a linked line"],
 ];
 async function domLane(port) {
   const req = createRequire(path.join(WORK, "package.json"));

@@ -1,0 +1,70 @@
+<!doctype html>
+<!-- Review round 4. Stock shadcn form pieces as Radix renders them: the SwitchForm example (one
+     switch disabled with its description linked), a Slider with Radix's hidden bubble input, a
+     disabled Slider (its reason in a linked line), Toggle and ToggleGroup with icons, InputOTP. -->
+<html lang="he" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>r4-form-controls</title><link rel="stylesheet" href="/real.css"><link rel="stylesheet" href="/real-extra.css">
+<style>
+[data-slot="form-item"] { display: flex; align-items: center; justify-content: space-between; gap: 12px; border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin: 8px 0; }
+[data-slot="form-label"] { font-size: 14px; font-weight: 500; }
+[data-slot="form-description"] { font-size: 14px; color: var(--muted-foreground); margin: 2px 0 0; }
+[data-slot="switch"] { width: 32px; height: 18px; border-radius: 999px; border: 0; background: var(--input); padding: 0; position: relative; }
+[data-slot="switch"][data-state="checked"] { background: var(--primary); }
+[data-slot="switch"]:disabled { opacity: .5; }
+[data-slot="switch-thumb"] { display: block; width: 16px; height: 16px; border-radius: 999px; background: #fff; }
+@media (pointer: coarse) { [data-slot="switch"] { width: 44px; height: 44px; background-clip: content-box; padding: 13px 6px; } }
+[data-slot="slider"] { position: relative; display: flex; width: 100%; max-width: 320px; align-items: center; height: 20px; touch-action: none; user-select: none; }
+[data-slot="slider"][data-disabled] { opacity: .5; }
+[data-slot="slider-track"] { position: relative; flex-grow: 1; height: 6px; border-radius: 999px; background: var(--muted); overflow: hidden; }
+[data-slot="slider-range"] { position: absolute; height: 100%; background: var(--primary); }
+[data-slot="slider-thumb"] { display: block; width: 16px; height: 16px; border-radius: 999px; border: 1px solid var(--primary); background: #fff; }
+[data-slot="toggle"] { display: inline-flex; align-items: center; justify-content: center; min-width: 36px; height: 36px; padding: 0 8px; border: 0; border-radius: 6px; background: transparent; }
+[data-slot="toggle"][data-state="on"] { background: var(--muted); }
+[data-slot="toggle"]:disabled { opacity: .5; }
+@media (pointer: coarse) { [data-slot="toggle"], [data-slot="toggle-group-item"] { min-width: 44px; height: 44px; } }
+[data-slot="input-otp"] { display: flex; align-items: center; gap: 8px; position: relative; }
+[data-slot="input-otp-group"] { display: flex; }
+[data-slot="input-otp-slot"] { width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; border: 1px solid var(--input); font-size: 14px; }
+</style></head><body>
+<header><span>סטודיו מיכל</span><a data-help="door" data-slot="button" class="border" href="#help">עזרה</a></header>
+<main>
+  <div class="page-head"><h1>הגדרות התראות</h1><a data-help="screen" href="#help">מה עושים כאן</a></div>
+  <form>
+    <h2>התראות במייל</h2>
+    <div data-slot="form-item">
+      <div><label data-slot="form-label" for="«r1»-form-item">מיילים שיווקיים</label><p data-slot="form-description" id="«r1»-form-item-description">עדכונים על שיעורים חדשים ומבצעים.</p></div>
+      <button type="button" role="switch" aria-checked="false" data-state="unchecked" value="on" data-slot="switch" id="«r1»-form-item" aria-describedby="«r1»-form-item-description" aria-invalid="false"><span data-state="unchecked" data-slot="switch-thumb"></span></button>
+      <input type="checkbox" aria-hidden="true" tabindex="-1" value="on" style="transform:translateX(-100%);position:absolute;pointer-events:none;opacity:0;margin:0;width:32px;height:18px">
+    </div>
+    <div data-slot="form-item">
+      <div><label data-slot="form-label" for="«r2»-form-item">מיילים על אבטחת החשבון</label><p data-slot="form-description" id="«r2»-form-item-description">הודעות על כניסה ממכשיר חדש. אי אפשר לכבות אותן.</p></div>
+      <button type="button" role="switch" aria-checked="true" data-state="checked" value="on" data-slot="switch" id="«r2»-form-item" aria-describedby="«r2»-form-item-description" aria-invalid="false" disabled data-disabled="" aria-readonly="true"><span data-state="checked" data-slot="switch-thumb"></span></button>
+    </div>
+    <h2>עוצמת צלצול</h2>
+    <span dir="rtl" data-orientation="horizontal" aria-disabled="false" data-slot="slider" style="--radix-slider-thumb-transform:translateX(50%)">
+      <span data-orientation="horizontal" data-slot="slider-track"><span data-orientation="horizontal" data-slot="slider-range" style="right:0%;left:50%"></span></span>
+      <span style="transform:var(--radix-slider-thumb-transform);position:absolute;right:calc(50% + 0px)"><span role="slider" aria-label="עוצמה" aria-valuemin="0" aria-valuemax="100" aria-orientation="horizontal" data-orientation="horizontal" tabindex="0" data-slot="slider-thumb" aria-valuenow="50" style=""></span><input style="display:none" name="volume" value="50"></span>
+    </span>
+    <p id="vol-why" data-slot="form-description">עוצמת הלילה נקבעת לפי שעות השקט שבחרת.</p>
+    <span dir="rtl" data-orientation="horizontal" aria-disabled="true" data-disabled="" data-slot="slider" aria-describedby="vol-why" style="--radix-slider-thumb-transform:translateX(50%)">
+      <span data-orientation="horizontal" data-disabled="" data-slot="slider-track"><span data-slot="slider-range" style="right:0%;left:80%"></span></span>
+      <span style="transform:var(--radix-slider-thumb-transform);position:absolute;right:calc(20% + 0px)"><span role="slider" aria-label="עוצמת לילה" aria-valuemin="0" aria-valuemax="100" aria-orientation="horizontal" data-orientation="horizontal" data-disabled="" aria-describedby="vol-why" data-slot="slider-thumb" aria-valuenow="20"></span></span>
+    </span>
+    <h2>עיצוב טקסט</h2>
+    <button type="button" aria-pressed="false" data-state="off" data-slot="toggle" aria-label="הדגשה"><svg aria-hidden="true" width="16" height="16"></svg></button>
+    <div role="group" dir="rtl" data-slot="toggle-group" data-variant="outline" tabindex="0" style="outline:none">
+      <button type="button" data-state="on" role="radio" aria-checked="true" aria-label="יישור לימין" data-slot="toggle-group-item" tabindex="-1"><svg aria-hidden="true" width="16" height="16"></svg></button>
+      <button type="button" data-state="off" role="radio" aria-checked="false" aria-label="מרכוז" data-slot="toggle-group-item" tabindex="-1"><svg aria-hidden="true" width="16" height="16"></svg></button>
+      <button type="button" data-state="off" role="radio" aria-checked="false" aria-label="יישור לשמאל" data-slot="toggle-group-item" tabindex="-1"><svg aria-hidden="true" width="16" height="16"></svg></button>
+    </div>
+    <h2>קוד אימות</h2>
+    <label for="otp">הקוד שקיבלת בהודעה</label>
+    <div data-input-otp-container="true" data-slot="input-otp" style="position:relative;cursor:text;user-select:none;pointer-events:none;--root-height:36px">
+      <div data-slot="input-otp-group"><div data-slot="input-otp-slot" data-active="false">1</div><div data-slot="input-otp-slot" data-active="false">2</div><div data-slot="input-otp-slot" data-active="false">3</div></div>
+      <div role="separator" data-slot="input-otp-separator"><svg aria-hidden="true" width="16" height="16"></svg></div>
+      <div data-slot="input-otp-group"><div data-slot="input-otp-slot" data-active="false"></div><div data-slot="input-otp-slot" data-active="false"></div><div data-slot="input-otp-slot" data-active="false"></div></div>
+      <div style="position:absolute;inset:0;pointer-events:none"><input id="otp" autocomplete="one-time-code" data-input-otp="true" inputmode="numeric" pattern="^\d+$" maxlength="6" value="123" data-input-otp-mss="3" data-input-otp-mse="3" style="position:absolute;inset:0;width:100%;height:100%;display:flex;text-align:left;opacity:1;color:transparent;pointer-events:all;background:transparent;caret-color:transparent;border:0 solid transparent;outline:transparent solid 0;box-shadow:none;line-height:1;letter-spacing:-.5em;font-size:var(--root-height);font-family:monospace;font-variant-numeric:tabular-nums;" spellcheck="false"></div>
+    </div>
+    <button type="submit" data-slot="button" class="bg-primary">שמירה</button>
+  </form>
+</main></body></html>

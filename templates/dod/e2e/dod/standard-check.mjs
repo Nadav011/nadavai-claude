@@ -88,8 +88,12 @@ function check({ root, entries, patternOf = new Map() }) {
   const failures = [];
   const fail = (check, message) => failures.push({ check, message });
   if (mode !== "enforce" && mode !== "report") fail("standard.json", `mode must be "enforce" or "report", not ${JSON.stringify(mode)}`);
-  if (cfg.enforce !== undefined && (!Array.isArray(cfg.enforce) || cfg.enforce.some((id) => typeof id !== "string")))
-    fail("standard.json", '"enforce" must be a list of check ids');
+  // One list of ids for both sides (standard-checks.json): this side enforces its static ids and
+  // accepts the page ids the DoD run enforces; anything else is a configuration error.
+  const ids = JSON.parse(fs.readFileSync(path.join(root, "e2e", "dod", "standard-checks.json"), "utf8"));
+  const known = new Set([...ids.page, ...ids.static]);
+  if (cfg.enforce !== undefined && (!Array.isArray(cfg.enforce) || cfg.enforce.some((id) => !known.has(id))))
+    fail("standard.json", `"enforce" must be a list of check ids (${[...known].join(", ")}), not ${JSON.stringify(cfg.enforce)}`);
   if (cfg.coreUnit && !entries.some((e) => routeOf(e) === cfg.coreUnit.route))
     fail("standard.json", `coreUnit.route ${cfg.coreUnit.route} is not in routes.json, so core-unit would never run`);
   for (const e of entries)

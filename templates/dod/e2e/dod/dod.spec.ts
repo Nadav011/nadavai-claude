@@ -267,15 +267,15 @@ function expectedState(route: string): string[] | null {
 }
 
 /**
- * The standard's checks run inside their own budget, apart from the page's own measurements:
- * one try ends at this deadline, whatever is still running, and records an error on every
- * unfinished check instead of failing the entry.
+ * The standard's checks run after every scored measurement of the entry (measureEntry), inside
+ * their own budget: one try ends at this deadline, whatever is still running, and records an
+ * error on every unfinished check instead of failing the entry.
  */
 const STANDARD_BUDGET_MS = 30_000;
-/** Each wait after a try (putting the viewport back, asking the page to answer, leaving it). */
+/** Each wait between tries (putting the viewport back, asking the page to answer). */
 const AFTER_STANDARD_MS = 5_000;
-/** Added to the test's timeout when standard.json exists: two tries and every wait after them. */
-const STANDARD_TIMEOUT_MS = 2 * STANDARD_BUDGET_MS + 5 * AFTER_STANDARD_MS;
+/** Added to the test's timeout when standard.json exists: two tries and the waits between them. */
+const STANDARD_TIMEOUT_MS = 2 * STANDARD_BUDGET_MS + 3 * AFTER_STANDARD_MS;
 const OUT_OF_TIME = `out of time (the standard's ${STANDARD_BUDGET_MS / 1000}s budget)`;
 
 /** Stops the standard's steps when the budget is spent or when a resize moved the page. */
@@ -347,6 +347,17 @@ async function runStandard(
 ) {
   const { route } = entry;
   const failed = (err: unknown) => ({ count: 0, samples: [], error: err instanceof Error ? err.message.slice(0, 300) : String(err) });
+  // The page loaded again, as the checks expect it: the reduced-motion copy the scored part left
+  // is not the page people see. Its own navigation is not a move.
+  await step(g, page, async () => {
+    try {
+      await page.goto(g.url, { waitUntil: "domcontentloaded" });
+      await settle(page);
+      await reachRoute(page);
+    } finally {
+      g.newDocument = false;
+    }
+  });
   const checks = await step(g, page, () =>
     page.evaluate(domChecks, {
       noHelp: entry.noHelp,
@@ -444,11 +455,93 @@ async function tryStandard(
   // Copied now: what the steps still running write later stays in `out`.
   const standard: Record<string, CheckResult> = { ...(out.standard ?? {}) };
   const probe = out.probe && { ...out.probe };
-  if (g.stopped)
-    // Every check that did not finish says so; nothing is counted for it.
+  // Every check that did not finish says so, also when the whole DOM-check call threw (a page
+  // that broke checkVisibility, a renderer crash); nothing is counted for it.
+  const why = g.stopped ?? error;
+  if (why)
     for (const id of plannedChecks(cfg, entry.route, viewport, scheme))
-      if (!standard[id]) standard[id] = { count: 0, samples: [], error: g.stopped };
+      if (!standard[id]) standard[id] = { count: 0, samples: [], error: why };
   return { standard, probe, error };
+}
+
+/** Every planned check, unmeasured for one reason. */
+function notFinished(ids: string[], why: string): Record<string, CheckResult> {
+  return Object.fromEntries(ids.map((id) => [id, { count: 0, samples: [], error: why }]));
+}
+
+/** What the standard's checks may add to an entry: their own fields, never a scored one. */
+type StandardPart = Pick<EntryResult, "standard" | "probe" | "standard_error" | "standard_retried" | "standard_skipped">;
+
+/** Entries whose checks ran out of time in this run, across workers (one line each). */
+const TIMEOUTS_FILE = path.join(RESULTS_DIR, "standard-timeouts.txt");
+const timeoutsSoFar = () => {
+  try {
+    return fs.readFileSync(TIMEOUTS_FILE, "utf8").split("\n").filter(Boolean).length;
+  } catch {
+    return 0;
+  }
+};
+
+/**
+ * The standard's checks for one entry, after its scored measurements are frozen. One try, and a
+ * second when the first ran out of time, when the whole DOM-check call threw, or on any error
+ * under CI, on a page that still answers; after `maxTimeouts` entries of the run ran out of time,
+ * no more retries and no more checks.
+ */
+async function checkStandard(
+  cfg: StandardConfig,
+  page: Page,
+  entry: RouteEntry,
+  viewport: { width: number; height: number },
+  scheme: string,
+  name: string,
+  measuredUrl: string,
+): Promise<StandardPart> {
+  const planned = plannedChecks(cfg, entry.route, viewport, scheme);
+  if (timeoutsSoFar() >= cfg.maxTimeouts) {
+    const why = `not checked: ${cfg.maxTimeouts} entries of this run ran out of time, so the standard's checks stopped for the rest of it`;
+    return { standard: notFinished(planned, why), standard_skipped: why };
+  }
+  // As the checks expect the page: motion not reduced, the removed-errors watcher in place before
+  // the page's first byte (error-toast).
+  await page.emulateMedia({ reducedMotion: null }).catch(() => {});
+  await page.addInitScript(watchRemovedErrors).catch(() => {});
+  const nav: { g: Guard | null } = { g: null };
+  page.on("request", (r) => {
+    if (nav.g && r.isNavigationRequest() && r.frame() === page.mainFrame()) nav.g.newDocument = true;
+  });
+  const attempt = async () => {
+    const g: Guard = { deadline: Date.now() + STANDARD_BUDGET_MS, url: measuredUrl, stopped: null, newDocument: false };
+    nav.g = g;
+    const r = await tryStandard(cfg, page, entry, viewport, scheme, g);
+    nav.g = null;
+    if (g.stopped === OUT_OF_TIME) fs.appendFileSync(TIMEOUTS_FILE, `${name}\n`);
+    return { ...r, g };
+  };
+  const first = await attempt();
+  let t = first;
+  let retried: string | undefined;
+  const errored = Object.entries(first.standard).find(([, c]) => c.error);
+  const ci = process.env.CI === "true" || process.env.CI === "1";
+  if (errored && !moved(first.g, page) && (first.g.stopped === OUT_OF_TIME || first.error || ci) && timeoutsSoFar() < cfg.maxTimeouts) {
+    // Only on a page that answers: the viewport back, then a trivial evaluate, each bounded.
+    const answers =
+      (await bounded(page.setViewportSize({ width: viewport.width, height: viewport.height }))) &&
+      (await bounded(page.evaluate(() => true)));
+    if (answers) {
+      retried = `${errored[0]}: ${errored[1].error}`.slice(0, 300);
+      t = await attempt();
+      // The first try's result stands for every check that did not error in it.
+      for (const [id, c] of Object.entries(first.standard)) if (!c.error) t.standard[id] = c;
+      if (first.probe && !first.standard.probe?.error) t.probe = first.probe;
+    }
+  }
+  return {
+    standard: t.standard,
+    ...(t.probe ? { probe: t.probe } : {}),
+    ...(t.error ? { standard_error: t.error } : {}),
+    ...(retried ? { standard_retried: retried } : {}),
+  };
 }
 
 /** Which of the standard's checks this entry runs, so a run cut short can say which did not finish. */
@@ -459,6 +552,233 @@ function plannedChecks(cfg: StandardConfig, route: string, viewport: { width: nu
   if (cu && cu.route === route && scheme === "light" && viewport.width === (cu.viewport[0] <= 768 ? 375 : 1440)) ids.push("core-unit");
   if (scheme === "light") ids.push("probe");
   return ids;
+}
+
+/**
+ * Everything that is scored, for one entry, in one sequence: the load, the access checks, the
+ * screenshot, overflow, axe, fonts, touch targets, the reduced-motion reload and the console count
+ * over all of it. The same function runs with or without standard.json (it does not read it), and
+ * it returns with the console count frozen. The standard's checks run only after it returns, so
+ * nothing they do can reach a scored number.
+ */
+async function measureEntry(
+  page: Page,
+  entry: RouteEntry,
+  viewport: { width: number; height: number },
+  scheme: (typeof SCHEMES)[number],
+  slug: string,
+  name: string,
+): Promise<{ result: EntryResult; measuredUrl: string }> {
+  const { route } = entry;
+  const consoleErrors: string[] = [];
+  let frozen = false;
+  page.on("console", (m) => {
+    if (!frozen && m.type() === "error") consoleErrors.push(m.text().slice(0, 300));
+  });
+  page.on("pageerror", (e) => {
+    if (!frozen) consoleErrors.push(`pageerror: ${e.message.slice(0, 300)}`);
+  });
+  let measuredUrl = "";
+  const result: EntryResult = {
+    route,
+    slug,
+    audience: entry.audience,
+    viewport: { ...viewport },
+    scheme,
+    status: null,
+    load_error: null,
+    unreachable: false,
+    unreachable_reason: null,
+    reached: false,
+    not_reached_reason: null,
+    screenshot: null,
+    overflow: { scrollWidth: 0, clientWidth: 0, failed: false },
+    axe: { version: null, counted: 0, scored: 0, by_impact: {}, violations: [] },
+    console_errors: consoleErrors,
+    fonts: { families: [], count: 0 },
+    touch_targets: { checked: false, failures: 0, samples: [] },
+    reduced_motion: { violations: 0, samples: [] },
+  };
+
+  try {
+    const resp = await page.goto(route, { waitUntil: "domcontentloaded" });
+    result.status = resp?.status() ?? null;
+    await settle(page);
+
+    // Access check: the QA account must be able to open every page. A non-2xx,
+    // a bounce to a login or access-denied screen, or an empty body means the
+    // page was not measured, so it must not be scored as if it passed.
+    const landed = new URL(page.url()).pathname + new URL(page.url()).search;
+    const expected = route.split("?")[0] ?? route;
+    // ANY redirect away from the requested path means this page was not
+    // measured, wherever it went. The rule used to be `!landed.startsWith(expected)`
+    // AND a keyword test for a login-looking destination — two holes at once.
+    // A middleware that sends an unauthorised visitor to `/` matches no keyword,
+    // so on Green Room 52 admin and coach routes could each have been awarded
+    // the HOME PAGE's score, four entries apiece, and the report would have
+    // said 100. And `startsWith` let `/admin` stand in for `/adminXYZ`.
+    //
+    // Apps do have legitimate aliases, so `alias` is the narrow, declared
+    // exception: the destination must itself be a route in the list, so it is
+    // measured under its own name. A GATED route (an area listed in `_gated`)
+    // may leave its own area only if route-params.json says so in writing,
+    // under `_alias` — otherwise "it left /admin" is indistinguishable from
+    // "the middleware refused it", the very failure this check exists to catch.
+    const landedPath = landed.split("?")[0] ?? landed;
+    const GATED_AREAS = params._gated ?? [];
+    const gated = GATED_AREAS.find(
+      (prefix) => expected === prefix || expected.startsWith(`${prefix}/`),
+    );
+    const leftItsArea =
+      !!gated && !(landedPath === gated || landedPath.startsWith(`${gated}/`));
+    const declaredAlias = params._alias ?? {};
+    const alias =
+      landedPath !== expected &&
+      (!leftItsArea || route in declaredAlias) &&
+      routes.some(({ route: r }) => (r.split("?")[0] ?? r) === landedPath);
+    if (alias) result.redirected_to = landed;
+    const bounced = landedPath !== expected && !alias;
+    const deniedText = await page
+      .locator("body")
+      .innerText()
+      .catch(() => "");
+    // The standard's own markers are the first signal: a page that renders its
+    // no-access or not-found state says so in markup, whatever its words. A route that
+    // asks for that state (?state=no-access) is the designed screen, not a refusal.
+    const askedState = new URLSearchParams(route.split("?")[1] ?? "").get("state");
+    const marker = await page
+      .evaluate(() =>
+        ["no-access", "not-found"].find((s) =>
+          [...document.querySelectorAll(`[data-state="${s}"]`)].some((el) =>
+            el.checkVisibility({ opacityProperty: true, visibilityProperty: true }),
+          ),
+        ),
+      )
+      .catch(() => undefined);
+    // Then the app's real not-found page, printed in global-setup: the same region
+    // text means this route rendered it.
+    const rendersNotFound =
+      !!notFoundPrint &&
+      notFoundPrint.text.length > 0 &&
+      normalizeRegionText(await regionText(page).catch(() => ""), expected) === notFoundPrint.text;
+    if (result.status !== null && result.status >= 400) {
+      result.unreachable = true;
+      result.unreachable_reason = `HTTP ${result.status}`;
+    } else if (bounced) {
+      result.unreachable = true;
+      result.unreachable_reason = `redirected to ${landed}: the QA account has no access`;
+    } else if (marker === "no-access" && askedState !== "no-access") {
+      result.unreachable = true;
+      result.unreachable_reason = 'access-denied screen rendered ([data-state="no-access"])';
+    } else if (
+      !route.includes("404") &&
+      askedState !== "not-found" &&
+      (marker === "not-found" || rendersNotFound || NOT_FOUND_WORDING.test(deniedText))
+    ) {
+      // A route in the list that answers with the app's own not-found page is
+      // not being measured — it is the 404 screen being measured 110 times.
+      // /book/confirmed did exactly this: it needs ?bookingId=, so the gate
+      // scored the not-found page 100 while the screen that shows a customer
+      // their door code was never opened. A route list is only as good as the
+      // parameters that make its pages real.
+      result.unreachable = true;
+      result.unreachable_reason = `renders the not-found page (${
+        marker === "not-found" ? "[data-state=\"not-found\"]" : rendersNotFound ? "the app's not-found text" : "not-found wording"
+      }) — the route needs a query parameter (add it to routes.json)`;
+    } else if (DENIED_WORDING.test(deniedText)) {
+      // A phrase, never the digits: a 401 or 403 is a status code and is caught above
+      // through the response status, while "401" in a price is content.
+      result.unreachable = true;
+      result.unreachable_reason = "access-denied screen rendered";
+    } else if (askedState !== "error" && /משהו השתבש|שגיאה בטעינה|something went wrong|try again later/i.test(deniedText)) {
+      // (A route asked as ?state=error is meant to show the error screen.)
+      // An error boundary that caught a failed fetch renders a tidy little
+      // card: no overflow, no axe violation, no console error (it was
+      // caught), two fonts, no small targets. Indistinguishable from a
+      // perfect page unless the copy is matched.
+      result.unreachable = true;
+      result.unreachable_reason = "the app's own error screen rendered";
+    }
+
+    // Only worth asking once the response itself is sound: an access-denied
+    // screen has painted perfectly well, it is just the wrong page.
+    if (!result.unreachable) {
+      result.not_reached_reason = await reachRoute(page);
+      result.reached = result.not_reached_reason === null;
+    }
+
+    const shot = path.join(SCREENS_DIR, `${name}.png`);
+    await page.screenshot({ path: shot, fullPage: true });
+    result.screenshot = path.relative(path.resolve(SCREENS_DIR, "..", ".."), shot);
+
+    // Argos compares this frame with the same frame from the previous run and
+    // shows what moved. It answers the question the score cannot — "one token
+    // changed, which other screens changed with it" — and it is the reason the
+    // DoD walks every route rather than a sample. Without ARGOS_TOKEN it is a
+    // no-op, so a local run costs nothing and uploads nothing.
+    // The package is optional: it is loaded only when ARGOS_TOKEN is set, and
+    // global-setup has already stopped the run if the token is set without it.
+    if (process.env.ARGOS_TOKEN) await (await loadArgos())(page, name, { threshold: 0.2 });
+
+    result.overflow = await overflow(page);
+
+    // Retried once, because a page that finishes a client-side navigation while
+    // axe is walking it throws "Execution context was destroyed" — and the
+    // catch below would then record the page as UNREACHABLE, which reads as
+    // "the QA account has no access" when what actually happened is that the
+    // page moved. axe documents this case itself
+    // (dequelabs/axe-core-npm error-handling.md). One settle and one retry.
+    const runAxe = () => new AxeBuilder({ page }).withTags([...AXE_TAGS]).analyze();
+    let axe: Awaited<ReturnType<typeof runAxe>>;
+    try {
+      axe = await runAxe();
+    } catch {
+      await settle(page);
+      axe = await runAxe();
+    }
+    result.axe.violations = axe.violations.map((v) => ({
+      id: v.id,
+      impact: v.impact ?? "unknown",
+      help: v.help,
+      nodes: v.nodes.length,
+      samples: v.nodes.slice(0, 4).map((n) => ({
+        target: n.target.map(String).join(" "),
+        html: n.html.replace(/\s+/g, " ").slice(0, 200),
+      })),
+    }));
+    result.axe.version = axe.testEngine?.version ?? null;
+    for (const v of axe.violations) {
+      const impact = v.impact ?? "unknown";
+      result.axe.by_impact[impact] = (result.axe.by_impact[impact] ?? 0) + v.nodes.length;
+      result.axe.counted += v.nodes.length;
+      if (impact === "critical" || impact === "serious" || scoring.axe.minorModerate === "enforce")
+        result.axe.scored += v.nodes.length;
+    }
+
+    result.fonts.families = await fontFamilies(page);
+    result.fonts.count = result.fonts.families.length;
+
+    if (viewport.width === 375) result.touch_targets = await touchTargets(page);
+
+    measuredUrl = page.url();
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await settle(page);
+    result.reduced_motion = await reducedMotionViolations(page);
+    // The reload must land where the first load did: a session that expired in between
+    // sends it to a sign-in screen, and that screen's motion is not this page's.
+    const rmLanded = new URL(page.url()).pathname;
+    if (!result.unreachable && rmLanded !== new URL(measuredUrl).pathname) {
+      result.unreachable = true;
+      result.unreachable_reason = `the reduced-motion reload landed on ${rmLanded}: the session may have expired during the run`;
+    }
+  } catch (err) {
+    result.load_error = err instanceof Error ? err.message.slice(0, 500) : String(err);
+    result.unreachable = true;
+    result.unreachable_reason = result.load_error;
+  }
+  frozen = true;
+  return { result, measuredUrl: measuredUrl || page.url() };
 }
 
 for (const entry of routes) {
@@ -484,273 +804,27 @@ for (const entry of routes) {
         test(`dod ${name}`, async ({ page }) => {
           // The standard's checks have their own budget on top of the page's.
           if (standard) test.setTimeout(test.info().timeout + STANDARD_TIMEOUT_MS);
-          const consoleErrors: string[] = [];
-          // Paused while the standard's checks resize the page: an error a resize provokes
-          // belongs to those checks, not to the page's console score. Only the page being
-          // measured counts: one left behind by the standard's checks never does.
-          const console_ = { collecting: true, page };
-          const listen = (p: Page) => {
-            p.on("console", (m) => {
-              if (console_.collecting && console_.page === p && m.type() === "error") consoleErrors.push(m.text().slice(0, 300));
-            });
-            p.on("pageerror", (e) => {
-              if (console_.collecting && console_.page === p) consoleErrors.push(`pageerror: ${e.message.slice(0, 300)}`);
-            });
+          // 1. Everything that is scored, in the one sequence a run without standard.json uses.
+          const { result, measuredUrl } = await measureEntry(page, entry, viewport, scheme, slug, name);
+          // Frozen from here: the file is written now, so a run that ends during the standard's
+          // checks keeps every scored number, and an enforced check that never finished is errored.
+          const write = () => {
+            fs.mkdirSync(RESULTS_DIR, { recursive: true });
+            fs.writeFileSync(path.join(RESULTS_DIR, `${name}.json`), JSON.stringify(result, null, 2));
           };
-          listen(page);
-
-          const result: EntryResult = {
-            route,
-            slug,
-            audience: entry.audience,
-            viewport: { ...viewport },
-            scheme,
-            status: null,
-            load_error: null,
-            unreachable: false,
-            unreachable_reason: null,
-            reached: false,
-            not_reached_reason: null,
-            screenshot: null,
-            overflow: { scrollWidth: 0, clientWidth: 0, failed: false },
-            axe: { version: null, counted: 0, scored: 0, by_impact: {}, violations: [] },
-            console_errors: consoleErrors,
-            fonts: { families: [], count: 0 },
-            touch_targets: { checked: false, failures: 0, samples: [] },
-            reduced_motion: { violations: 0, samples: [] },
-          };
-
-          try {
-            // error-toast needs to know which error elements left the page by themselves,
-            // so the watcher is in place before the first byte of the page runs.
-            if (standard) await page.addInitScript(watchRemovedErrors);
-            const resp = await page.goto(route, { waitUntil: "domcontentloaded" });
-            result.status = resp?.status() ?? null;
-            await settle(page);
-
-            // Access check: the QA account must be able to open every page. A non-2xx,
-            // a bounce to a login or access-denied screen, or an empty body means the
-            // page was not measured, so it must not be scored as if it passed.
-            const landed = new URL(page.url()).pathname + new URL(page.url()).search;
-            const expected = route.split("?")[0] ?? route;
-            // ANY redirect away from the requested path means this page was not
-            // measured, wherever it went. The rule used to be `!landed.startsWith(expected)`
-            // AND a keyword test for a login-looking destination — two holes at once.
-            // A middleware that sends an unauthorised visitor to `/` matches no keyword,
-            // so on Green Room 52 admin and coach routes could each have been awarded
-            // the HOME PAGE's score, four entries apiece, and the report would have
-            // said 100. And `startsWith` let `/admin` stand in for `/adminXYZ`.
-            //
-            // Apps do have legitimate aliases, so `alias` is the narrow, declared
-            // exception: the destination must itself be a route in the list, so it is
-            // measured under its own name. A GATED route (an area listed in `_gated`)
-            // may leave its own area only if route-params.json says so in writing,
-            // under `_alias` — otherwise "it left /admin" is indistinguishable from
-            // "the middleware refused it", the very failure this check exists to catch.
-            const landedPath = landed.split("?")[0] ?? landed;
-            const GATED_AREAS = params._gated ?? [];
-            const gated = GATED_AREAS.find(
-              (prefix) => expected === prefix || expected.startsWith(`${prefix}/`),
-            );
-            const leftItsArea =
-              !!gated && !(landedPath === gated || landedPath.startsWith(`${gated}/`));
-            const declaredAlias = params._alias ?? {};
-            const alias =
-              landedPath !== expected &&
-              (!leftItsArea || route in declaredAlias) &&
-              routes.some(({ route: r }) => (r.split("?")[0] ?? r) === landedPath);
-            if (alias) result.redirected_to = landed;
-            const bounced = landedPath !== expected && !alias;
-            const deniedText = await page
-              .locator("body")
-              .innerText()
-              .catch(() => "");
-            // The standard's own markers are the first signal: a page that renders its
-            // no-access or not-found state says so in markup, whatever its words. A route that
-            // asks for that state (?state=no-access) is the designed screen, not a refusal.
-            const askedState = new URLSearchParams(route.split("?")[1] ?? "").get("state");
-            const marker = await page
-              .evaluate(() =>
-                ["no-access", "not-found"].find((s) =>
-                  [...document.querySelectorAll(`[data-state="${s}"]`)].some((el) =>
-                    el.checkVisibility({ opacityProperty: true, visibilityProperty: true }),
-                  ),
-                ),
-              )
-              .catch(() => undefined);
-            // Then the app's real not-found page, printed in global-setup: the same region
-            // text means this route rendered it.
-            const rendersNotFound =
-              !!notFoundPrint &&
-              notFoundPrint.text.length > 0 &&
-              normalizeRegionText(await regionText(page).catch(() => ""), expected) === notFoundPrint.text;
-            if (result.status !== null && result.status >= 400) {
-              result.unreachable = true;
-              result.unreachable_reason = `HTTP ${result.status}`;
-            } else if (bounced) {
-              result.unreachable = true;
-              result.unreachable_reason = `redirected to ${landed}: the QA account has no access`;
-            } else if (marker === "no-access" && askedState !== "no-access") {
-              result.unreachable = true;
-              result.unreachable_reason = 'access-denied screen rendered ([data-state="no-access"])';
-            } else if (
-              !route.includes("404") &&
-              askedState !== "not-found" &&
-              (marker === "not-found" || rendersNotFound || NOT_FOUND_WORDING.test(deniedText))
-            ) {
-              // A route in the list that answers with the app's own not-found page is
-              // not being measured — it is the 404 screen being measured 110 times.
-              // /book/confirmed did exactly this: it needs ?bookingId=, so the gate
-              // scored the not-found page 100 while the screen that shows a customer
-              // their door code was never opened. A route list is only as good as the
-              // parameters that make its pages real.
-              result.unreachable = true;
-              result.unreachable_reason = `renders the not-found page (${
-                marker === "not-found" ? "[data-state=\"not-found\"]" : rendersNotFound ? "the app's not-found text" : "not-found wording"
-              }) — the route needs a query parameter (add it to routes.json)`;
-            } else if (DENIED_WORDING.test(deniedText)) {
-              // A phrase, never the digits: a 401 or 403 is a status code and is caught above
-              // through the response status, while "401" in a price is content.
-              result.unreachable = true;
-              result.unreachable_reason = "access-denied screen rendered";
-            } else if (askedState !== "error" && /משהו השתבש|שגיאה בטעינה|something went wrong|try again later/i.test(deniedText)) {
-              // (A route asked as ?state=error is meant to show the error screen.)
-              // An error boundary that caught a failed fetch renders a tidy little
-              // card: no overflow, no axe violation, no console error (it was
-              // caught), two fonts, no small targets. Indistinguishable from a
-              // perfect page unless the copy is matched.
-              result.unreachable = true;
-              result.unreachable_reason = "the app's own error screen rendered";
-            }
-
-            // Only worth asking once the response itself is sound: an access-denied
-            // screen has painted perfectly well, it is just the wrong page.
-            if (!result.unreachable) {
-              result.not_reached_reason = await reachRoute(page);
-              result.reached = result.not_reached_reason === null;
-            }
-
-            const shot = path.join(SCREENS_DIR, `${name}.png`);
-            await page.screenshot({ path: shot, fullPage: true });
-            result.screenshot = path.relative(path.resolve(SCREENS_DIR, "..", ".."), shot);
-
-            // Argos compares this frame with the same frame from the previous run and
-            // shows what moved. It answers the question the score cannot — "one token
-            // changed, which other screens changed with it" — and it is the reason the
-            // DoD walks every route rather than a sample. Without ARGOS_TOKEN it is a
-            // no-op, so a local run costs nothing and uploads nothing.
-            // The package is optional: it is loaded only when ARGOS_TOKEN is set, and
-            // global-setup has already stopped the run if the token is set without it.
-            if (process.env.ARGOS_TOKEN) await (await loadArgos())(page, name, { threshold: 0.2 });
-
-            result.overflow = await overflow(page);
-
-            // Retried once, because a page that finishes a client-side navigation while
-            // axe is walking it throws "Execution context was destroyed" — and the
-            // catch below would then record the page as UNREACHABLE, which reads as
-            // "the QA account has no access" when what actually happened is that the
-            // page moved. axe documents this case itself
-            // (dequelabs/axe-core-npm error-handling.md). One settle and one retry.
-            const runAxe = () => new AxeBuilder({ page }).withTags([...AXE_TAGS]).analyze();
-            let axe: Awaited<ReturnType<typeof runAxe>>;
-            try {
-              axe = await runAxe();
-            } catch {
-              await settle(page);
-              axe = await runAxe();
-            }
-            result.axe.violations = axe.violations.map((v) => ({
-              id: v.id,
-              impact: v.impact ?? "unknown",
-              help: v.help,
-              nodes: v.nodes.length,
-              samples: v.nodes.slice(0, 4).map((n) => ({
-                target: n.target.map(String).join(" "),
-                html: n.html.replace(/\s+/g, " ").slice(0, 200),
-              })),
-            }));
-            result.axe.version = axe.testEngine?.version ?? null;
-            for (const v of axe.violations) {
-              const impact = v.impact ?? "unknown";
-              result.axe.by_impact[impact] = (result.axe.by_impact[impact] ?? 0) + v.nodes.length;
-              result.axe.counted += v.nodes.length;
-              if (impact === "critical" || impact === "serious" || scoring.axe.minorModerate === "enforce")
-                result.axe.scored += v.nodes.length;
-            }
-
-            result.fonts.families = await fontFamilies(page);
-            result.fonts.count = result.fonts.families.length;
-
-            if (viewport.width === 375) result.touch_targets = await touchTargets(page);
-
-            // The experience standard's checks, on a page that really painted. Their own try:
-            // whatever goes wrong in them is recorded on the check, and never turns the page
-            // unreachable or changes any other number, so report mode leaves the score alone.
-            const measuredUrl = page.url();
-            // The page the reduced-motion load runs on: this one, unless the standard's checks
-            // left it unable to answer.
-            let rmPage = page;
-            if (standard && result.reached && !result.unreachable) {
-              console_.collecting = false;
-              const nav: { g: Guard | null } = { g: null };
-              page.on("request", (r) => {
-                if (nav.g && r.isNavigationRequest() && r.frame() === page.mainFrame()) nav.g.newDocument = true;
-              });
-              // Each try is bounded by its deadline; after it, the viewport goes back and the page
-              // must answer within AFTER_STANDARD_MS, or it is left behind.
-              const attempt = async () => {
-                const g: Guard = { deadline: Date.now() + STANDARD_BUDGET_MS, url: measuredUrl, stopped: null, newDocument: false };
-                nav.g = g;
-                const r = await tryStandard(standard, page, entry, viewport, scheme, g);
-                nav.g = null;
-                const answers =
-                  (await bounded(page.setViewportSize({ width: viewport.width, height: viewport.height }))) &&
-                  (await bounded(page.waitForTimeout(RESIZE_MS).then(() => page.evaluate(() => true))));
-                return { ...r, g, answers };
-              };
-              let t = await attempt();
-              // A try that ran out of time on a loaded machine, or any error under CI, gets one
-              // more try, on a page that still answers and was not moved by a resize.
-              const errored = Object.entries(t.standard).find(([, c]) => c.error);
-              if (errored && t.answers && !moved(t.g, page) && (t.g.stopped === OUT_OF_TIME || process.env.CI)) {
-                result.standard_retried = `${errored[0]}: ${errored[1].error}`.slice(0, 300);
-                t = await attempt();
-              }
-              result.standard = t.standard;
-              if (t.probe) result.probe = t.probe;
-              if (t.error) result.standard_error = t.error;
-              // The old document ends before the console counts again: a timer a resize started
-              // there (an error logged 300 ms later) must not land in the new load's count.
-              if (!t.answers || !(await bounded(page.goto("about:blank")))) {
-                // A page still busy with what a resize started is left behind; the reduced-motion
-                // load runs in a new tab of the same context (same session, same emulation).
-                void page.close({ runBeforeUnload: false }).catch(() => {});
-                rmPage = await page.context().newPage();
-                listen(rmPage);
-                console_.page = rmPage;
-              }
-            }
-
-            await rmPage.emulateMedia({ reducedMotion: "reduce" });
-            // The console counts again from this load, as it does without the standard's checks.
-            console_.collecting = true;
-            // After the standard's checks the page is loaded again from its measured URL; without
-            // them it is the same page, reloaded.
-            if (rmPage.url() !== measuredUrl) await rmPage.goto(measuredUrl, { waitUntil: "domcontentloaded" });
-            else await rmPage.reload({ waitUntil: "domcontentloaded" });
-            await settle(rmPage);
-            result.reduced_motion = await reducedMotionViolations(rmPage);
-          } catch (err) {
-            result.load_error = err instanceof Error ? err.message.slice(0, 500) : String(err);
-            result.unreachable = true;
-            result.unreachable_reason = result.load_error;
+          const checkable = !!standard && result.reached && !result.unreachable;
+          if (standard && checkable)
+            result.standard = notFinished(plannedChecks(standard, route, viewport, scheme), "the standard's checks did not finish (the test ended first)");
+          write();
+          // 2. The standard's checks, after the freeze. What they return can hold only their own
+          // fields (StandardPart), so no scored number is written after this point.
+          if (standard && checkable) {
+            Object.assign(result, await checkStandard(standard, page, entry, viewport, scheme, name, measuredUrl));
+            write();
           }
-
-          fs.mkdirSync(RESULTS_DIR, { recursive: true });
-          fs.writeFileSync(path.join(RESULTS_DIR, `${name}.json`), JSON.stringify(result, null, 2));
           test.info().annotations.push({
             type: "dod",
-            description: `status=${result.status} unreachable=${result.unreachable} reached=${result.reached} overflow=${result.overflow.failed} axe=${result.axe.counted} console=${consoleErrors.length} fonts=${result.fonts.count} touch=${result.touch_targets.failures} rm=${result.reduced_motion.violations}${
+            description: `status=${result.status} unreachable=${result.unreachable} reached=${result.reached} overflow=${result.overflow.failed} axe=${result.axe.counted} console=${result.console_errors.length} fonts=${result.fonts.count} touch=${result.touch_targets.failures} rm=${result.reduced_motion.violations}${
               result.standard
                 ? ` standard=${Object.entries(result.standard)
                     .filter(([, c]) => c.count)

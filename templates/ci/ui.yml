@@ -17,6 +17,10 @@ concurrency:
 jobs:
   ui:
     runs-on: ubuntu-latest
+    # A backstop: the DoD stops the standard's checks after `maxTimeouts` entries of the run ran
+    # out of time (standard.json, default 5), so a page that hangs on resize ends in the report,
+    # not here. Raise it for a project whose plain walk itself takes longer.
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4

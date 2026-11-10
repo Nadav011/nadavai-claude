@@ -206,8 +206,12 @@ export interface StandardConfig {
   profile: "work-tool" | "consumer";
   /** `report` writes findings to dod.json and leaves the score alone; `enforce` deducts. */
   mode: "enforce" | "report";
-  /** In `report` mode, the check ids that already deduct, so a project moves them one at a time. */
+  /** In `report` mode, the check ids that already deduct, so a project moves them one at a time.
+   *  Ids from standard-checks.json; the static ones are enforced by routes.mjs --check. */
   enforce?: string[];
+  /** After this many entries of a run ran out of time in the standard's checks, the rest of the
+   *  run skips them (default 5). */
+  maxTimeouts: number;
   /** Smallest text the probe accepts, in px. */
   textFloorPx: number;
   helpDir?: string;
@@ -253,11 +257,23 @@ export function loadStandard(): StandardConfig | null {
   const forbiddenWords = raw.forbiddenWords ?? [];
   if (!Array.isArray(forbiddenWords) || forbiddenWords.some((w) => typeof w !== "string" || !w.trim()))
     bad('"forbiddenWords" must be a list of non-empty strings');
-  const known: string[] = [...DOM_CHECK_IDS, "state-coverage", "core-unit", "probe"];
+  const known = [...new Set([...CHECK_IDS.page, ...CHECK_IDS.static])];
   if (raw.enforce !== undefined && (!Array.isArray(raw.enforce) || raw.enforce.some((id) => !known.includes(id))))
     bad(`"enforce" must be a list of check ids (${known.join(", ")})`);
-  return { ...raw, profile, mode, textFloorPx, forbiddenWords } as StandardConfig;
+  const maxTimeouts = raw.maxTimeouts ?? 5;
+  if (!Number.isInteger(maxTimeouts) || maxTimeouts < 1) bad('"maxTimeouts" must be a whole number of entries, 1 or more');
+  return { ...raw, profile, mode, textFloorPx, forbiddenWords, maxTimeouts } as StandardConfig;
 }
+
+/**
+ * The standard's check ids, one list for both sides (e2e/dod/standard-checks.json): `page` for
+ * this run, `static` for routes.mjs --check.
+ */
+export const CHECK_IDS: { page: string[]; static: string[] } = JSON.parse(
+  fs.readFileSync(path.join(DOD_DIR, "standard-checks.json"), "utf8"),
+);
+for (const id of DOM_CHECK_IDS)
+  if (!CHECK_IDS.page.includes(id)) throw new Error(`[dod] e2e/dod/standard-checks.json: page check "${id}" is missing`);
 
 /** Whether a check id costs points: every id in `enforce` mode, the ids listed in `enforce` in `report`. */
 export function standardEnforced(cfg: StandardConfig | null): (id: string) => boolean {
@@ -344,6 +360,9 @@ export interface EntryResult {
    *  when a check errored on the time budget, or on any error under CI, and the page still
    *  answered. Only the second try's results are kept. */
   standard_retried?: string;
+  /** Set when the standard's checks did not run on this entry because the run reached its
+   *  `maxTimeouts`: every planned check carries the same error. */
+  standard_skipped?: string;
   /** The mechanical probe, by size ("320x700"); light scheme only. */
   probe?: Record<string, ProbeAt>;
 }
@@ -430,7 +449,7 @@ export function aggregate(entries: EntryResult[], enforced: (id: string) => bool
     standard_scored: 0,
   };
   for (const es of byRoute.values()) {
-    for (const [id, c] of Object.entries(routeStandard(es))) {
+    for (const [id, c] of Object.entries(routeStandard(es, enforced))) {
       t.standard_findings += c.count;
       if (c.count > 0) t.standard_failures++;
       if (c.error) t.standard_errored++;
@@ -449,9 +468,13 @@ export function aggregate(entries: EntryResult[], enforced: (id: string) => bool
  * One route's standard checks from its entries: each check id at its highest entry, with
  * that entry's samples labelled by viewport and scheme. `skipped` only when every entry
  * that ran the check skipped it. `verdict` says it in words: "errored" (the check could not
- * finish on some entry, whatever it found), "found N", "skipped" or "clean".
+ * finish on some entry, whatever it found), "found N", "skipped" or "clean"; `enforced` says
+ * whether it costs points.
  */
-export function routeStandard(es: EntryResult[]): Record<string, CheckResult & { verdict: string }> {
+export function routeStandard(
+  es: EntryResult[],
+  enforced: (id: string) => boolean = () => false,
+): Record<string, CheckResult & { verdict: string; enforced: boolean }> {
   const out: Record<string, CheckResult> = {};
   for (const e of es) {
     for (const [id, c] of Object.entries(e.standard ?? {})) {
@@ -480,7 +503,7 @@ export function routeStandard(es: EntryResult[]): Record<string, CheckResult & {
   return Object.fromEntries(
     Object.entries(out).map(([id, c]) => [
       id,
-      { ...c, verdict: c.error ? "errored" : c.count ? `found ${c.count}` : c.skipped ? "skipped" : "clean" },
+      { ...c, verdict: c.error ? "errored" : c.count ? `found ${c.count}` : c.skipped ? "skipped" : "clean", enforced: enforced(id) },
     ]),
   );
 }
