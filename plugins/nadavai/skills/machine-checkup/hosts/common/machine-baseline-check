@@ -1,0 +1,53 @@
+#!/bin/bash
+# The shared OS baseline of a home machine, one line per item: ok, BAD (fix it: rerun
+# hosts/common/install.sh), REBOOT (configured, applies at the next boot) or info.
+# Exit 1 on any BAD. The hardware layer has its own check per host (lenovo-tuning-check,
+# msi-tuning-check).
+bad=0
+row() { printf '%-6s %-34s %s\n' "$1" "$2" "$3"; [ "$1" = BAD ] && bad=1; return 0; }
+
+fs=$(findmnt -no FSTYPE /tmp 2>/dev/null)
+if [ "$fs" != tmpfs ]; then row ok "/tmp on disk" "${fs:-part of /}"
+elif [ "$(systemctl is-enabled tmp.mount 2>/dev/null)" = masked ] && ! grep -qE '^[^#]*[[:space:]]/tmp[[:space:]]+tmpfs' /etc/fstab; then
+  row REBOOT "/tmp on disk" "tmpfs now ($(df -h --output=used /tmp | tail -1 | tr -d ' ') used), on disk after a reboot"
+else row BAD "/tmp on disk" "tmpfs, and nothing moves it"; fi
+
+ram_kb=$(awk '/^MemTotal:/ { print $2 }' /proc/meminfo)
+read -r zram_kb used_kb < <(awk '$1 ~ /^\/dev\/zram/ { s += $3; u += $4 } END { print s + 0, u + 0 }' /proc/swaps)
+if [ "$zram_kb" -ge $((ram_kb * 19 / 10)) ]; then s=ok; else s=BAD; fi
+row "$s" "compressed swap, 2x RAM" "$((zram_kb / 1048576)) GB for $((ram_kb / 1048576)) GB of RAM"
+[ -f /etc/systemd/zram-generator.conf ] && grep -q 'ram \* 2' /etc/systemd/zram-generator.conf && s=ok || s=BAD
+row "$s" "the same after a reboot" "/etc/systemd/zram-generator.conf"
+pct=0; [ "$zram_kb" -gt 0 ] && pct=$((100 * used_kb / zram_kb))
+if [ "$pct" -lt 70 ]; then s=ok; else s=BAD; fi
+row "$s" "swap used (oomd kills at 90%)" "$pct%"
+row info "memory available" "$(awk '/^MemAvailable:/ { printf "%d GB", $2 / 1048576 }' /proc/meminfo)"
+
+[ "$(systemctl is-active systemd-oomd 2>/dev/null)" = active ] && s=ok || s=BAD
+row "$s" "systemd-oomd" "$(systemctl is-active systemd-oomd 2>/dev/null); kills in 7 days: $(journalctl -u systemd-oomd --since -7d 2>/dev/null | grep -ci 'killed')"
+o=$(sysctl -n kernel.panic_on_oops 2>/dev/null) p=$(sysctl -n kernel.panic 2>/dev/null)
+[ "$o" = 1 ] && [ "$p" = 10 ] && s=ok || s=BAD
+row "$s" "reboot after a kernel oops" "panic_on_oops=$o panic=$p"
+grep -qs '^SystemMaxUse=1G' /etc/systemd/journald.conf.d/60-journal-size.conf && s=ok || s=BAD
+row "$s" "journal keeps 1 GB" "$(journalctl --disk-usage 2>/dev/null | grep -oE '[0-9.]+[MG]' | head -1) used"
+[ "$(systemctl is-active rasdaemon 2>/dev/null)" = active ] && s=ok || s=BAD
+row "$s" "rasdaemon (hardware errors)" "$(systemctl is-active rasdaemon 2>/dev/null)"
+mce=$(journalctl -k -b 2>/dev/null | grep -ciE 'machine check|mce: \[Hardware Error\]')
+[ "$mce" = 0 ] && s=ok || s=BAD
+row "$s" "machine-check errors this boot" "$mce"
+[ "$(systemctl is-enabled fstrim.timer 2>/dev/null)" = enabled ] && s=ok || s=BAD
+row "$s" "weekly fstrim" "$(systemctl is-enabled fstrim.timer 2>/dev/null)"
+f=$(systemctl --failed --no-legend 2>/dev/null | awk '{ print $2 }' | tr '\n' ' ')
+u=$(systemctl --user --failed --no-legend 2>/dev/null | awk '{ print $2 }' | tr '\n' ' ')
+[ -z "$f$u" ] && s=ok || s=BAD
+row "$s" "failed units" "${f}${u:-}$([ -z "$f$u" ] && echo none)"
+
+row info "kernel, uptime" "$(uname -r), up $(($(cut -d. -f1 /proc/uptime) / 3600)) h"
+row info "disk /" "$(df -h --output=pcent,avail / | tail -1 | awk '{ print $1 " used, " $2 " free" }')"
+row info "coredumps in 24 h" "$(coredumpctl list --since -24h --no-legend 2>/dev/null | wc -l)"
+t=/sys/devices/system/cpu/cpu0/thermal_throttle/package_throttle_count
+[ -r "$t" ] && row info "CPU thermal throttle events" "$(cat "$t") since boot"
+if command -v heavy-slot >/dev/null 2>&1; then
+  while IFS= read -r l; do row info "heavy-slot" "$l"; done < <(heavy-slot --status 2>/dev/null | head -4)
+fi
+exit "$bad"

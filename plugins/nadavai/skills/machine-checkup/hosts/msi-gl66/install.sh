@@ -10,6 +10,9 @@ here=$(cd "$(dirname "$0")" && pwd)
 model=$(cat /sys/class/dmi/id/product_name 2>/dev/null)
 [ "$model" = "Pulse GL66 11UGKV" ] || { echo "not an MSI Pulse GL66 11UGKV (product_name=$model); nothing installed" >&2; exit 1; }
 
+# The baseline shared by every home machine: /tmp on disk, swap size, oops reboot, journal, rasdaemon.
+"$here/../common/install.sh"
+
 # Packages: msi-ec from AUR (the in-tree msi_ec refuses EC 1581EMS1.107), intel-undervolt, tools for the check.
 for p in intel-undervolt msr-tools turbostat stress-ng fio nvme-cli; do pacman -Q "$p" >/dev/null 2>&1 || sudo pacman -S --needed --noconfirm "$p"; done
 pacman -Q msi-ec-dkms-git >/dev/null 2>&1 || paru -S --needed --noconfirm msi-ec-dkms-git
@@ -68,14 +71,6 @@ sudo systemctl enable --now msi-turbo.service intel-undervolt.service cpu-maxfre
 sudo systemctl restart msi-power-limits.service cpu-maxfreq.service msi-fan-boost.service
 if systemctl list-unit-files docker.service >/dev/null 2>&1; then sudo systemctl enable --now docker-wifi-block.service; fi
 sudo systemctl restart ananicy-cpp
-# rasdaemon records MCEs; v1.0 logs every SIGCHLD unless signal tracing is disabled (a CI host forks a lot).
-if pacman -Q rasdaemon >/dev/null 2>&1; then
-  grep -q '^DISABLE="signal:signal_generate"' /etc/sysconfig/rasdaemon 2>/dev/null || echo 'DISABLE="signal:signal_generate"' | sudo tee -a /etc/sysconfig/rasdaemon >/dev/null
-  sudo systemctl enable --now rasdaemon
-  sudo systemctl restart rasdaemon
-else
-  echo "rasdaemon not installed: paru -S rasdaemon, then rerun"
-fi
 systemctl --user daemon-reload && systemctl --user enable --now agent-nice.timer msi-keep-unlocked.service
 echo "APST off in the boot entries takes effect at the next reboot (live already). The lid drop-in needs a logind restart or reboot."
 "$HOME/.local/bin/msi-tuning-check"
