@@ -30,7 +30,7 @@ Cordova plugins live under `node_modules/<cordova-plugin-x>/src/ios`. The script
 ## Fix options, in order
 
 1. Update the plugin: `npm outdated`, read the changelog for "UIScene", "Stage Manager", "multitasking".
-2. If the plugin has an equivalent maintained `@capgo/*` plugin, propose switching (check the plugin docs).
+2. If an equivalent maintained plugin exists (from any publisher), propose switching (check the plugin docs).
 3. Open an upstream issue with the file and line from the scan and the replacement from [native-replacements.md](native-replacements.md).
 4. Stopgap: `patch-package`, only with user approval. Patches break on updates; record them.
 

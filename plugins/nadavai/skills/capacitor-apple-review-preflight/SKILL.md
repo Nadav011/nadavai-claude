@@ -1,14 +1,11 @@
 ---
 name: capacitor-apple-review-preflight
 description: "Audit a Capacitor iOS app against Apple App Review before submission or after a rejection: guideline 4.2, 4.8, 5.1.1, 3.1.1, privacy manifest, ITMS upload warnings, entitlements, reviewer notes."
-allowed-tools:
-  - Bash(node -e *)
-  - Bash(find *)
 ---
 
 # Capacitor Apple Review Preflight
 
-> nadavai preface: Nadav's Green Room shells load the live site through `server.url` on purpose (remote shell, an owner decision; see `rules/store-apps.md` and the `store-apps` skill's `references/remote-shell.md`). In those apps, report a `server.url` finding as "by design" with the 4.2 / 2.5.2 note for the reviewer notes, not as a defect, and do not propose removing it.
+> nadavai preface: Nadav's Green Room shells load the live site through `server.url` on purpose (remote shell, an owner decision; see `rules/store-apps.md` and the `store-apps` skill's `references/remote-shell.md`). In those apps, report a `server.url` finding as "by design" with the 4.2 / 2.5.2 note for the reviewer notes, not as a defect, and do not propose removing it. The guideline 4.2 audit of native value still applies to them in full (the `store-apps` skill's `references/native-bar.md`): 4.2 is the usual rejection for a wrapped site.
 
 Run a pre-submission or post-rejection Apple review audit for a Capacitor app and return a prioritized, evidence-backed report.
 

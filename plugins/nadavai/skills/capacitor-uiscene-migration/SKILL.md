@@ -1,9 +1,6 @@
 ---
 name: capacitor-uiscene-migration
 description: "Migrate a Capacitor iOS app or plugin to the UIScene lifecycle (Capacitor 8.5, Xcode 27): add SceneDelegate, npx cap migrate partial state, appUrlOpen or deep links stopped after 8.5, tmpWindow errors."
-allowed-tools:
-  - Bash(node -e *)
-  - Bash(find *)
 ---
 
 # Capacitor UIScene Migration (8.4 -> 8.5)

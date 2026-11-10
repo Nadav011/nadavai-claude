@@ -14,7 +14,7 @@ Common Android issues and their solutions.
    - Capacitor 8: JDK 21.
    Check: `java -version`. In Android Studio: File > Settings > Build, Execution, Deployment > Build Tools > Gradle > Gradle JDK.
 2. Invalidate caches: File > Invalidate Caches in Android Studio.
-3. Delete `.gradle` cache: `rm -rf ~/.gradle/caches && rm -rf android/.gradle`.
+3. Stop the daemons and delete the project's own cache: `./gradlew --stop`, then remove `android/.gradle`. The machine-wide `~/.gradle/caches` is shared by every project and session on the machine: clear it only as a last resort, after asking (nadavai note; upstream cleared both).
 4. Check that `android/variables.gradle` has the correct SDK and tool versions.
 
 ### `compileSdkVersion` or `targetSdkVersion` Errors

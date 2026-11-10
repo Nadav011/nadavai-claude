@@ -2,8 +2,6 @@
 name: capacitor-ios-resizability
 description: "Make a Capacitor iOS app work in resizable windows: iPad Split View, Slide Over, Stage Manager, foldable iPhone. Audits web layout and native UIScreen.main or orientation code in the app and its plugins."
 allowed-tools:
-  - Bash(grep *)
-  - Bash(find *)
   - Bash(bash *scan-legacy-apis.sh*)
 ---
 
