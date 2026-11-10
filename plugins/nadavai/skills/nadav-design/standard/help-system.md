@@ -107,17 +107,18 @@ Whether she should be able to do such a job to its end somewhere safe is Nadav's
 and open. MediZen already has a practice mode in its spec (HL-12) in which no document number
 is taken, so there the question is whether a tour's permanent chapters may run inside it.
 
-Why break at results at all: the more steps in one sitting, the fewer
-people finish (Chameleon's 2024 benchmark: tours of more than four steps complete below the
-average, five-step tours about 21.6%, https://www.chameleon.io/benchmark-report-24; Produktly's
-2026 figures as reported: three to five steps 38%, six to eight 25%, nine or more 8%,
+Why break at results at all: the more steps in one sitting, the fewer people finish (Chameleon's
+2024 benchmark: tours of more than four steps complete below the average, five-step tours about
+21.6%, https://www.chameleon.io/benchmark-report-24; Produktly's 2026 figures as reported: three
+to five steps 38%, six to eight 25%, nine or more 8%,
 https://produktly.com/research/saas-onboarding-benchmarks-2026). Those are "next, next" tours
 and ours has her do the step, so our own numbers decide: every tour's skip rate and the step
-where people leave are measured in the product, and a tour most people leave is examined
-again (#100). Each tour has a switch that stops it opening by itself, and the BRIEF names the
-skip rate at which it is used (MediZen's spec: all tours when 15 of the first 20 starts are
-skips, one screen when 8 of its first 10 are [I]); a long tour that keeps opening at a front
-desk is the case this is for.
+where people leave are measured in the product, and a tour most people leave is examined again
+(#100). The BRIEF names the skip rate at which a tour is examined again (MediZen's spec: all
+tours when 15 of the first 20 starts, from at least 5 clinics, are skips; one screen when 8 of
+its first 10 are [I]). Each tour also has a switch that stops it opening by itself, for a long
+tour that keeps opening at a front desk; using it on a core screen is put to Nadav, who chose
+that those open by themselves (#100 [A]).
 
 **When a tour opens by itself (G-21).** Only on a core screen, once (#100 [A], and his pick of
 10.11.2026 [A]); not while the setup wizard is open or set aside in the middle of a step, and at
@@ -132,10 +133,12 @@ no automatic start of it: on the day a tour ships, each of them would meet a dim
 her work. They meet it once in "what's new" and in the list (G-12 [I]). MediZen's spec says this
 per clinic ("Existing clinics get no automatic tour"); per person and per tour is this skill's
 reading, so a new team member of an old clinic gets her tours, and a tour that ships later does
-not open over the work of people who joined before it. On a short screen the tour still opens,
-because its card lies over the dimmed screen and takes no room from the work; the first-visit
-card does not follow it there (G-15). On every other core screen the first-visit card appears
-when the tour ends or is skipped, with "הראו לי". Every other tour is started by the person.
+not open over the work of people who joined before it. A project's own spec wins over this [I]:
+in MediZen no one in an existing clinic gets an automatic tour until Nadav says otherwise. On a
+short screen the tour still opens, because its card lies over the dimmed screen and takes no
+room from the work; the first-visit card does not follow it there (G-15). On every other core
+screen the first-visit card appears when the tour ends or is skipped, with "הראו לי". Every
+other tour is started by the person.
 
 **A step.** Each step is classed before the tour is written: its action on the sample record
 is safe to do (G-20); or it tells a real person; or it is permanent or charges. On the first
@@ -162,19 +165,21 @@ after the tour has moved on.
 
 Three things are never "do it yourself" in the business's real books, whatever a test shows:
 issuing a numbered document (a receipt, an invoice, a credit), taking or recording a payment,
-and closing a record for good. A practice receipt that took a real number cannot be removed.
-The real books are every place in the live account where a document number is taken or the
-documents provider is called; a separate "sample" numbering inside the live account is not
-outside them unless Nadav says so.
+and closing a record for good. A practice receipt that took a real number cannot be removed. The
+real books are every place in the live account where a document number is taken or the documents
+provider is called; a separate "sample" numbering inside the live account is not outside them
+unless Nadav says so. Whether a tour may do these in a practice mode that takes no number and
+reaches no provider is his open question (below the example above).
 
 What a step created is removed when she finishes the job's last chapter, or at the end of the
 day on which she left the tour and did not come back to it; a resume after that starts at the
 first step of the chapter she was in, and a chapter she finished stays finished. The removal is
-an action too: the test runs it and shows it tells no one (no cancel notice). What a step
-created never takes a slot a real person can see. Practice data a later chapter stands on (a
-past visit, an open treatment) comes with the sample record, made by the app, never by an
-earlier chapter or by the tour. The sample's business events (a booking, a payment) are not
-counted in reports or analytics; the tour's own steps and skips are.
+an action too: the test runs it and shows it tells no one (no cancel notice), and it never
+touches the practice data that came with the sample record. What a step created never takes a
+slot a real person can see. Practice data a later chapter stands on (a past visit, an open
+treatment) comes with the sample record, made by the app, never by an earlier chapter or by the
+tour. The sample's business events (a booking, a payment) are not counted in reports or
+analytics; the tour's own steps and skips are.
 
 **The rest of the screen does not respond**, and that is done with the platform's own
 mechanism (`inert`, or `aria-hidden` on the siblings), which also stops the app's keyboard
