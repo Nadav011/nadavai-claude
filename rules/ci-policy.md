@@ -1,100 +1,33 @@
-# CI: checks, landing and waiting (CI v2, set 2026-11-03)
+# CI: checks, landing and waiting
 
-Nadav rebuilt CI from scratch on 2026-11-03 for speed: CI runs only on what changed, never on every
-push, and no machine is a single point of failure. Plan and decisions:
-`~/.omc/plans/ci-v2-2026-11-03.md` on the LENOVO. Why: on 2026-11-03 omarchy's reformat stopped
-every `ci-wait`, and the old runner (3,445 lines on one 8-core box) queued agents for up to an hour.
+CI is built for speed: it runs only on what changed, only when a task lands, and on two shared machines. Each landing costs one CI run there, so local work stays scoped and a task lands once.
 
 ## Machines
-- **Oracle VM** (`ssh nadavai-vm`, Tailscale `oracle`): the Woodpecker CI server at
-  https://ci.nadavc.ai (dashboard: log in with GitHub). Runs no repo code. Why: it is always on and
-  holds the tokens; it is ARM, and TF's SQL harness is x86 only.
-- **omarchy and MSI**: the Woodpecker agents (Docker, 3 workflows each); every landing goes to
-  whichever is free. Never start other heavy jobs there. The MSI is also a work machine (Green
-  Room, cash): its sessions keep local checks scoped.
-- **omarchy** also runs secscan (posts `nadavai-security`) and the nightly audits on each repo's
-  main (`nadavai-ui`, `nadavai-nightly`, `nadavai-native`, `nadavai-expo-doctor`, and the
-  "NadavAI: main is red" issue). Timers, paths, logs and the summary command:
-  `ci-v2/README.md`, "Machines and nightly".
+- **Oracle VM** (`ssh nadavai-vm`, Tailscale `oracle`): the Woodpecker server at https://ci.nadavc.ai and the deploy service. It runs no repo code.
+- **omarchy and MSI**: the Woodpecker agents (Docker, 3 workflows each); a landing goes to whichever is free, so no other heavy job starts there. The MSI is also a work machine (Green Room, cash), and its sessions keep local checks scoped. omarchy also runs secscan (posts `nadavai-security`) and the nightly audits on each repo's main; timers, paths and logs are in `ci-v2/README.md`, "Machines and nightly".
 - **LENOVO**: Nadav's work machine. Agents' scoped checks only; no CI.
 
 ## The rules
-1. While working, run only scoped checks locally: typecheck, lint on the files you touched,
-   `vitest related <files> --run`, one e2e spec by path. The full suite, the production build and
-   full e2e belong to CI, unless the task is about that check itself. Run heavy local work through
-   `heavy-slot --` and databases through `pg-pool get <repo>`, never `docker run postgres`. Why:
-   CI runs them on the same tree minutes later.
-2. A push to a branch runs no CI (only the 2-3 s pre-push secret scan). Push when you need a
-   remote copy for the landing, not as a checkpoint.
-3. Landing = a non-draft PR into main, rebased on main, when the task is done. That PR is the only
-   daytime CI trigger. Drafts run nothing. One task lands once: its parts are committed locally and
-   land together. Why: each landing costs one CI run on two shared machines.
-4. A landing runs only the steps whose files changed (lockfile, manifests, configs and shared code
-   run everything); the night (cron) runs every step on main. Why: Nadav chose speed by day and
-   the full net by night (D-A).
-5. Wait with `ci-wait <repo> <branch|sha|pr:N> [--land]` in `run_in_background` (`pr:N` on
-   Woodpecker repos); `--land` opens the PR (or marks a draft ready). Never poll `gh` or a status in
-   a loop. Exit 0 green, 1 red (failed steps and log tail printed), 2 timeout, 3 CI unreachable,
-   4 parent gone, 5 nothing to wait on (no landing PR, a draft), 6 superseded by a newer push,
-   7 still running at the end of `--slice`. A subagent or Workflow agent waits in the foreground
-   with `--slice 140` (Bash timeout 175000) and runs the same command again on exit 7
-   (`model-routing.md`); never with `--check`, which starts a run on every call.
-6. Merge only when every `ci/woodpecker/pr/*` status and `nadavai-security` on the PR head are
-   green, with `gh pr merge <N> --match-head-commit <sha>` (required: agent-guard denies a merge
-   without it or with another sha, so a push after the check cannot slip
-   in). `nadavai-security` comes from secscan on omarchy, outside Woodpecker (new secrets in the
-   PR's commits, new high/critical advisories when a dependency file changed; every main nightly);
-   a missing one passes only for 10 minutes after the head's first status. Why: a PR controls its
-   own Woodpecker config, so the scan and its baselines live where no PR can edit them. If main
-   moved since the PR branched, re-run (rebase and push) only when main's new commits touch a file
-   the PR changes or a shared file (lockfile, manifest, tsconfig, `*.config.*`, `.woodpecker/`,
-   migrations); otherwise merge. agent-guard enforces this for `gh pr merge`. A direct push to main
-   needs a commit with the same tree and a green landing, or documentation only since main (the
-   pre-push hook). `# land-urgent: <reason>` / `NADAVAI_LAND_URGENT=<reason>` for an urgent fix.
-   Why: D-B, fewer reruns, with the overlap case still re-tested.
-7. Main does not test again: a merge of a green PR is the tested tree.
-8. A red landing is fixed, not rerun. `ci-wait` restarts a run once by itself in two cases only, and
-   logs it in `~/.cache/ci-wait/flakes.log`: an infrastructure stop (killed with no failed step), or
-   a suspected flake (only test steps failed, and every failing test file is one the PR did not
-   change). A second red is reported as "failed twice: not a flake". Any other rerun only for an
-   infrastructure failure, and say so in the report. Why: sessions lost time digging into tests they
-   never touched, and a real regression still fails the second time.
+1. While working, run only scoped checks locally: typecheck, lint on the files you touched, `vitest related <files> --run`, one e2e spec by path. The full suite, the production build and full e2e belong to CI, which runs them on the same tree minutes later, unless the task is about that check itself. Heavy local work goes through `heavy-slot --`, and a database comes from `pg-pool get <repo>` instead of `docker run postgres`.
+2. A push to a branch runs no CI (only the pre-push secret scan). Push when the landing needs a remote copy, not as a checkpoint.
+3. Landing is a non-draft PR into main, rebased on main, opened when the task is done. That PR is the only daytime CI trigger; drafts run nothing. One task lands once: its parts are committed locally and land together.
+4. A landing runs only the steps whose files changed (a lockfile, manifest, config or shared code runs everything). The nightly cron runs every step on main.
+5. Wait with `ci-wait <repo> <branch|sha|pr:N> [--land]` in `run_in_background` (`pr:N` on Woodpecker repos); `--land` opens the PR or marks a draft ready. Do not poll `gh` or a status in a loop. Exit codes: 0 green, 1 red (failed steps and log tail printed), 2 timeout, 3 CI unreachable, 4 parent gone, 5 nothing to wait on (no landing PR, or a draft), 6 superseded by a newer push, 7 still running at the end of `--slice`. A subagent or Workflow agent waits in the foreground with `--slice 140` (Bash timeout 175000) and runs the same command again on exit 7. `--check` starts a run on every call, so it is not a way to wait.
+6. Merge only when every `ci/woodpecker/pr/*` status and `nadavai-security` on the PR head are green, with `gh pr merge <N> --match-head-commit <sha>`, so a push after the check cannot slip in (agent-guard denies a merge without it). `nadavai-security` comes from secscan on omarchy, outside Woodpecker, because a PR controls its own Woodpecker config; a missing one passes only for 10 minutes after the head's first status. If main moved since the PR branched, rebase and push again only when main's new commits touch a file the PR changes or a shared file (lockfile, manifest, tsconfig, `*.config.*`, `.woodpecker/`, migrations); otherwise merge. A direct push to main needs a commit with the same tree and a green landing, or documentation only since main. An urgent fix carries `# land-urgent: <reason>` or `NADAVAI_LAND_URGENT=<reason>`.
+7. Main does not test again: the merge of a green PR is the tested tree.
+8. A red landing is fixed, not rerun. `ci-wait` restarts a run once by itself in two cases, and logs it in `~/.cache/ci-wait/flakes.log`: an infrastructure stop (killed with no failed step), or a suspected flake (only test steps failed, and every failing test file is one the PR did not change). A second red is reported as "failed twice: not a flake". Any other rerun is for an infrastructure failure only, and the report says so.
 9. A newer push to a PR cancels its older run automatically.
-10. The session that merged a PR (rule 6) deploys it: `ssh nadavai-vm nadavai-deploy deploy <repo>
-    <merge sha>` in `run_in_background`, then reports the result (all four repos). The deploy runs
-    detached on the Oracle VM, checks the green landing, health-checks, rolls back on a failed
-    check and posts `nadavai-deploy`. Nothing deploys on a timer. Hard gates:
-    - 3: the repo is held (`hold-status` says held). A held repo is never deployed, and a session
-      never runs `release`: only Nadav, or that repo's own release step, does.
-    - 5: the live commit and the sha differ in a database migration; the refusal prints an
-      approval key. Ask Nadav with AskUserQuestion; only after his yes, rerun with
-      `--migration-approved "<key>:<what he approved>"`. The key covers that live commit, that sha
-      and those files only, so any change means asking again.
-    - 6: main's nightly full suite is red. A fix is merged, never bypassed; for a sha newer than
-      the red nightly the deploy reruns the nightly itself and waits up to 20 minutes.
-    Before a deploy, read `ci-v2/README.md`, "Deploy service", for the other exit codes (4, 75)
-    and OTA (therapy-flow-v2's store apps, `nadavai-ota`, rollbacks).
-    Why: Nadav, 2026-11-04: a merged green PR goes live without waiting for him, but never a held
-    repo, a schema change he did not approve, or a commit whose full suite is red.
+10. The session that merged a PR (rule 6) deploys it: `ssh nadavai-vm nadavai-deploy deploy <repo> <merge sha>` in `run_in_background`, then reports the result. The deploy runs detached on the Oracle VM, checks the green landing, health-checks, rolls back on a failed check and posts `nadavai-deploy`. Nothing deploys on a timer. Three exits are hard gates:
+   - 3: the repo is held (`hold-status` says held). A held repo is not deployed, and `release` is run only by Nadav or by that repo's own release step.
+   - 5: the live commit and the sha differ in a database migration; the refusal prints an approval key. Ask Nadav with AskUserQuestion, and only after his yes rerun with `--migration-approved "<key>:<what he approved>"`. The key covers that live commit, that sha and those files, so any change means asking again.
+   - 6: main's nightly full suite is red. Merge a fix; do not bypass. For a sha newer than the red nightly, the deploy reruns the nightly itself and waits up to 20 minutes.
+   Before a deploy, read `ci-v2/README.md`, "Deploy service", for the other exit codes (4, 75) and for OTA (therapy-flow-v2's store apps, `nadavai-ota`, rollbacks).
 
 ## Repos
-- On Woodpecker: every repo listed in `~/nadavai/lib/woodpecker-repos.txt` (snooker-smart,
-  cash-next-app, sportchat-web, therapy-flow-v2). Each has its workflows in `.woodpecker/` (one
-  `landing.yml`, or several, like therapy-flow-v2's `web.yml` + `backend.yml`, which two agents
-  run in parallel). sportchat-web has no Lighthouse per landing for now (Nadav).
-- A new repo: start from `~/nadavai/templates/ci/woodpecker-landing.yml`, activate the repo on
-  ci.nadavc.ai (`ci-v2/README.md`, "Per repo"), land it once green, then add it to the list.
-- A project's CLAUDE.md, AGENTS.md, runbook or `.claude/rules` never restates these rules, and
-  never adds a local full suite, a local build before push or a status loop. Why: agents follow
-  the nearer, wrong instruction.
+- On Woodpecker: every repo listed in `~/nadavai/lib/woodpecker-repos.txt`, each with its workflows in `.woodpecker/`.
+- A new repo starts from `~/nadavai/templates/ci/woodpecker-landing.yml`: activate it on ci.nadavc.ai (`ci-v2/README.md`, "Per repo"), land it once green, then add it to the list.
+- A project's CLAUDE.md, AGENTS.md, runbook or `.claude/rules` does not restate these rules, and does not add a local full suite, a local build before push or a status loop: agents follow the nearer instruction, and a stale copy wins.
 
-## Override for generic agent instructions
-OMC agents and skills (verifier, executor, test-engineer, ralph, autopilot, team, verify), Codex
-prompts and any "run lint, typecheck, tests and build before done" wording are read through rule 1:
-scoped checks plus the CI result of the PR. A task about the build or the suite itself still runs
-it. Workflows that verify or fix code carry this clause in every prompt:
-> Verify with scoped checks only (typecheck, lint on touched files, `vitest related`), and do not
-> repeat a check another agent of this workflow already ran on the same tree. Run anything heavy
-> through `heavy-slot --`; get a database with `pg-pool get <repo>`. Wait on CI with
-> `ci-wait <repo> <ref> --slice 140` (Bash timeout 175000; exit 7 = run it again), never with a
-> sleep loop.
+## Generic "verify before done" wording
+OMC agents and skills (verifier, executor, test-engineer, ralph, autopilot, team, verify), Codex prompts and any "run lint, typecheck, tests and build before done" wording mean rule 1: scoped checks plus the CI result of the PR. A task about the build or the suite itself still runs it. A Workflow that verifies or fixes code carries this clause in every prompt:
+> Verify with scoped checks only (typecheck, lint on touched files, `vitest related`), and do not repeat a check another agent of this workflow already ran on the same tree. Run anything heavy through `heavy-slot --`; get a database with `pg-pool get <repo>`. Wait on CI with `ci-wait <repo> <ref> --slice 140` (Bash timeout 175000; exit 7 = run it again), never with a sleep loop.
