@@ -21,11 +21,14 @@ here.
 | DoD on every route | Unchanged: every route, the mechanical checks, axe, console. |
 | Lighthouse | Unchanged for the page as first loaded. Heavy media loads on demand after first paint and has its own budget below, so the bar is met, not waived. |
 | Visual change gate | Unchanged. Tempo is usually `flow`: pairs collect to a checkpoint. |
+| One Hebrew family, at most two families (setup step 3) | Body text keeps the project's Hebrew family. A display face the reference needs is a new font: asked once, with the licence checked and a free face proposed (hard rule "no new font without asking"). |
+| Direction pick, three candidate themes (setup step 11b) | Not offered when he gave a reference: the reference is the direction. |
 
 ## The order of work
 
-1. **His words.** The understanding check on the words he used for this site ("שאפתני",
-   "מתקדם", "כמו X"), with visible examples, before anything else. Read `REJECTED.md`.
+1. **His words.** The understanding check on the taste words he used for this site (a word
+   such as "ambitious" or "advanced", or "like X"), with visible examples, before anything
+   else. Read `REJECTED.md`.
 2. **The reference.** `shared/reference.md`: deconstruct into `REFERENCE.md`, check the ledger
    (the coverage script, then a fresh reviewer), list the assets it needs, build the first row
    and show it, then row by row on one page.
@@ -81,8 +84,9 @@ Images and video made by a model are part of art direction here, and they cost m
 
 ## Before release
 
-The SEO pass (`claude-seo`, enabled for the pass only), the DoD on every route, Lighthouse on the
-first load, the still version checked, a real-phone pass, and the link checked with
+The SEO pass of `rules/working-style.md` ("Verification"), the DoD on every route, Lighthouse on
+the first load, the still version checked, a real-phone pass, `decisions-open.py REFERENCE.md`
+at 0 (or each open row listed to him), and the link checked with
 `redesign/tools/early-show.sh`. A demo address is one of his own domains.
 
 ## Lessons this track encodes (each cost a round)
@@ -91,7 +95,7 @@ first load, the still version checked, a real-phone pass, and the link checked w
    rejected (nadavc.ai, 26.10.2026).
 2. Isolated effect modules did not land; one cohesive page in order did.
 3. Apple-style restraint offered for a camera store whose reference was a loud product reel:
-   "אפילו לא קרוב" (5.11).
+   not even close, he said *(summary, 5.11)*.
 4. A film first and the shop behind it: fixed for phones first, then desktop.
 5. The film showed products the store does not sell, and a face that had to be replaced.
 6. The audit ran in Chromium only: phone behaviour was still unknown when it was called done.

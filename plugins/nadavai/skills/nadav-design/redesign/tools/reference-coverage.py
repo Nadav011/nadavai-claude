@@ -11,9 +11,13 @@ The stretches must start at 0, follow one another with no gap and no overlap, an
 A recording that scrolls back shows a section twice: both showings are rows, in the order they are seen.
 With --frames-dir, every row's reference/R-n.png must exist under it.
 
-This catches a section nobody wrote a row for only when its stretch was left empty. A section swallowed into a
-neighbour's stretch is the fresh reviewer's job (shared/reference.md, «The rule», step 2).
+--total is the real length of the reference, never a number taken from the ledger: the duration `ffprobe` prints
+for a video, or the page's scroll height at the stated width.
+
+What this does not catch: a section swallowed into a neighbour's stretch (the fresh reviewer's job,
+shared/reference.md, «The rule», step 2); the «always there» K rows; whether a built/ frame exists.
 """
+import math
 import argparse
 import json
 import os
@@ -40,20 +44,28 @@ def main():
         print(json.dumps({'error': str(e)}, ensure_ascii=False))
         sys.exit(2)
 
+    if not math.isfinite(a.total) or a.total <= 0:
+        print(json.dumps({'error': f'--total must be a positive number, got {a.total}'}, ensure_ascii=False))
+        sys.exit(2)
+
     problems, rows, units, seen = [], [], set(), set()
     for line in text.splitlines():
         m = ROW.match(line)
         if not m:
             continue
         rid, rest = m.group(1), m.group(2)
+        if rest.count('|') < 6:
+            # a row of the «Differences on purpose» table (4 cells): it repeats an id and carries no stretch
+            continue
         if rid in seen:
-            # the «Differences on purpose» table repeats an id; only the first table carries stretches
+            problems.append(f'{rid}: the id appears on two rows')
             continue
         seen.add(rid)
         what = rest.split('|')[0]
         s = SPAN.match(what)
         if not s:
-            problems.append(f'{rid}: no [a–b s] or [a–b px] stretch at the start of its «what» cell')
+            problems.append(f'{rid}: no [a–b s] or [a–b px] stretch at the start of its «what» cell '
+                            '(numbers, an en dash or a hyphen between them, then s or px)')
             continue
         t0, t1, unit = float(s.group(1)), float(s.group(2)), s.group(3)
         units.add(unit)

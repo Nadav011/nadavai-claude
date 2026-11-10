@@ -1175,7 +1175,39 @@ await test('REF-2', 'reference-coverage.py passes a ledger with no gap and fails
   }
   const frames = run('ref-frames.md', row('R-1', '[0–10 s]'), ['--frames-dir', TMP]);
   if (frames.status !== 1 || !/reference\/R-1\.png is missing/.test(frames.raw)) why.push(`missing frame: exit ${frames.status} ${frames.raw}`);
+  const twice = run('ref-twice.md', row('R-1', '[0–5 s]') + row('R-1', '[5–10 s]'));
+  if (twice.status !== 1 || !/R-1: the id appears on two rows/.test(twice.raw)) why.push(`repeated id: exit ${twice.status} ${twice.raw}`);
+  const nan = sh('python3', [path.join(T, 'reference-coverage.py'), path.join(TMP, 'ref-good.md'), '--total', 'nan']);
+  if (nan.status !== 2) why.push(`--total nan: exit ${nan.status}`);
   const usage = sh('python3', [path.join(T, 'reference-coverage.py')]);
+  if (usage.status !== 2) why.push(`no arguments: exit ${usage.status}`);
+  return why.join(' · ');
+});
+await test('FACT-1', 'facts-check.py passes pages whose figures are in the facts file and fails on a hand-typed figure, an open value and a placeholder', async () => {
+  const dir = path.join(TMP, 'facts');
+  fs.mkdirSync(path.join(dir, 'site'), { recursive: true });
+  const facts = { _note: 'TBD is fine in a note', fund: { name: 'קרן אורן', grants_total: 1250000, monthly: 3500, founded: 2016 }, people: [{ name: 'דנה לוי', role: 'מנהלת' }], price: '₪89 לחודש' };
+  fs.writeFileSync(path.join(dir, 'facts.json'), JSON.stringify(facts));
+  const page = body => `<!doctype html><html lang="he" dir="rtl"><head><style>.a{width:1,200px}</style></head><body>${body}<script>var n = "9,999";</script></body></html>`;
+  const run = (name, body, f = 'facts.json') => {
+    fs.writeFileSync(path.join(dir, 'site', 'index.html'), page(body));
+    const r = sh('python3', [path.join(T, 'facts-check.py'), '--facts', path.join(dir, f), path.join(dir, 'site')]);
+    let out = null; try { out = JSON.parse(r.stdout); } catch { /* reported below */ }
+    return { name, status: r.status, out, raw: r.stdout };
+  };
+  const why = [];
+  const good = run('good', '<p>הקרן חילקה 1,250,000 ש"ח מאז 2016, 3,500 ₪ לחודש, מנוי ב-₪89. טלפון 050-1234567. ראו [1] וגם <a href="#">קישור</a>.</p>');
+  if (good.status !== 0 || !good.out || good.out.numbers_checked < 3) why.push(`good: exit ${good.status} ${good.raw}`);
+  const typed = run('typed', '<p>הקרן חילקה 1,300,000 ש"ח.</p>');
+  if (typed.status !== 1 || !/1,300,000 is not in the facts file/.test(typed.raw)) why.push(`hand-typed figure: exit ${typed.status} ${typed.raw}`);
+  const money = run('money', '<p>מנוי ב-₪99 לחודש.</p>');
+  if (money.status !== 1 || !/the figure 99 is not in the facts file/.test(money.raw)) why.push(`hand-typed price: exit ${money.status} ${money.raw}`);
+  const ph = run('placeholder', '<p>שלום [שם הלקוח], lorem ipsum.</p>');
+  if (ph.status !== 1 || !ph.out || ph.out.problems.filter(p => /placeholder/.test(p)).length !== 2) why.push(`placeholders: exit ${ph.status} ${ph.raw}`);
+  fs.writeFileSync(path.join(dir, 'open.json'), JSON.stringify({ ...facts, fund: { ...facts.fund, address: 'TBD ask Nadav' } }));
+  const open = run('open', '<p>1,250,000</p>', 'open.json');
+  if (open.status !== 1 || !/open value fund\.address/.test(open.raw)) why.push(`open value: exit ${open.status} ${open.raw}`);
+  const usage = sh('python3', [path.join(T, 'facts-check.py')]);
   if (usage.status !== 2) why.push(`no arguments: exit ${usage.status}`);
   return why.join(' · ');
 });
@@ -1187,8 +1219,14 @@ await test('SHOW-1', 'early-show.sh refuses, without any request, a link that is
     ['https://demo-abc.vercel.app/x', 1, /vercel\.app address is never shown/],
     ['https://example.com/', 1, /not one of his domains/],
     ['https://evilnadavc.ai/', 1, /not one of his domains/],
-    ['https://claude.ai/chat/abc', 1, /not one of his domains/],
+    ['https://claude.ai/chat/abc', 1, /not an artifact address/],
+    ['https://claude.ai/artifact/../../evil', 1, /not an artifact address/],
     ['https://claude.ai/artifact/abc', 0, /address checked/],
+    // a user part makes curl fetch another host than the one a naive parse reads
+    ['https://nadavc.ai:@example.com/', 1, /user part/],
+    ['https://x.nadavc.ai:pw@example.com/', 1, /user part/],
+    ['https://nadavc.ai@example.com/', 1, /user part/],
+    ['https://[::1]/', 1, /strange host/],
   ];
   for (const [url, status, re] of cases) {
     const r = run(url);
@@ -1197,6 +1235,8 @@ await test('SHOW-1', 'early-show.sh refuses, without any request, a link that is
   // a vercel.app address stays refused even when someone lists it as his own
   const v = run('https://demo-abc.vercel.app/', { EARLY_SHOW_HOSTS: 'vercel.app demo-abc.vercel.app' });
   if (v.status !== 1) why.push(`vercel.app through EARLY_SHOW_HOSTS: exit ${v.status}`);
+  const c = sh('bash', [path.join(T, 'early-show.sh'), 'https://claude.ai/artifact/abc', 'deadbeef'], { env: { ...process.env, EARLY_SHOW_HOSTS: '' } });
+  if (c.status !== 0 || !/NOT checked/.test(c.stdout)) why.push(`an artifact with a commit id must say the commit was not checked: exit ${c.status} ${c.stdout.trim()}`);
   const u = sh('bash', [path.join(T, 'early-show.sh')]);
   if (u.status !== 2) why.push(`no arguments: exit ${u.status}`);
   return why.join(' · ');

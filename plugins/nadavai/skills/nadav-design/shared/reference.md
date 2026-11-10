@@ -2,11 +2,22 @@
 
 When Nadav points at something and says "like this" (a site, a screen recording, a screenshot,
 another app), the job is to build that, not a concept inspired by it. Three times he answered a
-concept with "אפילו לא קרוב" (nadavc.ai 26.10 and 27.10.2026, Camstore 5.11): each time the agent
-had replaced his reference with ideas of its own and showed him nothing until all of it was done.
+concept by saying it was not even close *(summary; nadavc.ai twice on 26.10.2026, Camstore
+5.11)*: each time the agent had replaced his reference with ideas of its own and showed him
+nothing until all of it was done.
 
-This file applies in every track and mode, whenever a reference exists. It is mandatory in the
-`site` track.
+## When the whole procedure applies
+
+- **A whole page, a site, a film or a full screen flow** he pointed at: everything below. It is
+  mandatory in the `site` track.
+- **One element** ("a button like this one", a screenshot of a single card) inside ordinary
+  `screen` work: one row in the step's evidence (what, measured, the frame pair) and his answer
+  at the visual change gate. No ledger file, no coverage script, no reviewer.
+- **In `redesign`** the app is never written, so the first row is built in the demo, and
+  BRIEF.md names the reference and what he takes from it. The line "never another app's look"
+  there means a look the agent chose; a reference he gave is his choice.
+- **A direction pick is not offered** (setup step 11b, three candidate themes) when he gave a
+  reference: the reference is the direction.
 
 ## The rule
 
@@ -16,9 +27,11 @@ This file applies in every track and mode, whenever a reference exists. It is ma
    seen.
 2. **The ledger is checked before anything is built from it.**
    `python3 redesign/tools/reference-coverage.py REFERENCE.md --total <length>` fails when a
-   stretch of the reference has no row. Then a fresh reviewer who did not write the ledger
-   watches the reference with the ledger beside it and lists anything on screen that no row and
-   no "always there" line describes. Both results are in the step's evidence.
+   stretch of the reference has no row (`--total` is the length `ffprobe` prints, or the page's
+   scroll height, never a number from the ledger). Then a fresh reviewer who did not write the
+   ledger watches the reference with the ledger beside it and writes
+   `reference/review-ledger.md`: anything on screen that no row and no "always there" line
+   describes, or "nothing found". Both results are in the step's evidence.
 3. **Build the first row and show it.** One section (the hero first), on the real page, at a
    link he can open. Nothing else is built until he has answered that row.
 4. **Then row by row, in order, on the same page.** He judges one cohesive page, not isolated
@@ -28,7 +41,11 @@ This file applies in every track and mode, whenever a reference exists. It is ma
 6. **A row closes only with his numbered answer.** "Built" is not closed. A row that differs
    from the reference on purpose needs his answer saying so.
 7. **A fresh reviewer compares the built page with the reference before he sees each row**,
-   using the frame pairs, and reports differences; it does not judge taste.
+   using the frame pairs, and writes the differences to `reference/review-R-n.md`; it does not
+   judge taste.
+8. **Release reads the count.** `ship`, and "Before release" of the `site` track, run
+   `decisions-open.py REFERENCE.md`: a count above 0 stops the release, unless every open row
+   is listed to him and he says to release with them open.
 
 What he takes from a reference is his to say: the style and the mechanics, or the layout too.
 When his words do not settle it, that is the understanding check (`shared/rules.md`, «His
@@ -63,10 +80,12 @@ Write the ledger's "How it was measured" block first: every number depends on it
 ### A live site
 
 1. `dembrandt <url> --json-only` for colours, type, spacing, radii, shadows.
-2. `/interfaces:explain-interface` on the section: computed styles, `document.getAnimations()`
-   (duration, delay, easing, keyframes), scroll-linked timelines, whether it is DOM, canvas or
-   WebGL. For a canvas or WebGL effect say so in the row: its shader cannot be read this way,
-   and its motion is measured from a recording, as below.
+2. Per section, through the `chrome-devtools` CLI (`evaluate_script`): computed styles of the
+   moving elements, `document.getAnimations()` (duration, delay, easing, keyframes),
+   scroll-linked timelines, and whether it is DOM, canvas or WebGL. `/interfaces:explain-interface`
+   does the same reading in more depth, but only Nadav can start it: ask him to type it when a
+   section stays unclear. For a canvas or WebGL effect say so in the row: its shader cannot be
+   read this way, and its motion is measured from a recording, as below.
 3. The `chrome-devtools` CLI for what loads and when (network, performance trace), and the
    `rea` web tools when the site's own bundle has to be read for a value.
 4. Screens at the widths he will look at (a phone and a desktop), one frame per row. Stretches
