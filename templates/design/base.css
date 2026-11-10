@@ -33,9 +33,10 @@
 
   /* Touch */
   --size-touch: 2.75rem;
+  --size-touch-primary: 3rem; /* the primary button on phones */
 }
 
-/* Shell insets (TWA / WebView / Capacitor); `static` so they reach :root even when only JS reads them. In RTL start = right. */
+/* Shell insets (WebView / Capacitor); `static` so they reach :root even when only JS reads them. In RTL start = right. */
 @theme static {
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);

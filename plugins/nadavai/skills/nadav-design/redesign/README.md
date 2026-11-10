@@ -104,9 +104,13 @@ Route text and Latin inside a label sit in `<bdi dir="ltr">`.
 
 | App | Fix lane | Verify group | First build | Rounds |
 |---|---|---|---|---|
-| up to 8 screens | 2 screens | 4 screens | subagents one by one | usually 1 round + confirms |
-| 9–20 screens | 3–4 | 6–7 | a workflow, or subagents in batches of 3 | 1–2 rounds |
-| over 20 | 4 | 7 | a workflow | as many as Nadav's answers need |
+| up to 8 screens | 2 screens | 4 screens | subagents one by one | several; see «Observed» |
+| 9–20 screens | 3–4 | 6–7 | a workflow, or subagents in batches of 3 | see «Observed» |
+| over 20 | 4 | 7 | a workflow | see «Observed» |
+
+Observed (what real runs took, not estimates): MediZen, 123 screens: 11 demo rounds and about 600 numbered
+decisions in 12 days, and the critics never reached APPROVE. SportChat v4: about 200 decisions, 26 plan rounds,
+241 units. cash: 10 review rounds, 257 decisions. A small app should still expect several rounds.
 
 One browser at a time on this laptop, whatever the size (`shooters: 1`, the default; see «Operating lessons»). Raise
 it only on a machine with measured memory headroom.
@@ -276,9 +280,8 @@ Chat in plain Hebrew, short lines, the why before the what; code, files and comm
 - Review: a fresh Opus reviewer, read-only, until APPROVE; after an APPROVE, the fix round is checked by a DIFF-ONLY
   confirm against a snapshot (on 2.10.2026 full reviews after an APPROVE kept breeding new findings for 10 rounds).
   Fix by simplifying, never by adding machinery.
-- Second model: `omc ask codex` on the config default (gpt-6.1-sol at xhigh; never pass `-m` or an effort flag);
-  when Codex cannot run, `omc ask antigravity` (Gemini 4 Argon, Medium); when neither runs, a fresh Opus with a clean context. Never skipped, never the
-  author's own review. Its findings are fixed and diff-confirmed. Approval by any reviewer means APPROVE with nothing
+- Second model: `rules/working-style.md`, "Second model" (`omc ask codex` on the config default; never pass `-m` or
+  an effort flag). Its findings are fixed and diff-confirmed. Approval by any reviewer means APPROVE with nothing
   HIGH or MEDIUM left, whatever the verdict word.
 - Every edit after an APPROVE (LOW polish, the second model's fixes, START-BUILD itself) is followed by a diff-only
   confirm, at most 3 per chain; approval holds only when the last step is a confirm that says APPROVE, so no edit is

@@ -9,7 +9,8 @@
 - **Spacing**: the 4px scale only; section gaps 24 or 32, card padding 16 or 24, form field gap 16.
 - **Motion**: `duration-fast` for hover and toggles, `duration-base` for enter and menus, `duration-slow` for sheets and page transitions; `ease-enter` in, `ease-exit` out. Nothing moves under `prefers-reduced-motion`. Never `transition: all`.
 - **Layers**: `z-sticky` < `z-drawer` < `z-modal` < `z-toast`; nothing else sets z-index.
-- **Touch**: every target `--size-touch` (44px) minimum; `touch-action: manipulation`; the shell pads with `--safe-*`; heights in `dvh`.
+- **Touch**: every target `--size-touch` (44px) minimum; the primary button on phones `--size-touch-primary` (48px) minimum; `touch-action: manipulation`; the shell pads with `--safe-*`; heights in `dvh`.
+- **Actions**: one accent-filled action per screen.
 - **Focus**: the ring comes from `--ring` on `:focus-visible` only.
-- **States**: every list, table and fetch has loading (skeleton), empty (one action), error (retry), success. Toasts confirm outcomes; dialogs confirm destructive actions.
+- **States**: every list, table and fetch has loading (skeleton), empty (one action), error (retry), success. Toasts confirm an outcome or offer undo for a small reversible action; a dialog confirms what cannot be undone or what reaches a person or money.
 - **RTL**: logical properties only; directional icons mirrored; numbers, phones, emails and Latin names in `dir="ltr"` islands.

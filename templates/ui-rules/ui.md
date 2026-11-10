@@ -10,8 +10,9 @@ no arbitrary values, no new font or library without asking. Why: one source of t
 every screen, Claude Design and the DoD gate on the same palette.
 
 - Hebrew RTL-first: logical utilities only (`ms/me/ps/pe/start/end`, `text-start`), never
-  `ml/mr/pl/pr/left/right`. eslint-plugin-tailwind-rtl enforces it; anything inside a
-  `dir="ltr"` island stays physical on purpose.
+  `ml/mr/pl/pr/left/right`. The global pre-commit hook's RTL scan enforces it
+  (eslint-plugin-tailwind-rtl is optional on top); anything inside a `dir="ltr"` island stays
+  physical on purpose.
 - LTR islands: numbers, phone numbers, emails, URLs, code and Latin brand names render inside
   `dir="ltr"` or `<bdi>`. Dates, numbers and currency go through `lib/format` (Intl, he-IL),
   never hand-formatted.
@@ -24,10 +25,13 @@ every screen, Claude Design and the DoD gate on the same palette.
   No placeholder or machine-translated strings.
 - Forms: react-hook-form + zod with the Hebrew locale (`z.config(z.locales.he())`); the error
   sits under its field, focus moves to the first invalid field, submit shows a pending state.
-- Feedback: one `<Toaster dir="rtl">` (sonner) at the root; toasts confirm outcomes, dialogs
-  confirm destructive actions.
+- Feedback: one `<Toaster dir="rtl">` (sonner) at the root; toasts confirm an outcome or offer
+  undo for a small reversible action; a dialog confirms what cannot be undone or what reaches a
+  person or money.
 - Touch and motion: targets >= 44px; `dvh` not `vh`; the shell respects safe-area insets;
   every animation stops under `prefers-reduced-motion`; no `transition: all`.
+- Actions: one accent-filled action per screen; the primary button on phones is at least 48px
+  high (`--size-touch-primary`).
 - Accessibility: visible focus ring from the token; a label on every input; buttons are
   `<button>`; images carry `alt` or `alt=""`; colour is never the only signal.
 - User-supplied content (names, notes, messages, reviews, uploads) is rendered defensively, because it arrives in any script and any length: wrap it in `<bdi>` or a `dir="auto"` element so one Hebrew line beside a Latin one does not reorder the row; strip bidi control characters (U+202A-U+202E, U+2066-U+2069) on input; `overflow-wrap: anywhere` and a line clamp so a long word or URL cannot widen the layout; links inside it get `rel="nofollow ugc noopener"` and open with the same rules as any other link; images render at a fixed aspect box with `alt` from the uploader or `alt=""`, never at their natural size. Every surface that accepts content also has: a character counter before the limit, an upload progress and failure state, a report or delete action for the author, and an empty state that invites the first contribution rather than apologising.
