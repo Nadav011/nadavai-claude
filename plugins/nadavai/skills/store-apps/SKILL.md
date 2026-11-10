@@ -22,8 +22,8 @@ a public release (a build, a raise of a staged rollout, the first listing, a cha
 listing, its availability or price), auth changes (a reviewer login), deletion, migrations and
 anything that costs money are asked at that moment. Uploading a build and submitting it for review
 are not asked once its checks pass (Nadav, 2026-11-10), provided the release is held for him: App
-Store Connect `releaseType: MANUAL`; on Play a testing track, or managed publishing on for
-production. A project file that still puts every upload under the gate (therapy-flow-v2
+Store Connect `releaseType: MANUAL`; on Play the internal or a closed testing track (an open track
+is public), or managed publishing on for production. A project file that still puts every upload under the gate (therapy-flow-v2
 RELEASE.md section 4 F) is older than this decision.
 
 ## Steps
@@ -115,7 +115,7 @@ RELEASE.md section 4 F) is older than this decision.
 
    | Store | Check | Why |
    |---|---|---|
-   | Google Play | Android vitals after each release: user-perceived crash rate under 1.09% and ANR rate under 0.47% overall, and under 8% on every phone model. Raise a store update's rollout (staged release) only while both hold. | Above these bad-behaviour thresholds Play reduces the app's visibility. |
+   | Google Play | Android vitals after each release: user-perceived crash rate under 1.09% and ANR rate under 0.47% overall, and under 8% on every phone model. Propose a raise of a store update's rollout (staged release) only while both hold, and raise it after Nadav's yes. | Above these bad-behaviour thresholds Play reduces the app's visibility. |
    | App Store | A store build that changes native code goes out with "Release update over a 7-day period using phased release" (1, 2, 5, 10, 20, 50, 100% of automatic-update users). Pause it (up to 30 days in total) on a crash spike; anyone can still download it by hand. | A native bug reaches 1% of phones on day one instead of all of them. |
 
    The session that released the build reads these on days 1, 3 and 7, or hands that to Nadav

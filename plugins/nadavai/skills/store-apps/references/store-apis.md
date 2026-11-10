@@ -1,8 +1,10 @@
 # Store work: APIs first, the browser for the rest
 
 Both stores are worked through their APIs where a scope exists, because an API call can be read
-back and repeated, and a console click cannot. Every submission, release or upload is an approval
-gate: ask Nadav at that moment.
+back and repeated, and a console click cannot. A public release (a version release, a raise of a
+staged rollout, the first listing, a live listing change, availability or price) is an approval
+gate: ask Nadav at that moment. Uploading a build and submitting it for review are not asked once
+its checks pass, provided the release is held (SKILL.md, the gates paragraph).
 
 ## Helpers (in this skill's `scripts/`)
 
@@ -53,7 +55,7 @@ After the submit, wait in slices (`rules/model-routing.md`): `asc --read-only st
 
 | Exit | Meaning | Next |
 |---|---|---|
-| 0 | Approved: `ACCEPTED`, `PENDING_*_RELEASE`, `PROCESSING_FOR_DISTRIBUTION` or `READY_FOR_DISTRIBUTION`. | Release (MANUAL) or confirm on-sale with `scripts/store-status.mjs`. |
+| 0 | Approved: `ACCEPTED`, `PENDING_*_RELEASE`, `PROCESSING_FOR_DISTRIBUTION` or `READY_FOR_DISTRIBUTION`. | Tell Nadav it is approved and ask for the release (MANUAL); after his yes, `POST /v1/appStoreVersionReleaseRequests`, then confirm on-sale with `scripts/store-status.mjs`. |
 | 1 | `REJECTED`, `METADATA_REJECTED`, `INVALID_BINARY` or `DEVELOPER_REJECTED`. | Rejection triage below. |
 | 7 | Still pending when the timeout ended the wait. | Run the same command again next turn. |
 
@@ -149,9 +151,10 @@ Chrome refuses passwords and can be blocked by a password manager's overlay.
 - **Personal Play developer accounts** must run a closed test with 12 testers for 14 days before
   their first production release. Nadav's account is an organization account, so this did not
   apply on 7.11. Check the account type in the console before planning a release date.
-- **Holding a version until approval:** set `releaseType: MANUAL`, keep the old version's
-  availability as decided, and install a release-on-approval timer: an hourly systemd user timer
-  (`Persistent=true`) whose script reads `appStoreState`. On `PENDING_DEVELOPER_RELEASE` it
-  restores availability, posts the release request and disables itself. On a rejection it only
-  notifies. Why: approval can come at night, and the timer lives on one machine, so note the
-  machine and the unit name in the project's memory when you install it.
+- **Holding a version until approval:** set `releaseType: MANUAL` and keep the old version's
+  availability as decided. The release itself is Nadav's yes (`rules/working-style.md`, Approval
+  gates): when `appStoreState` reaches `PENDING_DEVELOPER_RELEASE`, tell him, with the version and
+  what changes for users, and release only after his yes. A timer may watch the state and notify
+  him (an hourly systemd user timer, `Persistent=true`, that writes the state to a file and sends
+  `nadavai-alert`; on a rejection it notifies too); it never posts the release request or changes
+  availability by itself. Note the machine and the unit name in the project's memory.
