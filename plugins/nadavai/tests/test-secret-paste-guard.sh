@@ -30,12 +30,19 @@ SKL="sk_""live_$(rep e 24)"
 RKL="rk_""live_$(rep E 24)"
 SB="sb_""secret_$(rep f 24)"
 AIZA="AIza$(rep g 35)"
-# Public test card numbers (Stripe's Visa and Amex), built from parts; never a real card.
-CARD16="$(rep 4242 4)"
-CARD16G="$(rep '4242 ' 3)4242"
-AMEX="3782""82246310005"
-AMEX_D="3782-822463-10005"
-CARD_HE="תכניס גם ותבדוק שעובד $AMEX / 08.32 / 1234"
+# Card numbers: public test numbers (Stripe's Visa and Amex, which the guard lets through), and
+# numbers made Luhn-valid at run time from a non-test prefix, so no full card number sits in
+# this file.
+luhn() { node -e 'const b = process.argv[1]; for (let d = 0; d < 10; d++) { const s = b + d; let t = 0;
+  for (let i = 0; i < s.length; i++) { let x = +s[s.length - 1 - i]; if (i % 2) { x *= 2; if (x > 9) x -= 9; } t += x; }
+  if (t % 10 === 0) { process.stdout.write(s); break; } }' "$1"; }
+grp4() { local s="${2- }"; printf '%s' "${1:0:4}$s${1:4:4}$s${1:8:4}$s${1:12:4}"; }
+TEST16G="$(rep '4242 ' 3)4242"
+TESTAMEX="3782""82246310005"
+C16=$(luhn "453201511283036"); C16G=$(grp4 "$C16")
+CAMEX=$(luhn "37144963539849"); CAMEX_D="${CAMEX:0:4}-${CAMEX:4:6}-${CAMEX:10}"
+ORD=$(luhn "532610238495002"); ID16=$(luhn "455812093847561")
+NB=$(printf '\302\240'); NNB=$(printf '\342\200\257'); THIN=$(printf '\342\200\211')
 # A generated 43-character mixed-case token (base64url of a fixed hash), not a real one.
 TOK=$(node -e 'process.stdout.write(require("crypto").createHash("sha256").update("paste-guard-test").digest("base64url"))')
 
@@ -70,7 +77,6 @@ spool_line() { jq -nc --arg p "$1" '{paneKey:"p",payload:{hook_event_name:"UserP
 spool_line "use $ANT" >"$SPOOL/pane-aaaa.jsonl"; chmod 600 "$SPOOL/pane-aaaa.jsonl"
 spool_line "the key: $PK" >"$tmp/orca/spool/pane-bbbb.jsonl"; chmod 600 "$tmp/orca/spool/pane-bbbb.jsonl"
 printf 'not a pane file %s\n' "$ANT" >"$SPOOL/other.txt"
-printf '%s\n' "$CARD_HE" >"$HOME/.claude/paste-cache/card.txt"
 
 # A second and third home: history.jsonl under a held lock, and under a stale one.
 for h in h2 h3; do mkdir -p "$tmp/$h/.claude"; done
@@ -108,11 +114,9 @@ check "in code fence"      block $'```\n'"$ANT"$'\n```'
 check "in pasted_content"  block $'<pasted_content id="1">\nexport X='"$GL"$'\n</pasted_content id="1">'
 check "pem without END"    block "${D}BEGIN PRIV""ATE KEY${D}"$'\n'"$(rep Ab12Cd34 8)"$'\n'"$(rep Ef56Gh78 8)"$'\n'"$(rep Ij90Kl12 8)"$'\n'"$(rep Mn34 4)"
 check "sk-proj with dashes" block "OPENAI_API_KEY=sk-proj-$(rep Ab1De2Gh3J- 12)"
-check "card 16 + expiry + cvv" block "pay with $CARD16G exp 12/29 cvv 123"
-check "card hebrew amex"   block "$CARD_HE"
-check "card amex dashes"   block "תכניס גם ותבדוק שעובד $AMEX_D / 08.32 / 1234"
-check "card word, no expiry" block "המספר של הכרטיס $CARD16"
 check "bare token alone"   block "$TOK"
+check "token in pasted_content" block $'<pasted_content id="1">\n'"$TOK"$'\n</pasted_content id="1">'
+check "token after 25 spaces" block "$(rep ' ' 25)$TOK"
 
 # --- these pass ---
 check "firebase web key"   allow "firebase apiKey: \"$AIZA\""
@@ -131,11 +135,27 @@ check "sk- mixed branch"   allow "branch sk-Add-OAuth2-Support-For-Payments-Modu
 check "aws docs example"   allow "aws_access_key_id = AKIA""IOSFODNN7""EXAMPLE"
 check "israeli phone"      allow "0541234567"
 check "9-digit id"         allow "ת.ז. 123456782"
-check "order no context"   allow "הזמנה מספר $CARD16"
-check "card fails luhn"    allow "$(rep 4242 3)4241 12/29"
+check "order no context"   allow "הזמנה מספר $C16"
+check "card fails luhn"    allow "${C16:0:15}$(( (${C16:15:1} + 1) % 10 )) 12/29"
 check "ms timestamp"       allow "created 1762780000000 card"
-check "card id in url"     allow "see https://shop.example/card/$CARD16 for the order"
-check "card id in path"    allow "card file at /var/data/$CARD16.json"
+check "card id in url"     allow "see https://shop.example/card/$C16 for the order"
+check "card id in path"    allow "card file at /var/data/$C16.json"
+check "test card 4242"     allow "the checkout fails when I pay with $TEST16G 12/29 123 in test mode"
+check "test card amex"     allow "תכניס גם ותבדוק שעובד $TESTAMEX / 08.32 / 1234"
+check "order + price 12.30" allow "ההזמנה מספר $ORD בסך 12.30 ש\"ח"
+check "order + glued price" allow "הזמנה $ORD 12.30 ₪"
+check "id took 12.35ms"    allow "request id=$ID16 took 12.35ms"
+check "firebase key alone" allow "AIza""Sy${TOK:0:33}"
+check "pk_live alone"      allow "pk_""live_${TOK:0:34}"
+check "sb_publishable alone" allow "sb_""publishable_${TOK:0:32}"
+check "posthog phc alone"  allow "phc_${TOK:0:40}"
+check "vercel prj alone"   allow "prj_${TOK:0:28}"
+check "vercel dpl alone"   allow "dpl_${TOK:0:28}"
+check "drive id alone"     allow "1${TOK:0:32}"
+check "sheet id alone"     allow "1${TOK}"
+check "sri hash alone"     allow "sha384-${TOK}${TOK:0:21}"
+check "png base64 alone"   allow "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kg"
+check "branch w/ acronyms" allow "feat/Add-OAuth2-API-Key-Rotation-For-Users-v3"
 check "uuid alone"         allow "0f8fad5b-d9cb-469f-a165-70867728950e"
 check "git sha alone"      allow "3f786850e387550fdab836ed7e6dc881de23001b"
 check "jwt alone"          allow "eyJ$(rep hbGciOiJIUzI1NiJ9 2).eyJ$(rep zdWIiOiIxMjM0 3).$(rep SflKxwRJ 4)"
@@ -179,25 +199,62 @@ case "$REASON_ANT" in *"נעצרה"*"${ANT: -4}"*"pasted-"*"vault-login-add"*) e
 case "$REASON_PK" in *"private key"*"7Qq7"*) expect "private key reason tail" ok ok ;; *) expect "private key reason tail" ok bad ;; esac
 expect "suppressOriginalPrompt" true "$SUPPRESS"
 
-# --- a blocked card: number, expiry and code saved, only the last 4 shown, none on stdout/stderr ---
+# --- blocked cards, each in its own HOME: last 4 only, no value on stdout/stderr, nothing saved;
+# the paste-cache copy of the prompt is checked after the scrub (the scrub range covers expiry and code) ---
 S="$HOME/.claude/secrets"
-card_case() {  # name prompt number expiry code last4
-  local json saved out
-  json=$(jq -n --arg p "$2" '{hook_event_name:"UserPromptSubmit",prompt:$p}')
-  printf '%s' "$json" | node "$GUARD" >"$tmp/card.out" 2>"$tmp/card.err"
-  saved=$(jq -r '.reason' "$tmp/card.out" | grep -o "$S/pasted-[0-9-]*\.env")
-  if [ -n "$saved" ] && grep -qF -- "$3" "$saved" && grep -qF -- "$4" "$saved" && grep -qF -- "$5" "$saved"; then
-    expect "$1: saved number+expiry+code" ok ok; else expect "$1: saved number+expiry+code" ok missing; fi
-  case "$(jq -r '.reason' "$tmp/card.out")" in *"כרטיס אשראי שמסתיים ב-$6"*) expect "$1: reason type + last 4" ok ok ;;
-    *) expect "$1: reason type + last 4" ok bad ;; esac
-  out=$(cat "$tmp/card.out" "$tmp/card.err"); out=${out//"$saved"/}
-  local v leak=no
-  for v in "$3" "${3//[ -]/}" "$4" "$5"; do case "$out" in *"$v"*) leak=yes ;; esac; done
-  expect "$1: no value on stdout/stderr" no "$leak"
+CN=(); CH=(); CR=()
+card_block() {  # name prompt prompt-after-scrub last4 value...
+  local name=$1 prompt=$2 red=$3 last=$4 h="$tmp/card${#CN[@]}" v leak=no; shift 4
+  mkdir -p "$h/.claude/paste-cache"; printf '%s\n' "$prompt" >"$h/.claude/paste-cache/p.txt"
+  (export HOME="$h" CLAUDE_CONFIG_DIR="$h/.claude"
+   jq -n --arg p "$prompt" '{hook_event_name:"UserPromptSubmit",prompt:$p}' | node "$GUARD" >"$h/out" 2>"$h/err")
+  expect "$name: blocks" block "$(jq -r '.decision // "allow"' "$h/out" 2>/dev/null)"
+  case "$(jq -r '.reason' "$h/out" 2>/dev/null)" in *"- כרטיס אשראי שמסתיים ב-$last"*) expect "$name: last 4" ok ok ;;
+    *) expect "$name: last 4" ok bad ;; esac
+  for v in "$@"; do case "$(cat "$h/out" "$h/err")" in *"$v"*) leak=yes ;; esac; done
+  expect "$name: no value on stdout/stderr" no "$leak"
+  CN+=("$name"); CH+=("$h"); CR+=("$red")
 }
-card_case "visa"  "pay with $CARD16G exp 12/29 cvv 123" "$CARD16G" "12/29" "123" 4242
-card_case "amex"  "$CARD_HE" "$AMEX" "08.32" "1234" 0005
-card_case "amex dashes" "תכניס גם ותבדוק שעובד $AMEX_D / 08.32 / 1234" "$AMEX_D" "08.32" "1234" 0005
+R="[REDACTED-SECRET]"
+card_block "visa + labels"   "pay with $C16G exp 12/29 cvv 123" "pay with $R" "${C16: -4}" "$C16G" "$C16" 12/29 123
+card_block "amex hebrew"     "תכניס גם ותבדוק שעובד $CAMEX / 08.32 / 1234" "תכניס גם ותבדוק שעובד $R" "${CAMEX: -4}" "$CAMEX" 08.32 1234
+card_block "amex dashes"     "תכניס גם ותבדוק שעובד $CAMEX_D / 08.32 / 1234" "תכניס גם ותבדוק שעובד $R" "${CAMEX: -4}" "$CAMEX_D" "$CAMEX" 08.32 1234
+card_block "card word only"  "המספר של הכרטיס $C16" "המספר של הכרטיס $R" "${C16: -4}" "$C16"
+card_block "nbsp groups"     "$(grp4 "$C16" "$NB") 12/29 123" "$R" "${C16: -4}" "$(grp4 "$C16" "$NB")" "$C16" 12/29 123
+card_block "nnbsp + word"    "card $(grp4 "$C16" "$NNB")" "card $R" "${C16: -4}" "$(grp4 "$C16" "$NNB")" "$C16"
+card_block "thin space"      "$(grp4 "$C16" "$THIN") 12/29 123" "$R" "${C16: -4}" "$(grp4 "$C16" "$THIN")" "$C16" 12/29 123
+card_block "double spaces"   "card $(grp4 "$C16" '  ') 12/29" "card $R" "${C16: -4}" "$(grp4 "$C16" '  ')" "$C16" 12/29
+card_block "mixed separators" "card ${C16:0:4}-${C16:4:4} ${C16:8:4}-${C16:12:4} 12/29" "card $R" "${C16: -4}" "$C16" 12/29
+card_block "dots"            "card $(grp4 "$C16" .) 12/29" "card $R" "${C16: -4}" "$(grp4 "$C16" .)" "$C16" 12/29
+card_block "expiry 12 / 29"  "$C16G 12 / 29 123" "$R" "${C16: -4}" "$C16G" "$C16" "12 / 29" 123
+card_block "# before"        "card #$C16 12/29" "card #$R" "${C16: -4}" "$C16" 12/29
+card_block "Expiration/CVV:" "card $C16G Expiration: 12/29 CVV: 123" "card $R" "${C16: -4}" "$C16G" "$C16" 12/29 123
+card_block "exp date/sec code" "card $C16G exp date 12/29 security code 123" "card $R" "${C16: -4}" "$C16G" "$C16" 12/29 123
+card_block "CVV code"        "card $C16G 12/29 CVV code 123" "card $R" "${C16: -4}" "$C16G" "$C16" 12/29 123
+card_block "בתוקף עד"        "כרטיס $C16G בתוקף עד 12/29 קוד 123" "כרטיס $R" "${C16: -4}" "$C16G" "$C16" 12/29 123
+card_block "3 ספרות בגב"     "כרטיס $C16G תוקף 12/29 3 ספרות בגב 123" "כרטיס $R" "${C16: -4}" "$C16G" "$C16" 12/29 123
+card_block "code before"     "cvv 123 card $C16G 12/29" "$R" "${C16: -4}" "$C16G" "$C16" 12/29 123
+card_block "expiry before"   "12/29 $C16G 123" "$R" "${C16: -4}" "$C16G" "$C16" 12/29 123
+card_block "json object"     "{\"number\":\"$C16\",\"exp\":\"12/29\",\"cvc\":\"123\"}" "{\"number\":\"$R\"}" "${C16: -4}" "$C16" 12/29 123
+card_block "labels on lines" "Card number: $C16G"$'\n'"Expiry: 12/29"$'\n'"CVV: 123" "Card number: $R" "${C16: -4}" "$C16G" "$C16" 12/29 123
+read -r -d '' WANT <<EOF
+ההודעה נעצרה ולא הגיעה למודל: היא מכילה פרטי כרטיס אשראי.
+- כרטיס אשראי שמסתיים ב-${C16: -4}
+פרטי הכרטיס לא נשמרו בשום קובץ, והם נמחקים מההיסטוריה המקומית תוך כמה שניות.
+הפרטים לא נשלחו למודל, ולכן אין צורך לבטל את הכרטיס בגלל ההודעה הזאת. אם הדבקת אותם גם במקום אחר, שקול לבטל אותו.
+אל תדביק פרטי כרטיס בצ'אט: כשתשלום שאישרת צריך כרטיס, הסוכן פותח את דף התשלום ואתה מקליד את הפרטים שם בעצמך.
+אפשר לשלוח את ההודעה שוב בלי פרטי הכרטיס.
+EOF
+expect "card-only message, exact" "$WANT" "$(jq -r '.reason' "${CH[0]}/out")"
+# A key and a card together: only the key is saved, the card lines follow the key lines.
+KC="$tmp/keycard"; mkdir -p "$KC"
+(export HOME="$KC" CLAUDE_CONFIG_DIR="$KC/.claude"
+ jq -n --arg p "card $C16G 12/29 and key $ANT" '{hook_event_name:"UserPromptSubmit",prompt:$p}' | node "$GUARD" >"$KC/out")
+KCR=$(jq -r '.reason' "$KC/out")
+case "$KCR" in "ההודעה נעצרה ולא הגיעה למודל: היא מכילה מפתח סודי ופרטי כרטיס אשראי."*"המפתח נשמר בקובץ"*"(rotate)"*"פרטי הכרטיס לא נשמרו"*"בלי המפתח ופרטי הכרטיס.") expect "key+card message" ok ok ;;
+  *) expect "key+card message" ok bad ;; esac
+grep -rqF -- "PASTED_1='$ANT'" "$KC/.claude/secrets" && expect "key+card: key saved" ok ok || expect "key+card: key saved" ok missing
+expect "key+card: one value saved" 1 "$(grep -rc '^PASTED_' "$KC/.claude/secrets" | awk -F: '{ s += $2 } END { print s }')"
 grep -rqF -- "# טוקן ללא קידומת" "$S" && grep -rqF -- "'$TOK'" "$S" && expect "saved bare token" ok ok || expect "saved bare token" ok missing
 
 # --- saved files ---
@@ -224,7 +281,12 @@ expect "home paste scrubbed" "pasted text with [REDACTED-SECRET] inside" "$(cat 
 expect "cfg paste scrubbed" "other paste [REDACTED-SECRET]" "$(cat "$CLAUDE_CONFIG_DIR/paste-cache/bbbb.txt")"
 expect "paste mode kept" 640 "$(stat -c %a "$CLAUDE_CONFIG_DIR/paste-cache/bbbb.txt")"
 expect "clean paste untouched" "no secrets here" "$(cat "$CLAUDE_CONFIG_DIR/paste-cache/cccc.txt")"
-expect "card paste scrubbed" "תכניס גם ותבדוק שעובד [REDACTED-SECRET]" "$(cat "$HOME/.claude/paste-cache/card.txt")"
+for i in "${!CN[@]}"; do
+  expect "${CN[$i]}: scrubbed incl. expiry + code" "${CR[$i]}" "$(cat "${CH[$i]}/.claude/paste-cache/p.txt")"
+  expect "${CN[$i]}: no file in secrets dir" 0 "$(find "${CH[$i]}/.claude/secrets" -type f 2>/dev/null | wc -l)"
+done
+# The scrub child's values file is gone by now; only the key's file is left.
+expect "key+card: card not on disk" 0 "$(grep -rlF -e "$C16G" -e "$C16" -e 12/29 "$KC/.claude/secrets" | wc -l)"
 grep -rqF -- "PASTED_1='$ANT'" "$S" && expect "secrets not scrubbed" ok ok || expect "secrets not scrubbed" ok scrubbed
 expect "no scrub temp left" 0 "$(find "$tmp" -name '*.scrub-*' | wc -l)"
 expect "nothing left in TMPDIR" 0 "$(find "$TMPDIR" -type f | wc -l)"

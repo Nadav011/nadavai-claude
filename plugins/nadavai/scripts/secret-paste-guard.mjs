@@ -5,8 +5,9 @@
 // to ~/.claude/secrets/pasted-<time>.env (600), blocks the prompt with a Hebrew reason that
 // names only the type and the last 4 characters, and starts a detached child that scrubs the
 // values from history.jsonl, paste-cache and Orca's hook spool (Claude Code and Orca may write
-// them after the hook returns). Payment cards (with the expiry and code after them) and a prompt
-// that is only one bare token count too (2026-11-10). Malformed input never blocks.
+// them after the hook returns). Payment cards (with the expiry and code next to them) and a prompt
+// that is only one bare token count too (2026-11-10); card details are scrubbed but never saved.
+// Malformed input never blocks.
 // Tests: plugins/nadavai/tests/test-secret-paste-guard.sh.
 import fs from "node:fs";
 import os from "node:os";
@@ -25,14 +26,31 @@ const PEM_HEAD = String.raw`-----BEGIN ([A-Z ]*)PRIVATE KEY-----\s+(?:[A-Za-z-]+
 const b64count = (v) => v.replace(/-----[A-Z ]+-----/g, "").replace(/^[A-Za-z-]+:.*$/gm, "").replace(/[^A-Za-z0-9+/=]/g, "").length;
 
 // Payment card: 13-19 digits starting 2-6 (Mastercard, Amex, Visa, Discover), contiguous or
-// grouped 4-4-4-4 / 4-6-5; an expiry and a 3-4 digit code right after it belong to the match.
+// grouped 4-4-4-4 / 4-6-5 (spaces, no-break or thin spaces, dots or dashes between groups). An
+// expiry or a 3-4 digit code next to it, labelled or not, before or after it, belongs to the match
+// so the scrub removes it too. Card details are never written to disk (see saveSecrets).
 const CARD = "כרטיס אשראי";
-const CARD_NUM = String.raw`[2-6]\d{3}(?<s1>[ -])\d{4}\k<s1>\d{4}\k<s1>\d{4}|[2-6]\d{3}(?<s2>[ -])\d{6}\k<s2>\d{4,5}|[2-6]\d{12,18}`;
-const CARD_HEAD = new RegExp(`^(?:${CARD_NUM})`);
-const EXPIRY = String.raw`(?:0[1-9]|1[0-2])[\/.-](?:20[2-4]\d|[23]\d|4[0-5])(?![\/.-]?\d)`;
-const EXPIRY_RE = new RegExp(String.raw`(?<![\d\/.-])${EXPIRY}`);
-const CARD_SEP = String.raw`\s{0,4}(?:[\/,|;:-]\s{0,4})?(?:(?:exp(?:iry|ires)?|valid(?: thru)?|ו?תוקף|cvv2?|cvc|cid|ו?קוד(?: אבטחה)?)\s{0,2}[:=.-]?\s{0,4})?`;
+const GSEP = String.raw`(?:[    ]{1,2}|[.-])`;
+const CARD_NUM = String.raw`[2-6]\d{3}(?:${GSEP}\d{4}){3}|[2-6]\d{3}${GSEP}\d{6}${GSEP}\d{4,5}|[2-6]\d{12,18}`;
+const YEAR = String.raw`(?:20[2-4]\d|[23]\d|4[0-5])`;
+// A unit right after it ("12.35ms", "12.30%", "12.30 ₪") makes it a number, not an expiry.
+const NOT_UNIT = String.raw`(?![\/.-]?\d|[a-z%₪$€£]|\s?(?:[%₪$€£]|ש["״]?ח))`;
+const EXPIRY = String.raw`(?:0[1-9]|1[0-2])\s?[\/.-]\s?${YEAR}${NOT_UNIT}`;
+const EXPIRY_RE = new RegExp(String.raw`(?<![\d\/.-])${EXPIRY}`, "i");
+// Away from the number only MM/YY with a slash counts: "12.30" nearby is usually a price.
+const SLASH_EXPIRY = new RegExp(String.raw`(?<![\d\/.-])(?:0[1-9]|1[0-2])\s?\/\s?${YEAR}${NOT_UNIT}`, "i");
+const EXP_LABEL = String.raw`exp(?:iry|ires|iration)?(?:\.?\s?date)?|valid(?:\s(?:thru|until))?|good\sthru|ו?ב?תוקף(?:\sעד)?`;
+const CODE_LABEL = String.raw`security\scode|cvv2?(?:\scode)?|cvc2?|cid|ו?קוד(?:\sאבטחה)?|\d\sספרות(?:\sבגב)?`;
+const CARD_SEP = String.raw`[\s"',|;:=\/-]{0,8}(?:(?:${EXP_LABEL}|${CODE_LABEL})[\s"':=.-]{0,6})?`;
+const CARD_PRE = String.raw`(?:(?:${CODE_LABEL})\s{0,2}[:=]?\s{0,4}\d{3,4}|(?:(?:${EXP_LABEL})[\s:=-]{0,4})?${EXPIRY})[\s"',|;:=]{1,8}(?:(?:card(?:\s(?:number|no\.?))?|(?:מספר\s)?ה?כרטיס|number)[\s"':=-]{0,6})?`;
 const CARD_WORD = /כרטיס|אשראי|תוקף|\b(?:cvv2?|cvc|cards?|visa|mastercard|amex)\b/i;
+// Public test numbers from the Stripe, PayPal and Adyen docs: payment work pastes them all the time.
+const TEST_CARDS = new Set(["4242424242424242", "4000056655665556", "5555555555554444", "2223003122003222",
+  "5200828282828210", "5105105105105100", "378282246310005", "371449635398431", "6011111111111117",
+  "6011000990139424", "6011981111111113", "3056930009020004", "36227206271667", "30569309025904",
+  "38520000023237", "6555900000604105", "3566002020360505", "3530111333300000", "6200000000000005",
+  "4111111111111111", "4012888888881881", "4000000000000002", "4111111145551142", "5555341244441115",
+  "370000000000002", "4988438843884305", "2222400070000005"]);
 const luhn = (d) => {
   let s = 0;
   for (let i = 0; i < d.length; i++) {
@@ -68,25 +86,35 @@ const PATTERNS = [
   ["Supabase secret key", /\bsb_secret_[A-Za-z0-9_-]{20,}/g],
   // Firebase web keys (AIza…) are public; only a line that calls it a server key counts.
   ["Google server key", /\bAIza[0-9A-Za-z_-]{35}\b/g, (_v, line) => /\b(?:secret|server|service)\b/i.test(line)],
-  // Luhn-valid, not inside a URL or path, and an expiry or a card word within ~60 characters:
-  // an order number, a phone, an ID or a timestamp alone passes.
-  [CARD, new RegExp(String.raw`(?<![\w.\/\\-])(?:${CARD_NUM})(?![\w\/\\]|\.\w)(?:${CARD_SEP}(?:${EXPIRY}|\d{3,4}(?![\w\/.]|-\d))){0,2}`, "gi"),
-    (v, _line, before, after) => {
-      const num = v.match(CARD_HEAD)[0];
-      if (!luhn(num.replace(/\D/g, ""))) return false;
-      if (/[\/\\?&#@]|www\./i.test(before.match(/\S*$/)[0])) return false;
-      const near = before.slice(-60) + " " + v.slice(num.length) + " " + after.slice(0, 60);
-      return CARD_WORD.test(near) || EXPIRY_RE.test(near);
+  // Luhn-valid, not a public test number, not inside a URL or path, and an expiry next to it, or a
+  // card word or an MM/YY within ~60 characters: an order number, a phone, an ID or a timestamp
+  // alone passes.
+  [CARD, new RegExp(String.raw`(?:${CARD_PRE})?(?<![\w.\/\\-])(?<num>${CARD_NUM})(?![\w\/\\]|\.\w)(?:${CARD_SEP}(?:${EXPIRY}|\d{3,4}(?![\w\/]|[.-]\d))){0,2}`, "gi"),
+    (v, _line, before, after, m) => {
+      const num = m.groups.num, at = v.indexOf(num), digits = num.replace(/\D/g, "");
+      if (!luhn(digits) || TEST_CARDS.has(digits)) return false;
+      // "#" alone may be "card #4242…"; after a "/" the token is a URL and is caught by the "/".
+      if (/[\/\\?&@]|www\./i.test((before + v.slice(0, at)).match(/\S*$/)[0])) return false;
+      const rest = v.slice(at + num.length);
+      if (EXPIRY_RE.test(rest)) return true;
+      const near = before.slice(-60) + " " + v.slice(0, at) + " " + rest + " " + after.slice(0, 60);
+      return CARD_WORD.test(near) || SLASH_EXPIRY.test(near);
     }],
-  // A prompt that is nothing but one random-looking token. Inside a longer message such a string
-  // is usually an id, so only the whole prompt counts. No "." in the set keeps JWTs and URLs out.
-  ["טוקן ללא קידומת", /(?<=^\s{0,20})[A-Za-z0-9_+\/=-]{32,200}(?=\s{0,20}$)/g, (v) => {
+  // A prompt that is nothing but one random-looking token (one <pasted_content> wrapper allowed).
+  // Inside a longer message such a string is usually an id, so only the whole prompt counts. No
+  // "." in the set keeps JWTs and URLs out.
+  ["טוקן ללא קידומת", /^\s*(?:<pasted_content\b[^>\n]{0,200}>\s*)?(?<secret>[A-Za-z0-9_+\/=-]{32,200})\s*(?:<\/pasted_content\b[^>\n]{0,200}>\s*)?$/g, (v) => {
     if (!/[a-z]/.test(v) || !/[A-Z]/.test(v) || !/\d/.test(v) || new Set(v).size < 20) return false;
     if (/^[0-9a-f-]+$/i.test(v)) return false; // UUID, git sha, hash
     if (/^\/|\/$|\/\//.test(v)) return false; // file path
-    // A slug or identifier of words (kebab, snake, path segments or camelCase) is not a token.
+    // Public keys and ids (Firebase, Stripe publishable, Supabase publishable, PostHog, Vercel),
+    // SRI hashes, base64 images (PNG, JPEG, GIF, WebP), Google Drive and Sheets ids.
+    if (/^(?:AIza|pk_(?:live|test)_|sb_publishable_|phc_|prj_|dpl_|team_|sha(?:256|384|512)-|iVBORw0KGgo|\/9j\/|R0lGOD|UklGR)/.test(v)) return false;
+    if (/^1[A-Za-z0-9_-]{32}(?:[A-Za-z0-9_-]{11})?$/.test(v)) return false;
+    // A slug or identifier of words (kebab, snake, path segments, camelCase, acronyms) is not a token.
+    // Each piece must look like a word: 2+ letters, Capitalized, a short acronym, or OAuth-like.
     const parts = v.split(/[-_\/+=]+|(?<=[a-z\d])(?=[A-Z])/).filter(Boolean);
-    return !(parts.length >= 3 && parts.every((p) => /^[A-Za-z][a-z]*\d*$|^\d+$/.test(p)));
+    return !(parts.length >= 3 && parts.every((p) => /^(?:[A-Z]{0,5}[a-z]{2,}|[A-Z]{2,5}|v)\d*$|^\d+$/.test(p)));
   }],
 ];
 
@@ -94,24 +122,25 @@ function findSecrets(text) {
   const found = [], seen = new Set();
   for (const [type, re, keep] of PATTERNS) {
     for (const m of text.matchAll(re)) {
-      if (seen.has(m[0])) continue;
-      const start = m.index, end = start + m[0].length;
+      const value = m.groups?.secret ?? m[0]; // a "secret" group narrows the value to that part
+      if (seen.has(value)) continue;
+      const start = m.index + m[0].indexOf(value), end = start + value.length;
       if (found.some((f) => start < f.end && end > f.start)) continue;
       if (keep) {
         const before = text.slice(Math.max(0, start - 300), start), after = text.slice(end, end + 300);
-        if (!keep(m[0], before.slice(before.lastIndexOf("\n") + 1) + m[0] + after.split("\n")[0], before, after)) continue;
+        if (!keep(value, before.slice(before.lastIndexOf("\n") + 1) + value + after.split("\n")[0], before, after, m)) continue;
       }
-      seen.add(m[0]);
-      found.push({ type, value: m[0], start, end });
+      seen.add(value);
+      found.push({ type, value, start, end, num: m.groups?.num });
       if (found.length >= MAX) return { found: found.sort((a, b) => a.start - b.start), capped: true };
     }
   }
   return { found: found.sort((a, b) => a.start - b.start), capped: false };
 }
 
-const tail = ({ type, value }) =>
+const tail = ({ type, value, num }) =>
   (type === "private key" ? value.replace(/-----[A-Z ]+-----/g, "").replace(/\s/g, "")
-    : type === CARD ? value.match(CARD_HEAD)[0].replace(/\D/g, "") : value).slice(-4);
+    : type === CARD ? num.replace(/\D/g, "") : value).slice(-4);
 
 function stamp(d = new Date()) {
   const p = (n) => String(n).padStart(2, "0");
@@ -238,24 +267,35 @@ if (input.hook_event_name && input.hook_event_name !== "UserPromptSubmit") proce
 const { found, capped } = findSecrets(input.prompt);
 if (!found.length) process.exit(0);
 
+// Card details are not kept on disk: nothing can be rotated from a file, and the scrub child gets
+// its own short-lived values file. Only keys are saved.
+const keys = found.filter((f) => f.type !== CARD), cards = found.length - keys.length;
 let saved = null;
-try { saved = saveSecrets(found); } catch {}
+if (keys.length) try { saved = saveSecrets(keys); } catch {}
 try { startScrub(found.map((f) => f.value)); } catch {}
 
 const SHOWN = 5;
 const list = found.slice(0, SHOWN).map((f) => `- ${f.type} שמסתיים ב-${tail(f)}`);
-if (found.length > SHOWN) list.push(`- ועוד ${capped ? "לפחות " : ""}${found.length - SHOWN} מפתחות`);
-const many = found.length > 1;
+if (found.length > SHOWN) list.push(`- ועוד ${capped ? "לפחות " : ""}${found.length - SHOWN} ${cards ? "פריטים" : "מפתחות"}`);
+const many = keys.length > 1;
 const savedLine = saved
   ? `${many ? "המפתחות נשמרו" : "המפתח נשמר"} בקובץ ${saved} (הרשאות 600).`
   : `השמירה בתיקייה ${SECRETS} נכשלה, ולכן ${many ? "המפתחות לא נשמרו" : "המפתח לא נשמר"} בשום מקום.`;
+const keyName = many ? "המפתחות" : "המפתח";
 const reason = [
-  "ההודעה נעצרה ולא הגיעה למודל: היא מכילה מפתח סודי.",
+  `ההודעה נעצרה ולא הגיעה למודל: היא מכילה ${keys.length ? "מפתח סודי" : ""}${keys.length && cards ? " ו" : ""}${cards ? "פרטי כרטיס אשראי" : ""}.`,
   ...list,
-  savedLine,
-  many ? "התייחס למפתחות כאל חשופים: החלף כל אחד (rotate) אצל הספק שלו." : "התייחס למפתח כאל חשוף: החלף אותו (rotate) אצל הספק שלו.",
-  "בפעם הבאה שים סודות בקובץ ~/.claude/secrets/<service>.env, או השתמש ב-vault-login-add לסיסמאות.",
-  `אפשר לשלוח את ההודעה שוב בלי ${many ? "המפתחות" : "המפתח"}.`,
+  ...(keys.length ? [
+    savedLine,
+    many ? "התייחס למפתחות כאל חשופים: החלף כל אחד (rotate) אצל הספק שלו." : "התייחס למפתח כאל חשוף: החלף אותו (rotate) אצל הספק שלו.",
+    "בפעם הבאה שים סודות בקובץ ~/.claude/secrets/<service>.env, או השתמש ב-vault-login-add לסיסמאות.",
+  ] : []),
+  ...(cards ? [
+    "פרטי הכרטיס לא נשמרו בשום קובץ, והם נמחקים מההיסטוריה המקומית תוך כמה שניות.",
+    "הפרטים לא נשלחו למודל, ולכן אין צורך לבטל את הכרטיס בגלל ההודעה הזאת. אם הדבקת אותם גם במקום אחר, שקול לבטל אותו.",
+    "אל תדביק פרטי כרטיס בצ'אט: כשתשלום שאישרת צריך כרטיס, הסוכן פותח את דף התשלום ואתה מקליד את הפרטים שם בעצמך.",
+  ] : []),
+  `אפשר לשלוח את ההודעה שוב בלי ${keys.length ? keyName : ""}${keys.length && cards ? " ו" : ""}${cards ? "פרטי הכרטיס" : ""}.`,
 ].join("\n");
 
 process.stdout.write(JSON.stringify({
