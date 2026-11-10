@@ -1,6 +1,6 @@
 ---
 name: capacitor-app-development
-description: "Guides the agent through general Capacitor app development topics. Covers core concepts (native bridge, plugins, web layer), Capacitor CLI usage, app configuration (capacitor.config.ts, splash screens, app icons, deep links), platform management (Android, iOS, Electron, PWA), edge-to-edge and safe area handling on Android, live reload setup, storage solutions, file handling, security best practices, iOS package managers (SPM, CocoaPods), and troubleshooting for Android and iOS. Do not use for creating new Capacitor apps, Capacitor plugin APIs, creating Capacitor plugins, in-app purchases, upgrading Capacitor versions, Cordova or PhoneGap migration, or framework-specific patterns (Angular, React, Vue)."
+description: "Guides the agent through general Capacitor app development topics. Covers core concepts (native bridge, plugins, web layer), Capacitor CLI usage, app configuration (capacitor.config.ts, splash screens, app icons, deep links), platform management (Android, iOS, Electron, PWA), live reload setup, storage solutions, file handling, security best practices, iOS package managers (SPM, CocoaPods), and troubleshooting for Android and iOS. Do not use for creating new Capacitor apps, Capacitor plugin APIs, creating Capacitor plugins, in-app purchases, upgrading Capacitor versions, Cordova or PhoneGap migration, or framework-specific patterns (Angular, React, Vue)."
 license: MIT
 compatibility: "Requires Node.js and npm. Xcode on macOS is required for iOS and Android Studio for Android."
 metadata:
@@ -58,8 +58,7 @@ Read the reference file for the matched topic and apply the instructions to the 
 | App configuration (`capacitor.config.ts`) | `references/app-configuration.md` |
 | Splash screens and app icons | `references/splash-screens-and-icons.md` |
 | Deep links and universal links | `references/deep-links.md` |
-| Android edge-to-edge support | `references/edge-to-edge.md` |
-| Android safe area handling | `references/safe-area.md` |
+| Android edge-to-edge and safe areas (all platforms) | the `safe-area-handling` skill |
 | Live reload setup | `references/live-reload.md` |
 | Storage solutions | `references/storage.md` |
 | File handling best practices | `references/file-handling.md` |
