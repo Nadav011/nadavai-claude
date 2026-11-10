@@ -23,9 +23,11 @@ setup can be rebuilt after a reformat. No secrets live here: they are in the vau
     `rrsync -wo -no-del -munge` (it can add, not read or delete); `/etc/cron.daily/wpbackup-prune`
     there keeps the newest 30. To read one: `ssh nadavai-svc 'sudo cat /home/wpbackup/in/<file>.age' | age -d -i ~/.ssh/nadavai_vm > x.sqlite`
     (restore drill passed on 2026-11-10: integrity ok, 7 repos, 358 pipelines, 6 crons).
-  - Still open: the live database keeps growing by about 0.3 GB a day. Woodpecker has no
-    retention setting; `WOODPECKER_LOG_STORE=file` moves new logs to files that a timer can prune,
-    at the price of a server restart and of old logs leaving the UI. 84 GB were free on 2026-11-10.
+  - Growth: Woodpecker has no retention setting, so `oracle/wp-purge.py` (`~/wp-watchdog/`, user
+    timer `wp-purge.timer`, daily 03:30 UTC) deletes finished pipelines older than 30 days through
+    the API, never a repo's newest 30. A deleted pipeline takes its steps and logs with it (checked
+    on 2026-11-10: no orphan rows); SQLite reuses the pages, so the file levels off near 30 days of
+    logs, about 10 GB at the rate measured that week (0.3 GB a day).
 - Checks (`~/.config/nadavai/checks.sh` on each VM, every 5 minutes through `nadavai-watch`, which
   emails on the second failure; `machine-checkup/hosts/oracle-il`). On nadavai-vm: `ci-agents`
   (no Docker agent in contact for 10 minutes) and `ci-nightly` (a repo's `nightly` cron did not
@@ -48,6 +50,11 @@ setup can be rebuilt after a reformat. No secrets live here: they are in the vau
 - `agent/compose.<host>.yml` -> `/opt/woodpecker-agent/compose.yml`, with
   `/opt/woodpecker-agent/secrets.env` = `WOODPECKER_AGENT_SECRET`. Docker backend, 3 workflows each.
 - `agent/woodpecker-prune.units`: the daily cleanup service and timer (05:20).
+- DNS on the MSI (2026-11-10): every clone failure of the first week was "Could not resolve host:
+  github.com" in a step container, whose only resolver was the home router. The Wi-Fi connection
+  `Nadav_5G` now carries `ipv4.dns "192.168.1.1 1.1.1.1 9.9.9.9"` with `ipv4.ignore-auto-dns yes`
+  (`nmcli connection modify`, `nmcli device reapply wlan0`; no Docker restart: Docker copies the
+  host's resolver list into each new container). omarchy needs the same when it returns.
 - omarchy also runs the nightly local-backend agent (`~/nightly`); its own README lives there.
 
 ## Machines and nightly
@@ -79,14 +86,23 @@ Each machine's role is in `rules/ci-policy.md`, "Machines"; this is where things
     2026-11-10 with 0 entries).
   - Baselines: restored on 2026-11-10 from the October copies in `~/ci/state/` on the LENOVO and
     tightened the same day to what each main still has (116 fixed advisories dropped, so a PR that
-    brings one back is red again). Not approved, so red until Nadav decides: snooker-smart 2
-    (extract-zip), sportchat-web 5 (extract-zip, tmp, uuid), and the 14 secret-like test fixtures
-    of therapy-flow-v2 PR #98. The October files are kept in `cache/`.
+    brings one back is red again). Put back the same day, on Nadav's word to finish it, because
+    omarchy's own verdicts on GitHub show they were approved there: snooker-smart's 2 (extract-zip,
+    no fixed release) and sportchat-web's 5 (extract-zip; tmp and uuid have fixes, asked of that
+    session), both mains "nothing new" on 2026-11-09; and the 14 secret-like findings of
+    therapy-flow-v2 PR #98, each read with its value hidden (file hashes, therapist ids, fake
+    tokens in tests, an RFC 6238 vector, migration file names), same verdict as omarchy's on that
+    head. The October files are kept in `cache/`.
   - omarchy still has its old copy with enabled user timers. When it comes back, disable them
     there (`systemctl --user disable --now secscan-poll.timer secscan-nightly.timer`) before
     anything else, or two services post the same status. Its `~/secscan/state` holds what was
     approved after 2026-11-03: compare it with the VM's files entry by entry and bring over only
     what Nadav approved; never copy a file over, because the VM's lists are the stricter ones.
+- Nightly audits: switched off on 2026-11-10 while omarchy is away (cron `night` of
+  Nadav011/nadavai-nightly has `enabled: false`, its queued run #18 was cancelled); they have no
+  other host, and at 2 to 3.5 hours on omarchy they do not fit the MSI at 40 W. Switch the cron on
+  again when omarchy is back (`PATCH /api/repos/6/cron/5` with the whole object and
+  `"enabled": true`). They are reports, not gates.
 - Nightly audits (omarchy): a local-backend agent (`omarchy-nightly`, capacity 1) that takes only
   Nadav011/nadavai-nightly's workflows, cron `night` 23:00 UTC, on each repo's main (Green Room:
   the commit production serves). It posts `nadavai-ui`, `nadavai-nightly`, `nadavai-native` and
