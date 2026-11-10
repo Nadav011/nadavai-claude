@@ -38,6 +38,10 @@ PUSH_TARGET_BRANCH=""
 PUSH_LOCAL_SHA=""
 PUSH_REMOTE_SHA=""
 PUSH_LOCALS=() PUSH_REMOTES=()   # every ref of the push, for the trivy layer
+# Git runs a hook with GIT_DIR (and in a worktree GIT_WORK_TREE) set. A test that makes a throwaway
+# repo inherits them and writes into the real one: on 2026-09-23 four fixture commits reached
+# origin/main of sportchat-web and its config got core.bare=true. Tests run without them.
+NO_GIT_ENV=(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_PREFIX -u GIT_COMMON_DIR)
 MAIN_LOCAL_SHA="" MAIN_REMOTE_SHA=""
 PUSH_REMOTE_NAME=${1:-origin} PUSH_REMOTE_URL=${2:-}
 while read -r local_ref local_sha remote_ref remote_sha; do
@@ -404,11 +408,11 @@ run_tests() {
   # minutes something is wrong and the person should hear about it rather than
   # watch a terminal hang. --passWithNoTests: a push may touch no test at all.
   if [ "$TEST_MODE" = full ]; then
-    timeout 900 npx vitest run --passWithNoTests 2>&1 | tail -20
+    timeout 900 "${NO_GIT_ENV[@]}" npx vitest run --passWithNoTests 2>&1 | tail -20
   elif [ ${#RELATED_FILES[@]} -eq 0 ]; then
     echo "  no code file in the push; nothing to run"
   else
-    timeout 300 npx vitest related --run --passWithNoTests "${RELATED_FILES[@]}" 2>&1 | tail -20
+    timeout 300 "${NO_GIT_ENV[@]}" npx vitest related --run --passWithNoTests "${RELATED_FILES[@]}" 2>&1 | tail -20
   fi
 }
 
