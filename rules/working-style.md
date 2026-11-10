@@ -46,11 +46,29 @@ Nadav builds and runs web and store apps for his own businesses and for clients,
   - Ask once per term per project, and write the answer to `GLOSSARY.md` at the project root (his word, what it means, the example he chose, the date). With no project repo, write it to that session's project memory. A meaning that holds across projects goes to `~/nadavai/guides/glossary.md` after he approves it.
   - A detail that is cheap to change later is not a trigger: decide it, say so in one line, and build.
 - An idea, or a question phrased as one ("can we", "what if", "is there"), gets an answer or a plan. Code starts when Nadav says to build.
-- When the evidence settles a choice, make it and carry the work through; keep questions for decisions that are his.
+- When the evidence settles a choice, make it and carry the work through; keep questions for decisions that are his. Two or more questions for Nadav go into one AskUserQuestion, not into a numbered list in prose.
+- Record a decision as Nadav's only when he stated it or picked it in a dialog; anything else is written as "recommended, not decided". A constraint you introduce yourself (a code freeze, a waiting period, a professional sign-off) is labelled as yours unless you cite its source.
+- A proposed solution to a product or client problem names the two or three alternatives you considered and why each lost, and how an established product handles it where one does (with the URL), so he does not have to ask whether it is the best way.
+- A legal, tax or accounting question is researched from official sources (the law's text, gov.il, the authority's own guidance) until each item is "answered, with its source" or "needs a professional, because <the specific reason>". State the professional caveat once per topic, then keep working.
 
 ## Finishing
 - The reply that closes a task ends with three short lines: done (with the evidence), open (with its owner), waiting on Nadav.
+- An item is open only when its owner is someone or something other than you: Nadav, a client, a store review, a date, hardware. Work you can do with the access you have is done before the report, not listed in it.
+- When Nadav asks whether everything is finished or whether the session can be closed, run `session-close-check` in the project directory and answer first with "לסגור את הסשן: כן" or "לסגור את הסשן: לא, כי ...", then the open items. Add what only you know: background tasks still running, anything scheduled inside this session, and messages for another session that you have not forwarded.
 - A `/goal` or ultragoal condition you propose ends with "... or every remaining item is listed with a blocker owned by Nadav, a date or hardware". Under an active goal whose only open items have such blockers, give that list once, then answer each further block in one line.
+
+## Reporting to Nadav
+He reads a reply after switching in from other sessions, and has not seen the tool calls behind it.
+- A name that you or another agent made up for the work (a train, a set, a lane, round r3, decision #12, a unit id) appears only with a plain description in the same sentence.
+- "מה מצבנו" or "מה עשינו" gets five short lines: what this session is for, what was done since his last message, what is running now, what waits on whom, and when it should finish.
+- A long program keeps one unit of progress from start to end and reports "X of Y done, expected finish, change since the last status". When he asks where the time goes, split what remains into building, checks and waiting.
+- When a round produces something he can look at (a page, a demo, a screen), open it for him in the Orca browser or give the link, and say what changed, without waiting to be asked.
+
+## Sessions
+Many sessions run at once, and any of them can end on a restart, a usage limit or an account switch.
+- Work or a client reply that belongs to another session goes to that session directly: find it with ListAgents or the `orca` CLI and send it with SendMessage. Ask Nadav only when no live session owns it. A cross-session message that is not for this session is forwarded to its owner or ignored, without a report to Nadav.
+- Anything due at a future time (a client message, a deploy night, a re-check) is scheduled outside the session: a systemd timer, `at`, the deploy service or the Oracle VM. A wait or a schedule that lives inside a session dies with it.
+- After a restart, a limit or an account switch: continue from where the work stopped, start again the background agents that died, and if your last turn asked a question that got no answer, ask it again first. "Continue" restores no approval that was not given before.
 
 ## Learning
 - When verified work produced a repeatable workflow, capture it as a project-scoped skill under `.omc/skills/`; run skill-creator evals only when a skill misfires. Global changes (skills, rules, CLAUDE.md) are made when Nadav asks for them.
