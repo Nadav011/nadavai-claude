@@ -12,5 +12,5 @@
 - **Touch**: every target `--size-touch` (44px) minimum; the primary button on phones `--size-touch-primary` (48px) minimum; `touch-action: manipulation`; the shell pads with `--safe-*`; heights in `dvh`.
 - **Actions**: one accent-filled action per screen.
 - **Focus**: the ring comes from `--ring` on `:focus-visible` only.
-- **States**: every list, table and fetch has loading (skeleton), empty (one action), error (retry), success. Toasts confirm outcomes; dialogs confirm destructive actions.
+- **States**: every list, table and fetch has loading (skeleton), empty (one action), error (retry), success. Toasts confirm an outcome or offer undo for a small reversible action; a dialog confirms what cannot be undone or what reaches a person or money.
 - **RTL**: logical properties only; directional icons mirrored; numbers, phones, emails and Latin names in `dir="ltr"` islands.
