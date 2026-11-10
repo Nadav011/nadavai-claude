@@ -117,6 +117,10 @@ case "$ctx" in *"on every directory where this session changed files"*"its workt
 case "$ctx" in *"in the project directory"*) expect "context: not 'in the project directory'" ok "found in: $ctx" ;;
   *) expect "context: not 'in the project directory'" ok ok ;; esac
 
+# --- C6-2: a NOTE item that is this session's own counts as open, so the answer is לא ---
+case "$ctx" in *"an item in them that is this session's own counts as open: the answer is then לא"*) expect "context: own NOTE item counts as open" ok ok ;;
+  *) expect "context: own NOTE item counts as open" ok "missing in: $ctx" ;; esac
+
 # --- malformed input: exit 0, no output ---
 expect "empty stdin"   none "$(run '')"
 expect "bad json"      none "$(run '{nope')"

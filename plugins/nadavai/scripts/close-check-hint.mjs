@@ -61,7 +61,8 @@ const CONTEXT = "Nadav is asking whether this session's work is finished or the 
   "checked)\" means no repo was passed, so run it again with the repos. Start the reply with " +
   "\"לסגור את הסשן: כן\", \"לסגור את הסשן: לא, כי ...\" or \"לסגור את הסשן: לא ידוע, כי ...\" (naming what " +
   "could not be checked), and then the open and unchecked items, each with its owner. NOTE lines are other " +
-  "sessions' and are not counted; name any worktree or item in them that is this session's own. Add what only " +
+  "sessions' and are not counted; name any worktree or item in them that is this session's own; an item in " +
+  "them that is this session's own counts as open: the answer is then לא. Add what only " +
   "you know: background tasks still running, anything scheduled inside this session, and messages you received " +
   "for another session and have not forwarded.";
 
