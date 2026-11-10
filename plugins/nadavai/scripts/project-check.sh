@@ -64,12 +64,34 @@ if [ -f "$D/package.json" ] && grep -qE '"(react|next|vite|vue|svelte|@angular/c
     printf '%s\n' "DESIGN SETUP PENDING: this UI project has no $missing at its root. Tell Nadav once, in Hebrew, to run /ux-setup (the nadav-design skill; ~/nadavai/guides/design-init.md is the fallback when it is unavailable), after project-reinit if that is pending too."
   fi
   if [ -f "$D/DESIGN.md" ] && [ -f "$D/PRODUCT.md" ] && [ ! -d "$D/e2e/dod" ]; then
-    printf '%s\n' "DOD GATE MISSING: DESIGN.md and PRODUCT.md exist but e2e/dod/ does not. Tell Nadav to run /ux-setup (its step 12 installs the gate from ~/nadavai/templates/dod/); ~/nadavai/guides/design-init.md step 6 is the fallback."
+    printf '%s\n' "DOD GATE MISSING: DESIGN.md and PRODUCT.md exist but e2e/dod/ does not. Tell Nadav to run /ux-setup (its step 12 installs the gate from ~/nadavai/templates/dod/)."
   fi
   # UI loop position (nadav-design skill), derived from tracked files only (rules in its Hard rules).
   if [ -f "$D/DESIGN.md" ] && [ -f "$D/PRODUCT.md" ]; then
-    if [ ! -f "$D/.claude/rules/ui.md" ] || [ ! -d "$D/e2e/dod" ] || [ ! -f "$D/.github/workflows/ui.yml" ] || [ ! -f "$D/lighthouserc.json" ]; then
-      ui_next="/ux-setup (setup artifacts incomplete: ui.md, e2e/dod, ui.yml or lighthouserc.json missing)"
+    # The CI step (nadav-design shared/rules.md, "Where checks run"): a DoD or lint:ui step in the repo's
+    # .woodpecker/*.yml, or a nightly *-ui.yml whose `bin/audit <key>-ui` maps <key> to this repo in bin/audit.
+    ci_step=0 ci_note=""
+    grep -qsE 'lint:ui|e2e/dod/|playwright\.dod|(pnpm|npm run|yarn|bun run) dod' "$D"/.woodpecker/*.yml && ci_step=1
+    nightly="${NADAVAI_NIGHTLY_DIR:-$HOME/Projects/nadavai-nightly}"
+    if [ "$ci_step" = 0 ] && [ -f "$nightly/bin/audit" ]; then
+      repo_name="$(basename "$(git -C "$D" remote get-url origin 2>/dev/null)" .git)"
+      [ -n "$repo_name" ] || repo_name="$(basename "$D")"
+      key="$(grep -m1 '^declare -A REPO=' "$nightly/bin/audit" | grep -oE "\[[a-z0-9]+\]=${repo_name}([[:space:])]|$)" | head -1 | sed -E 's/^\[([a-z0-9]+)\].*/\1/')"
+      [ -n "$key" ] && grep -qsE "bin/audit ${key}-ui([[:space:]]|$)" "$nightly"/.woodpecker/*-ui.yml && ci_step=1
+    elif [ "$ci_step" = 0 ]; then
+      ci_step=1 ci_note=" (CI step not checked: no nadavai-nightly checkout at $nightly)"
+    fi
+    missing_ui=""
+    [ -f "$D/.claude/rules/ui.md" ] || missing_ui=".claude/rules/ui.md"
+    [ -d "$D/e2e/dod" ] || missing_ui="${missing_ui:+$missing_ui, }e2e/dod/"
+    [ -f "$D/lighthouserc.json" ] || missing_ui="${missing_ui:+$missing_ui, }lighthouserc.json"
+    [ "$ci_step" = 1 ] || missing_ui="${missing_ui:+$missing_ui, }the CI step (a DoD or lint:ui step in .woodpecker/, or a nightly *-ui.yml workflow)"
+    redesign_dir="$HOME/design-redesign/$(basename "$D")"
+    ui_state="setup complete$ci_note"
+    if [ -n "$missing_ui" ]; then
+      ui_state="setup incomplete: $missing_ui missing"; ui_next="/ux-setup"
+    elif [ -f "$redesign_dir/redesign.json" ] && ! grep -qsE '^Status: OWNER-APPROVED answer [0-9]+ commit [0-9a-f]+$' "$redesign_dir/plan/build-plan.md"; then
+      ui_state="$ui_state; redesign in progress, build plan not approved ($redesign_dir)"; ui_next="/ux-redesign"
     elif ls "$D"/docs/specs/*.md >/dev/null 2>&1 && grep -qE '^\s*- \[ \]' "$D"/docs/specs/*.md; then ui_next="/ux-screen <first unchecked screen in docs/specs/*.md>"
     elif [ ! -f "$D/docs/ui-audit/PLAN.md" ]; then
       done_screens="$(cat "$D"/docs/specs/*.md 2>/dev/null | grep -cE '^\s*- \[x\]' || true)"
@@ -77,10 +99,10 @@ if [ -f "$D/package.json" ] && grep -qE '"(react|next|vite|vue|svelte|@angular/c
       elif ls "$D"/docs/specs/*.md >/dev/null 2>&1; then ui_next="/ux-plan <feature> (all planned screens built; plan the next feature) or /ux-audit"
       else ui_next="/ux-audit for an existing project, /ux-plan <feature> for a new one"; fi
     elif grep -qE '^\s*- \[ \]' "$D/docs/ui-audit/PLAN.md"; then ui_next="/ux-screen <first open item in docs/ui-audit/PLAN.md>"
-    elif ! grep -qiE 'UI system.*(released|release [0-9]{4}-[0-9]{2}-[0-9]{2})' "$D/STATUS.md" "$D/BACKLOG.md" 2>/dev/null; then ui_next="/ux-ship"
+    elif ! grep -qiE 'UI system.*released [0-9]{4}-[0-9]{2}-[0-9]{2}' "$D/STATUS.md" "$D/BACKLOG.md" 2>/dev/null; then ui_next="/ux-ship"
     else ui_next="/ux-plan <feature> for the next feature; /ux-ship step 8 weekly; /ux-retro after each run"
     fi
-    printf '%s\n' "UI LOOP: next: $ui_next. Tell Nadav in one Hebrew line at the start of the session (or /ux-next for the full picture)."
+    printf '%s\n' "UI LOOP: $ui_state; next: $ui_next. Tell Nadav in one Hebrew line at the start of the session (or /ux-next for the full picture)."
   fi
   # PostHog: every production app reports usage and errors to it (guides/posthog-init.md).
   # Silent once the SDK is in package.json or CLAUDE.md mentions PostHog (connected or "not used").

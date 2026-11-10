@@ -1,7 +1,7 @@
-# DoD gate template (step 6 of guides/design-init.md)
+# DoD gate template (installed by /ux-setup step 12)
 
-Source: `~/Desktop/design-bakeoff-2026/e2e/` (2026-09), moved under `e2e/dod/` and given its
-own Playwright config so it never collides with a project's existing `e2e/` suite.
+It lives under `e2e/dod/` with its own Playwright config, so it never collides with a project's
+existing `e2e/` suite.
 
 What it measures per route, at 375 and 1440 px, light and dark: HTTP status, horizontal
 overflow, axe violations (WCAG 2.x A/AA), console errors, loaded font families, touch targets
