@@ -288,7 +288,7 @@ while :; do
       dur=$(jq -r '((.finished // 0) - (.started // 0))' <<<"$d" 2>/dev/null); [[ $dur =~ ^[0-9]+$ ]] || dur=0
       echo "green: $repo ${sha:0:7} pipeline $n in $((dur / 60))m$((dur % 60))s"
       jq -r '.workflows[]?.children[]? | "  \(.name): \(.state)"' <<<"$d" 2>/dev/null
-      # The merge also needs nadavai-security (secscan on omarchy, a separate status), so a landing
+      # The merge also needs nadavai-security (secscan on the Oracle VM nadavai-svc, a separate status), so a landing
       # wait covers it too: up to 15 more minutes for it to post, then its verdict.
       sdead=$(( $(clock security) + 900 )) phase_msg="Woodpecker green, waiting for nadavai-security"
       while :; do
@@ -296,11 +296,11 @@ while :; do
         IFS=$'\t' read -r sst sdesc <<<"${sj:-none}"
         case "$sst" in
           success) echo "  nadavai-security: success ($sdesc)"; exit 0 ;;
-          failure|error) echo "red: nadavai-security is $sst on ${sha:0:7}: $sdesc (details: ssh omarchy ls ~/secscan/logs)"; exit 1 ;;
+          failure|error) echo "red: nadavai-security is $sst on ${sha:0:7}: $sdesc (details: ssh nadavai-svc sudo cat /home/secscan/secscan/logs/$repo-${sha:0:7}-security.txt)"; exit 1 ;;
         esac
         parent_alive || { echo "ci-wait-wp: the process that started this wait is gone"; exit 4; }
         sliced
-        [ "$(date +%s)" -lt "$sdead" ] || { echo "ci-wait-wp: Woodpecker is green but nadavai-security has not answered in 15 min (state: $sst); check secscan on omarchy (systemctl --user status secscan-poll.timer)"; exit 2; }
+        [ "$(date +%s)" -lt "$sdead" ] || { echo "ci-wait-wp: Woodpecker is green but nadavai-security has not answered in 15 min (state: $sst); check secscan on nadavai-svc (ssh nadavai-svc 'sudo tail /home/secscan/secscan/logs/secscan.log')"; exit 2; }
         nap
       done ;;
     killed)

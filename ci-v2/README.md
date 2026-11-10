@@ -24,13 +24,32 @@ setup can be rebuilt after a reformat. No secrets live here: they are in the vau
 - `agent/compose.<host>.yml` -> `/opt/woodpecker-agent/compose.yml`, with
   `/opt/woodpecker-agent/secrets.env` = `WOODPECKER_AGENT_SECRET`. Docker backend, 3 workflows each.
 - `agent/woodpecker-prune.units`: the daily cleanup service and timer (05:20).
-- omarchy also runs the nightly local-backend agent (`~/nightly`) and secscan (`~/secscan`); their
-  own READMEs live there.
+- omarchy also runs the nightly local-backend agent (`~/nightly`); its own README lives there.
 
 ## Machines and nightly
 Each machine's role is in `rules/ci-policy.md`, "Machines"; this is where things run and log.
-- secscan (omarchy): user timers `secscan-poll` every 2 minutes and `secscan-nightly` at 04:20;
-  code, baselines and logs in `~/secscan`. Posts `nadavai-security`.
+- secscan (Oracle VM nadavai-svc, since 2026-11-10; on omarchy before): posts `nadavai-security`.
+  It runs as the system user `secscan` (no sudo, no login shell, linger on) with user timers
+  `secscan-poll` every 2 minutes and `secscan-nightly` at 04:20. Everything is under
+  `/home/secscan/secscan`: `src/` (root-owned copy of Nadav011/nadavai-secscan), `tools/` (pinned
+  arm64 scanners and gh, `src/bin/install-tools.sh`), `state/` (the baselines Nadav approved),
+  `repos.txt`, `logs/`, and `gh.env` (600): the fine-grained token "nadavai-secscan (Oracle svc)"
+  for the five repos (Contents and Pull requests read, Commit statuses and Issues write; expires
+  2027-11-04). Measured there: a PR scan 8 to 70 s, therapy-flow-v2's full scan 100 s.
+  - Look: `ssh nadavai-svc 'sudo tail /home/secscan/secscan/logs/secscan.log'`; a report:
+    `ssh nadavai-svc sudo cat /home/secscan/secscan/logs/<repo>-<sha7>-security.txt`.
+  - By hand, as that user: `ssh nadavai-svc "sudo -u secscan bash -c 'cd; set -a; . ~/secscan/gh.env; set +a; ~/secscan/src/bin/secscan scan <repo> <sha> pr:<n>'"`;
+    `secscan approve <repo> <main-sha> [<digest>]` runs the same way, after Nadav approved the delta.
+  - Update the code: push to Nadav011/nadavai-secscan, then copy `bin/` and `systemd/` into `src/`
+    as root (the scanner's user cannot write its own code).
+  - A new repo: a line in `repos.txt`, the repo added to the token, and a first baseline
+    (`security-scan <repo> <tree> <report> --baseline` on main; camstore's was rebuilt this way on
+    2026-11-10 with 0 entries).
+  - omarchy still has its old copy with enabled timers. When it comes back, disable them there
+    (`systemctl --user disable --now secscan-poll.timer secscan-nightly.timer`) before anything
+    else, or two services post the same status. Its `~/secscan/state` holds baseline entries
+    approved after 2026-11-03 that the VM's copy lacks (therapy-flow-v2: 14 secret-like test
+    fixtures of PR #98): copy `state/*.security-baseline.json` over then.
 - Nightly audits (omarchy): a local-backend agent (`omarchy-nightly`, capacity 1) that takes only
   Nadav011/nadavai-nightly's workflows, cron `night` 23:00 UTC, on each repo's main (Green Room:
   the commit production serves). It posts `nadavai-ui`, `nadavai-nightly`, `nadavai-native` and

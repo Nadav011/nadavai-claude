@@ -29,7 +29,7 @@ run deny  success 3 "" "$D_CMD" FAKE_NMAIN=300
 run deny  success 251 "src/c.ts"
 run deny  success 0 "" 'gh pr merge "$PR" -R Nadav011/snooker-smart --squash'
 run allow failure 0 "" "gh pr merge 141 -R Nadav011/snooker-smart --squash # land-urgent: test"
-# nadavai-security (secscan on omarchy): red, error or still running blocks; none passes only in the grace.
+# nadavai-security (secscan on nadavai-svc): red, error or still running blocks; none passes only in the grace.
 run deny  success 0 "" "$D_CMD" FAKE_SEC=failure
 run deny  success 0 "" "$D_CMD" FAKE_SEC=error
 run deny  success 0 "" "$D_CMD" FAKE_SEC=pending

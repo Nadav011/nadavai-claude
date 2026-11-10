@@ -642,7 +642,7 @@ strict_guard() { # strict_guard <command>: denies, or returns
 # branched, main's new commits touch none of the PR's files and no shared file (lockfile, package
 # manifest, tsconfig, *.config.*, .woodpecker/, migrations). Otherwise: rebase and land again.
 # GitHub unreadable lets the merge through, like the old rule.
-# The head's newest nadavai-security status (secscan on omarchy, outside Woodpecker, so a PR cannot
+# The head's newest nadavai-security status (secscan on the Oracle VM nadavai-svc, outside Woodpecker, so a PR cannot
 # edit its own allow list) must be success too. None at all passes only while the service may not
 # have seen the head yet: WP_SEC_GRACE_S after the head's first status (Woodpecker posts that when
 # the PR is pushed); later it is a denial that says where the service runs.
@@ -684,12 +684,12 @@ wp_merge_check() { # owner name pr-or-branch dir command
     none)
       age=$(( $(date +%s) - ${first:-0} ))
       if [ "${first:-0}" -gt 0 ] && [ "$age" -le "$WP_SEC_GRACE_S" ]; then :; else
-        deny "PR $num on $n has no security scan on its head ${head:0:7} (no nadavai-security status $((age / 60)) minutes after its first status). The scan runs on omarchy outside Woodpecker (secscan-poll.timer, every 2 minutes): check it with ssh omarchy 'systemctl --user status secscan-poll.service; tail ~/secscan/logs/secscan.log', and merge once the status is green. For an urgent fix, add '# land-urgent: <reason>' to the command."
+        deny "PR $num on $n has no security scan on its head ${head:0:7} (no nadavai-security status $((age / 60)) minutes after its first status). The scan runs on the Oracle VM nadavai-svc outside Woodpecker (user secscan, secscan-poll.timer, every 2 minutes): check it with ssh nadavai-svc 'sudo tail /home/secscan/secscan/logs/secscan.log', and merge once the status is green. For an urgent fix, add '# land-urgent: <reason>' to the command."
       fi ;;
     pending)
-      deny "PR $num on $n: the security scan (nadavai-security) of its head ${head:0:7} is queued or running. It usually takes a few minutes; merge once it is green. If it stays pending, check the service on omarchy: ssh omarchy 'systemctl --user status secscan-poll.service; tail ~/secscan/logs/secscan.log'." ;;
+      deny "PR $num on $n: the security scan (nadavai-security) of its head ${head:0:7} is queued or running. It usually takes a few minutes; merge once it is green. If it stays pending, check the service on nadavai-svc: ssh nadavai-svc 'sudo tail /home/secscan/secscan/logs/secscan.log'." ;;
     *)
-      deny "PR $num on $n: the security scan (nadavai-security) of its head ${head:0:7} is $sec: ${sdesc:-no description}. New secrets or high/critical dependency advisories block the merge: remove the secret (and rotate it) or bump the dependency, push, and merge once the new head scans green. The report is on omarchy (ssh omarchy cat ~/secscan/logs/$n-${head:0:7}-security.txt); a false positive goes to Nadav for the baseline. For an urgent fix, add '# land-urgent: <reason>' to the command." ;;
+      deny "PR $num on $n: the security scan (nadavai-security) of its head ${head:0:7} is $sec: ${sdesc:-no description}. New secrets or high/critical dependency advisories block the merge: remove the secret (and rotate it) or bump the dependency, push, and merge once the new head scans green. The report is on nadavai-svc (ssh nadavai-svc sudo cat /home/secscan/secscan/logs/$n-${head:0:7}-security.txt); a false positive goes to Nadav for the baseline. For an urgent fix, add '# land-urgent: <reason>' to the command." ;;
   esac
   cmp=$(timeout 15 gh api "repos/$o/$n/compare/$head...main" 2>/dev/null) || return 0
   ahead=$(jq -r '.ahead_by // 0' <<<"$cmp")
