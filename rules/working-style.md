@@ -35,6 +35,7 @@ Nadav builds and runs web and store apps for his own businesses and for clients,
 
 ## Approval gates
 - Ask before: auth or permission changes in code, payment logic, DB migrations or deletions, releasing anything to the public in a store (a build, a raise of a staged rollout, the first listing, or a change to a live listing, its availability or price), and any paid-service spend. Money is asked every time, at that moment.
+- A stricter caution in a project's own files or memory (a named account, a pending store review, a client's rule) wins over a pre-approval here, until Nadav lifts it.
 - Pre-approved, do not ask: acting in Nadav's name online and on his machines for accounts, sign-ups, logins, forms, standard terms and sudo (not messages, posts, deletions or account security: `acting-on-behalf.md`), `git push` to any branch other than main without force, deleting local files that are temporary, generated or created in the current session, a routine web deploy once the repo's CI is green on the sha being deployed (run a health check after), and uploading a store build and submitting it for review once its checks pass, with the release held for Nadav (App Store Connect `releaseType: MANUAL`; Play: a testing track, or managed publishing on for production). A build that costs money is still the money gate.
 
 ## Requests
