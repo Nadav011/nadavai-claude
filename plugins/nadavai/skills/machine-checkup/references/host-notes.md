@@ -55,6 +55,22 @@ clock speed inside 40 W. What it does not prove is safety: watch `rasdaemon` and
 it; tell the CI session first, it wants a Docker resolver change in the same reboot): 127
 package updates with kernel 7.3.1 to 7.3.3, and `/tmp` moving to disk.
 
+Reboot of 2026-11-10 (the only CI agent, so this matters): after `pacman -Su` (kernel 7.3.1 to
+7.3.3, nvidia 615 to 620) `systemctl reboot` shut down cleanly at 18:03:51 and the machine then
+stayed off for 13 minutes until Nadav pressed the power button; the 10-minute reboot watchdog
+(`intel_oc_wdt`) did not bring it back. The Wi-Fi was not the cause: `Nadav_5G` connects at boot
+with nobody logged in (psk-flags 0), and ssh answered before the desktop login. Two test reboots
+right after, one with `/sys/kernel/reboot/type` = efi and one with the default acpi, each came
+back by itself in 40 s. What the hung boot had and those did not: the dGPU's firmware had timed
+out at 16:59:51 ("GSP Timeout", Xid 154, then "Failed to get GCx pre-requisite" every 5 s, 769
+times) and the last kernel lines before the hang are NVIDIA's "Reset required". It is the fault
+of 2026-11-03 again, so a faulted dGPU is the leading cause of a reboot that does not return;
+not proven, because the fault cannot be produced on demand. `msi-tuning-check` now has a row for
+it. Before a remote reboot of the MSI run `msi-tuning-check`: when the dGPU row is BAD, reboot
+only with a person beside the machine. If the fault shows up again under nvidia 620, measure
+`NVreg_DynamicPowerManagement=0x02` with `cpu-ab.sh` (the card then stays powered, about 12 W on
+the shared heat pipes) before choosing it.
+
 **LENOVO** (Legion Pro 5 16IAX10H, Core Ultra 9 275HX 24 cores, 62 GB, RTX 5070 Ti, CachyOS,
 BIOS Q6CN79WW = latest per `download.lenovo.com/catalog/83LU_Win11.xml`; the main machine since
 2026-11-03). On Linux the firmware leaves `intel-rapl-mmio:0` at 30/30 W, so check that first:

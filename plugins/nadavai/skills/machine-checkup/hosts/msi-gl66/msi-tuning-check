@@ -42,5 +42,6 @@ chk "desktop never locks (Autolock off, msi-keep-unlocked active)" "[ \"\$(kread
 echo "== Network"
 chk "three resolvers for CI containers (router + 2 public)" "[ \"\$(grep -c '^nameserver' /run/systemd/resolve/resolv.conf 2>/dev/null)\" -ge 3 ]"
 echo "== Errors"
+chk "dGPU healthy this boot (a faulted one hangs the next reboot)" "! sudo journalctl -k -b | grep -qE 'NVRM: Xid|GCx pre-requisite|RESET_REQUIRED'"
 chk "no machine-check errors this boot"    "! sudo journalctl -k -b | grep -qiE 'machine check|hardware error'"
 exit $bad
