@@ -28,7 +28,7 @@ consumer app makes the step obvious, and the walkthrough check carries more of t
 
 A portfolio, a marketing site or a scroll film (nadavc.ai, Camstore's home film, a client demo
 site) is judged by other things: the reference it follows, its motion, its bytes on a phone.
-Those live in the `site` track of nadav-design. From this standard a showcase site takes only
+Those live in the `site` track of nadav-design (`tracks/site.md`). From this standard a showcase site takes only
 the states and the errors of anything in it that loads data or submits a form: T-01, T-02, E-01,
 E-04, E-05. The moment a site has a shop or an account, those screens are a consumer app.
 

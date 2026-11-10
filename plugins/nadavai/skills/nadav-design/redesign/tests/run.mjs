@@ -453,7 +453,7 @@ await test('GM9', 'the README gives the local-font recipe', async () => /\.next\
 await test('GM10', 'step 0 pins the app\'s commit and INVENTORY.md carries it', async () => /rev-parse HEAD/.test(read('README.md').split('### 1.')[0]) && /ls-remote/.test(read('README.md')) && /commit/i.test(read('templates/INVENTORY.md').split('\n').slice(0, 8).join('\n')) ? '' : 'no pin');
 await test('GM11', 'retro step 0 also reads redesign run logs', async () => {
   const skill = fs.readFileSync(path.join(SK, '..', 'SKILL.md'), 'utf8');
-  const retro0 = skill.split('\n').find(l => l.startsWith('0. Find the run')) || '';
+  const retro0 = skill.split('\n').find(l => l.startsWith('0. ') && l.includes('Find the run')) || '';
   return /design-redesign\/\*\/RUN-LOG\.md/.test(retro0) ? '' : 'retro does not look for RUN-LOG.md';
 });
 await test('GL4', 'build.py lints Hebrew inside an LTR island', async () => {
@@ -1135,6 +1135,119 @@ await test('P-tool', 'decisions-open.py counts every row that is not exactly «�
   const r = sh('python3', [path.join(T, 'decisions-open.py'), p]);
   let out; try { out = JSON.parse(r.stdout); } catch { return `exit ${r.status}: ${r.stdout}`; }
   return r.status === 0 && out.open === 3 && out.rows.join() === 'Q-2,Q-3,Q-4' ? '' : `exit ${r.status}: ${r.stdout}`;
+});
+await test('REF-1', 'decisions-open.py counts the open rows of a REFERENCE.md (sections and «always there») and ignores its «Differences on purpose» table', async () => {
+  const p = path.join(TMP, 'REFERENCE.md');
+  const tpl = fs.readFileSync(path.join(SK, 'templates/REFERENCE.md'), 'utf8');
+  const closed = tpl.replace(/(\| R-1 \|.*\| )פתוח \|/, '$1הוכרע · תשובה 3 |').replace(/(\| id \| what differs \|[^\n]*\n\|[-|]*\n)/, '$1| R-9 | no film on a phone | his answer | 4 |\n');
+  if (closed === tpl) return 'the template no longer has the R-1 row or the differences table this test edits';
+  fs.writeFileSync(p, closed);
+  const r = sh('python3', [path.join(T, 'decisions-open.py'), p]);
+  let out; try { out = JSON.parse(r.stdout); } catch { return `exit ${r.status}: ${r.stdout}`; }
+  return r.status === 0 && out.open === 2 && out.rows.join() === 'K-1,R-2' ? '' : `exit ${r.status}: ${r.stdout}`;
+});
+await test('REF-2', 'reference-coverage.py passes a ledger with no gap and fails on a missing stretch, an overlap, a short end, a row without a stretch and a missing frame', async () => {
+  const head = '| id | what | how it moves | measured | needs | frames | מצב |\n|---|---|---|---|---|---|---|\n';
+  const row = (id, span) => `| ${id} | ${span} a section | scroll | not measured | none | reference/${id}.png · built/${id}.png | פתוח |\n`;
+  const diff = '\n| id | what differs | why | answer |\n|---|---|---|---|\n| R-2 | no film | phone | 4 |\n';
+  const run = (name, body, extra = []) => {
+    const p = path.join(TMP, name);
+    fs.writeFileSync(p, head + body + diff);
+    const r = sh('python3', [path.join(T, 'reference-coverage.py'), p, '--total', '10', ...extra]);
+    let out = null; try { out = JSON.parse(r.stdout); } catch { /* reported below */ }
+    return { status: r.status, out, raw: r.stdout };
+  };
+  const why = [];
+  const good = run('ref-good.md', row('R-1', '[0–4.5 s]') + row('R-2', '[4.5–10 s]'));
+  if (good.status !== 0 || !good.out || good.out.rows !== 2 || good.out.problems.length) why.push(`good: exit ${good.status} ${good.raw}`);
+  const px = run('ref-px.md', row('R-1', '[0–400 px]') + row('R-2', '[400–10 px]'));
+  if (px.status !== 1) why.push(`a stretch that ends before it starts passed: ${px.raw}`);
+  const cases = [
+    ['gap', row('R-1', '[0–4 s]') + row('R-3', '[6–10 s]'), /no row covers 4 to 6/],
+    ['overlap', row('R-1', '[0–6 s]') + row('R-2', '[4–10 s]'), /R-2 overlaps/],
+    ['short', row('R-1', '[0–4 s]') + row('R-2', '[4–8 s]'), /no row covers 8 to 10 \(the end\)/],
+    ['nospan', row('R-1', '[0–10 s]') + row('R-2', ''), /R-2: no \[a–b s\]/],
+    ['mixed', row('R-1', '[0–5 s]') + row('R-2', '[5–10 px]'), /mix seconds and pixels/],
+  ];
+  for (const [name, body, re] of cases) {
+    const r = run(`ref-${name}.md`, body);
+    if (r.status !== 1 || !r.out || !r.out.problems.some(p => re.test(p))) why.push(`${name}: exit ${r.status} ${r.raw}`);
+  }
+  const frames = run('ref-frames.md', row('R-1', '[0–10 s]'), ['--frames-dir', TMP]);
+  if (frames.status !== 1 || !/reference\/R-1\.png is missing/.test(frames.raw)) why.push(`missing frame: exit ${frames.status} ${frames.raw}`);
+  const twice = run('ref-twice.md', row('R-1', '[0–5 s]') + row('R-1', '[5–10 s]'));
+  if (twice.status !== 1 || !/R-1: the id appears on two rows/.test(twice.raw)) why.push(`repeated id: exit ${twice.status} ${twice.raw}`);
+  const shortRow = run('ref-short.md', row('R-1', '[0–5 s]') + '| R-2 | [5–10 s] a section | scroll |\n');
+  if (shortRow.status !== 1 || !/R-2: the row has fewer than 7 cells/.test(shortRow.raw)) why.push(`a row that lost cells: exit ${shortRow.status} ${shortRow.raw}`);
+  const nan = sh('python3', [path.join(T, 'reference-coverage.py'), path.join(TMP, 'ref-good.md'), '--total', 'nan']);
+  if (nan.status !== 2) why.push(`--total nan: exit ${nan.status}`);
+  const usage = sh('python3', [path.join(T, 'reference-coverage.py')]);
+  if (usage.status !== 2) why.push(`no arguments: exit ${usage.status}`);
+  return why.join(' · ');
+});
+await test('FACT-1', 'facts-check.py passes pages whose figures are in the facts file and fails on a hand-typed figure, an open value and a placeholder', async () => {
+  const dir = path.join(TMP, 'facts');
+  fs.mkdirSync(path.join(dir, 'site'), { recursive: true });
+  const facts = { _note: 'TBD is fine in a note', fund: { name: 'קרן אורן', grants_total: 1250000, monthly: 3500, founded: 2016 }, people: [{ name: 'דנה לוי', role: 'מנהלת' }], price: '₪89 לחודש' };
+  fs.writeFileSync(path.join(dir, 'facts.json'), JSON.stringify(facts));
+  const page = body => `<!doctype html><html lang="he" dir="rtl"><head><style>.a{width:1,200px}</style></head><body>${body}<script>var n = "9,999";</script></body></html>`;
+  const run = (name, body, f = 'facts.json') => {
+    fs.writeFileSync(path.join(dir, 'site', 'index.html'), page(body));
+    const r = sh('python3', [path.join(T, 'facts-check.py'), '--facts', path.join(dir, f), path.join(dir, 'site')]);
+    let out = null; try { out = JSON.parse(r.stdout); } catch { /* reported below */ }
+    return { name, status: r.status, out, raw: r.stdout };
+  };
+  const why = [];
+  const good = run('good', '<p>הקרן חילקה 1,250,000 ש"ח מאז 2016, 3,500 ₪ לחודש, מנוי ב-₪89. טלפון 050-1234567. ראו [1] וגם <a href="#">קישור</a>.</p>');
+  if (good.status !== 0 || !good.out || good.out.numbers_checked < 3) why.push(`good: exit ${good.status} ${good.raw}`);
+  const typed = run('typed', '<p>הקרן חילקה 1,300,000 ש"ח.</p>');
+  if (typed.status !== 1 || !/1,300,000 is not in the facts file/.test(typed.raw)) why.push(`hand-typed figure: exit ${typed.status} ${typed.raw}`);
+  const money = run('money', '<p>מנוי ב-₪99 לחודש.</p>');
+  if (money.status !== 1 || !/the figure 99 is not in the facts file/.test(money.raw)) why.push(`hand-typed price: exit ${money.status} ${money.raw}`);
+  const ph = run('placeholder', '<p>שלום [שם הלקוח], lorem ipsum.</p>');
+  if (ph.status !== 1 || !ph.out || ph.out.problems.filter(p => /placeholder/.test(p)).length !== 2) why.push(`placeholders: exit ${ph.status} ${ph.raw}`);
+  fs.writeFileSync(path.join(dir, 'open.json'), JSON.stringify({ ...facts, fund: { ...facts.fund, address: 'TBD ask Nadav' } }));
+  const open = run('open', '<p>1,250,000</p>', 'open.json');
+  if (open.status !== 1 || !/open value fund\.address/.test(open.raw)) why.push(`open value: exit ${open.status} ${open.raw}`);
+  const ent = run('entities', '<p>900 ש&quot;ח וגם &#8362;750</p>');
+  if (ent.status !== 1 || !ent.out || ent.out.problems.filter(p => /the figure (900|750) is not in the facts file/.test(p)).length !== 2) why.push(`figures behind HTML entities: exit ${ent.status} ${ent.raw}`);
+  const alt = run('alt', '<img src="a.png" alt="[תיאור התמונה]"><p>arr[i] ו-[0, 1] אינם שדות למילוי</p>');
+  if (alt.status !== 1 || !ent.out || alt.out.problems.length !== 1 || !/תיאור התמונה/.test(alt.raw)) why.push(`a placeholder in alt, and code-like brackets: exit ${alt.status} ${alt.raw}`);
+  const gone = sh('python3', [path.join(T, 'facts-check.py'), '--facts', path.join(dir, 'facts.json'), path.join(dir, 'no-such-folder')]);
+  if (gone.status !== 2) why.push(`a page path that does not exist: exit ${gone.status}`);
+  const usage = sh('python3', [path.join(T, 'facts-check.py')]);
+  if (usage.status !== 2) why.push(`no arguments: exit ${usage.status}`);
+  return why.join(' · ');
+});
+await test('SHOW-1', 'early-show.sh refuses, without any request, a link that is not https, a vercel.app address, a host that is not his and a claude.ai link that is not an artifact', async () => {
+  const run = (url, env = {}) => sh('bash', [path.join(T, 'early-show.sh'), url], { env: { ...process.env, EARLY_SHOW_HOSTS: '', ...env } });
+  const why = [];
+  const cases = [
+    ['http://nadavc.ai/', 1, /not https/],
+    ['https://demo-abc.vercel.app/x', 1, /vercel\.app address is never shown/],
+    ['https://example.com/', 1, /not one of his domains/],
+    ['https://evilnadavc.ai/', 1, /not one of his domains/],
+    ['https://claude.ai/chat/abc', 1, /not an artifact address/],
+    ['https://claude.ai/artifact/../../evil', 1, /not an artifact address/],
+    ['https://claude.ai/artifact/abc', 0, /address checked/],
+    // a user part makes curl fetch another host than the one a naive parse reads
+    ['https://nadavc.ai:@example.com/', 1, /user part/],
+    ['https://x.nadavc.ai:pw@example.com/', 1, /user part/],
+    ['https://nadavc.ai@example.com/', 1, /user part/],
+    ['https://[::1]/', 1, /strange host/],
+  ];
+  for (const [url, status, re] of cases) {
+    const r = run(url);
+    if (r.status !== status || !re.test(r.stdout)) why.push(`${url}: exit ${r.status} ${r.stdout.trim()}`);
+  }
+  // a vercel.app address stays refused even when someone lists it as his own
+  const v = run('https://demo-abc.vercel.app/', { EARLY_SHOW_HOSTS: 'vercel.app demo-abc.vercel.app' });
+  if (v.status !== 1) why.push(`vercel.app through EARLY_SHOW_HOSTS: exit ${v.status}`);
+  const c = sh('bash', [path.join(T, 'early-show.sh'), 'https://claude.ai/artifact/abc', 'deadbeef'], { env: { ...process.env, EARLY_SHOW_HOSTS: '' } });
+  if (c.status !== 0 || !/NOT checked/.test(c.stdout)) why.push(`an artifact with a commit id must say the commit was not checked: exit ${c.status} ${c.stdout.trim()}`);
+  const u = sh('bash', [path.join(T, 'early-show.sh')]);
+  if (u.status !== 2) why.push(`no arguments: exit ${u.status}`);
+  return why.join(' · ');
 });
 // legitimate paths of the fifth confirm stay green
 await test('PL', 'legit: a spec start without spec after a clean run; build mode with a shared need then answered; a cut-run restart with the spec; a noSpec round', async () => {

@@ -1,6 +1,6 @@
 export const meta = {
   name: 'redesign-plan-review',
-  description: 'The redesign build plan: write the answers and plan items into it, fresh Opus reviews until APPROVE, diff-only confirms of every later edit, a second model (Codex, else Grok, else a fresh Opus), then the START-BUILD prompt and checklist; returns review gates, never Nadav\'s approval',
+  description: 'The redesign build plan: write the answers and plan items into it, fresh Opus reviews until APPROVE, diff-only confirms of every later edit, a second model (Codex, else Antigravity, else Grok, else a fresh Opus), then the START-BUILD prompt and checklist; returns review gates, never Nadav\'s approval',
   whenToUse: 'nadav-design redesign mode step 8, only after Nadav opted into multi-agent orchestration',
   phases: [{ title: 'Plan write' }, { title: 'Plan review' }, { title: 'Second model' }, { title: 'Start build' }, { title: 'Checkpoint' }],
 }
@@ -43,7 +43,7 @@ const ANCHORS = { type: 'object', properties: { exit_code: { type: 'integer' }, 
 const VERDICT = { type: 'object', properties: { verdict: { type: 'string', enum: ['APPROVE', 'ITERATE', 'REJECT'] }, summary: { type: 'string' }, findings: { type: 'array', items: ISSUE }, anchors: ANCHORS }, required: ['verdict', 'summary', 'findings', 'anchors'] }
 const OUTCOME = { type: 'object', properties: { i: { type: 'integer' }, done: { type: 'string', enum: ['changed', 'rejected'] }, note: { type: 'string' } }, required: ['i', 'done', 'note'] }
 const WRITE = { type: 'object', properties: { units: { type: 'integer' }, changed: { type: 'array', items: { type: 'string' } }, rejected: { type: 'array', items: { type: 'string' } }, outcomes: { type: 'array', items: OUTCOME }, anchors: ANCHORS, summary: { type: 'string' } }, required: ['units', 'changed', 'rejected', 'outcomes', 'anchors', 'summary'] }
-const SECOND = { type: 'object', properties: { reviewer: { type: 'string', enum: ['codex', 'grok', 'none'] }, verdict: { type: 'string', enum: ['APPROVE', 'ITERATE', 'REJECT'] }, summary: { type: 'string' }, findings: { type: 'array', items: ISSUE } }, required: ['reviewer', 'verdict', 'summary', 'findings'] }
+const SECOND = { type: 'object', properties: { reviewer: { type: 'string', enum: ['codex', 'antigravity', 'grok', 'none'] }, verdict: { type: 'string', enum: ['APPROVE', 'ITERATE', 'REJECT'] }, summary: { type: 'string' }, findings: { type: 'array', items: ISSUE } }, required: ['reviewer', 'verdict', 'summary', 'findings'] }
 const DONE = { type: 'object', properties: { committed: { type: 'boolean' }, sha: { type: 'string' }, summary: { type: 'string' } }, required: ['committed', 'sha', 'summary'] }
 
 // Every agent on Opus: after a usage-limit resume on 29.9.2026 agents silently ran on a smaller model.
@@ -137,11 +137,11 @@ if (approved && A.secondModel === false) log('secondModel false: stopping before
 if (approved && A.secondModel !== false) {
   phase('Second model')
   const sm = await run(`${PCTX}
-SECOND-MODEL CROSS-CHECK, read-only for the plan. Run Codex from ${OUT}: omc ask codex "<question>". Never pass -m or an effort flag: the config default (gpt-6.1-sol at xhigh) is the only allowed model. If Codex cannot run (quota, missing binary, error, timeout), run omc ask grok with the same question instead. The question: review plan/build-plan.md (and START-BUILD.md when it exists) as the build session will use them, against DECISIONS-ANSWERED.md and the demo sections; report HIGH, MEDIUM and LOW findings with the exact place and fix, and a verdict (APPROVE only when nothing HIGH or MEDIUM). Read the artifact file omc prints and return its verdict and findings faithfully, with reviewer "codex" or "grok"; reviewer "none" when neither ran (say why in the summary).`, { label: 'second-model', phase: 'Second model', schema: SECOND, effort: 'high' })
+SECOND-MODEL CROSS-CHECK, read-only for the plan. Run Codex from ${OUT}: omc ask codex "<question>". Never pass -m or an effort flag: the config default (gpt-6.1-sol at xhigh) is the only allowed model. If Codex cannot run (quota, missing binary, error, timeout), run omc ask antigravity with the same question, and if that cannot run either, omc ask grok. omc ask grok can exit 0 on a quota or balance error: read the raw output in its artifact, and when it holds such an error instead of a review, Grok did not run. The question: review plan/build-plan.md (and START-BUILD.md when it exists) as the build session will use them, against DECISIONS-ANSWERED.md and the demo sections; report HIGH, MEDIUM and LOW findings with the exact place and fix, and a verdict (APPROVE only when nothing HIGH or MEDIUM). Read the artifact file omc prints and return its verdict and findings faithfully, with reviewer "codex", "antigravity" or "grok"; reviewer "none" when none of them ran (say why in the summary).`, { label: 'second-model', phase: 'Second model', schema: SECOND, effort: 'high' })
   if (sm && sm.reviewer !== 'none') second = { ...sm }
   else {
     // a fresh Opus with a clean context reviews in Codex's place; its verdict counts like Codex's
-    log(`neither Codex nor Grok ran (${sm ? sm.summary.slice(0, 160) : 'agent returned nothing'}): a fresh Opus reviews instead`)
+    log(`no other provider ran (${sm ? sm.summary.slice(0, 160) : 'agent returned nothing'}): a fresh Opus reviews instead`)
     const o = await fullReview(`plan-review:second-opus`, 'You stand in for the second model: be adversarial, look for what the earlier reviews missed.')
     second = o && { reviewer: 'opus', verdict: o.verdict, summary: o.summary, findings: o.findings }
   }
