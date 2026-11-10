@@ -65,6 +65,8 @@ Second fix round (2026-11-10, after the second review). The fix rounds together 
 Third fix round (2026-11-10, after the third review):
 - argos-cli: the preface names the commands that give access, move or delete as asked first.
 
+Follow-up after the approving review (2026-11-10), text only: argos-upload's description no longer triggers on a screenshot shown in chat and says "only when the user asked for an Argos upload"; threejs-asset-pipeline asks before installing `ktx`; find-animation-opportunities' description cut from 358 to under 300 characters, "make this feel more alive" dropped; argos-cli's asked-first list adds `create-project` and `project domain`; hebrew-content-writer marks its interface-copy example as upstream's and leaves a Google Ads account to Nadav. Known and left as upstream wrote it: `improve-animations/PLAN-TEMPLATE.md` has four zero-width spaces (lines 19, 22, 29, 35) that only escape nested code fences.
+
 Not added in this refresh: `app-store-screenshots` (https://github.com/ParthJadhav/app-store-screenshots at e889033). Upstream scaffolds its editor into the app repo and runs a migration from command blocks written as prose; four independent reviews each found another way for those blocks to write into an app repo or an old project. It comes back only with one owned script that does the guard, the copy and the migration in a single process, with tests. The work so far is on branch `chore/app-store-screenshots`.
 
 Update: re-clone upstream at a newer commit, re-copy the same paths, re-apply the prefaces, update this table.

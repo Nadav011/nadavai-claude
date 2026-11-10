@@ -2,9 +2,9 @@
 name: argos-upload
 description: >
   Upload a screenshot, image or recording to Argos for a shareable URL
-  and paste-ready Markdown, or attach it to a branch or pull request. Use when
-  a visual artifact (Playwright video, before/after, repro recording) must be
-  visible to a human in a PR, issue or chat, or to read comments pinned on it.
+  and paste-ready Markdown, or attach it to a branch or pull request. Only
+  when the user asked for an Argos upload of a visual artifact (Playwright
+  video, before/after, repro recording), or to read comments pinned on it.
 license: MIT
 metadata:
   author: argos-ci

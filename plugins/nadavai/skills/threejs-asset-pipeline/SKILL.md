@@ -119,7 +119,7 @@ npx @gltf-transform/cli@4.5.1 webp model.glb model.opt.glb --quality 80
 npx @gltf-transform/cli@4.5.1 resize model.glb model.opt.glb --width 1024 --height 1024
 ```
 
-KTX2 output — `etc1s`, `uastc` or `optimize --texture-compress ktx2` — shells out to the `ktx` command from KTX-Software (4.4.0 or newer), so install that first; WebP and AVIF are encoded in-process. The single `etc1s` and `uastc` commands convert every texture to one bitstream; the per-slot split (UASTC for normal, occlusion and metallic-roughness, ETC1S for the rest) is what `optimize --texture-compress ktx2` does for you, and `--slots` selects texture roles by name when you need a custom split. Runtime: KTX2 needs KTX2Loader with `detectSupport`; WebP and AVIF decode in the browser.
+KTX2 output — `etc1s`, `uastc` or `optimize --texture-compress ktx2` — shells out to the `ktx` command from KTX-Software (4.4.0 or newer); if `ktx` is missing, stop and ask before installing anything (nadavai: no system package or downloaded binary is installed on the agent's own judgement); WebP and AVIF are encoded in-process. The single `etc1s` and `uastc` commands convert every texture to one bitstream; the per-slot split (UASTC for normal, occlusion and metallic-roughness, ETC1S for the rest) is what `optimize --texture-compress ktx2` does for you, and `--slots` selects texture roles by name when you need a custom split. Runtime: KTX2 needs KTX2Loader with `detectSupport`; WebP and AVIF decode in the browser.
 
 ## Scene Optimization Commands
 

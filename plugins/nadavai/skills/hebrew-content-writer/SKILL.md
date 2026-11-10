@@ -77,7 +77,7 @@ Use masculine plural for mixed groups. Standard in government, legal, academic w
 ### Step 5: Hebrew SEO Optimization
 
 **Keyword Strategy:**
-- Research keywords in Hebrew using Google Keyword Planner (region: Israel)
+- Research keywords in Hebrew using Google Keyword Planner (region: Israel) when Nadav already has it open; opening a Google Ads account is his step, not the agent's
 - Account for morphological variations -- target root words and common forms
 - Example: "ביטוח" (insurance) also search "ביטוחים", "לבטח", "מבוטח"
 - Consider bilingual searches -- Israelis search English for tech terms
@@ -177,7 +177,7 @@ Calques from English produce text that is grammatical but unmistakably translate
 User says: "Write a Hebrew marketing email for a SaaS product launch"
 Result: Write business-register Hebrew email with compelling subject line, benefit-focused body, clear CTA. If the email is advertising, first confirm the recipients consented or meet the three-condition exception in Step 5, then start the subject line with "פרסומת" and include the sender details and refusal address. Apply SEO principles if it will be a web version. Use gender-inclusive language.
 
-### Example 2: UX Error Message
+### Example 2: UX Error Message (nadavai: interface copy in an app belongs to `nadav-design` and `interfaces:better-writing`; this example is upstream's)
 User says: "Write Hebrew error messages for a login form"
 Result: Write short, clear, action-oriented Hebrew text in imperative mood. Use neutral/inclusive phrasing. Examples: "הסיסמה שגויה. נסו שוב" (The password is incorrect. Try again).
 
