@@ -138,7 +138,7 @@ await Purchases.setDisplayName({ displayName: 'Jane Doe' });
 
 ## Notes
 
-- A RevenueCat account and API key are required. Sign up at [revenuecat.com](https://www.revenuecat.com/).
+- A RevenueCat account and API key are required. RevenueCat bills above a revenue threshold, so whether to open an account is Nadav's call.
 - Products and entitlements must be configured in the RevenueCat dashboard before use.
 - `configure()` must be called once before all other methods, typically at app startup.
 - RevenueCat handles receipt validation server-side; you do not need to finish transactions manually.
