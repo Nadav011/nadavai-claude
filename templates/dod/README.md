@@ -23,7 +23,7 @@ Each route starts at 100 and loses:
 | axe violation, moderate or minor | recorded in `axe.by_impact` and `totals.axe_recorded`, and -5 per node only with `e2e/dod/scoring.json` `{ "axe": { "minorModerate": "enforce" } }` (default `"report"`) |
 | console error | -5 each |
 | more than 2 font families | -10 |
-| touch target under 44 px | -2 each, at most -20 |
+| touch target under 44 px, at 375 with a touch pointer | -2 each, at most -20 |
 | animation under reduced motion | -10 each |
 | an entry the session could not open, or that never painted | the score is 0 |
 | a route with fewer than 4 results | that route scores 0, and the total is 0 |
@@ -49,7 +49,9 @@ DOM; much of WCAG needs a person or another check. And the score covers only the
 The run is authenticated as the QA account, which must be able to open every page: `DOD_USER` and
 `DOD_PASSWORD` in `.env.local` (plus `DOD_LOGIN_PATH`, `DOD_USER_SELECTOR`, `DOD_PASSWORD_SELECTOR`,
 `DOD_SUBMIT_SELECTOR`, `DOD_READY_PATH` when the login screen differs from the defaults). `global-setup`
-logs in once into `reports/dod/qa-storage-state.json` and every entry reuses it. A page the session cannot
+logs in once into `node_modules/.cache/dod/qa-storage-state.json` (or `DOD_STORAGE_STATE`) and every
+entry reuses it. That file holds the QA account's session cookies, so it is kept out of `reports/`,
+which CI uploads; `templates/ci/ui.yml` also excludes it from the artifact by name. A page the session cannot
 open is recorded as `unreachable` and the score drops to 0: an unmeasured page is never a passing page.
 Unreachable means: an HTTP status of 400 or more, a redirect away from the route (unless declared in
 `_alias`), the standard's own markers (a visible `[data-state="no-access"]` or
@@ -61,6 +63,9 @@ once in global-setup: it opens a made-up route as the session and keeps its text
 whatever words the app uses. A catch-all redirect, or a not-found route that shows the same
 screen as `DOD_READY_PATH`, leaves no print. The wording is always a phrase: a bare `404` (a stat
 card), a `401` in a price or the word "forbidden" in content never make a page unreachable.
+
+The 375 entries have a touch pointer (`hasTouch`, never `isMobile`), as a phone does: `(pointer:
+coarse)` matches there, so a control sized by pointer type (S-12) is measured at its touch size.
 
 A public page is measured as a visitor sees it: list it as an object with `"audience": "anonymous"`
 and its entries run in a fresh context with no cookies and no storage.
@@ -104,6 +109,8 @@ Then, in the project:
    each with its reason, and the stale check skips them (`routes.mjs` writes them back into
    `routes.json` if they go missing; a blank reason fails `--check`):
    `"_listed": { "/missing-page-sample": "the app's own not-found page, measured on purpose" }`.
+   A `_listed` route missing from `routes.json` fails `--check`; one the scan finds again is reported
+   so it can leave `_listed`.
    `routes.mjs` reads `DOD_ROOT` like the rest of the template.
 1b. When `routes.json` cannot say what the project needs, replace it with a TypeScript module
    (`e2e/dod/routes.ts`) and move the `--check` into the project's own test suite. Two shapes need
@@ -157,9 +164,11 @@ the project has `e2e/dod/standard.json`. Without it nothing changes and `dod.jso
 - `mode`: `report` (the default) writes the findings into `dod.json` and leaves the score alone;
   `enforce` deducts 10 for every check id with findings on a route, counted once per route like the
   other page findings. Start in `report`, fix, then switch. Report mode never moves a number: the
-  checks run in their own try, pause the console count while they resize the page, and a check that
-  fails (a bad `coreUnit.selector`) writes an `error` on that check and in `standard.errors`, never
-  an unreachable page. The static checks follow the same
+  checks run in their own try and their own time budget (30 s, added to the test's timeout), pause
+  the console count while they resize the page, load no extra page, and stop measuring if a resize
+  navigates the page (the entry's own measurements are then taken on its route again). A check that
+  fails or runs out of time (a bad `coreUnit.selector`, a hung page) writes an `error` on that check
+  and in `standard.errors`, never an unreachable page or a changed score. The static checks follow the same
   mode: in `report` `routes.mjs --check` prints them and passes, in `enforce` it fails on them.
 - `textFloorPx`: the smallest text the probe accepts (default 12).
 - `helpDir` (optional): turns on `help-route`.
@@ -181,22 +190,22 @@ What each check reads (the markers are the standard's: `data-help`, `data-state`
 
 | Check | Where | Fires on |
 |---|---|---|
-| `help-door` | every entry, except routes with `noHelp` (or the old `static: true`) | no visible `[data-help="door"]` inside a `header`/`[role="banner"]` or in the first 120px, or no visible `[data-help="screen"]` |
-| `tooltip-only` | every entry | a visible element with a `title` and no readable text of its own (a lone `?` is not text), no `aria-describedby` to visible text, outside `[data-help]`, whose title words are not shown within three levels around it (an avatar beside its name passes); or one described only by a hidden `[role="tooltip"]` in the DOM. A Radix tooltip is not in the DOM until hover, so its trigger is not judged |
-| `disabled-reason` | every entry | a disabled control (or `aria-disabled="true"`) outside `[aria-busy="true"]` with no `aria-describedby` to visible text. Not judged where the position is the reason: inside `[role="grid"]`, `[role="row"]` or `[role="gridcell"]` (calendar days), a pager (`[data-slot="pagination"]`, `[aria-label="pagination"]`, a `nav[aria-label]` of previous/next/page numbers, or a control labelled previous/next/a page number), and a stepper (`[role="spinbutton"]`, a number input's buttons) |
-| `placeholder-label` | every entry | an input with a placeholder and no visible `<label>` or `aria-labelledby` to visible text (`aria-label` is not visible). A search box (`type="search"`, `role="searchbox"` or `combobox`) with an accessible name passes |
-| `input-attrs` | every entry | a text-like `<input>` with no `autocomplete`; a phone, email or number field without the matching `type` or `inputmode`, decided by its `autocomplete`, `name` or `id`, or by two weak signals together (label words and a placeholder that looks like one: "טלפון" with "050-1234567"), never by a label alone ("נושא המייל" is a subject) and never on a field that declares another kind; at phone widths only, an input, textarea or select under 16px (iOS zooms; shadcn's `md:text-sm` is fine on a desktop). Search boxes and comboboxes are judged on the 16px floor only |
-| `one-primary` | every entry | more than one action whose computed background equals the resolved `--primary` token, counted in the last open `[role="dialog"]`/`[role="alertdialog"]`/`dialog[open]` alone when one is open; skipped (and said so) when `--primary` is missing. A thing filled to show its state is not an action: switches, checkboxes, radios, tabs, options, calendar cells, and anything with `aria-selected`, `aria-pressed`, `aria-checked` or `aria-current` |
+| `help-door` | every entry, except routes with `noHelp` (or the old `static: true`) | no visible `[data-help="door"]` inside a `header`/`[role="banner"]` or in the first 120px, or no visible `[data-help="screen"]`. With a modal dialog or sheet open on load, the aria-hidden Radix puts on the page is looked past: the door is still the page's |
+| `tooltip-only` | every entry | a visible element with a `title` and no readable text of its own (a lone `?` is not text), no `aria-describedby` to visible text, outside `[data-help]`, unless the title's words are already beside it as its label (in its parent or its wrapper's parent, headings not counted: an avatar beside the name passes, an icon under a heading of the same word does not) or in the label of its labelled group; or one described only by a hidden `[role="tooltip"]` in the DOM. The sidebar rail (`[data-sidebar="rail"]`) is not judged. A Radix tooltip is not in the DOM until hover, so its trigger is not judged |
+| `disabled-reason` | every entry | a disabled control (or `aria-disabled="true"`) outside `[aria-busy="true"]` with no `aria-describedby` to visible text on it or on its group (a legend is linked that way: `aria-describedby` on the `role="group"` of time slots). Not judged where its place is the reason: the current page (`aria-current`, a breadcrumb page), a numbered calendar day, a pager's or a calendar's previous/next (inside `[data-slot="pagination"]`, a pagination `nav`, `.rdp-nav`, or a previous and a next control side by side), a +/- or icon stepper beside a number field; and an option or item whose own text gives the reason in brackets or after a dash ("פדיקור (אין תורים החודש)"). A wizard's lone disabled "הבא", a disabled action in a grid row and a disabled "add" beside a quantity all fire |
+| `placeholder-label` | every entry | an input with a placeholder and no visible `<label>` or `aria-labelledby` to visible text (`aria-label` is not visible). A search box with an accessible name passes: `type="search"`, `role="searchbox"`, or a combobox inside a command palette (`[cmdk-root]`) or `[role="search"]`; any other combobox is a field |
+| `input-attrs` | every entry | a text-like `<input>` with no `autocomplete`; a phone, email or number field without the matching `type` or `inputmode`, decided by its `autocomplete`, or by the last meaningful word of its `name` or `id` ("emailSubject" is a subject; "email_address", "phoneNumber" are what they say), or by two weak signals together (label words and a placeholder that looks like one), never by a label alone and never on a field that declares another kind; at phone widths only, an input, textarea or select under 16px (iOS zooms: stock shadcn `Input` is fine, stock `CommandInput`, `text-sm`, is not). Search boxes, as in `placeholder-label`, are judged on the 16px floor only |
+| `one-primary` | every entry | more than one action whose computed background equals the `--primary` that element itself inherits (so a multi-brand wrapper's own token counts), counted in the last open `[role="dialog"]`/`[role="alertdialog"]`/`dialog[open]` alone when one is open; skipped (and said so) when no `--primary` resolves. A thing filled to show its state is not an action: switches, checkboxes, radios, tabs, options, calendar cells, and anything with `aria-selected`, `aria-pressed`, `aria-checked` or `aria-current` |
 | `nav-count` | 375 only | a fixed or sticky bottom `nav` with more than five items, or a badge there with no digit (`[data-badge]`, or a small absolutely placed filled element) |
 | `empty-action` | every entry | a `[data-state="empty"]` with no visible button or link inside (`clear` needs none) |
-| `error-toast` | every entry | an error (`[role="alert"]`, `[data-state="error"]`, `[data-type="error"]`) inside a toast region (`[data-toast-region]`, Sonner, Radix, or a region labelled "notifications"), or an error element removed from the page while nobody touched it |
+| `error-toast` | every entry | an error (`[role="alert"]`, `[data-state="error"]`, `[data-type="error"]`) inside a toast region, found by structure whatever its label's language (`[data-sonner-toaster]`, a live `section` or `[role="region"][aria-live]`, a region holding Radix Toast's `ol[tabindex="-1"]`, or `[data-toast-region]`), or an error element removed from the page while nobody touched it |
 | `error-field` | every entry | an `[aria-invalid="true"]` field with no `aria-describedby` to visible text. Only this static half is built; the half that submits a form and checks the focus is a later step |
-| `forbidden-words` | every entry | on the interface's visible text, placeholders and button values, outside `[data-user-content]` and `[translate="no"]`: "נא", "אנא", "ניתן", "כעת", "אופס" as words (with a ו prefix, and "שניתן"), "!", emoji, slash or dot gender forms ("מטפל/ית", "מטפל.ת"), and the project's words |
+| `forbidden-words` | every entry | on the interface's visible text, placeholders and button values, with niqqud removed first, outside `[data-user-content]`, `[translate="no"]`, `textarea` and editable areas: "נא", "אנא", "ניתן", "כעת", "אופס" as words (with a ו prefix, and "שניתן"), "!", emoji, slash, dot or bracket gender forms ("מטפל/ית", "לחץ/י", "מטפל.ת", "מדריך(ה)"), and the project's words (Latin ones in any letter case) |
 | `core-unit` | its route, the light entry nearest its viewport | fewer than `min` of `selector` fully visible at `viewport`, above any fixed bottom bar and inside every clipping box |
-| `probe` | the two light entries | at 320x700, 390x844, 768x1024, 1024x768 and 1280x648: sideways scroll, text under `textFloorPx`, one word of a control's label on two lines, and touch targets under 44 px. The two desktop sizes resize the entry's page; 320, 390 and 768 are measured in one extra page in a touch context (`hasTouch`), so a project that sizes controls by pointer type (S-12) is measured the way a finger meets it. "An icon covered by its badge" is not built |
+| `probe` | once per route, split between its two light entries | 320x700, 390x844 and 768x1024 on the 375 light entry (touch pointer, with touch targets under 44 px), 1024x768 and 1280x648 on the 1440 light entry (mouse); each resizes its own page, so no page is loaded for it: sideways scroll, text under `textFloorPx`, one word of a control's label on two lines. A resize that navigates the page stops the probe with an error. "An icon covered by its badge" is not built |
 | `state-coverage` | `routes.mjs --check`, and every `?state=empty` / `?state=error` entry | a route not flagged `static`, and not itself a `?state=` variant, with no `?state=empty` or no `?state=error` variant (other query parameters must match); and a `?state=empty` entry that renders no visible `[data-state]` of `empty`, `clear` or `filtered-empty`, or a `?state=error` entry with no visible `[data-state="error"]` |
 | `help-route` | `routes.mjs --check`, with `helpDir` | a route without `noHelp` (or the old `static: true`) with no file `<helpDir>/<slug>.<any extension>`, the slug taken from the route pattern the way report slugs are: `/orders/[id]` and `/orders/:id` are `orders-id.md`, `/` is `root.md`. Every such route counts: the menu is not read |
-| `brand-assets` | `routes.mjs --check` | no PRODUCT.md at the root, no `Brand` (or `מותג`, `המותג`) heading in it, or a file path the section names that does not exist: a link target with an extension, or a code span with a `/` and an extension or with an asset extension (`.svg`, `.png`, `.woff2`, ...). `--primary` or `tokens.ts` in a code span is a value, not a path |
+| `brand-assets` | `routes.mjs --check` | no PRODUCT.md at the root, no `Brand` (or `מותג`, `המותג`) heading in it, or a file path the section names that does not exist: a link target with an extension, or a code span with a `/` and an extension or with an asset extension (`.svg`, `.png`, `.woff2`, ...), looked for from the root, under `public/` for a path starting with `/`, and through the project's `@/*` alias (else `src/`) for one starting with `@/`. `--primary` or `tokens.ts` in a code span is a value, not a path |
 | `both-directions` | `routes.mjs --check`, with two or more `languages` | a language with no route in `routes.json` |
 
 `tour-no-commit` is not built: no project has a tour manifest for it to read yet.
@@ -229,6 +238,14 @@ Five projects run an older copy. What changes for each, in the order it bites:
   that newly reports "renders the not-found page" was never being measured.
 - **`static`.** It now exempts state coverage only; add `"noHelp": "<reason>"` where the page has no
   help door on purpose. Until then the old form keeps working and prints a deprecation note.
+- **The QA session was uploaded.** Projects that copied the old kit kept `qa-storage-state.json`
+  (the QA account's session cookies) in `reports/dod/`, and the CI workflow uploads that folder with
+  every report: update the kit, or at least exclude the file from the artifact (as `ui.yml` now
+  does), and treat the QA account's sessions as exposed.
+- **Touch at 375 (score-moving).** The 375 entries now run with a touch pointer. A project that
+  sizes controls by pointer type gains up to 20 points on touch targets; one that swaps its
+  interface on `(pointer: coarse)` has that other interface measured at 375; Argos shows a one-time
+  difference on the 375 screenshots.
 - **Run from the root.** The template finds its files from the working directory (or `DOD_ROOT`),
   not from `__dirname`; an ESM project drops its `import.meta` and JSON-attribute patch.
 - **Heavily customised copies port by hand**, check by check, instead of copying the files over:

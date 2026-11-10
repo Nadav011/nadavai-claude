@@ -44,7 +44,11 @@ jobs:
         if: always()
         with:
           name: dod-report
-          path: reports/dod
+          # Never the QA session: the kit keeps it outside reports/ (node_modules/.cache/dod), and
+          # an older kit wrote it here, so it is excluded by name as well.
+          path: |
+            reports/dod
+            !reports/dod/**/qa-storage-state.json
 
   # The fast half of `ui`, without the DoD walk. The same steps stay in `ui`, so the nightly
   # still covers them. No `needs:`: the runner picks the job by its id.

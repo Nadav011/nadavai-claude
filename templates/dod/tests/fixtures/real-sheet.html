@@ -1,0 +1,17 @@
+<!doctype html>
+<!-- Stock shadcn: a client Sheet open (modal, the rest aria-hidden) with an edit form, a destructive
+     action and the stock close button; a disabled "save" that explains itself. -->
+<html lang="he" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>real-sheet</title><link rel="stylesheet" href="/real.css"><link rel="stylesheet" href="/real-extra.css"></head><body>
+<header aria-hidden="true"><span>סטודיו מיכל</span><a data-help="door" data-slot="button" class="border" href="#help">עזרה</a></header>
+<main aria-hidden="true"><div class="page-head"><h1>לקוחות</h1><a data-help="screen" href="#help">מה עושים כאן</a></div><p>רשימת הלקוחות.</p></main>
+<div data-slot="sheet-overlay" data-state="open" aria-hidden="true"></div>
+<div role="dialog" id="radix-s1" aria-describedby="radix-s3" aria-labelledby="radix-s2" data-state="open" data-slot="sheet-content" tabindex="-1">
+  <div data-slot="sheet-header"><h2 id="radix-s2" data-slot="sheet-title">יוסי לוי</h2><p id="radix-s3" data-slot="sheet-description" style="font-size:14px">לקוח מאז מרץ 2025, 12 ביקורים.</p></div>
+  <label data-slot="label" for="n2">שם</label><input data-slot="input" id="n2" name="name" autocomplete="name" value="יוסי לוי">
+  <label data-slot="label" for="pr">מחיר קבוע לטיפול (₪)</label><input data-slot="input" id="pr" name="fixedPrice" inputmode="decimal" autocomplete="off" value="180">
+  <div class="row"><button type="submit" data-slot="button" class="bg-primary" disabled aria-describedby="why">שמירה</button><span id="why" style="font-size:14px">אין שינויים לשמור.</span></div>
+  <div class="row"><button type="button" data-slot="button" class="bg-destructive">מחיקת הלקוח</button><button type="button" data-slot="button" class="border">סגירה</button></div>
+  <button type="button" data-slot="sheet-close" style="position:absolute;top:16px;inset-inline-end:16px;width:24px;height:24px;border:0;background:transparent"><svg aria-hidden="true" width="16" height="16"></svg><span class="sr-only">סגירה</span></button>
+</div>
+</body></html>

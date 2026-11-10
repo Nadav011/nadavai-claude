@@ -16,6 +16,31 @@ export const routeSlug = (route) =>
     .replace(/[^a-zA-Z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "") || "root";
 
+/**
+ * Where a path named in PRODUCT.md can be: from the project root; "/logo.svg" also as a public
+ * file (public/logo.svg, how a page links it); "@/assets/logo.svg" through the project's own
+ * "@/*" alias in tsconfig.json or jsconfig.json, else src/.
+ */
+function candidates(root, p) {
+  const out = [path.join(root, p)];
+  if (p.startsWith("/")) out.push(path.join(root, "public", p));
+  if (p.startsWith("@/")) {
+    let target = "src/*";
+    for (const f of ["tsconfig.json", "tsconfig.app.json", "jsconfig.json"]) {
+      try {
+        // A tsconfig may carry comments and trailing commas; only the "@/*" line is needed.
+        const m = fs.readFileSync(path.join(root, f), "utf8").match(/"@\/\*"\s*:\s*\[\s*"([^"]+)"/);
+        if (m) {
+          target = m[1];
+          break;
+        }
+      } catch {}
+    }
+    out.push(path.join(root, target.replace(/\*$/, ""), p.slice(2)));
+  }
+  return out;
+}
+
 const routeOf = (e) => (typeof e === "string" ? e : e.route);
 // `static` exempts a page from state-coverage. `noHelp` (a reason) exempts it from the help
 // checks; `static: true` with no `noHelp` key is the old form and still exempts both.
@@ -119,7 +144,8 @@ function check({ root, entries, patternOf = new Map() }) {
         ...[...body.matchAll(/`([^`\s]+)`/g)].map((m) => m[1]).filter((p) => (p.includes("/") && /\.[a-z0-9]{2,5}$/i.test(p)) || ASSET.test(p)),
       ].filter((p) => !/^([a-z]+:|#|\/\/)/i.test(p));
       for (const p of new Set(named)) {
-        if (!fs.existsSync(path.join(root, p))) fail("brand-assets", `PRODUCT.md's Brand section names ${p}, which does not exist`);
+        if (!candidates(root, p).some((f) => fs.existsSync(f)))
+          fail("brand-assets", `PRODUCT.md's Brand section names ${p}, which does not exist`);
       }
     }
   }

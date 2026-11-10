@@ -2,7 +2,7 @@
 // reports/results/*.json and merged into reports/dod.json by global-teardown.
 import fs from "node:fs";
 import path from "node:path";
-import { test, type Browser, type Page } from "@playwright/test";
+import { test, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import {
   AXE_TAGS,
@@ -26,6 +26,7 @@ import {
 import {
   BUILT_IN_FORBIDDEN,
   coreUnitVisible,
+  DOM_CHECK_IDS,
   domChecks,
   forbiddenWordSource,
   probeAt,
@@ -54,8 +55,8 @@ const PROBE_SIZES = [
   { width: 1024, height: 768 },
   { width: 1280, height: 648 },
 ] as const;
-// The phone and tablet sizes: measured in a touch context (hasTouch), so a project that sizes
-// its controls by pointer type (S-12) is measured the way a finger meets it.
+// The phone and tablet sizes, measured by the 375 entry, which has a touch pointer (hasTouch), so
+// a project that sizes its controls by pointer type (S-12) is measured the way a finger meets it.
 const PROBE_TOUCH_MAX_WIDTH = 768;
 // After a resize: media queries apply at once, a resize listener may need a frame or two.
 const RESIZE_MS = 250;
@@ -264,25 +265,54 @@ function expectedState(route: string): string[] | null {
   return null;
 }
 
+/**
+ * The standard's checks run inside their own budget, apart from the page's own measurements:
+ * the test's timeout is raised by this much when standard.json exists, and running out of it
+ * records an error on every unfinished check instead of failing the entry.
+ */
+const STANDARD_BUDGET_MS = 30_000;
+
+/** Stops the standard's steps when the budget is spent or when a resize navigated the page. */
+interface Guard {
+  deadline: number;
+  url: string;
+  stopped: string | null;
+}
+
+async function step<T>(g: Guard, page: Page, fn: () => Promise<T>): Promise<T> {
+  if (!g.stopped && Date.now() > g.deadline) g.stopped = `out of time (the standard's ${STANDARD_BUDGET_MS / 1000}s budget)`;
+  if (g.stopped) throw new Error(g.stopped);
+  const r = await fn();
+  // A page that navigates when resized (a phone-only screen sending wide windows home) would
+  // have every later number taken on another page.
+  if (page.url() !== g.url) {
+    g.stopped = `the page navigated to ${page.url()} when resized, so later measurements were not taken`;
+    throw new Error(g.stopped);
+  }
+  return r;
+}
+
 async function runStandard(
   cfg: StandardConfig,
   page: Page,
-  browser: Browser,
   entry: RouteEntry,
   viewport: { width: number; height: number },
   scheme: string,
   result: EntryResult,
+  g: Guard,
 ) {
   const { route } = entry;
-  const checks = await page.evaluate(domChecks, {
-    noHelp: entry.noHelp,
-    navCount: viewport.width === 375,
-    phone: viewport.width <= 480,
-    forbidden: FORBIDDEN,
-    expectState: expectedState(route),
-  });
-  result.standard = checks;
   const failed = (err: unknown) => ({ count: 0, samples: [], error: err instanceof Error ? err.message.slice(0, 300) : String(err) });
+  const checks = await step(g, page, () =>
+    page.evaluate(domChecks, {
+      noHelp: entry.noHelp,
+      navCount: viewport.width === 375,
+      phone: viewport.width <= 480,
+      forbidden: FORBIDDEN,
+      expectState: expectedState(route),
+    }),
+  );
+  result.standard = checks;
 
   // core-unit: on its own route, at the BRIEF's real small screen, measured from the light
   // entry nearest that size (a resize, not a reload, so the page keeps its state).
@@ -290,9 +320,9 @@ async function runStandard(
   if (cu && cu.route === route && scheme === "light" && viewport.width === (cu.viewport[0] <= 768 ? 375 : 1440)) {
     try {
       const [width, height] = cu.viewport;
-      await page.setViewportSize({ width, height });
-      await page.waitForTimeout(RESIZE_MS);
-      const visible = await page.evaluate(coreUnitVisible, cu.selector);
+      await step(g, page, () => page.setViewportSize({ width, height }));
+      await step(g, page, () => page.waitForTimeout(RESIZE_MS));
+      const visible = await step(g, page, () => page.evaluate(coreUnitVisible, cu.selector));
       checks["core-unit"] =
         visible < cu.min
           ? { count: 1, samples: [`${visible} of ${cu.min} "${cu.selector}" fully visible at ${width}x${height}`] }
@@ -302,21 +332,24 @@ async function runStandard(
     }
   }
 
-  // probe: the mechanical floor at five more sizes. The desktop sizes resize this page; the
-  // phone and tablet sizes resize one page in a touch context (hasTouch), opened once, since
-  // touch cannot be switched on in a context that exists.
+  // probe: the mechanical floor, each size measured once per route by the light entry whose
+  // pointer fits it. The 375 entry has a touch pointer (hasTouch) and takes 320, 390 and 768,
+  // with touch targets; the 1440 entry has a mouse and takes 1024x768 and 1280x648. Both resize
+  // their own page, so the probe adds no page load.
   if (scheme !== "light") return;
+  const touch = viewport.width < 768;
+  const sizes = PROBE_SIZES.filter((s) => (s.width <= PROBE_TOUCH_MAX_WIDTH) === touch);
   const probe: NonNullable<EntryResult["probe"]> = {};
   const samples: string[] = [];
   let count = 0;
-  const errors: string[] = [];
-  const measure = async (p: Page, size: { width: number; height: number }, touch: boolean) => {
+  let error: string | undefined;
+  for (const size of sizes) {
     const key = `${size.width}x${size.height}`;
     try {
-      await p.setViewportSize(size);
-      await p.waitForTimeout(RESIZE_MS);
-      const at = await p.evaluate(probeAt, cfg.textFloorPx);
-      const t = touch ? await touchTargets(p) : null;
+      await step(g, page, () => page.setViewportSize(size));
+      await step(g, page, () => page.waitForTimeout(RESIZE_MS));
+      const at = await step(g, page, () => page.evaluate(probeAt, cfg.textFloorPx));
+      const t = touch ? await step(g, page, () => touchTargets(page)) : null;
       probe[key] = { ...at, touch: t && { failures: t.failures, samples: t.samples } };
       if (at.overflow) {
         count++;
@@ -329,30 +362,22 @@ async function runStandard(
         ...(t?.samples ?? []).map((x) => `${key}: touch target under 44px ${x}`),
       );
     } catch (err) {
-      errors.push(`${key}: ${err instanceof Error ? err.message.slice(0, 200) : String(err)}`);
+      error = `${key}: ${err instanceof Error ? err.message.slice(0, 200) : String(err)}`;
+      break;
     }
-  };
-  const touchSizes = PROBE_SIZES.filter((s) => s.width <= PROBE_TOUCH_MAX_WIDTH);
-  const ctx = await browser.newContext({
-    viewport: touchSizes[0],
-    hasTouch: true,
-    colorScheme: "light",
-    locale: test.info().project.use.locale,
-    storageState: await page.context().storageState(),
-  });
-  try {
-    const touchPage = await ctx.newPage();
-    await touchPage.goto(page.url(), { waitUntil: "domcontentloaded" });
-    await settle(touchPage);
-    for (const size of touchSizes) await measure(touchPage, size, true);
-  } catch (err) {
-    errors.push(`touch context: ${err instanceof Error ? err.message.slice(0, 200) : String(err)}`);
-  } finally {
-    await ctx.close();
   }
-  for (const size of PROBE_SIZES.filter((s) => s.width > PROBE_TOUCH_MAX_WIDTH)) await measure(page, size, false);
   result.probe = probe;
-  checks.probe = { count, samples: samples.slice(0, 8), ...(errors.length ? { error: errors.join("; ") } : {}) };
+  checks.probe = { count, samples: samples.slice(0, 8), ...(error ? { error } : {}) };
+}
+
+/** Which of the standard's checks this entry runs, so a run cut short can say which did not finish. */
+function plannedChecks(cfg: StandardConfig, route: string, viewport: { width: number }, scheme: string): string[] {
+  const ids: string[] = [...DOM_CHECK_IDS];
+  if (expectedState(route)) ids.push("state-coverage");
+  const cu = cfg.coreUnit;
+  if (cu && cu.route === route && scheme === "light" && viewport.width === (cu.viewport[0] <= 768 ? 375 : 1440)) ids.push("core-unit");
+  if (scheme === "light") ids.push("probe");
+  return ids;
 }
 
 for (const entry of routes) {
@@ -366,12 +391,18 @@ for (const entry of routes) {
         test.use({
           viewport: { width: viewport.width, height: viewport.height },
           colorScheme: scheme,
+          // A phone-width entry has a touch pointer, as a phone does: `(pointer: coarse)` matches
+          // and a control sized by pointer type (S-12) is measured at its touch size. Never
+          // isMobile, which would change the viewport handling and text sizing.
+          hasTouch: viewport.width < 768,
           // A public page is measured as a visitor sees it: a fresh context with no
           // cookies and no storage, not the QA session from global-setup.
           ...(entry.audience === "anonymous" ? { storageState: { cookies: [], origins: [] } } : {}),
         });
 
-        test(`dod ${name}`, async ({ page, browser }) => {
+        test(`dod ${name}`, async ({ page }) => {
+          // The standard's checks have their own budget on top of the page's.
+          if (standard) test.setTimeout(test.info().timeout + STANDARD_BUDGET_MS);
           const consoleErrors: string[] = [];
           // Paused while the standard's checks resize the page: an error a resize provokes
           // belongs to those checks, not to the page's console score.
@@ -497,7 +528,8 @@ for (const entry of routes) {
               // through the response status, while "401" in a price is content.
               result.unreachable = true;
               result.unreachable_reason = "access-denied screen rendered";
-            } else if (/משהו השתבש|שגיאה בטעינה|something went wrong|try again later/i.test(deniedText)) {
+            } else if (askedState !== "error" && /משהו השתבש|שגיאה בטעינה|something went wrong|try again later/i.test(deniedText)) {
+              // (A route asked as ?state=error is meant to show the error screen.)
               // An error boundary that caught a failed fetch renders a tidy little
               // card: no overflow, no axe violation, no console error (it was
               // caught), two fonts, no small targets. Indistinguishable from a
@@ -569,21 +601,44 @@ for (const entry of routes) {
             // The experience standard's checks, on a page that really painted. Their own try:
             // whatever goes wrong in them is recorded on the check, and never turns the page
             // unreachable or changes any other number, so report mode leaves the score alone.
+            const measuredUrl = page.url();
             if (standard && result.reached && !result.unreachable) {
               console_.collecting = false;
+              const g: Guard = { deadline: Date.now() + STANDARD_BUDGET_MS, url: measuredUrl, stopped: null };
+              let timer: ReturnType<typeof setTimeout> | undefined;
               try {
-                await runStandard(standard, page, browser, entry, viewport, scheme, result);
+                // Bounded even when one step hangs on a busy page: the race ends the wait, and the
+                // guard stops the steps still to come.
+                await Promise.race([
+                  runStandard(standard, page, entry, viewport, scheme, result, g),
+                  new Promise<void>((resolve) => {
+                    timer = setTimeout(() => {
+                      g.stopped ??= `out of time (the standard's ${STANDARD_BUDGET_MS / 1000}s budget)`;
+                      resolve();
+                    }, STANDARD_BUDGET_MS + 5_000);
+                  }),
+                ]);
               } catch (err) {
                 result.standard_error = err instanceof Error ? err.message.slice(0, 500) : String(err);
               } finally {
-                await page.setViewportSize({ width: viewport.width, height: viewport.height }).catch(() => {});
-                await page.waitForTimeout(RESIZE_MS);
-                console_.collecting = true;
+                clearTimeout(timer);
               }
+              if (g.stopped) {
+                // Every check that did not finish says so; nothing is counted for it.
+                result.standard ??= {};
+                for (const id of plannedChecks(standard, route, viewport, scheme))
+                  if (!result.standard[id]) result.standard[id] = { count: 0, samples: [], error: g.stopped };
+              }
+              await page.setViewportSize({ width: viewport.width, height: viewport.height }).catch(() => {});
+              await page.waitForTimeout(RESIZE_MS);
             }
 
             await page.emulateMedia({ reducedMotion: "reduce" });
-            await page.reload({ waitUntil: "domcontentloaded" });
+            // The console counts again from this load, as it does without the standard's checks.
+            console_.collecting = true;
+            // A page the resizes navigated away is brought back to the route it is measured as.
+            if (page.url() !== measuredUrl) await page.goto(measuredUrl, { waitUntil: "domcontentloaded" });
+            else await page.reload({ waitUntil: "domcontentloaded" });
             await settle(page);
             result.reduced_motion = await reducedMotionViolations(page);
           } catch (err) {

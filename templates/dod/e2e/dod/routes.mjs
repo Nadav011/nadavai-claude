@@ -182,6 +182,11 @@ const missing = found.filter((r) => !covered(r));
 // ("/plans?state=empty") are not stale: their path is the route's.
 const stale = listed.filter((r) => !routes.has(r.split("?")[0]) && !(r in LISTED) && !(r.split("?")[0] in LISTED));
 const blankListed = Object.entries(LISTED).filter(([, why]) => typeof why !== "string" || !why.trim()).map(([r]) => r);
+// A _listed route the scan now finds needs no entry there any more; one missing from routes.json
+// is not measured at all, which is what _listed exists to prevent.
+for (const r of Object.keys(LISTED))
+  if (routes.has(r.split("?")[0])) console.log(`dod-routes: ${r} is under _listed but the scan finds it now; remove it from _listed.`);
+const listedMissing = Object.keys(LISTED).filter((r) => !listed.includes(r));
 
 if (process.argv.includes("--check")) {
   if (skipped.length) {
@@ -203,6 +208,13 @@ if (process.argv.includes("--check")) {
       `dod-routes: ${blankListed.length} route(s) under _listed in route-params.json have no reason:\n  ` + blankListed.join("\n  "),
     );
     console.error("Write why each one is kept although the route scan does not find it.");
+    process.exit(1);
+  }
+  if (listedMissing.length) {
+    console.error(
+      `dod-routes: ${listedMissing.length} route(s) under _listed are missing from e2e/dod/routes.json:\n  ` + listedMissing.join("\n  "),
+    );
+    console.error("Run `node e2e/dod/routes.mjs` to write them back: a route under _listed is measured on purpose.");
     process.exit(1);
   }
   if (stale.length) {

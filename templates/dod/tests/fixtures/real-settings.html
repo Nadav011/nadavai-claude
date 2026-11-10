@@ -4,8 +4,8 @@
      an avatar with title, a user's message, a sonner toast, an open Dialog). No check may fire. -->
 <html lang="he" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>real-settings</title><link rel="stylesheet" href="/real.css"></head><body>
-<header><span>סטודיו מיכל</span><a data-help="door" data-slot="button" class="border" href="#help">עזרה</a></header>
-<main>
+<header aria-hidden="true" data-aria-hidden="true"><span>סטודיו מיכל</span><a data-help="door" data-slot="button" class="border" href="#help">עזרה</a></header>
+<main aria-hidden="true" data-aria-hidden="true">
   <div class="page-head"><h1>הגדרות העסק</h1><a data-help="screen" href="#help">מה עושים כאן</a></div>
   <div data-slot="tabs" dir="rtl">
     <div role="tablist" data-slot="tabs-list" aria-orientation="horizontal">
@@ -48,7 +48,7 @@
     <p><button type="submit" data-slot="button" class="bg-primary">שמירה</button></p>
   </form>
 </main>
-<section aria-label="Notifications alt+T" tabindex="-1" aria-live="polite" aria-relevant="additions text" aria-atomic="false">
+<section aria-hidden="true" aria-label="Notifications alt+T" tabindex="-1" aria-live="polite" aria-relevant="additions text" aria-atomic="false">
   <ol data-sonner-toaster="true" dir="rtl"><li data-sonner-toast="" data-type="success" data-mounted="true" tabindex="0"><div data-content=""><div data-title="">ההגדרות נשמרו.</div></div></li></ol>
 </section>
 <div data-slot="dialog-overlay" data-state="open"></div>

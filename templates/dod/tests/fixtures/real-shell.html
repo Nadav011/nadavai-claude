@@ -1,0 +1,41 @@
+<!doctype html>
+<!-- Stock shadcn: the sidebar-07 shell (Sidebar, SidebarRail, SidebarTrigger), a Breadcrumb, Tabs,
+     a DropdownMenu trigger, a settings form, a Badge, and a Sonner success toast with an undo action. -->
+<html lang="he" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>real-shell</title><link rel="stylesheet" href="/real.css"><link rel="stylesheet" href="/real-extra.css"></head><body class="has-sidebar">
+<div data-slot="sidebar" data-state="expanded" data-side="right">
+  <nav aria-label="תפריט ראשי" style="padding:8px"><ul style="list-style:none;padding:0;margin:0">
+    <li><a data-slot="sidebar-menu-button" data-active="true" href="#a">יומן</a></li>
+    <li><a data-slot="sidebar-menu-button" data-active="false" href="#b">לקוחות</a></li>
+    <li><a data-slot="sidebar-menu-button" data-active="false" href="#c">הגדרות</a></li></ul></nav>
+  <button data-sidebar="rail" data-slot="sidebar-rail" aria-label="Toggle Sidebar" tabindex="-1" title="Toggle Sidebar"></button>
+</div>
+<header><button data-sidebar="trigger" data-slot="sidebar-trigger" class="size-9" style="width:28px;height:28px;border:0;background:transparent"><svg aria-hidden="true" width="16" height="16"></svg><span class="sr-only">Toggle Sidebar</span></button>
+  <span>סטודיו מיכל</span><a data-help="door" data-slot="button" class="border" href="#help">עזרה</a></header>
+<main>
+  <nav aria-label="breadcrumb" data-slot="breadcrumb"><ol data-slot="breadcrumb-list">
+    <li data-slot="breadcrumb-item"><a data-slot="breadcrumb-link" href="#settings">הגדרות</a></li>
+    <li data-slot="breadcrumb-separator" role="presentation" aria-hidden="true">‹</li>
+    <li data-slot="breadcrumb-item"><span data-slot="breadcrumb-page" role="link" aria-disabled="true" aria-current="page">הודעות ללקוחות</span></li></ol></nav>
+  <div class="page-head"><h1>הודעות ללקוחות</h1><a data-help="screen" href="#help">מה עושים כאן</a></div>
+  <div class="row"><span data-slot="badge">פעיל</span>
+    <button type="button" data-slot="button" class="size-9" aria-label="עוד פעולות" aria-haspopup="menu" aria-expanded="false" data-state="closed" id="radix-m1"><svg aria-hidden="true" width="16" height="16"></svg></button></div>
+  <div data-slot="tabs" dir="rtl"><div role="tablist" data-slot="tabs-list" aria-orientation="horizontal">
+    <button type="button" role="tab" data-slot="tabs-trigger" aria-selected="true" data-state="active" id="t1" aria-controls="p1">תזכורות</button>
+    <button type="button" role="tab" data-slot="tabs-trigger" aria-selected="false" data-state="inactive" id="t2" aria-controls="p2" tabindex="-1">אישורים</button></div></div>
+  <form id="p1" role="tabpanel" aria-labelledby="t1" data-state="active">
+    <label data-slot="label" for="es">נושא המייל</label>
+    <input data-slot="input" id="es" name="emailSubject" autocomplete="off" value="תזכורת לתור שלך">
+    <label data-slot="label" for="sp">שם השולח בהודעות SMS</label>
+    <input data-slot="input" id="sp" name="smsSenderName" autocomplete="off" value="StudioMichal" dir="ltr">
+    <label data-slot="label" for="hrs">כמה שעות לפני התור לשלוח</label>
+    <input data-slot="input" id="hrs" name="hoursBefore" type="number" inputmode="numeric" autocomplete="off" value="24">
+    <p><button type="submit" data-slot="button" class="bg-primary">שמירה</button></p>
+  </form>
+</main>
+<section aria-label="Notifications alt+T" tabindex="-1" aria-live="polite" aria-relevant="additions text" aria-atomic="false">
+  <ol dir="rtl" tabindex="-1" data-sonner-toaster="true" data-theme="light" data-y-position="bottom" data-x-position="left">
+    <li tabindex="0" data-sonner-toast="" data-styled="true" data-mounted="true" data-promise="false" data-swiped="false" data-removed="false" data-visible="true" data-y-position="bottom" data-x-position="left" data-index="0" data-front="true" data-swiping="false" data-dismissible="true" data-type="success" data-expanded="false">
+      <div data-content=""><div data-title="">ההודעה נמחקה.</div></div>
+      <button data-button="true" data-action="true" style="height:24px;padding:0 8px;border:0;border-radius:4px;background:oklch(0.145 0 0);color:#fff;font-size:12px">ביטול המחיקה</button></li></ol></section>
+</body></html>

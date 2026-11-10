@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- Real markup: a data table in stock shadcn/Radix attributes (a search box, row actions, the
-     data-table pager and the Pagination component on page 1, a Calendar with a selected day and
-     disabled days, a bottom bar with an active-item indicator, an avatar with title). No check
+     data-table pager and the Pagination component on page 1, a Calendar with its month buttons
+     (the previous month aria-disabled), a selected day and disabled days, a bottom bar with an active-item indicator, an avatar with title). No check
      may fire. -->
 <html lang="he" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>real-table</title><link rel="stylesheet" href="/real.css"></head><body>
@@ -38,6 +38,10 @@
   </nav>
   <h2>בחירת תאריך</h2>
   <div data-slot="calendar">
+    <nav class="rdp-nav" aria-label="Navigation bar">
+      <button type="button" class="rdp-button_previous" tabindex="-1" aria-disabled="true" aria-label="Go to the Previous Month"><svg aria-hidden="true" width="16" height="16"></svg></button>
+      <button type="button" class="rdp-button_next" aria-label="Go to the Next Month"><svg aria-hidden="true" width="16" height="16"></svg></button>
+    </nav>
     <table role="grid" aria-label="נובמבר 2026"><tbody><tr>
       <td role="gridcell" data-disabled="true"><button type="button" disabled>3</button></td>
       <td role="gridcell" data-disabled="true"><button type="button" disabled>4</button></td>

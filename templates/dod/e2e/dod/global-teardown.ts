@@ -80,13 +80,16 @@ export default async function globalTeardown() {
   // The standard's checks, summed: per check id, how many routes have findings and how many.
   const standardSummary = standard
     ? (() => {
-        const checks: Record<string, { routes: number; findings: number; errors: number }> = {};
+        // Per check id: routes with findings, findings, routes where it failed to run, and routes
+        // where it did not apply (skipped, with its reason on the route).
+        const checks: Record<string, { routes: number; findings: number; errors: number; skipped: number }> = {};
         const errors: string[] = [];
         for (const [route, r] of Object.entries(perRoute)) {
           for (const [id, c] of Object.entries(r.standard ?? {})) {
-            const cur = (checks[id] ??= { routes: 0, findings: 0, errors: 0 });
+            const cur = (checks[id] ??= { routes: 0, findings: 0, errors: 0, skipped: 0 });
             cur.findings += c.count;
             if (c.count) cur.routes++;
+            if (c.skipped) cur.skipped++;
             if (c.error) {
               cur.errors++;
               errors.push(`${route} ${id}: ${c.error}`);

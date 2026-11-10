@@ -132,6 +132,8 @@ export default async function globalSetup(config: FullConfig) {
   fs.mkdirSync(SCREENS_DIR, { recursive: true });
   fs.mkdirSync(REPORTS_DIR, { recursive: true });
   fs.rmSync(STORAGE_STATE, { force: true });
+  // An older kit kept the QA session in reports/, which CI uploads: a leftover copy goes.
+  fs.rmSync(path.join(REPORTS_DIR, "qa-storage-state.json"), { force: true });
   fs.rmSync(NOT_FOUND_PRINT, { force: true });
 
   const user = process.env.DOD_USER;

@@ -1,0 +1,40 @@
+<!doctype html>
+<!-- Stock shadcn: an open modal Dialog with an edit-client form (Radix hides the rest with aria-hidden). -->
+<html lang="he" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>real-dialog-form</title><link rel="stylesheet" href="/real.css"><link rel="stylesheet" href="/real-extra.css"></head><body>
+<header aria-hidden="true"><span>סטודיו מיכל</span><a data-help="door" data-slot="button" class="border" href="#help">עזרה</a></header>
+<main aria-hidden="true">
+  <div class="page-head"><h1>לקוחות</h1><a data-help="screen" href="#help">מה עושים כאן</a></div>
+  <button type="button" data-slot="button" class="bg-primary">הוספת לקוח</button>
+  <p>מיכל ברק, 050-1234567</p>
+</main>
+<div data-slot="dialog-overlay" data-state="open" aria-hidden="true"></div>
+<div role="dialog" id="radix-r1" aria-describedby="radix-r3" aria-labelledby="radix-r2" data-state="open" data-slot="dialog-content" tabindex="-1">
+  <div data-slot="dialog-header"><h2 id="radix-r2" data-slot="dialog-title">עריכת פרטי לקוחה</h2>
+    <p id="radix-r3" data-slot="dialog-description">השינויים יישמרו בכרטיס הלקוחה.</p></div>
+  <form>
+    <div data-slot="form-item"><label data-slot="form-label" class="" for="«r5»-form-item" style="display:block;font-size:14px;margin:12px 0 6px">שם מלא</label>
+      <input data-slot="input" id="«r5»-form-item" aria-describedby="«r5»-form-item-description" aria-invalid="false" name="fullName" autocomplete="name" value="מיכל ברק">
+      <p data-slot="form-description" id="«r5»-form-item-description" style="font-size:13px;margin:4px 0">כפי שיופיע בתזכורות.</p></div>
+    <div data-slot="form-item"><label data-slot="form-label" for="«r6»-form-item" style="display:block;font-size:14px;margin:12px 0 6px">טלפון</label>
+      <input data-slot="input" id="«r6»-form-item" aria-invalid="false" name="phone" type="tel" autocomplete="tel" value="050-1234567" dir="ltr"></div>
+    <div data-slot="form-item"><label data-slot="form-label" for="«r7»-form-item" style="display:block;font-size:14px;margin:12px 0 6px">אימייל</label>
+      <input data-slot="input" id="«r7»-form-item" aria-invalid="false" name="email" type="email" autocomplete="email" value="michal@example.com" dir="ltr"></div>
+    <div data-slot="form-item"><span data-slot="form-label" id="src-l" style="display:block;font-size:14px;margin:12px 0 6px">איך הגיעה אלינו</span>
+      <button type="button" role="combobox" aria-controls="radix-r9" aria-expanded="false" aria-autocomplete="none" dir="rtl" data-state="closed" data-slot="select-trigger" aria-labelledby="src-l"><span data-slot="select-value" style="pointer-events:none">המלצה של חברה</span><svg aria-hidden="true" width="16" height="16"></svg></button>
+      <select aria-hidden="true" tabindex="-1" name="source" style="position:absolute;border:0;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;word-wrap:normal"><option value=""></option><option value="friend" selected>המלצה של חברה</option></select></div>
+    <div data-slot="form-item"><label data-slot="form-label" for="«r8»-form-item" style="display:block;font-size:14px;margin:12px 0 6px">הערות</label>
+      <textarea data-slot="textarea" id="«r8»-form-item" name="notes" aria-invalid="false">מעדיפה תורים בבוקר! נא לא להתקשר בשבת 🙏</textarea></div>
+    <div class="row">
+      <button type="button" role="checkbox" aria-checked="true" data-state="checked" value="on" data-slot="checkbox" id="«r9»-form-item" aria-invalid="false"></button>
+      <input type="checkbox" aria-hidden="true" tabindex="-1" value="on" checked style="transform:translateX(-100%);position:absolute;pointer-events:none;opacity:0;margin:0;width:16px;height:16px">
+      <label data-slot="form-label" for="«r9»-form-item" style="font-size:14px">לשלוח תזכורות ב-SMS</label>
+    </div>
+    <div data-slot="dialog-footer" class="row">
+      <button type="submit" data-slot="button" class="bg-primary">שמירה</button>
+      <button type="button" data-slot="button" class="border">ביטול</button>
+    </div>
+  </form>
+  <button type="button" data-slot="dialog-close" class="size-9" style="position:absolute;top:16px;inset-inline-end:16px;width:24px;height:24px;border:0;background:transparent"><svg aria-hidden="true" width="16" height="16"></svg><span class="sr-only">סגירה</span></button>
+</div>
+</body></html>

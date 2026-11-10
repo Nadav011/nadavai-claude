@@ -2,7 +2,9 @@
 // Fixture tests of the DoD template. Not copied into projects.
 //
 //   heavy-slot -- node templates/dod/tests/run.mjs [--only esm|cjs] [--skip-browser]
-//                  [--suite static,dom,browser,small] [--dom-src <standard-dom.ts>]
+//                  [--suite static,dom,browser,small] [--dom-src <standard-dom.ts>] [--template <dir>]
+// --template runs another copy of templates/dod (an older commit exported with git archive), to
+// show which tests fail on it.
 //
 // Drives the real template code (copied unmodified into two throwaway projects, one with
 // "type": "module" and one without) against small static fixture pages served from
@@ -22,13 +24,17 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const TEMPLATE = path.resolve(HERE, "..");
-const REPO = path.resolve(TEMPLATE, "..", "..");
+const argv0 = process.argv.slice(2);
+const TEMPLATE = argv0.includes("--template") ? path.resolve(argv0[argv0.indexOf("--template") + 1]) : path.resolve(HERE, "..");
+const REPO = path.resolve(HERE, "..", "..", "..");
 const FIXTURES = path.join(HERE, "fixtures");
 const WORK = path.resolve(process.env.DOD_TEST_WORKDIR ?? path.join(os.tmpdir(), "dod-template-tests"));
 const args = process.argv.slice(2);
 const KINDS = args.includes("--only") ? [args[args.indexOf("--only") + 1]] : ["esm", "cjs"];
 const SKIP_BROWSER = args.includes("--skip-browser");
+// How long /slow keeps the network busy: long enough that a second page load inside the
+// standard's checks would push a report-mode entry past the test timeout, as it did before.
+const SLOW_MS = Number(process.env.DOD_TEST_SLOW_MS ?? 40_000);
 const SUITES = new Set((args.includes("--suite") ? args[args.indexOf("--suite") + 1] : "static,dom,browser,small").split(","));
 // The DOM lane can run an older standard-dom.ts, to show which of its checks fail real markup.
 const DOM_SRC = args.includes("--dom-src") ? path.resolve(args[args.indexOf("--dom-src") + 1]) : path.join(TEMPLATE, "e2e", "dod", "standard-dom.ts");
@@ -101,7 +107,7 @@ function startServer() {
       res.end(shell(name, body));
     };
     if (url.pathname === "/favicon.ico") return res.writeHead(204).end();
-    if (url.pathname === "/fixture.css" || url.pathname === "/real.css") {
+    if (url.pathname === "/fixture.css" || url.pathname === "/real.css" || url.pathname === "/real-extra.css") {
       res.writeHead(200, { "content-type": "text/css" });
       return res.end(fs.readFileSync(path.join(FIXTURES, url.pathname.slice(1))));
     }
@@ -115,6 +121,23 @@ function startServer() {
       );
     }
     if (url.pathname === "/") return html("home", "<p>דף הבית של הבדיקה.</p>");
+    // H1 of review round 2: pages whose report-mode run must score exactly as without standard.json.
+    // /slow keeps the network busy for SLOW_MS; /resize-log logs a console error 300 ms after a
+    // resize; /nav-resize navigates home when the window is made wide, and spins (a reduced-motion
+    // finding that must be measured on the route itself, not on the page it went to).
+    if (url.pathname === "/api/slow") return setTimeout(() => res.writeHead(200, { "content-type": "application/json" }).end("{}"), SLOW_MS);
+    if (url.pathname === "/slow") return html("slow", '<p>רשימת התורים של היום נטענת מהשרת.</p><script>fetch("/api/slow")</script>');
+    if (url.pathname === "/resize-log")
+      return html(
+        "resize-log",
+        '<p>לוח שנה שבועי עם הרבה תורים.</p><script>let t;addEventListener("resize",()=>{clearTimeout(t);t=setTimeout(()=>console.error("layout: cannot measure week grid"),300)})</script>',
+      );
+    if (url.pathname === "/nav-resize")
+      return html(
+        "nav-resize",
+        '<p>מסך לטלפון בלבד, עם אנימציה.</p><div style="width:20px;height:20px;background:#333;animation:s 2s linear infinite"></div>' +
+          '<style>@keyframes s{to{transform:rotate(360deg)}}</style><script>addEventListener("resize",()=>{if(innerWidth>1000&&!location.search.includes("w"))location.replace("/?w")})</script>',
+      );
     if (url.pathname === "/audience") {
       // Signed in, the page is wider than the screen; as a visitor it is not. An anonymous
       // entry that came out with an overflow would have been measured with the QA cookie.
@@ -198,6 +221,10 @@ const DOM_CHECKS = {
 // Stock shadcn/Radix markup on which no check may fire: a check that fails a well-built
 // screen teaches people to ignore the checks.
 const REAL_PAGES = ["real-settings", "real-table"];
+// Every real-markup page, for the DOM lane: the two above plus the reviewer's of round 2 (a
+// booking screen with cmdk and react-day-picker, a modal dialog form, a modal sheet, the sidebar
+// shell with a breadcrumb, and the same shell nested deeper). No check may fire on any.
+const LANE_PAGES = [...REAL_PAGES, "real-booking", "real-dialog-form", "real-sheet", "real-shell", "real-shell-deep"];
 const STANDARD = {
   profile: "work-tool",
   mode: "enforce",
@@ -252,9 +279,14 @@ async function browserSuite(kind, port) {
   }
   const dlg = fired(R["/one-primary-dialog"]);
   ok(dlg.length === 0, `${kind}: one-primary counts the open dialog alone (fired: ${dlg.join(",") || "none"})`);
-  const probe = R["/probe"]?.entries.find((e) => e.viewport.width === 375 && e.scheme === "light")?.probe ?? {};
+  // The probe's sizes are split by pointer: the 375 light entry takes 320, 390 and 768 with a
+  // touch pointer, the 1440 light entry 1024 and 1280 with a mouse, each size once per route.
+  const probeOf = (w) => R["/probe"]?.entries.find((e) => e.viewport.width === w && e.scheme === "light")?.probe ?? {};
+  const probe = { ...probeOf(375), ...probeOf(1440) };
+  ok(String(Object.keys(probeOf(375))) === "320x700,390x844,768x1024" && String(Object.keys(probeOf(1440))) === "1024x768,1280x648", `${kind}: each probe size is measured once, by the entry whose pointer fits it`);
+  ok(R["/probe"]?.entries.filter((e) => e.scheme === "dark").every((e) => !e.probe), `${kind}: the dark entries run no probe`);
   ok(probe["320x700"]?.overflow && !probe["390x844"]?.overflow, `${kind}: probe sees the sideways scroll at 320 only`);
-  ok(Object.values(probe).every((p) => p.small_text.count > 0), `${kind}: probe sees text under the floor at every size`);
+  ok(Object.values(probe).length === 5 && Object.values(probe).every((p) => p.small_text.count > 0), `${kind}: probe sees text under the floor at every size`);
   ok(Object.values(probe).some((p) => p.broken_words.count > 0), `${kind}: probe sees a word broken across lines`);
   ok(probe["768x1024"]?.touch?.failures > 0 && probe["1024x768"]?.touch === null, `${kind}: probe holds touch targets at phone and tablet sizes only`);
   ok(R["/core-unit"]?.standard?.["core-unit"]?.samples[0]?.includes("2 of 3"), `${kind}: core-unit counts 2 of 3 rows at 390x700`);
@@ -301,8 +333,8 @@ async function browserSuite(kind, port) {
   // Touch targets in the probe are measured with a touch pointer (M6).
   const pt = R["/pointer-touch"]?.entries.find((e) => e.viewport.width === 375 && e.scheme === "light");
   ok(
-    ["320x700", "390x844", "768x1024"].every((k) => pt?.probe?.[k]?.touch?.failures === 0) && pt?.touch_targets.failures > 0,
-    `${kind}: a control that reaches 44px on (pointer: coarse) passes the probe's touch sizes (and still fails the score's 375 check, which has no touch pointer)`,
+    ["320x700", "390x844", "768x1024"].every((k) => pt?.probe?.[k]?.touch?.failures === 0) && pt?.touch_targets.checked && pt?.touch_targets.failures === 0,
+    `${kind}: a control that reaches 44px on (pointer: coarse) passes the probe's touch sizes and the score's 375 check, both with a touch pointer`,
   );
   // noHelp and static are separate (M5).
   ok(fired(R["/help-door?as=nohelp"]).length === 0 && R["/help-door?as=nohelp"]?.standard?.["help-door"]?.skipped?.startsWith("noHelp"), `${kind}: noHelp exempts help-door`);
@@ -317,7 +349,7 @@ async function smallRuns(kind, port) {
   // The same three routes twice: without standard.json, and in report mode with a broken
   // coreUnit selector. Report mode records its findings and its error, and must leave every
   // score, the console counts and the exit code exactly as the plain run has them (H3).
-  const ROUTES = ["/clean", "/one-primary", "/axe-moderate"];
+  const ROUTES = ["/clean", "/one-primary", "/axe-moderate", "/slow", "/resize-log", "/nav-resize"];
   const plainDir = project(path.join(WORK, `${kind}-plain`), kind, { "e2e/dod/routes.json": ROUTES });
   const plain = await playwright(plainDir, port);
   let p = null;
@@ -341,6 +373,13 @@ async function smallRuns(kind, port) {
     ok(same && r.totals.score === p.totals.score, `${kind}: report mode leaves every score and console count as without standard.json (total ${r.totals.score} vs ${p.totals.score})`);
     ok(Object.values(r.routes).every((x) => x.entries.every((e) => !e.unreachable)), `${kind}: a check that throws never makes a page unreachable`);
     ok(r.routes["/clean"]?.standard?.["core-unit"]?.error && r.standard?.errors?.some((e) => e.includes("core-unit")), `${kind}: the broken selector is recorded as core-unit's error in dod.json`);
+    const nav = r.routes["/nav-resize"];
+    ok(
+      String(nav?.standard?.probe?.error).includes("navigated") && nav?.reduced_motion_violations === p.routes["/nav-resize"]?.reduced_motion_violations,
+      `${kind}: a page that navigates on resize records the probe's error and keeps its own measurements (${nav?.standard?.probe?.error})`,
+    );
+    for (const x of ["/slow", "/resize-log", "/nav-resize"])
+      ok(r.routes[x]?.score === p.routes[x]?.score, `${kind}: ${x} scores ${r.routes[x]?.score} in report mode and ${p.routes[x]?.score} without standard.json`);
     ok(
       r.routes["/one-primary"]?.standard?.["one-primary"]?.count > 0 && r.totals.standard_findings > 0,
       `${kind}: report mode records one-primary and sums the findings in totals`,
@@ -409,6 +448,11 @@ function staticSuite(kind) {
     { name: "listed", files: { "e2e/dod/routes.json": ["/", "/orders", "/orders/1", "/missing-page-sample"], "e2e/dod/route-params.json": { id: "1", _listed: { "/missing-page-sample": "the app's own not-found page, measured on purpose" } } }, exit: 0, out: /all covered/ },
     { name: "listed-blank", files: { "e2e/dod/routes.json": ["/", "/orders", "/orders/1", "/missing-page-sample"], "e2e/dod/route-params.json": { id: "1", _listed: { "/missing-page-sample": " " } } }, exit: 1, out: /_listed in route-params\.json have no reason/ },
     { name: "listed-write", args: [], files: { "e2e/dod/routes.json": ["/"], "e2e/dod/route-params.json": { id: "1", _listed: { "/missing-page-sample": "measured on purpose" } } }, exit: 0, out: /wrote/, after: (dir) => JSON.parse(fs.readFileSync(path.join(dir, "e2e/dod/routes.json"), "utf8")).includes("/missing-page-sample") },
+    // Round 2, LOW 1: a _listed route missing from routes.json fails; one the scan finds again is reported.
+    { name: "listed-missing", files: { "e2e/dod/routes.json": ["/", "/orders", "/orders/1"], "e2e/dod/route-params.json": { id: "1", _listed: { "/missing-page-sample": "measured on purpose" } } }, exit: 1, out: /under _listed are missing from e2e\/dod\/routes\.json/ },
+    { name: "listed-refound", files: { "e2e/dod/routes.json": ["/", "/orders", "/orders/1"], "e2e/dod/route-params.json": { id: "1", _listed: { "/orders": "kept by hand once" } } }, exit: 0, out: /\/orders is under _listed but the scan finds it now/ },
+    // Round 2, LOW 8: a public path and an "@/" path resolve where the app reads them.
+    { name: "brand-paths", files: { "PRODUCT.md": "# Product\n\n## Brand\n\n`/logo.svg` and `@/assets/mark.svg`.\n", "tsconfig.json": '{ "compilerOptions": { "paths": { "@/*": ["./src/*"] } } }', "src/assets/mark.svg": "<svg/>", "e2e/dod/routes.json": full, "e2e/dod/standard.json": std }, exit: 0, out: /0 finding\(s\)/ },
     // LOW: routes.mjs honours DOD_ROOT, run from another directory.
     { name: "dod-root", fromElsewhere: true, files: { "e2e/dod/routes.json": ["/", "/orders", "/orders/1"] }, exit: 0, out: /3 app routes, all covered/ },
     // M2: the heading may be "המותג", and code spans that are values are not paths.
@@ -451,16 +495,25 @@ const DEFECTS = [
   ["tooltip-only", "real-table", 1440, `document.querySelector("main").insertAdjacentHTML("beforeend", '<button data-slot="button" class="size-9" title="ייצוא" aria-label="ייצוא"><svg width="16" height="16"></svg></button>')`],
   ["disabled-reason", "real-table", 1440, `document.querySelector("main").insertAdjacentHTML("beforeend", '<button data-slot="button" class="border" disabled>שליחת תזכורת</button>')`],
   ["placeholder-label", "real-table", 1440, `document.querySelector("main").insertAdjacentHTML("beforeend", '<input data-slot="input" name="city" autocomplete="address-level2" placeholder="עיר">')`],
-  ["input-attrs", "real-settings", 390, `document.getElementById("ph").type = "text"`],
+  ["input-attrs", "real-shell", 390, `document.getElementById("sp").name = "phone"`],
   ["one-primary", "real-table", 1440, `document.querySelector("main").insertAdjacentHTML("beforeend", '<button data-slot="button" class="bg-primary">ייבוא לקוחות</button>')`],
   ["nav-count", "real-table", 390, `document.querySelector("nav.bottom a").insertAdjacentHTML("beforeend", '<span style="position:absolute;top:8px;width:8px;height:8px;border-radius:4px;background:#b91c1c"></span>')`],
   ["empty-action", "real-table", 1440, `document.querySelector("main").insertAdjacentHTML("beforeend", '<div data-state="empty"><p>עוד אין לקוחות.</p></div>')`],
-  ["error-toast", "real-settings", 1440, `document.querySelector("[data-sonner-toaster]").insertAdjacentHTML("beforeend", '<li data-sonner-toast="" data-type="error">השמירה לא הצליחה.</li>')`],
-  ["error-field", "real-settings", 1440, `document.getElementById("bn").setAttribute("aria-invalid", "true")`],
+  ["error-toast", "real-shell", 1440, `document.querySelector("[data-sonner-toaster]").insertAdjacentHTML("beforeend", '<li data-sonner-toast="" data-type="error">השמירה לא הצליחה.</li>')`],
+  ["error-field", "real-shell", 1440, `document.getElementById("es").setAttribute("aria-invalid", "true")`],
   ["forbidden-words", "real-table", 1440, `document.querySelector("main").insertAdjacentHTML("beforeend", '<p>נא למלא את כל השדות.</p>')`],
   ["state-coverage", "real-table", 1440, null, ["error"]],
   ["core-unit", "real-table", 390, `document.querySelector("main").insertAdjacentHTML("afterbegin", '<div style="height:600px">ככה זה עובד</div>')`],
   ["probe", "real-table", 1440, `document.querySelector("main").insertAdjacentHTML("beforeend", '<p style="font-size:10px">הערה קטנה</p>')`],
+  // The reviewer's d-hidden cases (round 2): real defects that the first round's exemptions hid.
+  ["disabled-reason", "real-table", 390, `document.querySelector("main").insertAdjacentHTML("beforeend", '<div class="row"><button type="button" data-slot="button" class="border" disabled>הבא</button></div>')`, null, "a wizard's lone disabled הבא"],
+  ["disabled-reason", "real-table", 390, `document.querySelector("main").insertAdjacentHTML("beforeend", '<div role="grid" aria-label="משתתפים"><div role="row"><span role="gridcell">דנה כהן</span><span role="gridcell"><button type="button" data-slot="button" class="border" disabled>שליחת תזכורת</button></span></div></div>')`, null, "a disabled action in a grid row"],
+  ["disabled-reason", "real-table", 390, `document.querySelector("main").insertAdjacentHTML("beforeend", '<div><label for="q">כמות</label><input id="q" type="number" name="qty" value="1" autocomplete="off" data-slot="input"><button type="button" data-slot="button" class="border" disabled>הוספה לסל</button></div>')`, null, "a disabled add-to-cart beside a number field"],
+  ["placeholder-label", "real-table", 390, `document.querySelector("main").insertAdjacentHTML("beforeend", '<input data-slot="input" role="combobox" aria-expanded="false" aria-label="מדריכה" placeholder="מדריכה" name="instructor" autocomplete="off">')`, null, "a form combobox labelled only by its placeholder"],
+  ["input-attrs", "real-table", 390, `document.querySelector("main").insertAdjacentHTML("beforeend", '<input data-slot="input" role="combobox" aria-expanded="false" aria-labelledby="ph-l" name="phone" type="text" autocomplete="off"><span id="ph-l">טלפון</span>')`, null, "a phone field built as a combobox"],
+  ["forbidden-words", "real-table", 390, `document.querySelector("main").insertAdjacentHTML("beforeend", '<p>לחץ/י על הכפתור. בחר/י מדריך(ה) מהרשימה.</p>')`, null, "imperative slash and bracket gender forms"],
+  ["forbidden-words", "real-table", 390, `document.querySelector("main").insertAdjacentHTML("beforeend", '<p>נָא לְמַלֵּא אֶת כָּל הַשָּׂדוֹת.</p>')`, null, "a forbidden word with niqqud"],
+  ["tooltip-only", "real-table", 1440, `document.querySelector("main").insertAdjacentHTML("beforeend", '<div><h2>מחיקה</h2><div><span><button type="button" data-slot="button" class="size-9" title="מחיקה"><svg aria-hidden="true" width="16" height="16"></svg></button></span></div></div>')`, null, "an icon button whose title repeats a heading above it"],
 ];
 async function domLane(port) {
   const req = createRequire(path.join(WORK, "package.json"));
@@ -478,9 +531,9 @@ async function domLane(port) {
       if (mutate) await page.evaluate(mutate);
       await page.addScriptTag({ content: `${js}\nwindow.__std = { domChecks, probeAt, coreUnitVisible, BUILT_IN_FORBIDDEN };` });
       return await page.evaluate(
-        ({ phone, expectState, core }) => {
+        ({ phone, width, expectState, core }) => {
           const std = window.__std;
-          const a = { noHelp: null, helpDoor: true, navCount: phone, phone, forbidden: std.BUILT_IN_FORBIDDEN, expectState };
+          const a = { noHelp: null, helpDoor: true, navCount: width === 375 || width === 390, phone, forbidden: std.BUILT_IN_FORBIDDEN, expectState };
           const res = std.domChecks(a);
           const fired = Object.entries(res).filter(([, c]) => c.count > 0).map(([id]) => id);
           const errors = Object.entries(res).filter(([, c]) => c.error).map(([id, c]) => `${id}: ${c.error}`);
@@ -490,7 +543,7 @@ async function domLane(port) {
           const samples = Object.entries(res).filter(([, c]) => c.count > 0).map(([id, c]) => `${id}: ${c.samples.slice(0, 2).join(" | ")}`);
           return { fired: fired.sort(), errors, samples };
         },
-        { phone: width <= 480, expectState: expectState ?? null, core: pageName === "real-table" && width <= 480 },
+        { phone: width <= 480, width, expectState: expectState ?? null, core: pageName === "real-table" && width <= 480 },
       );
     } finally {
       await page.close();
@@ -498,18 +551,18 @@ async function domLane(port) {
   };
   const onClean = {};
   try {
-    for (const p of REAL_PAGES)
-      for (const w of [390, 1440]) {
+    for (const p of LANE_PAGES)
+      for (const w of [375, 390, 1440]) {
         const r = await runOn(p, w, null, null);
         onClean[`${p}@${w}`] = r.fired;
         ok(r.fired.length === 0 && r.errors.length === 0, `dom: no check fires on ${p}.html at ${w} (${r.fired.join(",") || "none"}${r.errors.length ? `; errors ${r.errors}` : ""})`);
         if (r.fired.length) console.log(r.samples.map((x) => `      ${x}`).join("\n"));
       }
-    for (const [id, p, w, mutate, expectState] of DEFECTS) {
+    for (const [id, p, w, mutate, expectState, what] of DEFECTS) {
       const r = await runOn(p, w, mutate, expectState);
       const exact = r.fired.length === 1 && r.fired[0] === id;
-      ok(exact, `dom: one ${id} defect in ${p}.html at ${w} fires exactly ${id} (${r.fired.join(",") || "none"})`);
-      table.push({ kind: "dom", id, fixture: `${p}.html + one defect`, fired: exact, onClean: (onClean[`${p}@${w}`] ?? []).includes(id) });
+      ok(exact, `dom: one ${id} defect${what ? ` (${what})` : ""} in ${p}.html at ${w} fires exactly ${id} (${r.fired.join(",") || "none"})`);
+      table.push({ kind: "dom", id, fixture: `${p}.html + ${what ?? "one defect"}`, fired: exact, onClean: (onClean[`${p}@${w}`] ?? []).includes(id) });
     }
   } finally {
     await browser.close();

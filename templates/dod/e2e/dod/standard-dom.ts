@@ -23,13 +23,13 @@ export interface DomCheckArgs {
   /** The 16px input text floor is an iOS zoom rule, so it is checked at phone widths only. */
   phone: boolean;
   /** forbidden-words patterns, as RegExp sources (a RegExp does not cross into the page). */
-  forbidden: { label: string; source: string }[];
+  forbidden: { label: string; source: string; flags?: string }[];
   /** On a `?state=` variant: the `data-state` values one of which the page must render. */
   expectState: string[] | null;
 }
 
 /** Built-in forbidden wording, from rules C-01 and C-03. A project adds to it, never removes. */
-export const BUILT_IN_FORBIDDEN: { label: string; source: string }[] = [
+export const BUILT_IN_FORBIDDEN: { label: string; source: string; flags?: string }[] = [
   // Whole words, with the conjunction ו as the one prefix taken ("ונא" is still "נא"); ש is
   // taken only before ניתן, because "שנא" is another word.
   ...["נא", "אנא", "ניתן", "כעת", "אופס"].map((w) => ({
@@ -39,14 +39,16 @@ export const BUILT_IN_FORBIDDEN: { label: string; source: string }[] = [
   { label: "שניתן", source: "(?<!\\p{L})שניתן(?!\\p{L})" },
   { label: "exclamation mark", source: "!" },
   { label: "emoji", source: "\\p{Emoji_Presentation}|\\p{Extended_Pictographic}\\uFE0F" },
-  // "מטפל/ית", "הגיע/ה", "מטפלים/ות", and the same with a dot ("מטפל.ת").
-  { label: "slash or dot gender form", source: "[א-ת][/.](ה|ת|ית|תה|ות|יות)(?![א-ת])" },
+  // "מטפל/ית", "הגיע/ה", "מטפלים/ות", the imperative "לחץ/י", and the same with a dot ("מטפל.ת").
+  { label: "slash or dot gender form", source: "[א-ת][/.](י|ה|ת|ית|תה|ות|יות)(?![א-ת])" },
+  // "מדריך(ה)", "תלמיד(ה)".
+  { label: "bracket gender form", source: "[א-ת]\\((י|ה|ת|ית|ות|יות)\\)" },
 ];
 
-/** A project word from standard.json, as a whole word. */
-export function forbiddenWordSource(word: string): { label: string; source: string } {
+/** A project word from standard.json, as a whole word; a Latin word in any letter case. */
+export function forbiddenWordSource(word: string): { label: string; source: string; flags?: string } {
   const esc = word.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
-  return { label: word, source: `(?<!\\p{L})${esc}(?!\\p{L})` };
+  return { label: word, source: `(?<!\\p{L})${esc}(?!\\p{L})`, ...(/[a-z]/i.test(word) ? { flags: "giu" } : {}) };
 }
 
 /**
@@ -55,6 +57,21 @@ export function forbiddenWordSource(word: string): { label: string; source: stri
  * (or `translate="no"`, which a message list usually carries already).
  */
 export const USER_CONTENT = '[data-user-content], [translate="no"]';
+
+/** The checks domChecks always reports (state-coverage only on a `?state=` variant). */
+export const DOM_CHECK_IDS = [
+  "help-door",
+  "tooltip-only",
+  "disabled-reason",
+  "placeholder-label",
+  "input-attrs",
+  "one-primary",
+  "nav-count",
+  "empty-action",
+  "error-toast",
+  "error-field",
+  "forbidden-words",
+] as const;
 
 /**
  * Every per-entry DOM check, in one pass over the page. Each check is judged against stock
@@ -105,7 +122,13 @@ export function domChecks(args: DomCheckArgs): Record<string, CheckResult> {
       out[id] = { count: 0, samples: [], error: err instanceof Error ? err.message : String(err) };
     }
   };
-  const SEARCH = 'input[type="search"], [role="searchbox"], [role="combobox"]';
+  // A search box: type=search, role=searchbox, or a combobox inside a command palette or a
+  // search landmark. A combobox elsewhere is a form field like any other.
+  const isSearch = (el: Element) =>
+    el.matches('input[type="search"], [role="searchbox"]') ||
+    (el.matches('[role="combobox"]') && !!el.closest('[cmdk-root], [role="search"]'));
+  // A modal dialog that is open: Radix hides everything else with aria-hidden.
+  const modalOpen = [...document.querySelectorAll('[role="dialog"], [role="alertdialog"], dialog[open]')].some(vis);
 
   // help-door (G-01): the door in the top bar, and the screen's own entry in its header.
   check("help-door", (c) => {
@@ -113,13 +136,21 @@ export function domChecks(args: DomCheckArgs): Record<string, CheckResult> {
       c.skipped = `noHelp: ${args.noHelp}`;
       return;
     }
-    const doors = [...document.querySelectorAll('[data-help="door"]')].filter(vis);
+    // With a modal open on load, the door is behind the aria-hidden Radix puts on the page: it is
+    // still the page's door, so it is looked for as if that aria-hidden were not there.
+    const shown = (el: Element) =>
+      vis(el) ||
+      (modalOpen &&
+        el.checkVisibility({ opacityProperty: true, visibilityProperty: true }) &&
+        el.getBoundingClientRect().width >= 1 &&
+        !el.closest("[inert], [hidden]"));
+    const doors = [...document.querySelectorAll('[data-help="door"]')].filter(shown);
     // The top bar: inside a header or banner, or in the first 120px of the page.
     const inTopBar = doors.some(
       (d) => d.closest('header, [role="banner"]') || d.getBoundingClientRect().top + window.scrollY < 120,
     );
     if (!inTopBar) add(c, doors.length ? 'the [data-help="door"] is not in the top bar' : 'no visible [data-help="door"]');
-    if (![...document.querySelectorAll('[data-help="screen"]')].some(vis)) add(c, 'no visible [data-help="screen"]');
+    if (![...document.querySelectorAll('[data-help="screen"]')].some(shown)) add(c, 'no visible [data-help="screen"]');
   });
 
   // tooltip-only (G-04): the only words are in a title or a hover tooltip. What it can see: a
@@ -131,17 +162,31 @@ export function domChecks(args: DomCheckArgs): Record<string, CheckResult> {
         return readable(labelText(el)) || pointsAtVisibleText(el, "aria-labelledby");
       return readable(text(el)) || pointsAtVisibleText(el, "aria-labelledby");
     };
-    // The same words already on screen beside it (within three levels up): an avatar whose
-    // title repeats the name next to it explains nothing that is not visible.
+    // The same words already on screen as its own label: a sibling of the element or of its
+    // wrapper (an avatar beside the name), or the label of the labelled group it sits in. A
+    // heading higher up is not its label.
     const besideIt = (el: Element, words: string) => {
-      let a = el.parentElement;
-      for (let i = 0; a && i < 3; i++, a = a.parentElement) if (text(a).includes(words)) return true;
-      return false;
+      // What sits beside n in its parent: text nodes and elements other than n and headings.
+      const beside = (n: Element | null) =>
+        n?.parentElement
+          ? [...n.parentElement.childNodes]
+              .filter((x) => x !== n && !(x instanceof Element && (x.matches("h1, h2, h3, h4, h5, h6") || !vis(x))))
+              .map((x) => (x instanceof Element ? text(x) : (x.textContent ?? "")))
+              .join(" ")
+          : "";
+      if (beside(el).includes(words) || beside(el.parentElement).includes(words)) return true;
+      const group = el.closest('[role="group"][aria-labelledby], [role="group"][aria-label], fieldset');
+      const label = group
+        ? (group.getAttribute("aria-label") ?? "") + byIds(group.getAttribute("aria-labelledby")).map((t) => text(t)).join(" ") +
+          text(group.querySelector(":scope > legend"))
+        : "";
+      return label.includes(words);
     };
     const seen = new Set<Element>();
     for (const el of document.body.querySelectorAll("[title]")) {
       const title = el.getAttribute("title")?.trim() ?? "";
-      if (!vis(el) || !title || el.matches("iframe, svg *")) continue;
+      // The sidebar rail is a drag edge with a duplicate of the trigger's job, out of the tab order.
+      if (!vis(el) || !title || el.matches('iframe, svg *, [data-sidebar="rail"], [data-slot="sidebar-rail"]')) continue;
       if (el.closest("[data-help]") || ownWords(el) || pointsAtVisibleText(el, "aria-describedby")) continue;
       if (besideIt(el, title)) continue;
       seen.add(el);
@@ -155,28 +200,49 @@ export function domChecks(args: DomCheckArgs): Record<string, CheckResult> {
     }
   });
 
-  // disabled-reason (E-02): a disabled control shows why, in a visible line. Not judged where
-  // the reason is the control's own position: a day of a calendar grid or a grid row, a pager's
-  // previous/next or page number, a stepper at its limit.
+  // disabled-reason (E-02): a disabled control shows why, in a visible line linked to it
+  // (aria-describedby on the control or on its group, which is how a legend is linked). Not
+  // judged where the position is the reason, each case narrow so a real defect still fires: the
+  // current page of a breadcrumb or pager, a numbered calendar day, a pager's or calendar's
+  // previous/next, a +/- or icon stepper beside a number field. An option or item whose own
+  // text carries the reason, in brackets or after a dash ("פדיקור (אין תורים החודש)"), passes.
   check("disabled-reason", (c) => {
-    const PAGER_WORD = /^(הקודם|הבא|הקודמת|הבאה|ראשון|אחרון|previous|prev|next|first|last|[«‹›»<>]|\d+)$/i;
-    const pagerLabel = (el: Element) =>
-      PAGER_WORD.test((el.getAttribute("aria-label") || text(el)).replace(/\s+/g, " ").trim()) ||
-      /^(go to )?(previous|next|first|last) page$|^(לעמוד|עמוד) (הקודם|הבא|הראשון|האחרון)$/i.test(el.getAttribute("aria-label") ?? "");
+    const PREV = /^(הקודם|הקודמת|previous|prev|go to (the )?previous (page|month)|לעמוד הקודם|החודש הקודם|חודש קודם|[‹«<])$/i;
+    const NEXT = /^(הבא|הבאה|next|go to (the )?next (page|month)|לעמוד הבא|החודש הבא|חודש הבא|[›»>])$/i;
+    const EDGE = /^(ראשון|אחרון|first|last|go to (the )?(first|last) page|\d+)$/i;
+    const name = (el: Element) => (el.getAttribute("aria-label") || text(el)).replace(/\s+/g, " ").trim();
+    const isPrev = (el: Element) => PREV.test(name(el));
+    const isNext = (el: Element) => NEXT.test(name(el));
+    const pagerish = (el: Element) => isPrev(el) || isNext(el) || EDGE.test(name(el));
+    const CONTROL = 'a, button, [role="button"], [role="link"]';
     const inPager = (el: Element) => {
-      if (el.closest('[data-slot="pagination"], [aria-label="pagination" i]')) return true;
+      if (el.closest('[data-slot="pagination"], [aria-label="pagination" i], .rdp-nav, [data-slot="calendar"] nav')) return true;
       const nav = el.closest("nav[aria-label]");
-      return !!nav && [...nav.querySelectorAll('a, button, [role="button"]')].every(pagerLabel);
+      return !!nav && [...nav.querySelectorAll(CONTROL)].every(pagerish);
     };
-    const inStepper = (el: Element) =>
-      el.matches('[role="spinbutton"], input[type="number"]') ||
+    // A previous and a next control side by side: the data-table pager on its first page.
+    const pairedPager = (el: Element) => {
+      const sibs = [...(el.parentElement?.querySelectorAll(":scope > " + CONTROL.split(", ").join(", :scope > ")) ?? [])];
+      return (isPrev(el) || isNext(el)) && sibs.some(isPrev) && sibs.some(isNext);
+    };
+    const calendarDay = (el: Element) => !!el.closest('[role="gridcell"]') && /^\d{1,2}$/.test(text(el));
+    const stepper = (el: Element) =>
+      (/^[+\-−–]$/.test(text(el)) || !readable(text(el))) &&
       !!el.parentElement?.querySelector('input[type="number"], [role="spinbutton"]');
+    const reasonInOwnText = (el: Element) =>
+      el.matches('[role="option"], [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"], [role="treeitem"], [cmdk-item], option, li') &&
+      /\(.+\)|\s[-–—]\s\S/.test(text(el));
+    const groupReason = (el: Element) => {
+      const g = el.closest('[role="group"], [role="radiogroup"], [role="listbox"], [role="toolbar"], fieldset');
+      return !!g && pointsAtVisibleText(g, "aria-describedby");
+    };
     for (const el of document.body.querySelectorAll(
       'button:disabled, input:disabled:not([type="hidden"]), select:disabled, textarea:disabled, [aria-disabled="true"]',
     )) {
       if (!vis(el) || el.closest('[aria-busy="true"]')) continue;
-      if (el.closest('[role="grid"], [role="row"], [role="gridcell"]') || inPager(el) || pagerLabel(el) || inStepper(el)) continue;
-      if (pointsAtVisibleText(el, "aria-describedby")) continue;
+      if (el.matches('[aria-current], [data-slot="breadcrumb-page"]')) continue;
+      if (calendarDay(el) || inPager(el) || pairedPager(el) || stepper(el) || reasonInOwnText(el)) continue;
+      if (pointsAtVisibleText(el, "aria-describedby") || groupReason(el)) continue;
       add(c, describe(el));
     }
   });
@@ -187,7 +253,7 @@ export function domChecks(args: DomCheckArgs): Record<string, CheckResult> {
   check("placeholder-label", (c) => {
     for (const el of document.body.querySelectorAll<HTMLInputElement>("input[placeholder], textarea[placeholder]")) {
       if (!vis(el) || !el.placeholder.trim()) continue;
-      if (el.matches(SEARCH) && (el.getAttribute("aria-label")?.trim() || el.hasAttribute("aria-labelledby"))) continue;
+      if (isSearch(el) && (el.getAttribute("aria-label")?.trim() || el.hasAttribute("aria-labelledby"))) continue;
       const labelled =
         [...(el.labels ?? [])].some((l) => vis(l) && readable(text(l))) || pointsAtVisibleText(el, "aria-labelledby");
       if (!labelled) add(c, describe(el));
@@ -201,17 +267,24 @@ export function domChecks(args: DomCheckArgs): Record<string, CheckResult> {
     // inputmode). Words in its label or placeholder are a weak hint: they count only when two
     // of them agree (the label says phone AND the placeholder looks like a number), so "נושא
     // המייל" (an e-mail's subject) is not an e-mail field.
+    // `declared` is matched against the last meaningful word of the name or id: "emailSubject" is
+    // a subject, "email_address" and "phoneNumber" are an e-mail and a phone.
     const KINDS = {
-      phone: { declared: /(^|[^a-z])(tel|phone|mobile|cell)([^a-z]|$)/, ac: /^tel/, words: /טלפון|נייד|phone|mobile/i, looks: /^[+\d][\d\s()-]{6,}$/ },
-      email: { declared: /(^|[^a-z])e?-?mail([^a-z]|$)/, ac: /^email$/, words: /דוא"ל|אימייל|מייל|e-?mail/i, looks: /@/ },
+      phone: { declared: /^(tel|telephone|phone|mobile|cell|cellphone|nayad)$/, ac: /^tel/, words: /טלפון|נייד|phone|mobile/i, looks: /^[+\d][\d\s()-]{6,}$/ },
+      email: { declared: /^(e?mail)$/, ac: /^email$/, words: /דוא"ל|אימייל|מייל|e-?mail/i, looks: /@/ },
       number: {
-        declared: /(^|[^a-z])(amount|price|qty|quantity|otp|zip|postal)([^a-z]|$)/,
+        declared: /^(amount|price|qty|quantity|otp|zip|postal|zipcode|postcode)$/,
         ac: /^(one-time-code|cc-number|cc-csc|postal-code|transaction-amount)$/,
         words: /סכום|מחיר|כמות|מיקוד|קוד אימות/,
         looks: /^\d+([.,]\d+)?$/,
       },
     } as const;
-    const tokens = (s: string) => s.replace(/([a-z])([A-Z])/g, "$1-$2").toLowerCase();
+    const TRAILING = /^(number|num|no|nr|address|addr|input|field|value|\d+)$/;
+    const lastWord = (s: string) => {
+      const words = s.replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+      while (words.length > 1 && TRAILING.test(words[words.length - 1])) words.pop();
+      return words[words.length - 1] ?? "";
+    };
     for (const el of document.body.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(
       "input, textarea, select",
     )) {
@@ -220,10 +293,10 @@ export function domChecks(args: DomCheckArgs): Record<string, CheckResult> {
       if (isInput && NOT_TEXT.test(el.type)) continue;
       const px = Number.parseFloat(getComputedStyle(el).fontSize);
       if (args.phone && px < 16) add(c, `${describe(el)} text ${px}px (under 16px zooms the page on iOS)`);
-      if (!isInput || el.matches(SEARCH)) continue;
+      if (!isInput || isSearch(el)) continue;
       if (!el.hasAttribute("autocomplete")) add(c, `${describe(el)} has no autocomplete attribute`);
       const ac = (el.getAttribute("autocomplete") ?? "").toLowerCase().split(/\s+/).pop() ?? "";
-      const declared = tokens(`${el.name} ${el.id}`);
+      const declared = [lastWord(el.name), lastWord(el.id)];
       const type = el.type.toLowerCase();
       const mode = (el.getAttribute("inputmode") ?? "").toLowerCase();
       const fits = { phone: type === "tel" || mode === "tel", email: type === "email" || mode === "email", number: type === "number" || /^(numeric|decimal)$/.test(mode) };
@@ -231,7 +304,7 @@ export function domChecks(args: DomCheckArgs): Record<string, CheckResult> {
         if (fits[kind]) continue;
         // A field that declares another kind is that kind: a type="email" named "contact" is not a phone.
         if (Object.entries(fits).some(([other, f]) => other !== kind && f)) continue;
-        const strong = k.ac.test(ac) || k.declared.test(declared);
+        const strong = k.ac.test(ac) || declared.some((w) => k.declared.test(w));
         const weak = [labelText(el), el.getAttribute("aria-label") ?? ""].some((w) => k.words.test(w)) && k.looks.test(el.placeholder.trim());
         if (strong || weak) add(c, `${describe(el)} is a ${kind} field without the matching type or inputmode`);
       }
@@ -245,35 +318,45 @@ export function domChecks(args: DomCheckArgs): Record<string, CheckResult> {
     const layers = [...document.querySelectorAll('[role="dialog"], [role="alertdialog"], dialog[open]')].filter(vis);
     // The top layer is the last open dialog or sheet, alone; the page only when none is open.
     const scope: Element = layers[layers.length - 1] ?? document.body;
-    const token = getComputedStyle(document.documentElement).getPropertyValue("--primary").trim();
-    if (!token) {
-      c.skipped = "no --primary token on :root";
-      return;
-    }
-    // The token resolved by the browser itself, in the same layer: a hex, an oklch() or bare
-    // HSL channels (`222 47% 11%`, the older shadcn form, used as hsl(var(--primary))).
-    const probe = document.createElement("div");
-    probe.style.display = "none";
-    scope.appendChild(probe);
-    const resolve = (v: string) => {
-      probe.style.backgroundColor = "";
-      probe.style.backgroundColor = v;
-      return probe.style.backgroundColor ? getComputedStyle(probe).backgroundColor : "";
-    };
+    // Each action is compared with the --primary its own element inherits: a multi-brand wrapper
+    // can set another one under :root. The token is resolved by the browser, inside the same
+    // element, so a hex, an oklch() or bare HSL channels (`222 47% 11%`, used as
+    // hsl(var(--primary))) all work.
     const TRANSPARENT = /^(rgba\(0, 0, 0, 0\)|transparent)$/;
-    let accent = resolve("var(--primary)");
-    if (!accent || TRANSPARENT.test(accent)) accent = resolve("hsl(var(--primary))");
-    probe.remove();
-    if (!accent || TRANSPARENT.test(accent)) {
-      c.skipped = `--primary (${token}) does not resolve to a colour`;
-      return;
-    }
+    const cache = new Map<string, string>();
+    const accentOf = (el: Element) => {
+      const token = getComputedStyle(el).getPropertyValue("--primary").trim();
+      if (!token) return "";
+      if (cache.has(token)) return cache.get(token)!;
+      const probe = document.createElement("div");
+      probe.style.display = "none";
+      (el.parentElement ?? scope).appendChild(probe);
+      const resolve = (v: string) => {
+        probe.style.backgroundColor = "";
+        probe.style.backgroundColor = v;
+        return probe.style.backgroundColor ? getComputedStyle(probe).backgroundColor : "";
+      };
+      let accent = resolve("var(--primary)");
+      if (!accent || TRANSPARENT.test(accent)) accent = resolve("hsl(var(--primary))");
+      probe.remove();
+      const ok = accent && !TRANSPARENT.test(accent) ? accent : "";
+      cache.set(token, ok);
+      return ok;
+    };
     const STATE =
       '[role="switch"], [role="checkbox"], [role="radio"], [role="tab"], [role="gridcell"], [role="option"], ' +
       '[role="menuitemcheckbox"], [role="menuitemradio"], [aria-selected], [aria-pressed], [aria-checked], [aria-current]';
-    const filled = [
+    const candidates = [
       ...scope.querySelectorAll('button, a[href], [role="button"], input[type="submit"], input[type="button"]'),
-    ].filter((el) => vis(el) && !el.matches(STATE) && !el.closest('[role="gridcell"]') && getComputedStyle(el).backgroundColor === accent);
+    ].filter((el) => vis(el) && !el.matches(STATE) && !el.closest('[role="gridcell"]'));
+    if (!candidates.some((el) => accentOf(el))) {
+      c.skipped = "no --primary token resolves to a colour on this page";
+      return;
+    }
+    const filled = candidates.filter((el) => {
+      const accent = accentOf(el);
+      return !!accent && getComputedStyle(el).backgroundColor === accent;
+    });
     if (filled.length > 1) {
       c.count = filled.length;
       c.samples = filled.slice(0, MAX).map(describe);
@@ -328,9 +411,11 @@ export function domChecks(args: DomCheckArgs): Record<string, CheckResult> {
 
   // error-toast (E-05): an error is never a toast and never leaves by itself.
   check("error-toast", (c) => {
+    // Found by structure, whatever the label's language: Sonner's list, a live region (Sonner's
+    // section), Radix Toast's region holding its ol, and the project's own marker.
     const REGION =
-      '[data-toast-region], [data-sonner-toaster], [data-radix-toast-viewport], ' +
-      '[role="region"][aria-label*="otification" i], section[aria-label*="otification" i]';
+      '[data-toast-region], [data-sonner-toaster], [role="region"][aria-live], section[aria-live], ' +
+      '[role="region"]:has(> ol[tabindex="-1"])';
     const ERROR = '[data-state="error"], [role="alert"], [data-type="error"]';
     for (const region of document.querySelectorAll(REGION))
       for (const el of region.querySelectorAll(ERROR)) add(c, `error inside the toast region: "${text(el).slice(0, 60)}"`);
@@ -355,9 +440,11 @@ export function domChecks(args: DomCheckArgs): Record<string, CheckResult> {
   // forbidden-words (E-04, C-01, C-03): on the interface's visible text only, never on what
   // people wrote (USER_CONTENT) and never on the values typed into fields.
   check("forbidden-words", (c) => {
-    const res = args.forbidden.map((f) => ({ label: f.label, re: new RegExp(f.source, "gu") }));
+    const res = args.forbidden.map((f) => ({ label: f.label, re: new RegExp(f.source, f.flags ?? "gu") }));
     // The same list as USER_CONTENT, written out: a module constant does not reach the page.
-    const SKIP = 'script, style, noscript, template, [data-user-content], [translate="no"]';
+    // Prefilled text in a textarea or an editable area is what someone typed, not the interface.
+    const SKIP =
+      'script, style, noscript, template, textarea, [contenteditable]:not([contenteditable="false"]), [data-user-content], [translate="no"]';
     const chunks: string[] = [];
     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
     for (let n = walker.nextNode(); n; n = walker.nextNode()) {
@@ -372,7 +459,8 @@ export function domChecks(args: DomCheckArgs): Record<string, CheckResult> {
       if (el.placeholder) chunks.push(el.placeholder);
       if (/^(submit|button)$/.test(el.type) && el.value) chunks.push(el.value);
     }
-    for (const chunk of chunks)
+    // Niqqud and cantillation marks are dropped first: "נָא" is "נא".
+    for (const chunk of chunks.map((x) => x.replace(/[\u0591-\u05C7]/g, "")))
       for (const { label, re } of res)
         for (const m of chunk.matchAll(re)) {
           // Context by code point, so an emoji is never cut in half.

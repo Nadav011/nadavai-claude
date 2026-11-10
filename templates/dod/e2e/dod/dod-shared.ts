@@ -32,8 +32,13 @@ export const VERTICAL = process.env.DOD_VERTICAL ?? "";
 export const REPORTS_DIR = path.join(ROOT, "reports", "dod", VERTICAL);
 export const SCREENS_DIR = path.join(REPORTS_DIR, "screens");
 export const RESULTS_DIR = path.join(REPORTS_DIR, "results");
-// QA session reused by every entry, written by global-setup. Untracked: reports/ is git-ignored.
-export const STORAGE_STATE = path.join(REPORTS_DIR, "qa-storage-state.json");
+// The QA session reused by every entry, written by global-setup. It holds the QA account's
+// session cookies, so it never sits in reports/, which CI uploads as an artifact: it lives in
+// node_modules/.cache, which every project git-ignores and no workflow uploads. DOD_STORAGE_STATE
+// moves it.
+export const STORAGE_STATE = path.resolve(
+  process.env.DOD_STORAGE_STATE ?? path.join(ROOT, "node_modules", ".cache", "dod", VERTICAL, "qa-storage-state.json"),
+);
 // What the app shows for a route that does not exist, taken once by global-setup.
 export const NOT_FOUND_PRINT = path.join(REPORTS_DIR, "not-found-print.json");
 
@@ -425,6 +430,15 @@ export function routeStandard(es: EntryResult[]): Record<string, CheckResult> {
   for (const e of es) {
     for (const [id, c] of Object.entries(e.standard ?? {})) {
       const at = `${e.viewport.width}/${e.scheme}`;
+      // The probe's sizes are split between the two light entries (the 375 entry takes the
+      // phone and tablet sizes, the 1440 entry the desktop ones), so the route's probe is their sum.
+      if (id === "probe") {
+        const cur = (out.probe ??= { count: 0, samples: [] });
+        cur.count += c.count;
+        cur.samples.push(...c.samples.map((x) => `${at}: ${x}`));
+        if (c.error) cur.error = cur.error ? `${cur.error}; ${at}: ${c.error}` : `${at}: ${c.error}`;
+        continue;
+      }
       const cur = out[id];
       if (!cur || c.count > cur.count || (cur.skipped && !c.skipped))
         out[id] = {
