@@ -25,7 +25,7 @@ row info "memory available" "$(awk '/^MemAvailable:/ { printf "%d GB", $2 / 1048
 
 [ "$(systemctl is-active systemd-oomd 2>/dev/null)" = active ] && s=ok || s=BAD
 # The kills are logged by the user's systemd manager, not by the systemd-oomd unit.
-row "$s" "systemd-oomd" "$(systemctl is-active systemd-oomd 2>/dev/null); terminals killed in 7 days: $(journalctl --since -7d -q -g 'systemd-oomd killed' 2>/dev/null | wc -l)"
+row "$s" "systemd-oomd" "$(systemctl is-active systemd-oomd 2>/dev/null); terminals killed in 7 days: $(journalctl --since -7d -q -t systemd -g 'systemd-oomd killed' 2>/dev/null | wc -l)"
 o=$(sysctl -n kernel.panic_on_oops 2>/dev/null) p=$(sysctl -n kernel.panic 2>/dev/null)
 [ "$o" = 1 ] && [ "$p" = 10 ] && s=ok || s=BAD
 row "$s" "reboot after a kernel oops" "panic_on_oops=$o panic=$p"

@@ -215,8 +215,8 @@ kill "$(cat "$t/l0")" 2>/dev/null; wait "$holder" 2>/dev/null
 printf 'heavy_slots=4\nheavy_floor=4\n' >"$t/config/nadavai/capacity"
 printf 'MemAvailable:    2097152 kB\nSwapTotal: 1000 kB\nSwapFree: 900 kB\n' >"$t/proc/meminfo"
 : >"$t/f.ran"
-for n in 1 2 3; do "$hs" -- bash -c "echo $n >>'$t/f.ran'; exec sleep 6" 2>"$t/f.$n.err" & pids+=("$!"); sleep 0.5; done
-sleep 2
+for n in 1 2 3; do "$hs" -- bash -c "echo $n >>'$t/f.ran'; exec sleep 16" 2>"$t/f.$n.err" & pids+=("$!"); sleep 0.5; done
+sleep 10   # long enough for the third job's 2 s waits to have gone round every floor slot
 [ "$(wc -l <"$t/f.ran")" = 2 ] && grep -q 'memory: 2 GB' "$t/f.3.err" && ok "with low memory two floor jobs run and the third waits" || bad "floor under low memory: $(wc -l <"$t/f.ran") ran, third said '$(cat "$t/f.3.err")'"
 calm
 for _ in $(seq 1 30); do [ "$(wc -l <"$t/f.ran")" = 3 ] && break; sleep 0.2; done

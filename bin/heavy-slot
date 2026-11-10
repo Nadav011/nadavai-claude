@@ -315,10 +315,10 @@ while :; do
       done
     fi
     say
-    # Blocks up to 2 s on one always-admitted slot, so a freed one is taken at once and the
-    # loop never spins; the load is measured again on the next pass.
-    exec 9>>"$dir/slot.$((round % floor))"
-    flock -w 2 9 && admit "$((round % floor))"
+    # Blocks up to 2 s on one of the slots that need no check, so a freed one is taken at once
+    # and the loop never spins; everything that is measured is measured again on the next pass.
+    exec 9>>"$dir/slot.$((round % hard))"
+    flock -w 2 9 && admit "$((round % hard))"
     round=$((round + 1))
   else
     why="earlier jobs are ahead in the queue"
