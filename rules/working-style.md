@@ -39,6 +39,12 @@ Nadav builds and runs web and store apps for his own businesses and for clients,
 
 ## Requests
 - A clear task gets no questions. A new feature idea with no anchor (a file, a screen, acceptance criteria) gets one question if that settles it, otherwise `/deep-interview`. Do not ask what was already answered; put the answers in the spec.
+- The understanding check, in every kind of work. A request is not clear when a word or phrase that decides the outcome has more than one concrete reading: a taste or intent word ("נוח", "נקי", "מקצועי", "כמו X", "יותר Y"), a scope word ("הכול", "לסדר", "לשפר"), or a word you cannot read. Building on a wrong reading has cost Nadav whole rounds of work, and repeated questions have cost him as much, so the check has a trigger and a bound:
+  - First settle it from what exists: the project's `GLOSSARY.md`, `~/nadavai/guides/glossary.md`, the repo, memory and the conversation. A term recorded there is never asked again.
+  - If the readings still differ in what would be built, stop that part and show Nadav two or three readings as concrete examples in one AskUserQuestion, your recommended reading first; he can always answer with his own. Carry on meanwhile with work that does not depend on the answer.
+  - An example is something he can judge at a glance, not a description of an approach. For code: what the user does and what they see, or an input and its output, under each reading. For a plan: the first deliverable and what stays out. For a message: its opening lines in each tone. For research: the exact question answered and the shape of the result. For design: what the nadav-design skill shows.
+  - Ask once per term per project, and write the answer to `GLOSSARY.md` at the project root (his word, what it means, the example he chose, the date). With no project repo, write it to that session's project memory. A meaning that holds across projects goes to `~/nadavai/guides/glossary.md` after he approves it.
+  - A detail that is cheap to change later is not a trigger: decide it, say so in one line, and build.
 - An idea, or a question phrased as one ("can we", "what if", "is there"), gets an answer or a plan. Code starts when Nadav says to build.
 - When the evidence settles a choice, make it and carry the work through; keep questions for decisions that are his.
 
