@@ -36,10 +36,11 @@ units). The lessons of that run are written into the steps below with their reas
 | `tools/contrast.py` | WCAG ratios of palette pairs for BRIEF.md, before any phone exists. `python3 tools/contrast.py '#eef1f4/#111418'` |
 | `tools/check-anchors.py` | Every demo label the plan cites exists inside a column label of its section; every stated count matches; every cited screen exists; unit ids in the demo exist in the plan; missing sections or plan are errors. `(cd <out> && python3 tools/check-anchors.py --config redesign.json [--plan file])` |
 | `tools/decisions-open.py` | Counts the open rows of DECISIONS-OPEN.md (every row whose «מצב» is not exactly «הוכרע · תשובה N»); the round-close checkpoint runs it and the owner gate needs it at 0. `python3 tools/decisions-open.py DECISIONS-OPEN.md` |
+| `tools/early-show.sh` | Checks a link before it is given to Nadav: https, one of his own domains or a claude.ai artifact (never `*.vercel.app`), 200, a made-up path under it is not 200, and the page carries the commit id when one is given. `tools/early-show.sh <url> [<commit>]`; more own domains through `EARLY_SHOW_HOSTS` |
 | `tools/journal-state.py` | Reads a Workflow run's journal: finished and unfinished agents, the models they ran on, and whether resuming would re-run finished work; «unknown» (exit 3) on a malformed journal or missing model data. `python3 tools/journal-state.py <run-dir> work/state/wf.json` |
 | `tools/dry-run-workflow.mjs` | Runs a workflow script with mocked agents: a pure-literal `meta`, phase titles, `model: 'opus'` on every call, args size in bytes, and any exception, inside `parallel()` too. `node tools/dry-run-workflow.mjs workflows/demo-round.js args.json [--empty]` |
 | `tests/run.mjs` | The regression tests of all of the above (one per failure mode a review found). `PLAYWRIGHT_MODULE=… node tests/run.mjs` |
-| `templates/` | `redesign.json`, `parts/` (the shared base: page, phone, component skeleton), `section.html`, `BRIEF.md`, `INVENTORY.md`, `STORY.md`, `DECISIONS-OPEN.md`, `DECISIONS-ANSWERED.md`, `FEATURES-PROPOSED.md`, `CHANGES.md`, `build-plan.md`, `START-BUILD.md`, `gitignore` |
+| `templates/` | `redesign.json`, `parts/` (the shared base: page, phone, component skeleton), `section.html`, `BRIEF.md`, `INVENTORY.md`, `STORY.md`, `DECISIONS-OPEN.md`, `DECISIONS-ANSWERED.md`, `FEATURES-PROPOSED.md`, `CHANGES.md`, `build-plan.md`, `START-BUILD.md`, `gitignore`; `REFERENCE.md` (the reference ledger of `shared/reference.md`, for any mode or track) |
 | `workflows/demo-round.js` | One demo round for the Workflow tool: spec → (first build: shared components) → lanes → requests ×2 → rebuild → one full fresh verify → fix → targeted confirms (≤3, every finding id accounted for) → CHANGES and round state. Also the first build (`mode: 'build'`) and every continuation (`startAt`). |
 | `workflows/plan-review.js` | The plan: write → fresh reviews to APPROVE → a diff-only confirm after every later edit → second model → START-BUILD and checklist. Returns reviewer gates; Nadav's approval is asked afterwards. |
 | `examples/mini/` | A two-screen fixture that every tool runs on (see its README). Rerun it after changing a tool. |
@@ -197,8 +198,18 @@ Chat in plain Hebrew, short lines, the why before the what; code, files and comm
   first verify: without it the journey is unchecked and the demo gate stays closed.
 - Large apps: `workflows/demo-round.js` with `mode: 'build'` (Workflow only when Nadav opted in; otherwise the same
   roles as subagents one at a time: the shared owner first, then the lanes).
-- Publish a first look (step 10's rules) so Nadav can react early.
-- Evidence: the build line (`missing [] leftover []`), the clean report.json files, the link.
+- **What Nadav opens first plays like the product; the catalog comes second.** Before the first look is
+  published, the output repo gets `proto/index.html`: the «אחרי» screens of STORY.md's main journey wired with the
+  app's real navigation, where every control on the journey does what it will do, on the demo's one set of facts.
+  Next to it, one walkthrough per new or changed feature: what the user does, step by step, one plain-Hebrew line
+  per step, today beside after, with no screen ids and no jargon. The today-and-after catalog above stays the
+  source for reviewers and for the plan (`check-anchors.py` reads it), and its link is given second. Why: after a
+  demo of 123 screens, 750 states and a 40-stop tour he said «עדיין לא הבנתי מזה כלום» and asked for «דמו מלא של
+  כל פיצר» (7.11.2026); a map of screens with state switchers is a spec viewer. There is no template for the
+  prototype yet: it is built per project from the demo's own sections and CSS.
+- Publish a first look (step 10's rules) so Nadav can react early; check the link with `tools/early-show.sh`.
+- Evidence: the build line (`missing [] leftover []`), the clean report.json files, the prototype link first and
+  the catalog link second, the number of walkthroughs against the number of new or changed features.
 
 ### 4. Questions
 - Every open decision is a row in DECISIONS-OPEN.md (options, recommendation first, the source phone). Ask them in

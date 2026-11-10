@@ -453,7 +453,7 @@ await test('GM9', 'the README gives the local-font recipe', async () => /\.next\
 await test('GM10', 'step 0 pins the app\'s commit and INVENTORY.md carries it', async () => /rev-parse HEAD/.test(read('README.md').split('### 1.')[0]) && /ls-remote/.test(read('README.md')) && /commit/i.test(read('templates/INVENTORY.md').split('\n').slice(0, 8).join('\n')) ? '' : 'no pin');
 await test('GM11', 'retro step 0 also reads redesign run logs', async () => {
   const skill = fs.readFileSync(path.join(SK, '..', 'SKILL.md'), 'utf8');
-  const retro0 = skill.split('\n').find(l => l.startsWith('0. Find the run')) || '';
+  const retro0 = skill.split('\n').find(l => l.startsWith('0. ') && l.includes('Find the run')) || '';
   return /design-redesign\/\*\/RUN-LOG\.md/.test(retro0) ? '' : 'retro does not look for RUN-LOG.md';
 });
 await test('GL4', 'build.py lints Hebrew inside an LTR island', async () => {
@@ -1135,6 +1135,36 @@ await test('P-tool', 'decisions-open.py counts every row that is not exactly «�
   const r = sh('python3', [path.join(T, 'decisions-open.py'), p]);
   let out; try { out = JSON.parse(r.stdout); } catch { return `exit ${r.status}: ${r.stdout}`; }
   return r.status === 0 && out.open === 3 && out.rows.join() === 'Q-2,Q-3,Q-4' ? '' : `exit ${r.status}: ${r.stdout}`;
+});
+await test('REF-1', 'decisions-open.py counts the open rows of a REFERENCE.md and ignores its «Differences on purpose» table', async () => {
+  const p = path.join(TMP, 'REFERENCE.md');
+  const tpl = fs.readFileSync(path.join(SK, 'templates/REFERENCE.md'), 'utf8');
+  fs.writeFileSync(p, tpl.replace(/(\| R-1 \|.*\| )פתוח \|/, '$1הוכרע · תשובה 3 |').replace(/(\| id \| what differs \|[^\n]*\n\|[-|]*\n)/, '$1| R-9 | no film on a phone | his answer | 4 |\n'));
+  const r = sh('python3', [path.join(T, 'decisions-open.py'), p]);
+  let out; try { out = JSON.parse(r.stdout); } catch { return `exit ${r.status}: ${r.stdout}`; }
+  return r.status === 0 && out.open === 1 && out.rows.join() === 'R-2' ? '' : `exit ${r.status}: ${r.stdout}`;
+});
+await test('SHOW-1', 'early-show.sh refuses, without any request, a link that is not https, a vercel.app address, a host that is not his and a claude.ai link that is not an artifact', async () => {
+  const run = (url, env = {}) => sh('bash', [path.join(T, 'early-show.sh'), url], { env: { ...process.env, EARLY_SHOW_HOSTS: '', ...env } });
+  const why = [];
+  const cases = [
+    ['http://nadavc.ai/', 1, /not https/],
+    ['https://demo-abc.vercel.app/x', 1, /vercel\.app address is never shown/],
+    ['https://example.com/', 1, /not one of his domains/],
+    ['https://evilnadavc.ai/', 1, /not one of his domains/],
+    ['https://claude.ai/chat/abc', 1, /not one of his domains/],
+    ['https://claude.ai/artifact/abc', 0, /address checked/],
+  ];
+  for (const [url, status, re] of cases) {
+    const r = run(url);
+    if (r.status !== status || !re.test(r.stdout)) why.push(`${url}: exit ${r.status} ${r.stdout.trim()}`);
+  }
+  // a vercel.app address stays refused even when someone lists it as his own
+  const v = run('https://demo-abc.vercel.app/', { EARLY_SHOW_HOSTS: 'vercel.app demo-abc.vercel.app' });
+  if (v.status !== 1) why.push(`vercel.app through EARLY_SHOW_HOSTS: exit ${v.status}`);
+  const u = sh('bash', [path.join(T, 'early-show.sh')]);
+  if (u.status !== 2) why.push(`no arguments: exit ${u.status}`);
+  return why.join(' · ');
 });
 // legitimate paths of the fifth confirm stay green
 await test('PL', 'legit: a spec start without spec after a clean run; build mode with a shared need then answered; a cut-run restart with the spec; a noSpec round', async () => {

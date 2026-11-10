@@ -29,6 +29,39 @@ Under `flow`:
 
 Under `close-first` every rule of SKILL.md stays as written.
 
+## Track
+
+Declared with the tempo in the first step, and written in the same run log. The track follows the page being
+built, not the repo: Camstore's home is `site`, its shop and checkout are `app`.
+
+- `app` (the default): a product people operate. SKILL.md as written.
+- `site`: a site that presents (a portfolio, a marketing or landing site, a showcase with a scroll film or 3D,
+  the home of a store). Read `tracks/site.md` before the first step. Its table says which app rules change, and
+  its order of work replaces the design steps of `screen` for the presenting pages; `setup`, the DoD, the visual
+  change gate and `ship` stay.
+- `client-demo`: a site or an app built to win or brief a client, with invented content. Read
+  `tracks/client-demo.md` before the first step.
+
+When the request does not make the track obvious, ask in the same AskUserQuestion as the tempo.
+
+**A reference from Nadav**, in any track and any mode ("like this", a link, a video, a screenshot, another app):
+read `shared/reference.md` first. The first deliverable is `REFERENCE.md`, the first row is built and shown
+before anything else is built, and no alternative concept is offered unless he asks for one.
+
+## Looking at screenshots
+
+Measure first (DOM or ARIA snapshot, computed styles, console, a pixel-diff number) and look at images for the
+visual judgement only. Read several images in one turn (parallel Read calls) or as one contact sheet, and never
+re-read an image already in context. Why: 12.7K image reads in 14 days became about 8.7K separate requests, 6.3K
+of them carrying a single image (2026-11-07).
+
+- Numbers: `ui-check <url> [--width 375,1440] [--theme light,dark] [--json]` (overflow either side, off-screen
+  and clipped controls, overlaps and fixed-bar cover, touch targets, viewport meta, console, axe, RTL
+  `text-align:left`; exit 1 means findings).
+- A competitor's or a reference's colours, type and spacing: `dembrandt <url> --json-only` (keep `colors`,
+  `typography`, `spacing`, `borderRadius`, `shadows`, `components`; skip `favicons`).
+- Text in a screenshot: `tesseract <img> - -l heb+eng`.
+
 ## His words
 
 The understanding check is `rules/working-style.md`, "Requests"; it is not restated here. What this skill adds:
