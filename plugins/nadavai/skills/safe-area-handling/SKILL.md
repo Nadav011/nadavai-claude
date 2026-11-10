@@ -1,6 +1,6 @@
 ---
 name: safe-area-handling
-description: Fixes notch, Dynamic Island, home indicator, display cutout, and system bar overlap in Capacitor apps. Covers `viewport-fit=cover` + `env(safe-area-inset-*)`, the Capacitor 8 SystemBars core plugin (`insetsHandling`, injected `--safe-area-inset-*` CSS variables for Android WebView < 140, removal of `android.adjustMarginsForEdgeToEdge`), Android 15/16 enforced edge-to-edge (`overlaysWebView` and `backgroundColor` of @capacitor/status-bar no longer work at targetSdk 36), iOS `contentInset`, and insets that change at runtime on rotation, iPad/foldable resizable windows. Use when headers sit under the status bar, tab bars hide behind the gesture bar, `env()` returns 0 on Android, or layout broke after upgrading to Capacitor 8 / targetSdk 35+. Do not use for keyboard overlap (capacitor-keyboard), Ionic/Konsta component theming (ionic-design, konsta-ui), Tailwind utility setup (tailwind-capacitor), or iOS multi-window/resizability adoption (capacitor-ios-resizability).
+description: "Fix content under the notch, Dynamic Island, status bar, home indicator or Android gesture bar in Capacitor apps: viewport-fit=cover, env(safe-area-inset-*), SystemBars, Android 15/16 edge-to-edge."
 ---
 
 # Safe Area Handling in Capacitor

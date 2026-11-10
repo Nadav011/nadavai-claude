@@ -1,9 +1,11 @@
 ---
 name: capacitor-performance
-description: Diagnoses and fixes performance problems specific to Capacitor apps - slow cold start or long splash, white screen after camera/backgrounding (WKWebView "WebView process terminated" reload, Android onRenderProcessGone), large base64 payloads over the native bridge (Camera, Filesystem.readFile, CapacitorHttp), jank in the WebView, memory growth from unremoved plugin listeners, oversized Preferences storage, slow Android WebView versions, and debug logging left on in release. Covers profiling with Safari Web Inspector, chrome://inspect, Xcode Instruments, Android Studio Profiler, and adb timing commands. Do not use for crash/stack-trace debugging (use debugging-capacitor or capacitor-native-observability), device log capture (use ios-android-logs), offline data architecture (use capacitor-offline-first / sqlite-to-fast-sql), splash configuration details (use capacitor-splash-screen), or generic web performance unrelated to Capacitor.
+description: "Fix slow Capacitor apps: slow cold start, white screen after camera or background, large base64 over the bridge, WebView jank, memory growth from listeners, and profiling with Instruments and Android Profiler."
 ---
 
 # Capacitor Performance
+
+> nadavai preface: Nadav's Green Room shells load the live site through `server.url` on purpose (remote shell, an owner decision; see `rules/store-apps.md` and the `store-apps` skill's `references/remote-shell.md`). In those apps `server.url` is by design, not a defect: do not remove it or flag it before release.
 
 Find the bottleneck first (WebView JS, bridge, native, or network), then fix the specific cause. Generic web advice (code splitting, image compression, virtual lists) still applies; this skill focuses on what is different inside Capacitor.
 

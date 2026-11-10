@@ -1,6 +1,6 @@
 ---
 name: capacitor-android-dex-optimization
-description: "Guides the agent through enabling R8 in a Capacitor Android app so that it meets the Google Play DEX code optimization requirement (at least 25% obfuscation, optimization and shrinking from February 2027 for apps with more than 10 MB of DEX code). Covers `minifyEnabled true` with `proguard-android-optimize.txt` in `android/app/build.gradle`, the `-keep @interface com.getcapacitor.** { *; }` rule that prevents the startup crash in R8 full mode, per-plugin keep rules, resolving R8 'Missing class' build errors via `missing_rules.txt`, building a signed release APK with the debug keystore, and verifying with logcat, `mapping.txt` and the `r8.json` file inside the app bundle. Use when Play Console reports a DEX code optimization finding, when a Capacitor app crashes on startup after enabling `minifyEnabled`, or when R8 fails the release build. Do not use for iOS, resource shrinking, Capacitor plugin projects, Capacitor version upgrades, or non-Capacitor mobile frameworks."
+description: "Turn on R8 (minifyEnabled) in a Capacitor Android app to pass Google Play's DEX code optimization requirement: keep rules, missing_rules.txt, startup crash after minify, mapping.txt and r8.json checks."
 license: MIT
 compatibility: "Requires a Capacitor 6, 7 or 8 app with an `android/` platform, Android Gradle Plugin 8.0 or newer, a JDK matching the Capacitor version, and `adb` for on-device verification."
 metadata:

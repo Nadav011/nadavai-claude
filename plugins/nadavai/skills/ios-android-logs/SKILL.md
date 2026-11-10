@@ -1,6 +1,6 @@
 ---
 name: ios-android-logs
-description: Gets, filters, streams, and saves logs and crash reports from Capacitor apps on iOS Simulator, iPhone, Android emulator and devices. Explains where Capacitor output goes (iOS bridge and mirrored JS console lines are stdout-only, so missing from Console.app and `log stream`; Android tags `Capacitor` and `Capacitor/Console`). Covers `xcrun simctl spawn booted log stream --predicate`, `simctl launch --console-pty`, `xcrun devicectl device process launch --console`, `log collect --device-udid`, Console.app, devicectl `systemCrashLogs`, `adb logcat --pid`, `-b crash`, Android Studio `package:mine`, tombstones, ANRs, `adb bugreport`. Use for "how do I see logs", "console.log not showing on device", "no logs in Console.app", "get the crash log", "logcat too noisy". Do not use for diagnosing the bug once logs are in hand (debugging-capacitor), production crash SDKs (capacitor-native-observability), MCP log tooling (capacitor-mcp), or profiling (capacitor-performance).
+description: "Get, filter and save logs and crash reports from Capacitor apps on iOS simulator, iPhone, Android emulator and devices: logcat, xcrun simctl, devicectl, Console.app, console.log missing on device."
 ---
 
 # iOS and Android Logs for Capacitor Apps
@@ -19,7 +19,6 @@ TRIGGER when:
 Do not use:
 - Interpreting the error and fixing the app -> `debugging-capacitor`.
 - Production crash/ANR reporting (Sentry, Crashlytics, Datadog) -> `capacitor-native-observability`.
-- AI agent log streaming via MCP servers -> `capacitor-mcp`.
 - CPU/memory profiling -> `capacitor-performance`.
 - UIScene lifecycle migration -> `capacitor-uiscene-migration`.
 

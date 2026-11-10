@@ -1,6 +1,6 @@
 ---
 name: capacitor-deep-linking
-description: Implements and debugs deep links in Capacitor apps - custom URL schemes, iOS Universal Links (apple-app-site-association, Associated Domains entitlement), Android App Links (assetlinks.json, autoVerify), and routing via @capacitor/app `appUrlOpen` + `App.getLaunchUrl()`. Covers the Capacitor 8.5+ UIScene change where AppDelegate `application(_:open:options:)` and `continue userActivity` stop being called and custom handling must move to SceneDelegate, plus cold vs warm launch testing. Use when links open Safari/Chrome instead of the app, `appUrlOpen` never fires, the launch URL is lost on cold start, or OAuth redirects do not return to the app. Do not use for the full UIScene migration (capacitor-uiscene-migration), push notification taps (capacitor-push-notifications), or social login plugin setup (capacitor-plugins).
+description: "Set up and debug deep links in Capacitor apps: custom URL schemes, iOS universal links (AASA), Android App Links (assetlinks.json), appUrlOpen and getLaunchUrl routing, OAuth redirects, cold vs warm launch."
 ---
 
 # Deep Linking in Capacitor

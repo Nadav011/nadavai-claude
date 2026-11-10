@@ -1,6 +1,6 @@
 ---
 name: capacitor-push-notifications
-description: Sets up and debugs remote push in Capacitor apps with @capacitor/push-notifications (FCM on Android, APNs on iOS), or the Capgo alternative @capgo/capacitor-firebase-messaging. Covers APNs keys, Push Notifications capability, AppDelegate `didRegisterForRemoteNotificationsWithDeviceToken` forwarding (stays in AppDelegate under the Capacitor 8.5 UIScene lifecycle), Android 13+ POST_NOTIFICATIONS permission, notification channels and icons, `firebaseMessagingVersion`, foreground `presentationOptions` (Capacitor 9 removes iOS `alert`; use `banner`/`list`), and tap routing. Use when `registration` never fires, iOS returns an APNs token instead of an FCM token, errors like "no valid aps-environment entitlement string found" appear, or notifications do not show. Do not use for local-only notifications or deep link URL handling (capacitor-deep-linking), UIScene migration (capacitor-uiscene-migration), or log capture (ios-android-logs).
+description: "Set up and debug push notifications in Capacitor apps: FCM on Android, APNs on iOS, registration token, aps-environment entitlement, Android 13 permission, channels, foreground display, tap routing."
 ---
 
 # Push Notifications in Capacitor

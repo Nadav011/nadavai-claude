@@ -1,6 +1,6 @@
 ---
 name: capacitor-keyboard
-description: Fixes on-screen keyboard behavior in Capacitor apps with @capacitor/keyboard - iOS `resize` modes (`native` default, `body`, `ionic`, `none`), `keyboardWillShow`/`keyboardDidShow` heights, `setAccessoryBarVisible`, `setScroll`, `style` (`DARK`/`LIGHT`/`DEFAULT`), `autoBackdropColor` (8.0.4+), Android edge-to-edge/SystemBars interaction (drop legacy `resizeOnFullScreen` on Capacitor 8), iOS 26 fixes, and iOS input auto-zoom. Use when inputs are hidden behind the keyboard, the WebView jumps or leaves a white/black gap above the keyboard, fixed footers float mid-screen, `vh` layouts shrink, or keyboard events do not fire. Do not use for general safe-area/notch padding (safe-area-handling), Ionic component styling (ionic-design), or form accessibility (capacitor-accessibility).
+description: "Fix on-screen keyboard problems in Capacitor apps with @capacitor/keyboard: inputs hidden behind the keyboard, iOS resize modes, gaps above the keyboard, footers that float, input zoom on iOS."
 ---
 
 # Keyboard Handling in Capacitor

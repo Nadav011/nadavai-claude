@@ -8,7 +8,7 @@
   const results = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag22aa']).analyze();
   expect(results.violations).toEqual([]);
   ```
-- CLI spot check: `npx @axe-core/cli@latest http://localhost:5173 --tags wcag2a,wcag2aa`.
+- CLI spot check: `npx @axe-core/cli@4.14.0 http://localhost:5173 --tags wcag2a,wcag2aa`.
 - Automated tools catch only part of the issues; device testing is still required.
 
 ## iOS

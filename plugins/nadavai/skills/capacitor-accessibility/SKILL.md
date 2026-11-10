@@ -1,6 +1,6 @@
 ---
 name: capacitor-accessibility
-description: Makes Capacitor apps work with VoiceOver, TalkBack, Dynamic Type / Android font scale, Switch Control, hardware keyboards, Reduce Motion and Increase Contrast. Covers Capacitor-specific gaps - WKWebView not following iOS Dynamic Type, Android WebView text zoom breaking layouts, zoomEnabled/user-scalable, SPA route changes not announced, native views under the WebView (maps, camera preview) being unreachable, @capacitor/screen-reader (isEnabled, speak, stateChange) and @capacitor/text-zoom (getPreferred, set) - plus testing with Accessibility Inspector, simctl content_size, adb font_scale, TalkBack and axe-core, mapped to WCAG 2.2. Do not use for Ionic component styling (use ionic-design), notch/home-indicator layout (use safe-area-handling), keyboard overlap bugs (use capacitor-keyboard), automated test framework setup (use capacitor-testing), or App Store metadata (use capacitor-app-store).
+description: "Make Capacitor apps work with VoiceOver, TalkBack, Dynamic Type and large Android font scale: screen reader announcements, text zoom, focus, touch targets, axe and device testing against WCAG 2.2."
 ---
 
 # Accessibility in Capacitor Apps
@@ -25,7 +25,7 @@ Do not use:
 ## Procedure
 
 1. **Inventory screens** into a TODO list (auth, main tabs, forms, modals, media, settings). Audit one at a time.
-2. **Automated pass** on the web build: run axe (`@axe-core/playwright` in tests, or `npx @axe-core/cli@latest http://localhost:5173`) and fix violations first (names, roles, contrast, labels).
+2. **Automated pass** on the web build: run axe (`@axe-core/playwright` in tests, or `npx @axe-core/cli@4.14.0 http://localhost:5173`) and fix violations first (names, roles, contrast, labels).
 3. **Device pass** per screen with VoiceOver and TalkBack, largest text size, Reduce Motion, and a Bluetooth keyboard (iPad). Use the checks in `references/testing.md`.
 4. **Fix Capacitor-specific traps** below.
 5. **Report** findings per screen with WCAG criterion, severity, and fix before large refactors; ask before changing design tokens (colors, font sizes).

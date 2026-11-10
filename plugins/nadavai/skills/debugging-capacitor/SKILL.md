@@ -1,9 +1,11 @@
 ---
 name: debugging-capacitor
-description: Diagnoses and fixes runtime bugs in Capacitor iOS/Android apps - white/blank screen on launch, startup crashes, `"X" plugin is not implemented on ios/android`, `net::ERR_CLEARTEXT_NOT_PERMITTED`, App Transport Security blocks, CORS on capacitor://localhost, permission denials, live reload not connecting, and Capacitor 8.5+ UIScene regressions (appUrlOpen, universal links, pause/resume silent because AppDelegate callbacks stopped). Covers Safari Web Inspector, chrome://inspect, Xcode/LLDB, Android Studio, `npx cap run --url` (Capacitor 9) vs `-l --host` (8), `xcrun simctl openurl|privacy|push`, `xcrun devicectl device process launch|openURL`, `xctrace`. Do not use for only reading device logs (ios-android-logs), the UIScene migration itself (capacitor-uiscene-migration), deep-link setup (capacitor-deep-linking), speed (capacitor-performance), crash SDKs (capacitor-native-observability), tests (capacitor-testing), or upgrades/build errors (capacitor-app-upgrades, cocoapods-to-spm).
+description: "Diagnose runtime bugs in Capacitor apps: white screen, crash on launch, plugin not implemented, cleartext or ATS blocks, CORS on capacitor://localhost, live reload not connecting, Safari and chrome://inspect."
 ---
 
 # Debugging Capacitor Apps
+
+> nadavai preface: Nadav's Green Room shells load the live site through `server.url` on purpose (remote shell, an owner decision; see `rules/store-apps.md` and the `store-apps` skill's `references/remote-shell.md`). In those apps `server.url` is by design, not a defect: do not remove it or flag it before release.
 
 Find which layer is broken (web, bridge, native, OS config), prove it with the right inspector, then fix the smallest thing.
 
@@ -24,7 +26,7 @@ Do not use:
 - Setting up deep links, AASA, assetlinks from scratch -> `capacitor-deep-linking`.
 - Jank, slow startup, bundle size, memory tuning -> `capacitor-performance`.
 - Sentry / Crashlytics / Datadog in production -> `capacitor-native-observability`.
-- Writing unit/E2E tests -> `capacitor-testing`. AI/MCP device automation -> `capacitor-mcp`.
+- Writing unit/E2E tests -> `capacitor-testing`.
 - Gradle/Xcode build failures from version bumps -> `capacitor-app-upgrades`; Pods/SPM resolution -> `cocoapods-to-spm`.
 - Push token/delivery issues -> `capacitor-push-notifications`; keyboard overlap -> `capacitor-keyboard`; notch/insets -> `safe-area-handling`.
 
