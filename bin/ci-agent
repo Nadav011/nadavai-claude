@@ -1,0 +1,101 @@
+#!/usr/bin/env python3
+"""Pause or resume a Woodpecker CI agent around a measurement or a reboot on its machine.
+
+  ci-agent status              every agent: paused or not, last contact, work running on it
+  ci-agent pause <name>        the agent takes no new work; a run in progress goes on
+  ci-agent resume <name>
+  ci-agent wait-idle <name> [seconds]   block until nothing runs on it (default 1800; exit 2 on timeout)
+
+Why: the MSI is a work machine and a CI agent. A stress run or an A/B measurement there slows a
+landing and the landing spoils the numbers (plan infra-redesign-2026-11-10, section 2.6).
+The `ci-agents` alert on nadavai-vm emails when no agent takes work for two checks in a row
+(checks run at minutes 0, 5, 10, ...): keep a pause of the only agent under 9 minutes, starting
+just after a check, or expect one DOWN and one RECOVERED email.
+Token: WOODPECKER_SERVER and WOODPECKER_TOKEN in ~/.claude/secrets/woodpecker.env.
+"""
+import json
+import os
+import sys
+import time
+import urllib.request
+
+ENV = os.path.expanduser("~/.claude/secrets/woodpecker.env")
+
+
+def env():
+    out = {}
+    with open(ENV) as fh:
+        for line in fh:
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                key, value = line.split("=", 1)
+                out[key.removeprefix("export ").strip()] = value.strip().strip("'\"")
+    return out["WOODPECKER_SERVER"].rstrip("/"), out["WOODPECKER_TOKEN"]
+
+
+SERVER, TOKEN = env()
+
+
+def call(method, path, body=None):
+    data = json.dumps(body).encode() if body is not None else None
+    req = urllib.request.Request(SERVER + path, data=data, method=method, headers={
+        "Authorization": "Bearer " + TOKEN, "Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=20) as resp:
+        raw = resp.read()
+    return json.loads(raw) if raw else None
+
+
+def agents():
+    return call("GET", "/api/agents") or []
+
+
+def find(name):
+    for a in agents():
+        if a.get("name") == name:
+            return a
+    sys.exit("no agent named %r (have: %s)" % (name, ", ".join(a.get("name", "?") for a in agents())))
+
+
+def running_on(agent_id):
+    info = call("GET", "/api/queue/info") or {}
+    return [t for t in info.get("running") or [] if t.get("agent_id") == agent_id]
+
+
+def set_paused(name, paused):
+    agent = find(name)
+    # The whole object goes back: the server takes the name and the other fields from the body too.
+    agent["no_schedule"] = paused
+    call("PATCH", "/api/agents/%d" % agent["id"], agent)
+    after = find(name)
+    if bool(after.get("no_schedule")) != paused or after.get("name") != name or after.get("capacity") != agent.get("capacity"):
+        sys.exit("the server did not apply it as asked: %s" % {k: after.get(k) for k in ("name", "no_schedule", "capacity")})
+    busy = len(running_on(agent["id"]))
+    print("%s: %s%s" % (name, "paused" if paused else "taking work",
+                        "; %d workflow(s) still running on it" % busy if paused and busy else ""))
+
+
+def main(argv):
+    if argv[1:] == ["status"]:
+        now = time.time()
+        for a in agents():
+            print("%-16s %-7s %-11s last contact %4d min ago, running %d" % (
+                a.get("name"), a.get("backend"), "paused" if a.get("no_schedule") else "taking work",
+                (now - (a.get("last_contact") or 0)) / 60, len(running_on(a["id"]))))
+        return 0
+    if len(argv) == 3 and argv[1] in ("pause", "resume"):
+        set_paused(argv[2], argv[1] == "pause")
+        return 0
+    if len(argv) in (3, 4) and argv[1] == "wait-idle":
+        agent, deadline = find(argv[2]), time.time() + int(argv[3] if len(argv) == 4 else 1800)
+        while running_on(agent["id"]):
+            if time.time() > deadline:
+                print("still running on %s" % argv[2])
+                return 2
+            time.sleep(15)
+        print("%s: nothing running" % argv[2])
+        return 0
+    sys.exit(__doc__)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

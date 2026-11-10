@@ -20,7 +20,8 @@ setup can be rebuilt after a reformat. No secrets live here: they are in the vau
   - Off the VM: each snapshot is encrypted with `age` to `/opt/woodpecker/backup-recipient.pub`
     (the LENOVO's `~/.ssh/nadavai_vm.pub`) and mirrored to nadavai-svc, user `wpbackup`, folder
     `/home/wpbackup/in`, with root's key `/root/.ssh/wpbackup_ed25519`, which that side limits to
-    `rrsync -wo`. To read one: `ssh nadavai-svc 'sudo cat /home/wpbackup/in/<file>.age' | age -d -i ~/.ssh/nadavai_vm > x.sqlite`
+    `rrsync -wo -no-del -munge` (it can add, not read or delete); `/etc/cron.daily/wpbackup-prune`
+    there keeps the newest 30. To read one: `ssh nadavai-svc 'sudo cat /home/wpbackup/in/<file>.age' | age -d -i ~/.ssh/nadavai_vm > x.sqlite`
     (restore drill passed on 2026-11-10: integrity ok, 7 repos, 358 pipelines, 6 crons).
   - Still open: the live database keeps growing by about 0.3 GB a day. Woodpecker has no
     retention setting; `WOODPECKER_LOG_STORE=file` moves new logs to files that a timer can prune,
@@ -28,10 +29,14 @@ setup can be rebuilt after a reformat. No secrets live here: they are in the vau
 - Checks (`~/.config/nadavai/checks.sh` on each VM, every 5 minutes through `nadavai-watch`, which
   emails on the second failure; `machine-checkup/hosts/oracle-il`). On nadavai-vm: `ci-agents`
   (no Docker agent in contact for 10 minutes) and `ci-nightly` (a repo's `nightly` cron did not
-  start in 26 hours), both `oracle/wp-health.py` in `~/wp-watchdog/`; `wp-backup` (no snapshot
-  over 100 KB in 26 hours); `tokens-expire-2027-11-04` (fails from 2027-10-05). On nadavai-svc:
+  start in 26 hours), both `oracle/wp-health.py` in `~/wp-watchdog/`; `wp-backup` (the last run failed, or no
+  snapshot or no encrypted copy over 100 KB in 26 hours); `tokens-expire-2027-11-04` (fails from 2027-10-05). On nadavai-svc:
   `secscan-poll` (`oracle/secscan-fresh` -> `/usr/local/bin/`: the poll did not run for 15
-  minutes or failed).
+  minutes or failed; the poll fails when GitHub refuses a listing or a status, so a dead token
+  shows here).
+- `bin/ci-agent status|pause <name>|resume <name>|wait-idle <name>` (on the LENOVO): take an agent
+  out of the queue around a measurement or a reboot on its machine, and put it back. A pause of
+  the only agent longer than about 9 minutes sets off `ci-agents`.
 - `oracle/wp-watchdog.py`, installed by `oracle/wp-watchdog-install.sh` (token on stdin): a user
   timer every 2 minutes that cancels and restarts, once, a run whose workflow lost its agent
   (running, but missing from the queue on two checks). Log `~/wp-watchdog/log`.
@@ -48,27 +53,40 @@ setup can be rebuilt after a reformat. No secrets live here: they are in the vau
 ## Machines and nightly
 Each machine's role is in `rules/ci-policy.md`, "Machines"; this is where things run and log.
 - secscan (Oracle VM nadavai-svc, since 2026-11-10; on omarchy before): posts `nadavai-security`.
-  It runs as the system user `secscan` (no sudo, no login shell, linger on) with user timers
-  `secscan-poll` every 2 minutes and `secscan-nightly` at 04:20. Everything is under
-  `/home/secscan/secscan`: `src/` (root-owned copy of Nadav011/nadavai-secscan), `tools/` (pinned
-  arm64 scanners and gh, `src/bin/install-tools.sh`), `state/` (the baselines Nadav approved),
-  `repos.txt`, `logs/`, and `gh.env` (600): the fine-grained token "nadavai-secscan (Oracle svc)"
-  for the five repos (Contents and Pull requests read, Commit statuses and Issues write; expires
-  2027-11-04). Measured there: a PR scan 8 to 70 s, therapy-flow-v2's full scan 100 s.
+  System units `secscan-poll` (every 2 minutes) and `secscan-nightly` (04:20) run it as the user
+  `secscan` (no sudo, no login shell) inside a sandbox that can write only its data folders.
+  - Layout, `/home/secscan/secscan`: root-owned `src/` (a copy of Nadav011/nadavai-secscan),
+    `tools/` (pinned arm64 scanners and gh, `src/bin/install-tools.sh`) and `repos.txt`; owned by
+    the user: `state/` (the baselines Nadav approved), `logs/`, `work/`, `repos/`, `cache/`. The
+    token is in `/etc/secscan/gh.env` (root, 600), read by systemd; the scanner's user cannot read
+    the file, and `bin/secscan` strips the token from the environment of everything that parses
+    PR content. A scanner bug could still read it from its parent process: the user is one, so the
+    sandbox limits what such a bug can change, not what it can post. The token is the fine-grained
+    "nadavai-secscan (Oracle svc)": five repos, Contents and Pull requests read, Commit statuses
+    and Issues write, expires 2027-11-04.
+  - Measured there: a PR scan 8 to 70 s, therapy-flow-v2's full scan 100 s, against the merge
+    guard's 600 s grace.
   - Look: `ssh nadavai-svc 'sudo tail /home/secscan/secscan/logs/secscan.log'`; a report:
     `ssh nadavai-svc sudo cat /home/secscan/secscan/logs/<repo>-<sha7>-security.txt`.
-  - By hand, as that user: `ssh nadavai-svc "sudo -u secscan bash -c 'cd; set -a; . ~/secscan/gh.env; set +a; ~/secscan/src/bin/secscan scan <repo> <sha> pr:<n>'"`;
-    `secscan approve <repo> <main-sha> [<digest>]` runs the same way, after Nadav approved the delta.
+  - By hand: `ssh nadavai-svc sudo secscan-run scan <repo> <sha> pr:<n>`, and
+    `ssh nadavai-svc sudo secscan-run approve <repo> <main-sha>` prints the dependency delta and a
+    digest without writing; the same command with the digest writes it, after Nadav approved the
+    `+` lines. A delta of `-` lines only makes the gate stricter and needs no approval.
   - Update the code: push to Nadav011/nadavai-secscan, then copy `bin/` and `systemd/` into `src/`
-    as root (the scanner's user cannot write its own code).
+    as root and the units to `/etc/systemd/system` (`systemd/README` there).
   - A new repo: a line in `repos.txt`, the repo added to the token, and a first baseline
     (`security-scan <repo> <tree> <report> --baseline` on main; camstore's was rebuilt this way on
     2026-11-10 with 0 entries).
-  - omarchy still has its old copy with enabled timers. When it comes back, disable them there
-    (`systemctl --user disable --now secscan-poll.timer secscan-nightly.timer`) before anything
-    else, or two services post the same status. Its `~/secscan/state` holds baseline entries
-    approved after 2026-11-03 that the VM's copy lacks (therapy-flow-v2: 14 secret-like test
-    fixtures of PR #98): copy `state/*.security-baseline.json` over then.
+  - Baselines: restored on 2026-11-10 from the October copies in `~/ci/state/` on the LENOVO and
+    tightened the same day to what each main still has (116 fixed advisories dropped, so a PR that
+    brings one back is red again). Not approved, so red until Nadav decides: snooker-smart 2
+    (extract-zip), sportchat-web 5 (extract-zip, tmp, uuid), and the 14 secret-like test fixtures
+    of therapy-flow-v2 PR #98. The October files are kept in `cache/`.
+  - omarchy still has its old copy with enabled user timers. When it comes back, disable them
+    there (`systemctl --user disable --now secscan-poll.timer secscan-nightly.timer`) before
+    anything else, or two services post the same status. Its `~/secscan/state` holds what was
+    approved after 2026-11-03: compare it with the VM's files entry by entry and bring over only
+    what Nadav approved; never copy a file over, because the VM's lists are the stricter ones.
 - Nightly audits (omarchy): a local-backend agent (`omarchy-nightly`, capacity 1) that takes only
   Nadav011/nadavai-nightly's workflows, cron `night` 23:00 UTC, on each repo's main (Green Room:
   the commit production serves). It posts `nadavai-ui`, `nadavai-nightly`, `nadavai-native` and
@@ -258,8 +276,7 @@ users `nadavai-build`, `nadavai-upload` and `nadavai-ota`, work dirs in `/srv/na
   `touch ~/deploy/state/<repo>.auto`. The timer never passes `--migration-approved`.
 - Secrets, VM only, 600 in `~/deploy/secrets/`: `github.env` (`GH_TOKEN`: a fine-grained PAT for the four repos
   with Contents read, Pull requests read, Commit statuses read and write, and Issues read and write
-  for the OTA alert (not on the token as of 2026-11-09: listing issues answers 403); pending as of
-  2026-11-04: GitHub asked for GitHub Mobile confirmation, so Nadav creates it and pipes it in), `therapy-flow-v2.env` (the Pages deploy token from
+  for the OTA alert (added to the token on 2026-11-10, checked from the VM: issues list in all four repos)), `therapy-flow-v2.env` (the Pages deploy token from
   the old `therapy-flow-v2.deploy.env`), `therapy-flow-v2.build.env` (public `VITE_*` build env, read
   by systemd as root, never by the build user), and `cash-next-app.env`, `snooker-smart.env`,
   `sportchat-web.env` (`VERCEL_TOKEN`, team scope `nadav011s-projects`: the Vercel CLI refuses

@@ -1,16 +1,16 @@
 #!/bin/bash
-# Check for nadavai-watch on nadavai-svc: secscan's poll (every 2 minutes, user secscan) ran or is
-# running in the last 15 minutes and did not fail. A stale poll means no PR gets nadavai-security,
-# so nothing merges or deploys: on 2026-11-09 that lasted 22 hours with no alert.
+# Check for nadavai-watch on nadavai-svc: secscan's poll (system unit, every 2 minutes) ran or is
+# running in the last 15 minutes and did not fail. The poll exits 1 when GitHub refuses a listing
+# or a status (a dead or expired token), so that shows here too. A stale poll means no PR gets
+# nadavai-security, so nothing merges or deploys: on 2026-11-09 that lasted 22 hours with no alert.
 set -uo pipefail
-uid=$(id -u secscan) || { echo "no secscan user"; exit 1; }
-prop() { sudo -n -u secscan XDG_RUNTIME_DIR="/run/user/$uid" systemctl --user show secscan-poll.service -p "$1" --value; }
-state=$(prop ActiveState) || { echo "cannot ask secscan's user manager"; exit 1; }
-[ "$state" = activating ] && { echo "poll running"; exit 0; }
+prop() { systemctl show secscan-poll.service -p "$1" --value; }
+[ "$(systemctl is-enabled secscan-poll.timer 2>/dev/null)" = enabled ] || { echo "secscan-poll.timer is not enabled"; exit 1; }
+[ "$(prop ActiveState)" = activating ] && { echo "poll running"; exit 0; }
 result=$(prop Result)
 [ "$result" = success ] || { echo "secscan's last poll ended with: $result (sudo tail /home/secscan/secscan/logs/secscan.log)"; exit 1; }
 last=$(prop ExecMainExitTimestamp)
-[ -n "$last" ] || { echo "secscan's poll has not run since boot (is secscan-poll.timer enabled?)"; exit 1; }
+[ -n "$last" ] || { echo "secscan's poll has not run since boot"; exit 1; }
 age=$(( $(date +%s) - $(date -d "$last" +%s) ))
 [ "$age" -lt 900 ] || { echo "secscan's poll last ran $((age / 60)) minutes ago ($last)"; exit 1; }
 echo "poll ran ${age}s ago"

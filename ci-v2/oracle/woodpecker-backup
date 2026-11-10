@@ -20,12 +20,18 @@ rm -f "$tmp"
 sqlite3 -readonly "$src" ".timeout $wait_ms" ".schema --nosys" | sqlite3 "$tmp"
 tables=$(sqlite3 -readonly "$src" ".timeout $wait_ms" \
   "select name from sqlite_master where type='table' and name not like 'sqlite_%' and name <> 'log_entries'")
+has_seq=$(sqlite3 -readonly "$src" ".timeout $wait_ms" "select 1 from sqlite_master where name='sqlite_sequence'")
 {
   echo ".bail on"
   echo ".timeout $wait_ms"
   echo "ATTACH DATABASE '$src' AS live;"
   echo "BEGIN;"
   for t in $tables; do echo "INSERT INTO main.\"$t\" SELECT * FROM live.\"$t\";"; done
+  # The id counters as they are, the logs' one too: a restore must never hand out an id again.
+  if [ -n "$has_seq" ]; then
+    echo "DELETE FROM main.sqlite_sequence;"
+    echo "INSERT INTO main.sqlite_sequence SELECT * FROM live.sqlite_sequence;"
+  fi
   echo "COMMIT;"
 } | sqlite3 "$tmp"
 
@@ -40,18 +46,22 @@ find "$d" -maxdepth 1 -name 'woodpecker-*.sqlite' -size 0 -delete
 ls -1 "$d"/woodpecker-*.sqlite | sort | head -n -14 | while read -r old; do rm -f -- "${old:?}"; done
 
 # Off the VM: each snapshot encrypted to the LENOVO's key for this VM (decrypt there with
-# `age -d -i ~/.ssh/nadavai_vm`), mirrored into a write-only folder on nadavai-svc. A failure here
-# fails the unit, and the wp-backup check alerts.
-if [ -s /opt/woodpecker/backup-recipient.pub ]; then
-  mkdir -p "$d/enc"
-  for s in "$d"/woodpecker-*.sqlite; do
-    e="$d/enc/${s##*/}.age"
-    [ -s "$e" ] || age -R /opt/woodpecker/backup-recipient.pub -o "$e" "$s"
-  done
-  for e in "$d"/enc/*.age; do
-    s="$d/$(basename "$e" .age)"
-    [ -e "$s" ] || rm -f -- "${e:?}"
-  done
-  rsync -a --delete -e "ssh -i /root/.ssh/wpbackup_ed25519 -o BatchMode=yes -o ConnectTimeout=20" \
-    "$d/enc/" wpbackup@10.0.0.61:
-fi
+# `age -d -i ~/.ssh/nadavai_vm`) and pushed into a folder on nadavai-svc that this key can only
+# add to (rrsync -wo -no-del); that side keeps the newest 30. Any failure here fails the unit, and
+# the wp-backup check reads the unit's result and the age of the newest encrypted copy.
+[ -s /opt/woodpecker/backup-recipient.pub ] || { echo "no /opt/woodpecker/backup-recipient.pub: nothing leaves this VM" >&2; exit 1; }
+mkdir -p "$d/enc"
+for s in "$d"/woodpecker-*.sqlite; do
+  e="$d/enc/${s##*/}.age"
+  if [ ! -s "$e" ] || [ "$s" -nt "$e" ]; then
+    age -R /opt/woodpecker/backup-recipient.pub -o "$e.tmp" "$s"
+    mv -f "$e.tmp" "$e"
+  fi
+done
+find "$d/enc" -maxdepth 1 -name '*.tmp' -delete
+for e in "$d"/enc/*.age; do
+  s="$d/$(basename "$e" .age)"
+  [ -e "$s" ] || rm -f -- "${e:?}"
+done
+rsync -a -e "ssh -i /root/.ssh/wpbackup_ed25519 -o BatchMode=yes -o ConnectTimeout=20" \
+  "$d"/enc/*.age wpbackup@10.0.0.61:

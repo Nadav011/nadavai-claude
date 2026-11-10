@@ -16,6 +16,8 @@ import urllib.request
 
 SERVER = os.environ.get("WOODPECKER_SERVER", "https://ci.nadavc.ai").rstrip("/")
 ENV = os.path.expanduser("~/deploy/secrets/woodpecker.env")
+# Repos with a nightly cron on 2026-11-10: snooker-smart, cash-next-app, sportchat-web, therapy-flow-v2, camstore.
+MIN_NIGHTLY = int(os.environ.get("WP_MIN_NIGHTLY", "4"))
 
 
 def token():
@@ -47,16 +49,20 @@ def agents(tok):
 
 
 def nightly(tok):
-    now, late = time.time(), []
+    now, late, covered = time.time(), [], 0
     for repo in get("/api/user/repos?all=true", tok) or []:
         if not repo.get("active"):
             continue
         if not any(c.get("name") == "nightly" for c in get("/api/repos/%d/cron" % repo["id"], tok) or []):
             continue
+        covered += 1
         runs = get("/api/repos/%d/pipelines?event=cron&branch=main&perPage=10" % repo["id"], tok) or []
         last = max((p.get("created", 0) for p in runs if p.get("cron") == "nightly"), default=0)
         if now - last > 26 * 3600:
             late.append("%s (last %s)" % (repo["name"], time.strftime("%F %H:%M UTC", time.gmtime(last)) if last else "never"))
+    if covered < MIN_NIGHTLY:  # an empty or short answer must not read as "all healthy"
+        print("only %d repos with a nightly cron answered, expected at least %d" % (covered, MIN_NIGHTLY))
+        return 1
     if late:
         print("nightly cron did not start in the last 26 hours: " + ", ".join(late))
         return 1
