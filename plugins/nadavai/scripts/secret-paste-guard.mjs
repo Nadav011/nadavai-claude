@@ -38,18 +38,28 @@ const NOT_UNIT = String.raw`(?![\/.-]?\d|[a-z%₪$€£]|\s?(?:[%₪$€£]|ש["
 const EXPIRY = String.raw`(?:0[1-9]|1[0-2])\s?[\/.-]\s?${YEAR}${NOT_UNIT}`;
 const EXPIRY_RE = new RegExp(String.raw`(?<![\d\/.-])${EXPIRY}`, "i");
 // Away from the number only MM/YY with a slash counts: "12.30" nearby is usually a price.
-// A past month ("since 03/2025") is a date, so only this year and the next twelve count.
-const NOW_YEAR = new Date().getFullYear();
-const FUTURE_YEAR = `(?:${Array.from({ length: 13 }, (_, i) => NOW_YEAR + i).map((y) => `(?:20)?${String(y).slice(2)}`).join("|")})`;
-const SLASH_EXPIRY = new RegExp(String.raw`(?<![\d\/.-])(?:0[1-9]|1[0-2])\s?\/\s?${FUTURE_YEAR}${NOT_UNIT}`, "i");
+// A month that already passed ("since 03/2025") is a date, so only this month up to twelve years on counts.
+const SLASH_EXPIRY = new RegExp(String.raw`(?<![\d\/.-])(0[1-9]|1[0-2])\s?\/\s?((?:20)?\d{2})${NOT_UNIT}`, "gi");
+const futureExpiry = (text) => {
+  const now = new Date(), y0 = now.getFullYear(), m0 = now.getMonth() + 1;
+  for (const m of text.matchAll(SLASH_EXPIRY)) {
+    const y = 2000 + (+m[2] % 100), mo = +m[1];
+    if (y > y0 + 12) continue;
+    if (y > y0 || (y === y0 && mo >= m0)) return true;
+  }
+  return false;
+};
 const EXP_LABEL = String.raw`exp(?:iry|ires|iration)?(?:\.?\s?date)?|valid(?:\s(?:thru|until))?|good\sthru|ו?ב?תוקף(?:\sעד)?`;
 const CODE_LABEL = String.raw`security\scode|cvv2?(?:\scode)?|cvc2?|cid|ו?קוד(?:\sאבטחה)?|\d\sספרות(?:\sבגב)?`;
 const CARD_SEP = String.raw`[\s"',|;:=\/-]{0,8}(?:(?:${EXP_LABEL}|${CODE_LABEL})[\s"':=.-]{0,6})?`;
 const CARD_PRE = String.raw`(?:(?:${CODE_LABEL})\s{0,2}[:=]?\s{0,4}\d{3,4}|(?:(?:${EXP_LABEL})[\s:=-]{0,4})?${EXPIRY})[\s"',|;:=]{1,8}(?:(?:card(?:\s(?:number|no\.?))?|(?:מספר\s)?ה?כרטיס|number)[\s"':=-]{0,6})?`;
 // Whole words only: "כרטיסים" are tickets, "בתוקף" is "in force", "מסגרת האשראי" is a credit line.
-const CARD_WORD = /(?<![א-ת])(?:[הבלמשוכ]{0,2}כרטיס|אשראי)(?![א-ת])|\b(?:cvv2?|cvc|cards?|visa|mastercard|amex)\b/i;
+// English "card" alone is too common ("carousel cards", "the Card component"): near the number it
+// must be a card's own wording, and the bare word counts only right before the number (CARD_LEAD).
+const CARD_WORD = /(?<![א-ת])(?:[הבלמשוכ]{0,2}כרטיס|אשראי)(?![א-ת])|\b(?:cvv2?|cvc|visa|mastercard|amex)\b|\b(?:credit|debit|bank|my)\s?cards?\b|\bcard\s?(?:number|no\.?|#|:|details)|card\[number\]/i;
+const CARD_LEAD = /\bcards?\s{0,3}[#:=-]?\s{0,3}$/i;
 // Stripe's own JSON keeps month and year apart: "exp_month":12,"exp_year":2029.
-const EXP_PART = String.raw`[\s"',|;:=]{0,8}exp_(?:month|year)[\s"':=]{0,6}\d{1,4}(?!\d)`;
+const EXP_PART = String.raw`[&\s"',|;:=]{0,8}(?:card\[)?(?:exp_(?:month|year)|cvc)\]?[\s"':=]{0,6}\d{1,4}(?!\d)`;
 // Public test numbers from the Stripe, PayPal and Adyen docs: payment work pastes them all the time.
 const TEST_CARDS = new Set(["4242424242424242", "4000056655665556", "5555555555554444", "2223003122003222",
   "5200828282828210", "5105105105105100", "378282246310005", "371449635398431", "6011111111111117",
@@ -105,7 +115,7 @@ const PATTERNS = [
       const rest = v.slice(at + num.length);
       if (EXPIRY_RE.test(rest)) return true;
       const near = before.slice(-60) + " " + v.slice(0, at) + " " + rest + " " + after.slice(0, 60);
-      return CARD_WORD.test(near) || SLASH_EXPIRY.test(near);
+      return CARD_WORD.test(near) || CARD_LEAD.test(before + v.slice(0, at)) || futureExpiry(near);
     }],
   // A prompt that is nothing but one random-looking token (one <pasted_content> wrapper allowed).
   // Inside a longer message such a string is usually an id, so only the whole prompt counts. No
@@ -239,7 +249,10 @@ async function scrubFile([file, lock], forms) {
 // goes to the user's runtime dir (tmpfs, 700) and to the secrets folder only when there is none.
 function scrubDir() {
   const r = process.env.XDG_RUNTIME_DIR;
-  try { if (r && path.isAbsolute(r) && fs.statSync(r).isDirectory()) return r; } catch {}
+  try {
+    const st = r && path.isAbsolute(r) ? fs.statSync(r) : null;
+    if (st && st.isDirectory() && st.uid === process.getuid() && (st.mode & 0o077) === 0) return r;
+  } catch {}
   secretsDir();
   return SECRETS;
 }
@@ -260,17 +273,22 @@ async function scrubMain(valuesFile) {
   }
 }
 
-function startScrub(values) {
+// Returns whether the scrub child started. The child deletes the values file as it starts; when
+// it cannot start, the file is removed here.
+async function startScrub(values) {
   const file = path.join(scrubDir(), `.scrub-${crypto.randomBytes(8).toString("hex")}.json`);
   const drop = () => { try { fs.unlinkSync(file); } catch {} };
   fs.writeFileSync(file, JSON.stringify(values), { mode: 0o600, flag: "wx" });
+  let child;
   try {
-    // The child deletes the file as it starts; when it cannot start, the file goes here.
-    const child = spawn(process.execPath, [new URL(import.meta.url).pathname, "--scrub", file],
+    child = spawn(process.execPath, [new URL(import.meta.url).pathname, "--scrub", file],
       { detached: true, stdio: "ignore", cwd: "/" });
-    child.on("error", drop);
-    child.unref();
-  } catch (e) { drop(); throw e; }
+  } catch { drop(); return false; }
+  // A spawn that fails at run time (EAGAIN, ENOENT) says so with an 'error' event on the next tick, not a throw.
+  const started = await new Promise((res) => { child.once("spawn", () => res(true)); child.once("error", () => res(false)); });
+  if (!started) { drop(); return false; }
+  child.unref();
+  return true;
 }
 
 // --- main ---
@@ -293,8 +311,8 @@ if (!found.length) process.exit(0);
 const keys = found.filter((f) => f.type !== CARD), cards = found.length - keys.length;
 let saved = null;
 if (keys.length) try { saved = saveSecrets(keys); } catch {}
-let scrubbing = true;
-try { startScrub(found.map((f) => f.value)); } catch { scrubbing = false; }
+let scrubbing = false;
+try { scrubbing = await startScrub(found.map((f) => f.value)); } catch {}
 
 const SHOWN = 5;
 // Keys first, so the key that the rotate line speaks about is always among the listed ones.

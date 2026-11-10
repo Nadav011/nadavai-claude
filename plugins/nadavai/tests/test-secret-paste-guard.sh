@@ -150,6 +150,10 @@ check "tickets, not a card" allow "הזמנת כרטיסים להופעה, מס�
 check "in force, not expiry" allow "החוזה בתוקף עד סוף 2027, מספר לקוח $ID16"
 check "credit line"        allow "מסגרת האשראי של העסק $C14 הוגדלה"
 check "past month is a date" allow "קמפיין $ID16 רץ מאז 03/2025"
+check "carousel cards"     allow "במודעה $ID16 יש 3 carousel cards"
+check "Card component"     allow "the Card component shows record $ID16"
+PM=$(( 10#$(date +%m) - 1 ))
+[ "$PM" -ge 1 ] && check "a past month this year" allow "קמפיין $ID16 רץ מאז $(printf '%02d' "$PM")/$(date +%y)"
 check "firebase key alone" allow "AIza""Sy${TOK:0:33}"
 check "pk_live alone"      allow "pk_""live_${TOK:0:34}"
 check "sb_publishable alone" allow "sb_""publishable_${TOK:0:32}"
@@ -243,19 +247,27 @@ card_block "code before"     "cvv 123 card $C16G 12/29" "$R" "${C16: -4}" "$C16G
 card_block "expiry before"   "12/29 $C16G 123" "$R" "${C16: -4}" "$C16G" "$C16" 12/29 123
 card_block "json object"     "{\"number\":\"$C16\",\"exp\":\"12/29\",\"cvc\":\"123\"}" "{\"number\":\"$R\"}" "${C16: -4}" "$C16" 12/29 123
 card_block "labels on lines" "Card number: $C16G"$'\n'"Expiry: 12/29"$'\n'"CVV: 123" "Card number: $R" "${C16: -4}" "$C16G" "$C16" 12/29 123
-card_block "form body"       "curl -d \"amount=100&card[number]=$C16&card[cvc]=123\"" "curl -d \"amount=100&card[number]=$R&card[cvc]=123\"" "${C16: -4}" "$C16"
+card_block "form body"       "curl -d \"amount=100&card[number]=$C16&card[cvc]=123\"" "curl -d \"amount=100&card[number]=$R\"" "${C16: -4}" "$C16"
 card_block "stripe json"     "{\"number\":\"$C16\",\"exp_month\":12,\"exp_year\":2029,\"cvc\":\"123\"}" "{\"number\":\"$R\"}" "${C16: -4}" "$C16" 2029
 card_block "the card + word" "זה הכרטיס $C16" "זה הכרטיס $R" "${C16: -4}" "$C16"
 # The scrub child cannot start: the values file is removed at once and the message says so.
 NS="$tmp/nospawn"; mkdir -p "$NS/home"
+# As Node reports ENOENT or EAGAIN: no throw, an 'error' event on the next tick.
 printf '%s\n' 'import cp from "node:child_process"; import { syncBuiltinESMExports } from "node:module";' \
-  'cp.spawn = () => { throw Object.assign(new Error("spawn EAGAIN"), { code: "EAGAIN" }); }; syncBuiltinESMExports();' >"$NS/nospawn.mjs"
+  'const real = cp.spawn; cp.spawn = (c, a, o) => real("/nonexistent/node", a, o); syncBuiltinESMExports();' >"$NS/nospawn.mjs"
 (export HOME="$NS/home" CLAUDE_CONFIG_DIR="$NS/home/.claude" XDG_RUNTIME_DIR="$NS/run"; mkdir -m 700 -p "$XDG_RUNTIME_DIR"
  jq -n --arg p "card $C16G 12/29 123" '{hook_event_name:"UserPromptSubmit",prompt:$p}' | node --import "$NS/nospawn.mjs" "$GUARD" >"$NS/out" 2>"$NS/err")
 expect "no spawn: still blocks" block "$(jq -r '.decision // "allow"' "$NS/out" 2>/dev/null)"
 expect "no spawn: message says the history was not cleaned" 1 "$(jq -r '.reason' "$NS/out" | grep -c 'המחיקה מההיסטוריה המקומית לא הופעלה')"
 expect "no spawn: no values file left" 0 "$(find "$NS" -name '.scrub-*' | wc -l)"
 expect "no spawn: nothing in secrets" 0 "$(find "$NS/home/.claude/secrets" -type f 2>/dev/null | wc -l)"
+# The same failure with no runtime dir: the values file falls back to the secrets folder and is still removed.
+mkdir -p "$NS/home2"
+(export HOME="$NS/home2" CLAUDE_CONFIG_DIR="$NS/home2/.claude"; unset XDG_RUNTIME_DIR
+ jq -n --arg p "card $C16G 12/29 123" '{hook_event_name:"UserPromptSubmit",prompt:$p}' | node --import "$NS/nospawn.mjs" "$GUARD" >"$NS/out2" 2>"$NS/err2")
+expect "no spawn, no runtime dir: blocks" block "$(jq -r '.decision // "allow"' "$NS/out2" 2>/dev/null)"
+expect "no spawn, no runtime dir: says not cleaned" 1 "$(jq -r '.reason' "$NS/out2" | grep -c 'המחיקה מההיסטוריה המקומית לא הופעלה')"
+expect "no spawn, no runtime dir: nothing left on disk" 0 "$(find "$NS/home2" -type f | wc -l)"
 read -r -d '' WANT <<EOF
 ההודעה נעצרה ולא הגיעה למודל: היא מכילה פרטי כרטיס אשראי.
 - כרטיס אשראי שמסתיים ב-${C16: -4}
