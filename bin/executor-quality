@@ -100,7 +100,7 @@ def verdict(text):
         return None
     t = text.replace('*', '').replace('`', '')
     for label in (STRONG_LABEL, WEAK_LABEL):  # "Verdict:" wins over "Typecheck status:"
-        for m in label.finditer(t):
+        for m in reversed(list(label.finditer(t))):  # the verdict is the last one; earlier ones are quotes
             nxt = re.match(r'[ \t:#\-–—]{0,8}\n?\s*([A-Za-z][A-Za-z_\-]*(?: [A-Za-z_\-]+){0,3})', t[m.end():m.end() + 80])
             if not nxt:
                 continue
@@ -303,13 +303,13 @@ models = sorted({r['model'] for r in rows}, key=lambda m: -sum(r['model'] == m f
 for m in models:
     rs = [r for r in rows if r['model'] == m]
     sz = sorted(r['tools'] for r in rs)
-    print(f"  {m:12} {line(rs)}  median tool calls {sz[len(sz)//2]}")
+    print(f"  {m:16} {line(rs)}  median tool calls {sz[len(sz)//2]}")
 print('by size (tool calls):')
 for lo, hi in ((0, 20), (20, 60), (60, 10**9)):
     for m in models:
         rs = [r for r in rows if r['model'] == m and lo <= r['tools'] < hi]
         if rs:
-            print(f"  {lo:>3}-{'' if hi > 10**6 else hi:<4} {m:12} {line(rs)}")
+            print(f"  {lo:>3}-{'' if hi > 10**6 else hi:<4} {m:16} {line(rs)}")
 if VERBOSE:
     for r in rows:
         rv = '-' if not r['reviewed'] else str(r['rev'])
