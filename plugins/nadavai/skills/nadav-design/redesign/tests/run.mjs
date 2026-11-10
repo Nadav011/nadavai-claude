@@ -22,6 +22,7 @@ const PNG1 = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQV
 const noBrowser = process.argv.includes('--no-browser');
 
 // The skill is a router (SKILL.md) plus one file per mode (modes/*.md); a test that looks for a rule reads all of it.
+const routerText = () => fs.readFileSync(path.join(SK, '..', 'SKILL.md'), 'utf8');
 const skillText = () => [path.join(SK, '..', 'SKILL.md'), ...fs.readdirSync(path.join(SK, '..', 'modes')).sort().map(f => path.join(SK, '..', 'modes', f))]
   .map(f => fs.readFileSync(f, 'utf8')).join('\n');
 const results = [];
@@ -322,7 +323,7 @@ await test('L23', 'capture-today rejects an unknown screen name', async () => {
 // ---------------- documents ----------------
 const read = p => fs.readFileSync(path.join(SK, p), 'utf8');
 await test('M18', 'redesign keeps its run log and debts in the output repo, and Loop position finds the package', async () => {
-  const skill = skillText();
+  const skill = routerText(); // Loop position is a hard rule: it must be in the router, not in a mode file
   const loop = skill.split('\n').find(l => l.startsWith('- **Loop position')) || '';
   return /RUN-LOG\.md/.test(read('README.md')) && !/\.omc\/design-runs\/redesign/.test(read('README.md')) && /design-redesign/.test(loop) ? '' : 'README still writes into the app repo, or Loop position does not know the package';
 });
@@ -693,7 +694,7 @@ await test('OL2', 'every snapshot starts empty under a run nonce, and the confir
   return fix && /rm -rf \S*plan-snap-n42/.test(fix.prompt) && conf && /U-7 acceptance reworded/.test(conf.prompt) ? '' : 'no clean snapshot or no changed list';
 });
 await test('OL3', 'distinct status tokens, read by Loop position', async () => {
-  const skill = skillText();
+  const skill = routerText(); // Loop position is a hard rule: it must be in the router, not in a mode file
   const loop = skill.split('\n').find(l => l.startsWith('- **Loop position')) || '';
   return /^\*\*?Status:\*?\*? DRAFT/m.test(read('templates/START-BUILD.md').replace(/\*\*/g, '')) || /^Status: DRAFT/m.test(read('templates/START-BUILD.md'))
     ? (/Status: OWNER-APPROVED/.test(loop) && /Status: DRAFT/.test(read('templates/build-plan.md')) ? '' : 'Loop position or the plan template lacks the token')
