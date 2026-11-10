@@ -69,7 +69,12 @@ not proven, because the fault cannot be produced on demand. `msi-tuning-check` n
 it. Before a remote reboot of the MSI run `msi-tuning-check`: when the dGPU row is BAD, reboot
 only with a person beside the machine. If the fault shows up again under nvidia 620, measure
 `NVreg_DynamicPowerManagement=0x02` with `cpu-ab.sh` (the card then stays powered, about 12 W on
-the shared heat pipes) before choosing it.
+the shared heat pipes) before choosing it. A search on 2026-11-10 found the same fault class
+reported across open-module versions 580 to 610 with no fix confirmed by NVIDIA (an RTX 3070
+Mobile with an HDMI screen: https://forums.developer.nvidia.com/t/driver-580-gsp-firmware-crash-xid-120-154-on-rtx-3070-mobile-with-hdmi-display-535-works-with-gsp-disabled/364770 ;
+GC6 exit: https://forums.developer.nvidia.com/t/gsp-rm-firmware-bug-heartbeat-stops-after-gc6-exit-leads-to-fatal-gpu-loss-xid-79-and-broken-display-recovery/366591 ),
+so there is nothing to apply on evidence yet; the two levers people report are the runtime power
+setting and the driver version.
 
 **LENOVO** (Legion Pro 5 16IAX10H, Core Ultra 9 275HX 24 cores, 62 GB, RTX 5070 Ti, CachyOS,
 BIOS Q6CN79WW = latest per `download.lenovo.com/catalog/83LU_Win11.xml`; the main machine since
