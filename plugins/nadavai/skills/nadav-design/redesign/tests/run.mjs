@@ -21,6 +21,10 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'redesign-skill-tests-')); // 
 const PNG1 = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
 const noBrowser = process.argv.includes('--no-browser');
 
+// The skill is a router (SKILL.md) plus one file per mode (modes/*.md); a test that looks for a rule reads all of it.
+const routerText = () => fs.readFileSync(path.join(SK, '..', 'SKILL.md'), 'utf8');
+const skillText = () => [path.join(SK, '..', 'SKILL.md'), ...fs.readdirSync(path.join(SK, '..', 'modes')).sort().map(f => path.join(SK, '..', 'modes', f))]
+  .map(f => fs.readFileSync(f, 'utf8')).join('\n');
 const results = [];
 const test = async (id, name, fn) => {
   try {
@@ -319,7 +323,7 @@ await test('L23', 'capture-today rejects an unknown screen name', async () => {
 // ---------------- documents ----------------
 const read = p => fs.readFileSync(path.join(SK, p), 'utf8');
 await test('M18', 'redesign keeps its run log and debts in the output repo, and Loop position finds the package', async () => {
-  const skill = fs.readFileSync(path.join(SK, '..', 'SKILL.md'), 'utf8');
+  const skill = routerText(); // Loop position is a hard rule: it must be in the router, not in a mode file
   const loop = skill.split('\n').find(l => l.startsWith('- **Loop position')) || '';
   return /RUN-LOG\.md/.test(read('README.md')) && !/\.omc\/design-runs\/redesign/.test(read('README.md')) && /design-redesign/.test(loop) ? '' : 'README still writes into the app repo, or Loop position does not know the package';
 });
@@ -452,7 +456,7 @@ await test('GM8', 'inventory-scan lists the routes, boundaries, state signals an
 await test('GM9', 'the README gives the local-font recipe', async () => /\.next\/static\/media/.test(read('README.md')) && /@fontsource/.test(read('README.md')) ? '' : 'no recipe');
 await test('GM10', 'step 0 pins the app\'s commit and INVENTORY.md carries it', async () => /rev-parse HEAD/.test(read('README.md').split('### 1.')[0]) && /ls-remote/.test(read('README.md')) && /commit/i.test(read('templates/INVENTORY.md').split('\n').slice(0, 8).join('\n')) ? '' : 'no pin');
 await test('GM11', 'retro step 0 also reads redesign run logs', async () => {
-  const skill = fs.readFileSync(path.join(SK, '..', 'SKILL.md'), 'utf8');
+  const skill = skillText();
   const retro0 = skill.split('\n').find(l => l.startsWith('0. ') && l.includes('Find the run')) || '';
   return /design-redesign\/\*\/RUN-LOG\.md/.test(retro0) ? '' : 'retro does not look for RUN-LOG.md';
 });
@@ -474,7 +478,7 @@ await test('GL8', 'a dark-only app needs no light passes for a clean rebuild', a
 });
 await test('GL5+L6+L9+L10', 'docs: committed session helpers, an icon recipe, step 0 wording, pnpm Playwright paths', async () => {
   const rd = read('README.md');
-  const skill = fs.readFileSync(path.join(SK, '..', 'SKILL.md'), 'utf8');
+  const skill = skillText();
   const why = [];
   if (!/tools\/local\//.test(rd)) why.push('L5');
   if (!fs.existsSync(path.join(T, 'icons-from-lucide.mjs')) || !/icons-from-lucide/.test(rd)) why.push('L6');
@@ -690,7 +694,7 @@ await test('OL2', 'every snapshot starts empty under a run nonce, and the confir
   return fix && /rm -rf \S*plan-snap-n42/.test(fix.prompt) && conf && /U-7 acceptance reworded/.test(conf.prompt) ? '' : 'no clean snapshot or no changed list';
 });
 await test('OL3', 'distinct status tokens, read by Loop position', async () => {
-  const skill = fs.readFileSync(path.join(SK, '..', 'SKILL.md'), 'utf8');
+  const skill = routerText(); // Loop position is a hard rule: it must be in the router, not in a mode file
   const loop = skill.split('\n').find(l => l.startsWith('- **Loop position')) || '';
   return /^\*\*?Status:\*?\*? DRAFT/m.test(read('templates/START-BUILD.md').replace(/\*\*/g, '')) || /^Status: DRAFT/m.test(read('templates/START-BUILD.md'))
     ? (/Status: OWNER-APPROVED/.test(loop) && /Status: DRAFT/.test(read('templates/build-plan.md')) ? '' : 'Loop position or the plan template lacks the token')
@@ -807,7 +811,7 @@ await test('NC4', 'a retried lane or shared owner never overwrites the history i
 });
 await test('NC5', 'docs: the DoD usage line, per-finding second-model outcomes, the START-BUILD diff, restart at spec, sources', async () => {
   const rd = read('README.md');
-  const skill = fs.readFileSync(path.join(SK, '..', 'SKILL.md'), 'utf8');
+  const skill = skillText();
   const why = [];
   if (!/today-from-dod\.py --config redesign\.json --dod \S+ --app \S+ \S+=\/\S*:\S+/.test(rd)) why.push('L5 usage');
   if (!/second\.findings\[i\]\.done/.test(rd)) why.push('L6');
@@ -1217,6 +1221,31 @@ await test('FACT-1', 'facts-check.py passes pages whose figures are in the facts
   if (gone.status !== 2) why.push(`a page path that does not exist: exit ${gone.status}`);
   const usage = sh('python3', [path.join(T, 'facts-check.py')]);
   if (usage.status !== 2) why.push(`no arguments: exit ${usage.status}`);
+  return why.join(' · ');
+});
+await test('SPLIT-1', 'rule-accounting.py finds every line of an old SKILL.md in the router or a mode file, and names a line that is gone', async () => {
+  const tool = path.join(SK, '..', 'dev', 'rule-accounting.py');
+  const dir = path.join(TMP, 'split');
+  fs.mkdirSync(path.join(dir, 'modes'), { recursive: true });
+  fs.mkdirSync(path.join(dir, 'shared'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'SKILL.md'), '# skill\n\n- rule one\n');
+  fs.writeFileSync(path.join(dir, 'modes', 'screen.md'), '## Mode `screen`\n\n1. step one\n');
+  fs.writeFileSync(path.join(dir, 'shared', 'rules.md'), '- a rule that moved to shared\n');
+  const old = path.join(dir, 'old.md');
+  const run = (text, extra = []) => {
+    fs.writeFileSync(old, text);
+    const r = sh('python3', [tool, old, '--skill-dir', dir, ...extra]);
+    let out = null; try { out = JSON.parse(r.stdout); } catch { /* reported below */ }
+    return { status: r.status, out, raw: r.stdout };
+  };
+  const why = [];
+  const all = run('# skill\n\n- rule one\n## Mode `screen`\n1. step one\n- a rule that moved to shared\n');
+  if (all.status !== 0 || !all.out || all.out.found !== 5 || all.out.missing.length) why.push(`complete: exit ${all.status} ${all.raw}`);
+  const gone = run('# skill\n- rule one\n- a rule nobody moved\n');
+  if (gone.status !== 1 || !gone.out || gone.out.missing.length !== 1 || !/nobody moved/.test(gone.out.missing[0].text)) why.push(`a lost rule: exit ${gone.status} ${gone.raw}`);
+  fs.writeFileSync(path.join(dir, 'allow.txt'), '# changed on purpose\n- a rule nobody moved\n');
+  const ok = run('# skill\n- rule one\n- a rule nobody moved\n', ['--allow', path.join(dir, 'allow.txt')]);
+  if (ok.status !== 0 || !ok.out || ok.out.allowed !== 1) why.push(`an allowed change: exit ${ok.status} ${ok.raw}`);
   return why.join(' · ');
 });
 await test('SHOW-1', 'early-show.sh refuses, without any request, a link that is not https, a vercel.app address, a host that is not his and a claude.ai link that is not an artifact', async () => {

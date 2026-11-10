@@ -27,14 +27,14 @@ Under `flow`:
 - A failure stops only the part that failed.
 - "Ask before starting another screen" does not apply.
 
-Under `close-first` every rule of SKILL.md stays as written.
+Under `close-first` every rule of SKILL.md and of the mode files stays as written.
 
 ## Track
 
 Declared with the tempo in the first step, and written in the same run log. The track follows the page being
 built, not the repo: Camstore's home is `site`, its shop and checkout are `app`.
 
-- `app` (the default): a product people operate. SKILL.md as written.
+- `app` (the default): a product people operate. SKILL.md and the mode files as written.
 - `site`: a site that presents (a portfolio, a marketing or landing site, a showcase with a scroll film or 3D,
   the home of a store). Read `tracks/site.md` before the first step. Its table says which app rules change, and
   its order of work replaces the design steps of `screen` for the presenting pages; `setup`, the DoD, the visual
@@ -76,7 +76,7 @@ The understanding check is `rules/working-style.md`, "Requests"; it is not resta
 ## The experience standard
 
 - Before a screen is planned, built, changed or audited, read `standard/experience.md` and
-  `standard/profiles.md` (next to this folder). Their rules are not restated here or in SKILL.md.
+  `standard/profiles.md` (next to this folder). Their rules are not restated here, in SKILL.md or in a mode file.
 - `standard/rejected.md` seeds a new project's `REJECTED.md`.
 - `plan`, `screen`, `audit` and `ship` end their report with how many of the standard's rules were checked only
   by `reviewer` or by `none` on the screens they covered.
