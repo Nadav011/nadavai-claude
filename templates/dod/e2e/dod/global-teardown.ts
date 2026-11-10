@@ -2,16 +2,20 @@ import fs from "node:fs";
 import path from "node:path";
 import {
   aggregate,
+  AXE_TAGS,
+  excludedRoutes,
+  loadParams,
+  loadRoutes,
   REPORTS_DIR,
   RESULTS_DIR,
   SCHEMES,
   VIEWPORTS,
   type EntryResult,
 } from "./dod-shared";
-import params from "./route-params.json";
-import routes from "./routes.json";
 
 export default async function globalTeardown() {
+  const routes = loadRoutes();
+  const excluded = excludedRoutes(loadParams());
   const entries: EntryResult[] = fs.existsSync(RESULTS_DIR)
     ? fs
         .readdirSync(RESULTS_DIR)
@@ -36,7 +40,7 @@ export default async function globalTeardown() {
     ReturnType<typeof aggregate> & { entries: EntryResult[]; not_measured?: string }
   > = {};
   const notMeasured: string[] = [];
-  for (const route of routes as string[]) {
+  for (const { route } of routes) {
     const es = entries.filter((e) => e.route === route);
     if (es.length < EXPECTED_ENTRIES) {
       notMeasured.push(`${route} (${es.length}/${EXPECTED_ENTRIES})`);
@@ -55,10 +59,16 @@ export default async function globalTeardown() {
     generated_at: new Date().toISOString(),
     base_url: `http://localhost:${process.env.PORT ?? "3000"}`,
     scoring:
-      "100 -15/overflow(entry) -5/axe serious+critical -5/console error -10 if fonts>2 -2/touch-target (cap 20) -10/reduced-motion violation; per-page findings counted once per route (max across viewport×scheme)",
+      "100 -15/overflow(entry) -5/axe violation node (any impact) -5/console error -10 if fonts>2 -2/touch-target (cap 20) -10/reduced-motion violation; per-page findings counted once per route (max across viewport×scheme)",
+    axe: {
+      // The engine that judged this run: a new axe-core adds rules, so a score that moved
+      // with no code change is read against this first.
+      core_version: entries.find((e) => e.axe.version)?.axe.version ?? null,
+      tags: AXE_TAGS,
+    },
     totals: { ...aggregate(entries), score: notMeasured.length ? 0 : aggregate(entries).score },
     not_measured: notMeasured,
-    excluded: params._exclude ?? {},
+    excluded,
     routes: perRoute,
   };
 
@@ -90,16 +100,15 @@ export default async function globalTeardown() {
     console.log("[dod] A route with no result is not a route that passed. Each scores 0.");
   }
 
-  const excludedKeys = Object.keys(params._exclude ?? {});
+  const excludedKeys = Object.keys(excluded);
   if (excludedKeys.length) {
     console.log(`\n[dod] ${excludedKeys.length} route(s) deliberately outside the score:`);
-    for (const k of excludedKeys)
-      console.log(`[dod]   ${k} — ${(params._exclude as Record<string, string>)[k]}`);
+    for (const k of excludedKeys) console.log(`[dod]   ${k} — ${excluded[k]}`);
   }
 
   const t = report.totals;
   console.log(
-    `\n[dod] score=${t.score} unreachable=${t.unreachable} unreached=${t.unreached} overflow=${t.overflow_failures} axe=${t.axe_critical_serious} console=${t.console_errors} fonts=${t.font_families} touch=${t.touch_target_failures} reduced-motion=${t.reduced_motion_violations}`,
+    `\n[dod] score=${t.score} unreachable=${t.unreachable} unreached=${t.unreached} overflow=${t.overflow_failures} axe=${t.axe_violations} console=${t.console_errors} fonts=${t.font_families} touch=${t.touch_target_failures} reduced-motion=${t.reduced_motion_violations}`,
   );
   for (const [route, r] of Object.entries(perRoute)) {
     console.log(`[dod]   ${route.padEnd(34)} score=${r.score}`);

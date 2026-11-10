@@ -2,7 +2,12 @@
 // Enumerate every route of the app and keep e2e/dod/routes.json complete.
 //
 //   node e2e/dod/routes.mjs            write routes.json (merges: keeps extra entries you added)
-//   node e2e/dod/routes.mjs --check    exit 1 if the app has routes routes.json does not cover
+//   node e2e/dod/routes.mjs --check    exit 1 if the app has routes routes.json does not cover,
+//                                      or routes.json has a route the app no longer has
+//
+// An entry is a string ("/plans") or an object
+// ({ "route": "/", "audience": "anonymous", "static": true }); a write keeps objects as
+// they are and adds new routes as strings.
 //
 // Detects Next app router (app/**/page.tsx), Next pages router (pages/**) and,
 // in a Vite app, React Router (<Route path="..."> and { path: "..." } inside a
@@ -141,8 +146,22 @@ routes.delete("/*");
 
 const found = [...routes].filter((r) => !EXCLUDE.has(r)).sort();
 const existing = fs.existsSync(OUT) ? JSON.parse(fs.readFileSync(OUT, "utf8")) : [];
-const covered = (r) => existing.some((e) => e === r || e.startsWith(r + "?"));
+if (!Array.isArray(existing)) {
+  console.error("dod-routes: e2e/dod/routes.json must be a JSON array");
+  process.exit(1);
+}
+const routeOf = (e) => (typeof e === "string" ? e : e?.route);
+if (existing.some((e) => typeof routeOf(e) !== "string")) {
+  console.error('dod-routes: every routes.json entry must be a string or an object with a "route"');
+  process.exit(1);
+}
+const listed = existing.map(routeOf);
+const covered = (r) => listed.some((e) => e === r || e.startsWith(r + "?"));
 const missing = found.filter((r) => !covered(r));
+// A listed route whose path the app no longer has is measured as a 404 (or a redirect)
+// on every run, and a renamed page hides behind it. Query variants of a real route
+// ("/plans?state=empty") are not stale: their path is the route's.
+const stale = listed.filter((r) => !routes.has(r.split("?")[0]));
 
 if (process.argv.includes("--check")) {
   if (skipped.length) {
@@ -159,13 +178,26 @@ if (process.argv.includes("--check")) {
     console.error("Run `node e2e/dod/routes.mjs` to add them. The DoD score must cover every screen.");
     process.exit(1);
   }
+  if (stale.length) {
+    console.error(
+      `dod-routes: ${stale.length} entr(ies) in e2e/dod/routes.json name a route the app no longer has:\n  ` +
+        stale.join("\n  "),
+    );
+    console.error("Remove them (or fix the sample value in route-params.json): a stale entry measures a 404, not a screen.");
+    process.exit(1);
+  }
   console.log(`dod-routes: ${found.length} app routes, all covered by routes.json (${existing.length} entries).`);
   process.exit(0);
 }
 
-// Write every app route, keeping extra entries already there (state variants such as "?state=error").
-const merged = [...new Set([...found, ...existing])].filter((r) => !EXCLUDE.has(r)).sort();
+// Write every app route, keeping the entries already there (state variants such as
+// "?state=error", and object entries with their audience and static flag) as they are.
+// Stale entries are kept too, so a write never deletes a decision; --check reports them.
+const merged = [...existing, ...found.filter((r) => !listed.includes(r))]
+  .filter((e) => !EXCLUDE.has(routeOf(e)))
+  .sort((a, b) => (routeOf(a) < routeOf(b) ? -1 : routeOf(a) > routeOf(b) ? 1 : 0));
 fs.writeFileSync(OUT, JSON.stringify(merged, null, 2) + "\n");
+for (const r of stale) console.log(`stale ${r}  (the app has no such route; remove it)`);
 for (const s of skipped) console.log("skipped " + s);
 console.log(
   `dod-routes: wrote ${merged.length} entries to e2e/dod/routes.json (${found.length} app routes, ${merged.length - found.length} extra).`,

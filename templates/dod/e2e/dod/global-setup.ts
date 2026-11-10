@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { chromium, type FullConfig } from "@playwright/test";
-import { REPORTS_DIR, RESULTS_DIR, SCREENS_DIR, STORAGE_STATE } from "./dod-shared";
+import { REPORTS_DIR, RESULTS_DIR, SCREENS_DIR, STORAGE_STATE, loadArgos } from "./dod-shared";
 
 /**
  * The DoD runs as the QA account, which must be able to open EVERY page of the app:
@@ -41,14 +41,27 @@ export default async function globalSetup(config: FullConfig) {
       (k) => process.env[k] && !LOOPBACK.test(process.env[k] as string),
     );
     if (remote.length) {
+      // Name the variable and its host only: a DATABASE_URL carries a password, and this
+      // message ends up in terminal and CI logs. (Ported from cash-next-app's copy.)
+      const hostOf = (value: string) => {
+        try {
+          return new URL(value).host || "unparseable";
+        } catch {
+          return "unparseable";
+        }
+      };
       throw new Error(
         `[dod] refusing to run: ${remote
-          .map((k) => `${k}=${process.env[k]}`)
+          .map((k) => `${k} (${hostOf(process.env[k] as string)})`)
           .join(", ")} — not a loopback address. The DoD signs in with full access and ` +
           "browses every page; it runs against a local stack only. Set DOD_ALLOW_REMOTE=1 to override.",
       );
     }
   }
+
+  // Stop before the first page rather than fail every entry: a token without the
+  // package means someone wanted visual diffs and would otherwise get none.
+  if (process.env.ARGOS_TOKEN) await loadArgos();
 
   fs.rmSync(RESULTS_DIR, { recursive: true, force: true });
   fs.rmSync(SCREENS_DIR, { recursive: true, force: true });

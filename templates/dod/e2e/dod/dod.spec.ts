@@ -3,13 +3,23 @@
 import fs from "node:fs";
 import path from "node:path";
 import { test, type Page } from "@playwright/test";
-import { argosScreenshot } from "@argos-ci/playwright";
 import AxeBuilder from "@axe-core/playwright";
-import params from "./route-params.json";
-import routes from "./routes.json";
-import { RESULTS_DIR, SCHEMES, SCREENS_DIR, VIEWPORTS, routeSlug, type EntryResult } from "./dod-shared";
+import {
+  AXE_TAGS,
+  RESULTS_DIR,
+  SCHEMES,
+  SCREENS_DIR,
+  VIEWPORTS,
+  loadArgos,
+  loadParams,
+  loadRoutes,
+  routeSlug,
+  type EntryResult,
+} from "./dod-shared";
 
 const SETTLE_MS = 1200;
+const routes = loadRoutes();
+const params = loadParams();
 
 async function settle(page: Page) {
   await page.waitForLoadState("networkidle").catch(() => {});
@@ -189,14 +199,21 @@ async function reducedMotionViolations(page: Page) {
   });
 }
 
-for (const route of routes as string[]) {
+for (const entry of routes) {
+  const { route } = entry;
   for (const viewport of VIEWPORTS) {
     for (const scheme of SCHEMES) {
       const slug = routeSlug(route);
       const name = `${slug}__${viewport.width}__${scheme}`;
 
       test.describe(`${route} @${viewport.width} ${scheme}`, () => {
-        test.use({ viewport: { width: viewport.width, height: viewport.height }, colorScheme: scheme });
+        test.use({
+          viewport: { width: viewport.width, height: viewport.height },
+          colorScheme: scheme,
+          // A public page is measured as a visitor sees it: a fresh context with no
+          // cookies and no storage, not the QA session from global-setup.
+          ...(entry.audience === "anonymous" ? { storageState: { cookies: [], origins: [] } } : {}),
+        });
 
         test(`dod ${name}`, async ({ page }) => {
           const consoleErrors: string[] = [];
@@ -208,6 +225,7 @@ for (const route of routes as string[]) {
           const result: EntryResult = {
             route,
             slug,
+            audience: entry.audience,
             viewport: { ...viewport },
             scheme,
             status: null,
@@ -218,7 +236,7 @@ for (const route of routes as string[]) {
             not_reached_reason: null,
             screenshot: null,
             overflow: { scrollWidth: 0, clientWidth: 0, failed: false },
-            axe: { critical_serious: 0, violations: [] },
+            axe: { version: null, counted: 0, by_impact: {}, violations: [] },
             console_errors: consoleErrors,
             fonts: { families: [], count: 0 },
             touch_targets: { checked: false, failures: 0, samples: [] },
@@ -250,17 +268,17 @@ for (const route of routes as string[]) {
             // under `_alias` — otherwise "it left /admin" is indistinguishable from
             // "the middleware refused it", the very failure this check exists to catch.
             const landedPath = landed.split("?")[0] ?? landed;
-            const GATED_AREAS = (params as { _gated?: string[] })._gated ?? [];
+            const GATED_AREAS = params._gated ?? [];
             const gated = GATED_AREAS.find(
               (prefix) => expected === prefix || expected.startsWith(`${prefix}/`),
             );
             const leftItsArea =
               !!gated && !(landedPath === gated || landedPath.startsWith(`${gated}/`));
-            const declaredAlias = (params as { _alias?: Record<string, string> })._alias ?? {};
+            const declaredAlias = params._alias ?? {};
             const alias =
               landedPath !== expected &&
               (!leftItsArea || route in declaredAlias) &&
-              (routes as string[]).some((r) => (r.split("?")[0] ?? r) === landedPath);
+              routes.some(({ route: r }) => (r.split("?")[0] ?? r) === landedPath);
             if (alias) result.redirected_to = landed;
             const bounced = landedPath !== expected && !alias;
             const deniedText = await page
@@ -274,7 +292,12 @@ for (const route of routes as string[]) {
             } else if (bounced) {
               result.unreachable = true;
               result.unreachable_reason = `redirected to ${landed}: the QA account has no access`;
-            } else if (/הדף לא נמצא|page not found|404/i.test(deniedText) && !route.includes("404")) {
+            } else if (
+              // The code only as a line of its own (how a not-found page shows it), never
+              // inside a sentence: "₪404" or an order number is content, not a 404.
+              /הדף לא נמצא|page not found|could not be found|^\s*404\s*$/im.test(deniedText) &&
+              !route.includes("404")
+            ) {
               // A route in the list that answers with the app's own not-found page is
               // not being measured — it is the 404 screen being measured 110 times.
               // /book/confirmed did exactly this: it needs ?bookingId=, so the gate
@@ -284,7 +307,10 @@ for (const route of routes as string[]) {
               result.unreachable = true;
               result.unreachable_reason =
                 "renders the not-found page — the route needs a query parameter (add it to routes.json)";
-            } else if (/403|401|אין לך הרשאה|אין הרשאה|access denied|unauthorized|forbidden/i.test(deniedText)) {
+            } else if (/אין לך הרשאה|אין הרשאה|access denied|unauthorized|forbidden/i.test(deniedText)) {
+              // Wording only. A 401 or 403 is a status code and is caught above through the
+              // response status; matching the digits in the body text marked a healthy page
+              // unreachable whenever a price or an id contained them.
               result.unreachable = true;
               result.unreachable_reason = "access-denied screen rendered";
             } else if (/משהו השתבש|שגיאה בטעינה|something went wrong|try again later/i.test(deniedText)) {
@@ -312,7 +338,9 @@ for (const route of routes as string[]) {
             // changed, which other screens changed with it" — and it is the reason the
             // DoD walks every route rather than a sample. Without ARGOS_TOKEN it is a
             // no-op, so a local run costs nothing and uploads nothing.
-            if (process.env.ARGOS_TOKEN) await argosScreenshot(page, name, { threshold: 0.2 });
+            // The package is optional: it is loaded only when ARGOS_TOKEN is set, and
+            // global-setup has already stopped the run if the token is set without it.
+            if (process.env.ARGOS_TOKEN) await (await loadArgos())(page, name, { threshold: 0.2 });
 
             result.overflow = await overflow(page);
 
@@ -322,8 +350,7 @@ for (const route of routes as string[]) {
             // "the QA account has no access" when what actually happened is that the
             // page moved. axe documents this case itself
             // (dequelabs/axe-core-npm error-handling.md). One settle and one retry.
-            const runAxe = () =>
-              new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag22aa"]).analyze();
+            const runAxe = () => new AxeBuilder({ page }).withTags([...AXE_TAGS]).analyze();
             let axe: Awaited<ReturnType<typeof runAxe>>;
             try {
               axe = await runAxe();
@@ -341,9 +368,12 @@ for (const route of routes as string[]) {
                 html: n.html.replace(/\s+/g, " ").slice(0, 200),
               })),
             }));
-            result.axe.critical_serious = axe.violations
-              .filter((v) => v.impact === "critical" || v.impact === "serious")
-              .reduce((n, v) => n + v.nodes.length, 0);
+            result.axe.version = axe.testEngine?.version ?? null;
+            for (const v of axe.violations) {
+              const impact = v.impact ?? "unknown";
+              result.axe.by_impact[impact] = (result.axe.by_impact[impact] ?? 0) + v.nodes.length;
+              result.axe.counted += v.nodes.length;
+            }
 
             result.fonts.families = await fontFamilies(page);
             result.fonts.count = result.fonts.families.length;
@@ -364,7 +394,7 @@ for (const route of routes as string[]) {
           fs.writeFileSync(path.join(RESULTS_DIR, `${name}.json`), JSON.stringify(result, null, 2));
           test.info().annotations.push({
             type: "dod",
-            description: `status=${result.status} unreachable=${result.unreachable} reached=${result.reached} overflow=${result.overflow.failed} axe=${result.axe.critical_serious} console=${consoleErrors.length} fonts=${result.fonts.count} touch=${result.touch_targets.failures} rm=${result.reduced_motion.violations}`,
+            description: `status=${result.status} unreachable=${result.unreachable} reached=${result.reached} overflow=${result.overflow.failed} axe=${result.axe.counted} console=${consoleErrors.length} fonts=${result.fonts.count} touch=${result.touch_targets.failures} rm=${result.reduced_motion.violations}`,
           });
         });
       });

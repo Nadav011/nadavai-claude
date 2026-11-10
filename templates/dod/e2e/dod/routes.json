@@ -1,8 +1,1 @@
-[
-  "/plans",
-  "/plans?state=error",
-  "/predictions/1",
-  "/predictions/1?state=empty",
-  "/predictions/1?state=error",
-  "/predictions/1?state=submitted"
-]
+[]
