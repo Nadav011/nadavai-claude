@@ -1,11 +1,11 @@
 #!/usr/bin/env -S python3 -I
 """executor-quality [days | --since YYYY-MM-DD] [-v] - how executor subagents' work fared, by model.
 
-Reads the local transcripts. For every oh-my-claudecode:executor or nadavai:executor-compact subagent (the compact one is reported as '<model> compact') (plain subagents; Workflow
+Reads the local transcripts. For every oh-my-claudecode:executor, nadavai:executor (reported as '<model> own') or nadavai:executor-compact ('<model> compact') subagent (plain subagents; Workflow
 agents are not covered) started in the window (default: all), in its parent session:
   - the model it actually ran on, and its size (tool calls)
   - review: the first review within 6 h after the executor ended (a code-reviewer / verifier /
-    security-reviewer subagent, or `omc ask codex|antigravity`), preferring one whose text names the
+    security-reviewer / nadavai:reviewer subagent, or `omc ask codex|antigravity`), preferring one whose text names the
     branch or a commit sha from the executor's own final text. Reviews that only report a usage
     limit, or have no text, are skipped. A batch of executors can share one review.
   - CI: the first ci-wait verdict within 6 h, from ci-wait's own GREEN:/RED: line (foreground
@@ -43,7 +43,7 @@ ROOTS = []
 for r in [os.path.expanduser('~/.claude/projects')] + glob.glob(os.path.expanduser('~/.config/orca/claude-profiles/*/home/projects')):
     if os.path.realpath(r) not in [os.path.realpath(x) for x in ROOTS]:
         ROOTS.append(r)
-REVIEWERS = ('code-reviewer', 'verifier', 'security-reviewer')
+REVIEWERS = ('code-reviewer', 'verifier', 'security-reviewer', 'nadavai:reviewer')
 LIMIT = re.compile(r"hit your .{0,30}limit|usage limit|rate[- ]limit(ed)?\b|limit will reset|out of (extra )?usage", re.I)
 STRONG_LABEL = re.compile(r'\b(verdict|recommendation|bottom line)\b', re.I)
 WEAK_LABEL = re.compile(r'\b(overall|status)\b', re.I)
@@ -277,7 +277,7 @@ for sid, s in by_session.items():
         refs = {x for x in REF.findall(e['last']) if not x.isdigit()}
         r = next((r for r in cand if any(x in r[2] for x in refs)), cand[0] if cand else None)
         c = next((v for t, v in cis if e['t1'] <= t <= e['t1'] + GAP), None)
-        rows.append(dict(model=(e['model'] or '?').replace('claude-', '') + (' compact' if e['type'].endswith('-compact') else ''), tools=e['tools'], reviewed=r is not None,
+        rows.append(dict(model=(e['model'] or '?').replace('claude-', '') + (' compact' if e['type'].endswith('-compact') else ' own' if e['type'] == 'nadavai:executor' else ''), tools=e['tools'], reviewed=r is not None,
                          rev=r[1] if r else None, ci=c, text=(r[2] if r else '')[:200].replace('\n', ' ')))
 
 
