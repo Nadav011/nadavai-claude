@@ -7,9 +7,13 @@ is always a target too. Store, OTA and install rules belong to `rules/store-apps
 
 iOS and Android are judged separately, in every profile.
 
-Nothing in a design step releases an app: a public store release (a build, a rollout raise, a first
-listing, a change to a live listing) is Nadav's decision, asked at that moment
-(`rules/working-style.md`, "Approval gates").
+Nothing in a design step releases an app to the public. What is asked and what is not is in the
+`store-apps` skill's SKILL.md (its approval-gates paragraph) and `rules/working-style.md`,
+"Approval gates"; it is not restated here.
+
+**"Checked on iOS" always means: Nadav checked it on TestFlight, with the date and what he saw.**
+An upload that finished, a build that compiled or a simulator on another machine is not that.
+An iOS item nobody checked is written "not checked".
 
 ## Web and PWA
 
@@ -46,20 +50,24 @@ skill and the rule win.
 What the design steps add on a Capacitor app:
 - **Captures come from the device, not from a narrow browser.** Android: the emulator or his
   phone through adb (`adb exec-out screencap -p`, `adb shell uiautomator dump` for bounds and
-  names). iOS: by hand on TestFlight; no iOS simulator runs on these Linux machines, so an iOS
-  runtime check is written as "manual, on TestFlight, by Nadav" and never as passed. A Mac or a
-  paid cloud simulator is asked at the moment one is needed (the money gate).
-- **The DoD in WebKit.** The web layer runs in WebKit on iOS, so the DoD's WebKit project is the
-  nearest automated evidence: it runs in the official Playwright image
-  (`rules/working-style.md`, "Browser routing"). It is not the device.
-- **`screen` step 8 and `ship` step 5 on the device:** the home screen, a form with the keyboard
-  open, the offline state, and the screen at 200% system text size (Android: `adb shell settings
-  put system font_scale 2.0`, then back to `1.0`). A remote shell also shows its offline page
-  (`server.errorPath`, `store-apps` `references/remote-shell.md`).
+  names). iOS: no iOS simulator runs on these Linux machines, so an iOS runtime check is done by
+  Nadav on TestFlight and never reported as passed by an agent. A Mac or a paid cloud simulator
+  is asked at the moment one is needed (the money gate).
+- **WebKit is the nearest automated evidence for iOS,** because the web layer runs in WebKit
+  there: the project's Playwright regression suite, when it has a WebKit project, runs in the
+  official Playwright image (`rules/working-style.md`, "Browser routing"). The DoD template
+  itself launches Chromium only today. Neither is the device.
+- **Device captures are added, not swapped.** `screen` keeps its DoD shots (step 8) and, when the
+  screen is part of a shell, adds device captures after them; `ship` step 5 takes them for the
+  release: the home screen, a form with the keyboard open, the offline state, and the screen at
+  200% system text size (Android: `adb shell settings put system font_scale 2.0`, then back to
+  `1.0`). A remote shell also shows its offline page (`server.errorPath`, `store-apps`
+  `references/remote-shell.md`).
 - **`ship` checks the app installed from the public listing,** and for a bundled app the OTA
   status, exactly as `store-apps` defines; an uploaded build is not that proof.
-- **A manual screen-reader pass** (TalkBack, VoiceOver) on the main job before release: what was
-  read, in what order, where it stopped. No tool replaces it.
+- **A screen-reader pass by a person** (TalkBack on Android, VoiceOver by Nadav on TestFlight) on
+  the main job before release: who did it, what was read, in what order, where it stopped. No
+  tool replaces it, and an agent does not report it as done.
 
 ## Expo (`expo`): SportChat's native app
 
@@ -74,25 +82,32 @@ His standing rules for it:
 - Every other component gets a bake-off: the platform's against the custom one, captured on the
   device, and he picks where the screenshots differ.
 
-| Gate | Native form on Android (adb, uiautomator) | iOS |
-|---|---|---|
-| Overflow, clipping, overlap | node bounds from `uiautomator dump` against the window and the parent, at 320 dp too | manual |
-| Touch targets | every clickable node named and at least 48 dp on both axes (the app's `scripts/parity/lib/device-a11y.mjs`; it checks 44 dp today, a gap reported to the app's sessions) | manual |
-| Smallest text | a source check on tokens and `fontSize` | same check |
-| Accessibility | names and sizes from the hierarchy, contrast from the capture, an a11y lint | TalkBack and VoiceOver are manual on both |
-| Task walkthrough | a scripted flow counting swipes until the primary action's `testID` shows (on the app's journey script) | manual |
-| Parity with the demo | `scripts/parity/check.mjs`: inventory, then computed bounds, then pixels | manual |
-| Light and dark | `adb shell cmd uimode night yes|no` on every route | manual |
-| Text size | `font_scale` 1.3 and 2.0 with a capture | Dynamic Type, manual |
-| Safe areas, keyboard | the composer's bounds against the keyboard window | manual |
-| RTL | mirrored geometry, tab order (`scripts/parity/tab-order.mjs`) | manual |
-| Performance | `adb shell am start -W`, `dumpsys gfxinfo` | manual |
-| The standard (a disabled control says why, help per route, empty with an action) | the hierarchy and the app's route inventory test | manual |
-| Store readiness | prebuild and doctor in CI; the app installed from the public listing (`store-apps`) | TestFlight |
+In `screen` on this app, steps 6 to 8 of SKILL.md (lint of web files, the DoD, DoD screenshots)
+are replaced by the rows below; touch targets are 48 dp, not the web's 44px.
 
-- The checks are scripts in the app's own repo (`apps/native/scripts/`, `scripts/parity/`). This
-  skill names them and their thresholds; it does not carry copies. A gate whose script does not
-  exist yet is reported as "not built", with its owner, never as passed.
+"Exists today" was read from the SportChat repo on 2026-11-10. A row that says "not built" has
+no script: the gate is reported as "not built, owner: the SportChat sessions", and a check
+improvised for one run is reported as improvised, never as the gate.
+
+| Gate | Native form on Android (adb, uiautomator) | Exists today | iOS |
+|---|---|---|---|
+| Overflow, clipping, overlap | node bounds from `uiautomator dump` against the window and the parent, at 320 dp too | not built | by Nadav on TestFlight |
+| Touch targets | every clickable node named and at least 48 dp on both axes | `scripts/parity/lib/device-a11y.mjs`, at 44 dp (a gap reported to the app's sessions) | by Nadav on TestFlight |
+| Smallest text | a source check on tokens and `fontSize` | not built | the same source check |
+| Accessibility | names and sizes from the hierarchy, contrast from the capture, an a11y lint | names and sizes only (`device-a11y.mjs`); no contrast check, no lint | TalkBack and VoiceOver are a person's pass on both |
+| Task walkthrough | a scripted flow counting swipes until the primary action's `testID` shows | `apps/native/scripts/chat-journey.sh` runs a flow; nothing counts swipes | by Nadav on TestFlight |
+| Parity with the demo | inventory both ways, then computed bounds, then pixels under a threshold | `scripts/parity/check.mjs`: missing texts and controls only; no bounds diff; pixels are information only | by Nadav on TestFlight |
+| Light and dark | `adb shell cmd uimode night yes` and `night no` on every route | on 24 fixture states (`apps/native/scripts/smoke-routes.sh`), not every route | by Nadav on TestFlight |
+| Text size | `adb shell settings put system font_scale 1.3` and `2.0`, with a capture | not built | Dynamic Type, by Nadav on TestFlight |
+| Safe areas, keyboard | the composer's bounds against the keyboard window | not built | by Nadav on TestFlight |
+| RTL | mirrored geometry, and tab order | tab order only (`scripts/parity/tab-order.mjs`) | by Nadav on TestFlight |
+| Performance | `adb shell am start -W -n <package>/<activity>`, `adb shell dumpsys gfxinfo <package>` | not built | by Nadav on TestFlight |
+| The standard (a disabled control says why, help per route, empty with an action) | the hierarchy and the app's route inventory test | the route inventory test only | by Nadav on TestFlight |
+| Store readiness | `expo prebuild` and `expo-doctor` in CI; the app installed from the public listing (`store-apps`) | prebuild in CI; no doctor step | the build Nadav installed from TestFlight or the store |
+
+- The checks are scripts in the app's own repo (`apps/native/scripts/`, `scripts/parity/`), and
+  that app's own notes (`apps/native/AGENTS.md`) hold how they run. This skill names them and
+  their thresholds; it does not carry copies.
 - The Expo skills are project-scoped (`.claude/skills/` in the app repo), not global. Load the
   one the step needs from there. Impeccable's native references (`ios.md`, `android.md`,
   `audit.native.md`, `adapt.native.md`) apply here: targets, Dynamic Type, semantic colours.
