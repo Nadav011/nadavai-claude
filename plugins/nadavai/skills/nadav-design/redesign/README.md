@@ -280,7 +280,8 @@ Chat in plain Hebrew, short lines, the why before the what; code, files and comm
 - Review: a fresh Opus reviewer, read-only, until APPROVE; after an APPROVE, the fix round is checked by a DIFF-ONLY
   confirm against a snapshot (on 2.10.2026 full reviews after an APPROVE kept breeding new findings for 10 rounds).
   Fix by simplifying, never by adding machinery.
-- Second model: `rules/working-style.md`, "Second model". Its findings are fixed and diff-confirmed. Approval by any reviewer means APPROVE with nothing
+- Second model: `rules/working-style.md`, "Second model" (`omc ask codex` on the config default; never pass `-m` or
+  an effort flag). Its findings are fixed and diff-confirmed. Approval by any reviewer means APPROVE with nothing
   HIGH or MEDIUM left, whatever the verdict word.
 - Every edit after an APPROVE (LOW polish, the second model's fixes, START-BUILD itself) is followed by a diff-only
   confirm, at most 3 per chain; approval holds only when the last step is a confirm that says APPROVE, so no edit is
@@ -345,9 +346,8 @@ resume.
 - **Large data travels in files, never in workflow args.** Args over about 57 KB fail. The scripts take paths.
 - **One browser at a time; memory is the gate, load only advises.** With swap full, earlyoom killed headless Chrome
   and agents' Bash calls hung for hours (25–26.9.2026). Before shooting: with less than 2 GB available or swap over
-  80% used, wait (check every minute, at most 10 minutes), then stop and report. Load follows the one machine-load
-  rule, the quality bar in SKILL.md's Hard rules: above it, a shoot waits at most 10 minutes, then runs anyway with
-  one browser and the load is recorded
+  80% used, wait (check every minute, at most 10 minutes), then stop and report. A 1-minute load above twice the CPU
+  count is waited out for at most 10 minutes, then the shoot runs anyway with one browser and the load is recorded
   (`report.json` "machine"): on 12.10.2026 another workflow held the load at 42–76 for over 20 minutes with 18–22 GB
   free, and a wait with no bound never ends. One shooting agent at a time (`shooters: 1`); every prompt carries the
   MACHINE RULES.

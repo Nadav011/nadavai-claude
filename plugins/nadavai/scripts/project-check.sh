@@ -68,28 +68,31 @@ if [ -f "$D/package.json" ] && grep -qE '"(react|next|vite|vue|svelte|@angular/c
   fi
   # UI loop position (nadav-design skill), derived from tracked files only (rules in its Hard rules).
   if [ -f "$D/DESIGN.md" ] && [ -f "$D/PRODUCT.md" ]; then
-    # The CI step (nadav-design shared/rules.md, "Where checks run"): a DoD or lint:ui step in the repo's
-    # .woodpecker/*.yml, or a nightly *-ui.yml whose `bin/audit <key>-ui` maps <key> to this repo in bin/audit.
+    # The CI step (nadav-design shared/rules.md, "Where checks run"): a lint:ui or DoD step in the repo's
+    # .woodpecker/*.yml (a bare routes.mjs --check is not one), or .github/workflows/ui.yml with the DoD score
+    # gate line (the nightly's input) plus a nightly *-ui.yml whose `bin/audit <key>-ui` maps <key> to this repo.
     ci_step=0 ci_note=""
-    grep -qsE 'lint:ui|e2e/dod/|playwright\.dod|(pnpm|npm run|yarn|bun run) dod' "$D"/.woodpecker/*.yml && ci_step=1
+    grep -qsE 'lint:ui|playwright\.dod|(pnpm|npm run|yarn|bun run) dod([[:space:]:]|$)' "$D"/.woodpecker/*.yml && ci_step=1
     nightly="${NADAVAI_NIGHTLY_DIR:-$HOME/Projects/nadavai-nightly}"
-    if [ "$ci_step" = 0 ] && [ -f "$nightly/bin/audit" ]; then
-      repo_name="$(basename "$(git -C "$D" remote get-url origin 2>/dev/null)" .git)"
-      [ -n "$repo_name" ] || repo_name="$(basename "$D")"
-      key="$(grep -m1 '^declare -A REPO=' "$nightly/bin/audit" | grep -oE "\[[a-z0-9]+\]=${repo_name}([[:space:])]|$)" | head -1 | sed -E 's/^\[([a-z0-9]+)\].*/\1/')"
-      [ -n "$key" ] && grep -qsE "bin/audit ${key}-ui([[:space:]]|$)" "$nightly"/.woodpecker/*-ui.yml && ci_step=1
-    elif [ "$ci_step" = 0 ]; then
-      ci_step=1 ci_note=" (CI step not checked: no nadavai-nightly checkout at $nightly)"
+    if [ "$ci_step" = 0 ] && grep -vE '^[[:space:]]*#' "$D/.github/workflows/ui.yml" 2>/dev/null | grep -qiE 'dod score must be 100|check-dod-score'; then
+      if [ -f "$nightly/bin/audit" ]; then
+        repo_name="$(basename "$(git -C "$D" remote get-url origin 2>/dev/null)" .git)"
+        [ -n "$repo_name" ] || repo_name="$(basename "$D")"
+        key="$(grep -m1 '^declare -A REPO=' "$nightly/bin/audit" | grep -oE "\[[a-z0-9]+\]=${repo_name}([[:space:])]|$)" | head -1 | sed -E 's/^\[([a-z0-9]+)\].*/\1/')"
+        [ -n "$key" ] && grep -qsE "bin/audit ${key}-ui([[:space:]]|$)" "$nightly"/.woodpecker/*-ui.yml && ci_step=1
+      else
+        ci_step=1 ci_note="nightly registration could not be verified on this machine (no nadavai-nightly checkout at $nightly); "
+      fi
     fi
     missing_ui=""
     [ -f "$D/.claude/rules/ui.md" ] || missing_ui=".claude/rules/ui.md"
     [ -d "$D/e2e/dod" ] || missing_ui="${missing_ui:+$missing_ui, }e2e/dod/"
     [ -f "$D/lighthouserc.json" ] || missing_ui="${missing_ui:+$missing_ui, }lighthouserc.json"
-    [ "$ci_step" = 1 ] || missing_ui="${missing_ui:+$missing_ui, }the CI step (a DoD or lint:ui step in .woodpecker/, or a nightly *-ui.yml workflow)"
+    [ "$ci_step" = 1 ] || missing_ui="${missing_ui:+$missing_ui, }the CI step (a lint:ui or DoD step in .woodpecker/, or .github/workflows/ui.yml with the DoD score gate plus the repo's nightly *-ui.yml)"
     redesign_dir="$HOME/design-redesign/$(basename "$D")"
-    ui_state="setup complete$ci_note"
+    ui_state="${ci_note}setup complete"
     if [ -n "$missing_ui" ]; then
-      ui_state="setup incomplete: $missing_ui missing"; ui_next="/ux-setup"
+      ui_state="${ci_note}setup incomplete: $missing_ui missing"; ui_next="/ux-setup"
     elif [ -f "$redesign_dir/redesign.json" ] && ! grep -qsE '^Status: OWNER-APPROVED answer [0-9]+ commit [0-9a-f]+$' "$redesign_dir/plan/build-plan.md"; then
       ui_state="$ui_state; redesign in progress, build plan not approved ($redesign_dir)"; ui_next="/ux-redesign"
     elif ls "$D"/docs/specs/*.md >/dev/null 2>&1 && grep -qE '^\s*- \[ \]' "$D"/docs/specs/*.md; then ui_next="/ux-screen <first unchecked screen in docs/specs/*.md>"

@@ -25,8 +25,9 @@ every screen, Claude Design and the DoD gate on the same palette.
   No placeholder or machine-translated strings.
 - Forms: react-hook-form + zod with the Hebrew locale (`z.config(z.locales.he())`); the error
   sits under its field, focus moves to the first invalid field, submit shows a pending state.
-- Feedback: one `<Toaster dir="rtl">` (sonner) at the root; toasts confirm outcomes, dialogs
-  confirm destructive actions.
+- Feedback: one `<Toaster dir="rtl">` (sonner) at the root; toasts confirm an outcome or offer
+  undo for a small reversible action; a dialog confirms what cannot be undone or what reaches a
+  person or money.
 - Touch and motion: targets >= 44px; `dvh` not `vh`; the shell respects safe-area insets;
   every animation stops under `prefers-reduced-motion`; no `transition: all`.
 - Actions: one accent-filled action per screen; the primary button on phones is at least 48px
