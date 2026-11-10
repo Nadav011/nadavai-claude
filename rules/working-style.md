@@ -17,7 +17,7 @@ Nadav builds and runs web and store apps for his own businesses and for clients,
 - A UI change is done only with browser evidence: a snapshot or screenshot and a clean console, checked in RTL and at mobile width on every user-facing screen.
 - Before a public web app goes live, run one SEO pass with the claude-seo plugin enabled for that project (`/seo audit`, `/seo geo`), fix what it measured, then disable the plugin again.
 - Where each check runs, when CI runs and how to wait on it: `ci-policy.md`.
-- A long local command runs with `run_in_background: true`, and work continues when its completion notice arrives. A sleep-and-grep loop on a log costs a full-context request per wake-up.
+- A long local command runs with `run_in_background: true`, and work continues when its completion notice arrives. Never sleep-and-grep a log in a loop: every wake-up is one more full-context request.
 
 ## Browser routing (one tool per job)
 - Regression: the project's Playwright suite through Bash. Chromium and Firefox run natively. WebKit runs in the official Playwright image, because its Ubuntu-only libraries do not start on these Arch machines: `docker run --rm --ipc=host --init -v "$PWD":/work -w /work mcr.microsoft.com/playwright:v$(npx playwright --version | awk '{print $2}')-noble npx playwright test --project=webkit`.
@@ -30,12 +30,12 @@ Nadav builds and runs web and store apps for his own businesses and for clients,
 ## Second model
 - An independent reviewer runs before a significant plan, after significant work, and for any change that touches auth, payments, data or money. Text, spacing and single-file fixes need none. Report its findings, what you did with each, and which reviewer ran.
 - Before a significant plan the reviewer argues against it: assume the plan failed a month from now, and name the most likely causes, the weakest assumption, and what is missing or not worth building. A reviewer asked only to check a plan tends to approve it.
-- Any one of four counts: SOL through `omc ask codex`, Gemini through `omc ask antigravity`, Grok through `omc ask grok`, or a fresh Opus. Start with `omc ask codex`; when it cannot run (quota, error, timeout), use another one instead of waiting. `omc ask grok` can exit 0 on a quota or balance error, so read the artifact's raw output before counting its answer. `omc ask gemini` is the old CLI and fails.
-- Opus as the reviewer is a new subagent with a clean context (`model: opus`, not a fork or a resumed agent), read-only, given only the review question, the artifact and the file paths. The author's own review does not count: a reviewer that shares the author's context shares its blind spots.
+- Any one of four counts: SOL through `omc ask codex` (gpt-6.1-sol at xhigh, `~/.codex/config.toml`), Gemini 4 Argon through `omc ask antigravity` (`~/.gemini/antigravity-cli/settings.json`), Grok through `omc ask grok` (grok-4.7 at xhigh, `~/.grok/config.toml`), or a fresh Opus. Start with `omc ask codex`; when it cannot run (quota, not installed, error, timeout), use another one in its place. `omc ask grok` can exit 0 on a quota or balance error, so read the artifact's raw output before counting its answer. `omc ask gemini` is the old CLI and fails.
+- Opus as the reviewer is a new subagent with a clean context (`model: opus`, not a fork or a resumed agent), read-only, given only the review question, the artifact and the file paths. This step is never skipped, never replaced by the author's own review, and never waits silently for a provider to come back: a reviewer that shares the author's context shares its blind spots.
 
 ## Approval gates
 - Ask before: auth or permission changes in code, payment logic, DB migrations or deletions, app-store publishing, and any paid-service spend. Money is asked every time, at that moment.
-- Pre-approved, do not ask: acting in Nadav's name online and on his machines (`acting-on-behalf.md`), `git push` to any branch other than main without force, deleting local files that are temporary, generated or created in the current session, and a routine web deploy once the repo's CI is green on the sha being deployed (run a health check after).
+- Pre-approved, do not ask: acting in Nadav's name online and on his machines for accounts, sign-ups, logins, forms, standard terms and sudo (not messages, posts, deletions or account security: `acting-on-behalf.md`), `git push` to any branch other than main without force, deleting local files that are temporary, generated or created in the current session, and a routine web deploy once the repo's CI is green on the sha being deployed (run a health check after).
 
 ## Requests
 - A clear task gets no questions. A new feature idea with no anchor (a file, a screen, acceptance criteria) gets one question if that settles it, otherwise `/deep-interview`. Do not ask what was already answered; put the answers in the spec.
@@ -52,6 +52,6 @@ Nadav builds and runs web and store apps for his own businesses and for clients,
 
 ## UI and product work
 - Reviewing an existing screen whose code is in the repo: `/interfaces:better-interface`. Reviewing a diff: `/interfaces:interface-review`.
-- Fixing visual design in code after a review named the problems: impeccable (`polish`, `harden`, `clarify`, `adapt`, `layout`, `typeset`). On an existing app, `craft`, `bolder` and `overdrive` redesign more than was asked.
+- Fixing visual design in code after a review named the problems: impeccable (`polish`, `harden`, `clarify`, `adapt`, `layout`, `typeset`). Never `craft`, `bolder` or `overdrive` on an existing app: they redesign more than was asked.
 - Keep the existing design and change only what the content forces. For everything else (intent agents, accessibility, copy, motion, mobile, product docs, PostHog, impeccable `critique`), read `~/nadavai/guides/ui-routing.md` before choosing a skill.
 - To continue a session in another agent: `cs` (`~/nadavai/guides/moving-sessions.md`).

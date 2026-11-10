@@ -12,7 +12,7 @@ by each line's own timestamp). Prints:
 
 Shares are weighted by each model's API list price per token type (PRICES below), so they
 show API-equivalent dollars. The subscription quota's exact weighting is not published, so the
-shares are estimates; token counts are exact. A model missing from PRICES is priced as Opus.
+shares are estimates; token counts are exact. A model of an unknown family is priced as Opus.
 """
 import collections, glob, json, os, re, sys, time
 from datetime import datetime
@@ -24,12 +24,13 @@ except ValueError:
     sys.exit('usage: ' + USAGE)
 CUT = time.time() - DAYS * 86400
 # $ per million tokens: input, 5-minute cache write, 1-hour cache write, cache read, output.
-# Haiku's cache prices are derived from its input price (1.25x, 2x, 0.1x); the rest are list prices.
+# Current-generation list prices, matched by model family (an older model is priced as its family's
+# current one). Haiku's cache prices are derived from its input price (1.25x, 2x, 0.1x).
 PRICES = [
-    ('fable-5-2', (8, 10, 16, 0.20, 40)),
-    ('opus-5-5', (4, 5, 8, 0.20, 20)),
-    ('sonnet-5-5', (2, 2.5, 4, 0.10, 10)),
-    ('haiku-5-5', (0.10, 0.125, 0.20, 0.01, 0.50)),
+    ('fable', (8, 10, 16, 0.20, 40)),
+    ('opus', (4, 5, 8, 0.20, 20)),
+    ('sonnet', (2, 2.5, 4, 0.10, 10)),
+    ('haiku', (0.10, 0.125, 0.20, 0.01, 0.50)),
 ]
 
 
