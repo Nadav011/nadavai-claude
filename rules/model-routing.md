@@ -1,6 +1,6 @@
 # Models, effort and delegation
 
-This file overrides the model tiers and the delegation rules in the OMC block of `~/.claude/CLAUDE.md`. Aliases `haiku`, `sonnet`, `opus` and `fable` resolve to claude-haiku-5-5, claude-sonnet-5-5, claude-opus-5-5 and claude-fable-5-2.
+This file overrides the model tiers and the delegation text in oh-my-claudecode's skills and agent prompts. Aliases `haiku`, `sonnet`, `opus` and `fable` resolve to claude-haiku-5-5, claude-sonnet-5-5, claude-opus-5-5 and claude-fable-5-2.
 
 ## Models
 - The main session runs the model Nadav picked with `/model`; the default is Opus 5.5, and he picks Fable 5.2 himself for the sessions that plan. Fable's cache writes and output cost twice Opus's, so Fable runs only where Nadav picked it: no agent passes `fable` to a subagent, teammate, Workflow agent, OMC tier or fallback, and `update.sh` sets every profile back to the default. No fork for routine delegation in any session: a fork inherits the model and the whole context, and agent-guard denies a fork without `[fork]` in its description.
