@@ -63,8 +63,8 @@ The weekly report is opt-in per machine, on the machine where agents create work
 | Settings defaults (model, allowed models, effort, Hebrew, bypass permissions, agent teams, enabled plugins, marketplaces with auto-update) | `settings/settings.base.json` | `setup.sh` deep-merges into `~/.claude/settings.json`; `update.sh` re-applies only `model` and `availableModels` |
 | Global git hooks (Conventional Commits, Trivy + typecheck pre-push, Cloudflare Pages auto-deploy) and global ignore | `git/` | `setup.sh` symlinks `~/.git-hooks` and `~/.config/git/ignore` here |
 | claude-seo (AgriciDaniel) installed but disabled | `setup.sh` | enable per marketing repo, see SEO below |
-| OMC CLI and HUD statusline | `setup.sh` runs `omc setup` | `OMC_SKIP_HOOKS=pre-tool-use,post-tool-use` in `settings.base.json` turns off OMC's per-tool reminders, its read-budget deny and its README/AGENTS.md injection (measured 2026-11-10: 2.1M tokens of hook text a week, 95% from these) |
-| Global `~/.claude/CLAUDE.md`: a short note on how OMC sits beside the rules (the rules themselves load from `~/.claude/rules`) | `settings/CLAUDE.global.md` | `setup.sh` and `update.sh` symlink it and set `claudeMdEnabled: false` in `~/.claude/.omc-config.json`, so OMC leaves it alone |
+| OMC CLI and HUD statusline | `setup.sh` runs `omc setup` | |
+| Global `~/.claude/CLAUDE.md`: a short note on how OMC sits beside the rules (the rules themselves load from `~/.claude/rules`) | `settings/CLAUDE.global.md` | `setup.sh` and `update.sh` symlink it and set `claudeMdEnabled: false` in `~/.claude/.omc-config.json` and in each Orca profile's, so OMC leaves it alone |
 | Antigravity bundle (`nadavai` plugin, hooks, MCP servers, marketplace skills/subagents, and mirrored global rules with tool/model adapter) | `plugins/nadavai/.antigravity-plugin/plugin.json`, `plugins/nadavai/hooks.json`, `plugins/nadavai/mcp_config.json`, `~/.gemini/config/` | `setup.sh` and `update.sh` run `mirror_to_antigravity` |
 | i-have-adhd always-on flag | `setup.sh` touches `~/.claude/.i-have-adhd-always` | |
 

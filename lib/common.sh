@@ -185,7 +185,7 @@ merge_settings() {
 
 apply_model_policy() {
   # Re-apply only the policy keys of settings.base.json on update (model, availableModels, missing modelSettings entries, plugins that base turns off,
-  # deniedMcpServers, env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE and env.OMC_SKIP_HOOKS). A full merge would also reset per-machine values such as the concurrency
+  # deniedMcpServers, and env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE). A full merge would also reset per-machine values such as the concurrency
   # caps. Every Orca account profile keeps its own settings.json, so the keys go to each one,
   # not only to the profile update.sh happens to run in (on 2026-11-07 only one of the
   # LENOVO's profiles had them).
@@ -215,7 +215,7 @@ apply_model_policy() {
         if (!(m in cur.modelSettings)) cur.modelSettings[m] = v;
       }
       // Policy env vars are set one by one, so the other env vars of the machine (tokens, paths) stay.
-      for (const k of ["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE", "OMC_SKIP_HOOKS"]) {
+      for (const k of ["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"]) {
         const v = (b.env || {})[k];
         if (v !== undefined) cur.env = { ...(cur.env || {}), [k]: v };
         else if (cur.env) delete cur.env[k];
@@ -272,13 +272,24 @@ link_global_claude_md() {
   # text the rules override; the short file here replaces it. claudeMdEnabled=false makes OMC
   # treat the file as the user's: no rewrite on setup or update, no drift warning.
   link_file "$REPO/settings/CLAUDE.global.md" "$HOME/.claude/CLAUDE.md"
-  node -e '
-    const fs = require("fs"), p = process.argv[1];
-    let d = {}; try { d = JSON.parse(fs.readFileSync(p, "utf8")); } catch {}
-    if (d.claudeMdEnabled === false) process.exit(0);
-    d.claudeMdEnabled = false;
-    fs.writeFileSync(p, JSON.stringify(d, null, 2) + "\n");
-  ' "$HOME/.claude/.omc-config.json"
+  # OMC reads the flag from the config dir it runs in, and every Orca profile is its own config dir.
+  local d
+  for d in "$HOME/.claude" "$HOME"/.config/orca/claude-profiles/*/home; do
+    [ -d "$d" ] || continue
+    node -e '
+      const fs = require("fs"), p = process.argv[1];
+      let d = {};
+      if (fs.existsSync(p)) {
+        try { d = JSON.parse(fs.readFileSync(p, "utf8")); }
+        catch { console.error("  ! " + p + " is not valid JSON: left as is; set \"claudeMdEnabled\": false in it by hand"); process.exit(0); }
+      }
+      if (!d || typeof d !== "object" || Array.isArray(d)) { console.error("  ! " + p + " is not a JSON object: left as is"); process.exit(0); }
+      if (d.claudeMdEnabled === false) process.exit(0);
+      d.claudeMdEnabled = false;
+      fs.writeFileSync(p + ".nadavai-tmp", JSON.stringify(d, null, 2) + "\n");
+      fs.renameSync(p + ".nadavai-tmp", p);
+    ' "$d/.omc-config.json" || warn "could not set claudeMdEnabled in $d/.omc-config.json"
+  done
 }
 
 ensure_omc() {
