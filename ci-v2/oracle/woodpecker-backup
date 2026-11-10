@@ -1,8 +1,57 @@
 #!/bin/bash
-# Daily consistent snapshot of the Woodpecker DB, 14 kept. Restore: stop server, copy a snapshot to data/woodpecker.sqlite, chown 1000:1000, start.
+# Daily snapshot of the Woodpecker DB without the step logs, 14 kept, plus an encrypted copy on
+# the other Oracle VM. Restore: stop the server, copy a snapshot to data/woodpecker.sqlite,
+# chown 1000:1000, start (old pipelines then show no step logs; everything else is there).
+#
+# Why not `.backup` of the whole file (the first version): the live database uses a rollback
+# journal, so a reader and the server's writes exclude each other. `.backup` with no busy timeout
+# failed with "database is locked" on six nights in a row (2026-11-04 to 11-09) and left 0-byte
+# files. The step logs are 98% of the file (2.1 GB after one week) and are not worth a restore, so
+# this copies every other table in one short read transaction and waits for a writer to finish.
 set -euo pipefail
-d=/opt/woodpecker/backup; f="$d/woodpecker-$(date +%F).sqlite"
-sqlite3 /opt/woodpecker/data/woodpecker.sqlite ".backup '$f'"
-sqlite3 "$f" 'PRAGMA integrity_check;' | grep -qx ok
+src=/opt/woodpecker/data/woodpecker.sqlite
+d=/opt/woodpecker/backup
+f="$d/woodpecker-$(date +%F).sqlite"
+tmp="$f.tmp"
+wait_ms=120000
+trap 'rm -f "$tmp" "$tmp-journal"' EXIT
+rm -f "$tmp"
+
+sqlite3 -readonly "$src" ".timeout $wait_ms" ".schema --nosys" | sqlite3 "$tmp"
+tables=$(sqlite3 -readonly "$src" ".timeout $wait_ms" \
+  "select name from sqlite_master where type='table' and name not like 'sqlite_%' and name <> 'log_entries'")
+{
+  echo ".bail on"
+  echo ".timeout $wait_ms"
+  echo "ATTACH DATABASE '$src' AS live;"
+  echo "BEGIN;"
+  for t in $tables; do echo "INSERT INTO main.\"$t\" SELECT * FROM live.\"$t\";"; done
+  echo "COMMIT;"
+} | sqlite3 "$tmp"
+
+sqlite3 "$tmp" 'PRAGMA integrity_check;' | grep -qx ok
+# A snapshot with no repos is not a backup: refuse it instead of rotating a good one out.
+[ "$(sqlite3 "$tmp" 'select count(*) from repos;')" -gt 0 ]
+mv -f "$tmp" "$f"
 cp /opt/woodpecker/compose.yml /opt/woodpecker/Caddyfile "$d/"
-find "$d" -name 'woodpecker-*.sqlite' -mtime +14 -delete
+
+# Retention by count, after a good snapshot exists, so the newest good one is never the one deleted.
+find "$d" -maxdepth 1 -name 'woodpecker-*.sqlite' -size 0 -delete
+ls -1 "$d"/woodpecker-*.sqlite | sort | head -n -14 | while read -r old; do rm -f -- "${old:?}"; done
+
+# Off the VM: each snapshot encrypted to the LENOVO's key for this VM (decrypt there with
+# `age -d -i ~/.ssh/nadavai_vm`), mirrored into a write-only folder on nadavai-svc. A failure here
+# fails the unit, and the wp-backup check alerts.
+if [ -s /opt/woodpecker/backup-recipient.pub ]; then
+  mkdir -p "$d/enc"
+  for s in "$d"/woodpecker-*.sqlite; do
+    e="$d/enc/${s##*/}.age"
+    [ -s "$e" ] || age -R /opt/woodpecker/backup-recipient.pub -o "$e" "$s"
+  done
+  for e in "$d"/enc/*.age; do
+    s="$d/$(basename "$e" .age)"
+    [ -e "$s" ] || rm -f -- "${e:?}"
+  done
+  rsync -a --delete -e "ssh -i /root/.ssh/wpbackup_ed25519 -o BatchMode=yes -o ConnectTimeout=20" \
+    "$d/enc/" wpbackup@10.0.0.61:
+fi

@@ -11,8 +11,27 @@ setup can be rebuilt after a reformat. No secrets live here: they are in the vau
 - The VM's own iptables (`/etc/iptables/rules.v4`) must accept 80, 443 and `tailscale0`; Oracle
   images REJECT everything but 22 there, whatever the cloud security list says.
 - `oracle/woodpecker-backup` -> `/usr/local/bin/`, with `woodpecker-backup.{service,timer}` daily
-  at 02:45 UTC: an SQLite `.backup` plus integrity check into `/opt/woodpecker/backup`, 14 kept.
-  Restore: stop the server, copy a snapshot to `data/woodpecker.sqlite`, chown 1000:1000, start.
+  at 02:45 UTC: a snapshot of every table except the step logs (about 3 MB, one second) plus an
+  integrity check into `/opt/woodpecker/backup`, 14 kept by count. Restore: stop the server, copy
+  a snapshot to `data/woodpecker.sqlite`, chown 1000:1000, start; old pipelines then show no logs.
+  - Why this shape: the database uses a rollback journal, so the first version (`.backup` of the
+    whole file, no busy timeout) failed with "database is locked" on six nights (2026-11-04 to
+    11-09) and left 0-byte files. The step logs are 98% of the file, which reached 2.1 GB in a week.
+  - Off the VM: each snapshot is encrypted with `age` to `/opt/woodpecker/backup-recipient.pub`
+    (the LENOVO's `~/.ssh/nadavai_vm.pub`) and mirrored to nadavai-svc, user `wpbackup`, folder
+    `/home/wpbackup/in`, with root's key `/root/.ssh/wpbackup_ed25519`, which that side limits to
+    `rrsync -wo`. To read one: `ssh nadavai-svc 'sudo cat /home/wpbackup/in/<file>.age' | age -d -i ~/.ssh/nadavai_vm > x.sqlite`
+    (restore drill passed on 2026-11-10: integrity ok, 7 repos, 358 pipelines, 6 crons).
+  - Still open: the live database keeps growing by about 0.3 GB a day. Woodpecker has no
+    retention setting; `WOODPECKER_LOG_STORE=file` moves new logs to files that a timer can prune,
+    at the price of a server restart and of old logs leaving the UI. 84 GB were free on 2026-11-10.
+- Checks (`~/.config/nadavai/checks.sh` on each VM, every 5 minutes through `nadavai-watch`, which
+  emails on the second failure; `machine-checkup/hosts/oracle-il`). On nadavai-vm: `ci-agents`
+  (no Docker agent in contact for 10 minutes) and `ci-nightly` (a repo's `nightly` cron did not
+  start in 26 hours), both `oracle/wp-health.py` in `~/wp-watchdog/`; `wp-backup` (no snapshot
+  over 100 KB in 26 hours); `tokens-expire-2027-11-04` (fails from 2027-10-05). On nadavai-svc:
+  `secscan-poll` (`oracle/secscan-fresh` -> `/usr/local/bin/`: the poll did not run for 15
+  minutes or failed).
 - `oracle/wp-watchdog.py`, installed by `oracle/wp-watchdog-install.sh` (token on stdin): a user
   timer every 2 minutes that cancels and restarts, once, a run whose workflow lost its agent
   (running, but missing from the queue on two checks). Log `~/wp-watchdog/log`.
