@@ -10,10 +10,13 @@ const H = "֐-׿"; // Hebrew block: JS \b does not see Hebrew letters as word ch
 const notAfter = `(?<![${H}A-Za-z])`;
 const end = "\\s*[?!.]*\\s*$";
 
-// Asking to close the session itself (not a tab, a PR, an issue or a chat with a client).
+// Asking to close the session itself (not a tab, a PR, an issue, a chat with a client or a DB session): the
+// session noun ends the prompt, or only הזה / הזאת / פה / כאן follow it. לסגר is a common misspelling of לסגור.
 const CLOSE = [
-  new RegExp(`${notAfter}[ולשת]?(?:ל|נ|א|ת)?(?:סגור|סוגר(?:ים)?)\\s+(?:את\\s+)?ה?(?:סשן|סשנים|session)(?![${H}])`),
-  new RegExp(`${notAfter}(?:ו?אפשר\\s+)?(?:לסגור|נסגור|סוגרים|אסגור)(?:\\s+(?:פה|כאן|את\\s+זה))?${end}`),
+  new RegExp(`${notAfter}[ולשת]?(?:(?:ל|נ|א|ת)?(?:סגור|סוגר(?:ים)?)|לסגר)\\s+(?:את\\s+)?ה?(?:סשן|סשנים|session)` +
+    `(?:\\s+(?:הזה|הזאת|פה|כאן))?${end}`),
+  new RegExp(`${notAfter}(?:ו?אפשר\\s+)?(?:לסגור|לסגר|נסגור|סוגרים|אסגור)(?:\\s+(?:פה|כאן|את\\s+זה))?${end}`),
+  new RegExp(`${notAfter}אני\\s+סוגר(?:\\s+(?:פה|כאן|את\\s+זה))?${end}`),
   new RegExp(`${notAfter}סגור\\s+על\\s+זה\\s*[?!]`),
   new RegExp(`${notAfter}זהו\\s*\\?+[?!.\\s]*$`),
   /\b(?:can|should|may)\s+(?:i|we)\s+close(?:\s+(?:this|the)\s+(?:session|chat))?\b\s*[?!.]*\s*$/i,
@@ -21,7 +24,7 @@ const CLOSE = [
 ];
 // Saying the work is finished ("סיימנו עם X" is "done with X, next", not a question about the end).
 const FINISH = [
-  new RegExp(`(?:סי{1,2}מנו|סיימת(?:ם)?|גמרנו|גמרת(?:ם)?|סגרנו)(?![${H}])(?!\\s+עם(?![${H}]))`),
+  new RegExp(`(?:סי{1,2}מנו|סיימת(?:ם)?|גמרנו|גמרת(?:ם)?|סגרנו|סגרת(?:ם)?)(?![${H}])(?!\\s+עם(?![${H}]))`),
   new RegExp(`${notAfter}ו?לא\\s+נשאר(?:\\s+(?:לנו|לך|לכם|עוד|פה|כאן))?\\s+כלום`),
   new RegExp(`${notAfter}נשאר\\s+עוד\\s+משהו|${notAfter}נשאר\\s+משהו${end}`),
   new RegExp(`${notAfter}מה\\s+(?:עוד\\s+)?נשאר${end}`),
@@ -29,18 +32,19 @@ const FINISH = [
   new RegExp(`${notAfter}נגמר(?:\\s+הכל)?${end}`),
   /עברנו\s+על\s+הכל/,
   new RegExp(`${notAfter}הכל\\s+(?:מוכן|גמור|סגור|הושלם)(?![${H}])`),
-  new RegExp(`${notAfter}הכל\\s+ב-?\\s*(?:מיין|main|פרודקשן|production|פרוד|דמיין)(?![${H}A-Za-z])`, "i"),
-  /\b(?:are\s+we|is\s+everything|is\s+it\s+all)\s+(?:all\s+)?(?:done|finished|complete)\b[^?]*\?/i,
+  new RegExp(`${notAfter}הכל\\s+(?:עלה\\s+ל|ב)-?\\s*(?:מיין|main|פרודקשן|production|פרוד|דמיין)(?![${H}A-Za-z])`, "i"),
+  /\b(?:are\s+we|we|is\s+everything|is\s+it\s+all)\s+(?:all\s+)?(?:done|finished|complete)\b[^?]*\?/i,
+  /\banything\s+(?:else\s+)?left(?:\s+to\s+do)?\s*\?+\s*$/i,
 ];
 // A question or a "that's it / sure / anything left" marker.
 const MARK = [
   /\?/,
   new RegExp(`${notAfter}(?:ו|אז\\s+)?(?:זהו|בטוח[${H}]*|נשאר|מקצה\\s+לקצה)(?![${H}])`),
 ];
-// A next step in the same prompt makes it an instruction ("did we finish X? if so, do Y" or "...? run Y").
-// "תגיד", "תאשר" and "תודה" after the question still ask for the answer.
+// A next step in the same prompt makes it an instruction ("did we finish X? if so, do Y", "...? run Y" or
+// "check X and close it"). "תגיד", "תאשר" and "תודה" (also with ו) still ask for the answer.
 const NEXT = new RegExp(`${notAfter}(?:אם\\s+כן|אם\\s+לא|עכשיו\\s+ת[${H}]+|ואז\\s+ת[${H}]+|אחרי\\s+זה\\s+ת[${H}]+)` +
-  `|\\?\\s*(?!תגיד|תאשר|תודה)ת[${H}]{2,}|\\bthen\\b`, "i");
+  `|\\?\\s*(?!תגיד|תאשר|תודה)ת[${H}]{2,}|${notAfter}ו(?!תגיד|תאשר|תודה)ת[${H}]{2,}|\\bthen\\b`, "i");
 
 function asksToClose(prompt) {
   const p = (prompt || "").trim();
@@ -50,12 +54,16 @@ function asksToClose(prompt) {
 }
 
 const CONTEXT = "Nadav is asking whether this session's work is finished or the session can be closed. " +
-  "Run `session-close-check` in the project directory before answering (without --no-fetch), and answer from " +
-  "its output. Its last line is CLOSE: yes, no or unknown. Start the reply with \"לסגור את הסשן: כן\", " +
-  "\"לסגור את הסשן: לא, כי ...\" or \"לסגור את הסשן: לא ידוע, כי ...\" (naming what could not be checked), " +
-  "and then the open and unchecked items, each with its owner. NOTE lines are other sessions' and are not " +
-  "counted; name any that are in fact this session's. Add what only you know: background tasks still running, " +
-  "anything scheduled inside this session, and messages you received for another session and have not forwarded.";
+  "Before answering, run `session-close-check` (without --no-fetch) on every directory where this session " +
+  "changed files, in one call: its worktree, and each repo it changed by absolute path " +
+  "(`session-close-check <dir> <dir> ...`); the current directory alone misses work done in a worktree or in " +
+  "another repo. Answer from its output. Its last line is CLOSE: yes, no or unknown; \"CLOSE: yes (no git repo " +
+  "checked)\" means no repo was passed, so run it again with the repos. Start the reply with " +
+  "\"לסגור את הסשן: כן\", \"לסגור את הסשן: לא, כי ...\" or \"לסגור את הסשן: לא ידוע, כי ...\" (naming what " +
+  "could not be checked), and then the open and unchecked items, each with its owner. NOTE lines are other " +
+  "sessions' and are not counted; name any worktree or item in them that is this session's own. Add what only " +
+  "you know: background tasks still running, anything scheduled inside this session, and messages you received " +
+  "for another session and have not forwarded.";
 
 let input = null;
 try { input = await readInput(); } catch {}

@@ -30,7 +30,8 @@ for t in ssh gh systemctl atq; do
 #!/usr/bin/env bash
 printf '%s %s\n' "$t" "\$*" >>"$CALLS"
 case "$t" in
-  gh) cat "$tmp/fake/gh.json" ;;
+  gh) [ -e "$tmp/fake/gh.hang" ] && sleep 30
+      cat "$tmp/fake/gh.json" ;;
   ssh) [ -e "$tmp/fake/ssh.hang" ] && sleep 30
        cat "$tmp/fake/ssh.out" 2>/dev/null; exit "\$(cat "$tmp/fake/ssh.rc" 2>/dev/null || echo 0)" ;;
   systemctl) case "\$*" in *list-timers*) cat "$tmp/fake/timers.json" ;; *show*) cat "$tmp/fake/show.txt" ;; esac ;;
@@ -93,7 +94,7 @@ has "clean: working tree OK" '^OK +Working tree: clean' "$out"
 has "clean: stash OK" '^OK +Stash: none' "$out"
 has "clean: branch OK" '^OK +Branch: main: tracks origin/main, every commit is on a remote' "$out"
 has "clean: main OK" '^OK +Main: HEAD [0-9a-f]{7} is in origin/main' "$out"
-has "clean: deploy OK" "^OK +Deploy: therapy-flow-v2: production serves this session's commit" "$out"
+has "clean on main: deploy SKIP, no commit of its own (N5)" "^SKIP +Deploy: therapy-flow-v2: no commit of this session's in origin/main" "$out"
 has "clean: worktrees OK" '^OK +Worktrees: no other worktree' "$out"
 expect "clean: last line is CLOSE yes" "CLOSE: yes" "$(tail -1 <<<"$out")"
 expect "fetch ran (the no-fetch probe can see one)" yes "$([ -e "$R/.git/FETCH_HEAD" ] && echo yes || echo no)"
@@ -180,6 +181,11 @@ has "squash + pruned: CLOSE yes" '^CLOSE: yes$' "$out"
 live manual "$MAIN"
 out=$(check "$R")
 has "squash merged, not live: deploy OPEN" "^OPEN +Deploy: therapy-flow-v2: this session's commit ${SQ:0:7} is in origin/main but not live" "$out"
+# N7: merged, but gh gives no merge commit: the deploy cannot be compared, never a yes
+gh_says "[$(pr 10 MERGED main "$Z")]"
+out=$(check "$R")
+has "N7 merged, no merge commit: deploy UNCHECKED" "^UNCHECKED +Deploy: therapy-flow-v2: this session's PR is merged, but gh gave no merge commit" "$out"
+hasnt "N7 merged, no merge commit: never yes" '^CLOSE: yes' "$out"
 out=$(check --no-fetch "$R")
 has "squash + pruned, no-fetch: branch UNCHECKED" '^UNCHECKED +Branch: z: upstream gone, 1 commit\(s\) on no remote' "$out"
 git -C "$R" checkout -q main; git -C "$R" pull -q --ff-only; git -C "$R" branch -q -D z
@@ -210,23 +216,38 @@ out=$(check --no-fetch "$R")
 has "stopped rebase: OPEN" '^OPEN +Operation: rebase in progress' "$out"
 git -C "$R" rebase --abort; git -C "$R" checkout -q main; git -C "$R" branch -q -D r1
 
-# --- M3: deploy is about this session's commit; other sessions' merges are a NOTE ---
+# --- M3/N5: deploy is about this session's own commit; other sessions' merges are a NOTE, with no command ---
 git -C "$tmp/pusher" pull -q --ff-only; echo three >>"$tmp/pusher/a.txt"; git -C "$tmp/pusher" commit -qam three
 git -C "$tmp/pusher" push -q origin main 2>/dev/null
 git -C "$R" pull -q --ff-only
 live manual "$MAIN"
 out=$(check "$R")
-has "own commit not live: OPEN" "^OPEN +Deploy: therapy-flow-v2: this session's commit [0-9a-f]{7} is in origin/main but not live" "$out"
-git -C "$R" checkout -q --detach "$MAIN"
+has "N5 main after a pull: deploy SKIP" "^SKIP +Deploy: therapy-flow-v2: no commit of this session's in origin/main" "$out"
+has "N5 main after a pull: others' merge is a NOTE" "^NOTE +Deploy: origin/main is 1 commit\(s\) ahead of live" "$out"
+hasnt "N5 main after a pull: no deploy command" 'nadavai-deploy deploy' "$out"
+has "N5 main after a pull: CLOSE yes" '^CLOSE: yes$' "$out"
+git -C "$R" checkout -q -b fresh origin/main 2>/dev/null
 out=$(check "$R")
-has "own commit live, main ahead: OK" "^OK +Deploy: therapy-flow-v2: production serves this session's commit ${MAIN:0:7}" "$out"
+has "N5 fresh branch from main: deploy SKIP" "^SKIP +Deploy: therapy-flow-v2: no commit of this session's in origin/main" "$out"
+hasnt "N5 fresh branch from main: no deploy command" 'nadavai-deploy deploy' "$out"
+has "N5 fresh branch from main: CLOSE yes" '^CLOSE: yes$' "$out"
+echo four >>"$R/a.txt"; git -C "$R" commit -qam four; git -C "$R" push -q origin HEAD:main 2>/dev/null
+OWNC=$(git -C "$R" rev-parse HEAD)
+out=$(check "$R")
+has "own commit not live: OPEN" "^OPEN +Deploy: therapy-flow-v2: this session's commit ${OWNC:0:7} is in origin/main but not live" "$out"
+has "own commit not live: deploy command" "nadavai-deploy deploy therapy-flow-v2 $OWNC" "$out"
+live manual "$OWNC"
+git -C "$tmp/pusher" pull -q --ff-only; echo five >>"$tmp/pusher/a.txt"; git -C "$tmp/pusher" commit -qam five
+git -C "$tmp/pusher" push -q origin main 2>/dev/null
+out=$(check "$R")
+has "own commit live, main ahead: OK" "^OK +Deploy: therapy-flow-v2: production serves this session's commit ${OWNC:0:7}" "$out"
 has "main ahead by others: NOTE" "^NOTE +Deploy: origin/main is 1 commit\(s\) ahead of live" "$out"
 has "main ahead by others: CLOSE yes" '^CLOSE: yes$' "$out"
-git -C "$R" checkout -q main
 live held "$MAIN"
 out=$(check "$R")
 has "deploy held: SKIP" "^SKIP +Deploy: .*deploys are held" "$out"
 has "deploy held: CLOSE yes" '^CLOSE: yes$' "$out"
+git -C "$R" checkout -q main; git -C "$R" pull -q --ff-only; git -C "$R" branch -q -D fresh
 
 # --- H1: ssh down or hanging, a failed fetch: UNCHECKED and CLOSE unknown, within the timeout ---
 printf '' >"$tmp/fake/ssh.out"; printf 255 >"$tmp/fake/ssh.rc"
@@ -245,9 +266,23 @@ printf 'manual\nrc=0\nnadavai-deploy: usage: nadavai-deploy pages-live <repo>\nr
 out=$(check "$R")
 has "unknown to deploy service: SKIP" '^SKIP +Deploy: therapy-flow-v2: not handled by the deploy service' "$out"
 live manual "$(git -C "$R" rev-parse origin/main)"
+# N10: a total deadline: a hanging gh is cut at it, later network checks are UNCHECKED, the CLOSE line prints
+git -C "$R" checkout -q -b dl; echo dl >"$R/dl.txt"; git -C "$R" add dl.txt; git -C "$R" commit -qm dl
+: >"$tmp/fake/gh.hang"
+start=$(date +%s)
+out=$(CLOSE_CHECK_DEADLINE=2 check "$R")
+took=$(( $(date +%s) - start ))
+rm -f -- "${tmp:?}/fake/gh.hang"
+has "N10 gh cut at the deadline" '^UNCHECKED +Main: dl is not in origin/main; its PR not checked: timed out after' "$out"
+has "N10 ssh after the deadline: UNCHECKED" '^UNCHECKED +Deploy: therapy-flow-v2: not checked: ssh nadavai-vm: deadline reached' "$out"
+has "N10 CLOSE line printed" '^CLOSE: ' "$(tail -1 <<<"$out")"
+if [ "$took" -lt 9 ]; then PASS=$((PASS+1)); else echo "FAIL: N10 deadline 2 s took ${took}s"; FAIL=$((FAIL+1)); fi
+git -C "$R" checkout -q main; git -C "$R" branch -q -D dl
 git -C "$R" remote set-url origin "$tmp/missing.git"
 out=$(check "$R")
 has "fetch fails: UNCHECKED" '^UNCHECKED +Fetch: not fetched' "$out"
+has "N9 fetch reason: the first fatal line" '^UNCHECKED +Fetch: not fetched: fatal: .*does not appear to be a git repository' "$out"
+hasnt "N9 fetch reason: not the last stderr line" 'repository exists' "$out"
 has "fetch fails: CLOSE unknown" '^CLOSE: unknown' "$out"
 git -C "$R" remote set-url origin "$tmp/origin.git"
 
@@ -255,20 +290,76 @@ git -C "$R" remote set-url origin "$tmp/origin.git"
 git -C "$R" worktree add -q "$tmp/wt2" -b side 2>/dev/null
 echo x >"$tmp/wt2/side.txt"
 out=$(check "$R")
-has "worktree: NOTE" '^NOTE +Worktrees: 1 other worktree\(s\) with uncommitted changes, not counted' "$out"
-has "worktree: path listed" "^ +$tmp/wt2 \(1 file\(s\)\)$" "$out"
+has "worktree: NOTE" '^NOTE +Worktrees: 1 other worktree\(s\) with uncommitted, unpushed or unmerged work, not counted' "$out"
+has "worktree: path listed" "^ +$tmp/wt2 \(side\): 1 uncommitted file\(s\)$" "$out"
 has "worktree: CLOSE yes" '^CLOSE: yes$' "$out"
 rm -f -- "${tmp:?}/wt2/side.txt"
 out=$(check --no-fetch "$R")
-has "worktree clean: OK" '^OK +Worktrees: no other worktree with uncommitted changes \(1 other' "$out"
+has "worktree clean: OK" '^OK +Worktrees: no other worktree with uncommitted, unpushed or unmerged work \(1 other' "$out"
+
+# --- N1: a branch checked out in another worktree is that worktree's: not in Branches, named under Worktrees ---
+git -C "$R" worktree add -q "$tmp/wt4" -b othersession 2>/dev/null
+echo o >"$tmp/wt4/o.txt"; git -C "$tmp/wt4" add o.txt; git -C "$tmp/wt4" commit -qm o
+out=$(check "$R")
+hasnt "N1 other worktree's branch: not in Branches" '^ +othersession: ' "$out"
+has "N1 Branches OK" '^OK +Branches: no other local branch' "$out"
+has "N1 named under Worktrees" "^ +$tmp/wt4 \(othersession\): 1 commit\(s\) on no remote, not in origin/main$" "$out"
+has "N1 CLOSE yes" '^CLOSE: yes$' "$out"
+# N3: from the main checkout, a worktree whose branch is pushed but not in main is still named
+git -C "$tmp/wt4" push -q -u origin othersession 2>/dev/null
+out=$(check "$R")
+has "N3 pushed, unmerged worktree named" "^ +$tmp/wt4 \(othersession\): not in origin/main$" "$out"
+# N3: several dirs: one block each, one CLOSE line; a dir given is not repeated in another block's NOTE
+out=$(check --no-fetch "$R" "$tmp/wt4")
+expect "N3 two dirs: two repo blocks" 2 "$(grep -c "^== $tmp/" <<<"$out")"
+expect "N3 two dirs: one CLOSE line, the last" "1 CLOSE" "$(grep -c '^CLOSE:' <<<"$out") $(tail -1 <<<"$out" | cut -d: -f1)"
+has "N3 two dirs: the worktree's own Main line" '^UNCHECKED +Main: othersession is not in origin/main; its PR not checked: --no-fetch' "$out"
+hasnt "N3 two dirs: the given worktree is not in the NOTE" "^ +$tmp/wt4 \(" "$out"
+has "N3 two dirs: the verdict names each repo" '^CLOSE: unknown \(.*Main \(wt4\)' "$out"
+git -C "$R" worktree remove --force "$tmp/wt4"; git -C "$R" branch -q -D othersession
+
+# --- N2: a repo with no remote is local-only: no fetch; Branch, Main, Branches and Deploy SKIP ---
+L="$tmp/w/localonly"; git init -q "$L"; echo l >"$L/l.txt"; git -C "$L" add l.txt; git -C "$L" commit -qm l
+git -C "$L" checkout -q -b side2; echo s >"$L/s.txt"; git -C "$L" add s.txt; git -C "$L" commit -qm s
+git -C "$L" checkout -q main
+: >"$CALLS"
+out=$(check "$L")
+has "N2 local-only: Branch SKIP" '^SKIP +Branch: main: local-only repo, no remote' "$out"
+has "N2 local-only: Main SKIP" '^SKIP +Main: main: local-only repo, no remote' "$out"
+has "N2 local-only: Branches SKIP" '^SKIP +Branches: local-only repo, no remote' "$out"
+has "N2 local-only: Deploy SKIP" '^SKIP +Deploy: local-only repo, no remote' "$out"
+expect "N2 local-only: no fetch" "" "$(grep -E '^git .* fetch' "$CALLS")"
+has "N2 local-only, all committed: CLOSE yes" '^CLOSE: yes$' "$out"
+echo d >>"$L/l.txt"
+out=$(check "$L")
+has "N2 local-only: uncommitted still OPEN" '^OPEN +Working tree: 1 uncommitted' "$out"
+has "N2 local-only: CLOSE no" '^CLOSE: no \(1 open\)$' "$out"
+
+# --- N6: origin's default branch comes from origin/HEAD; with no main ref at all Main is UNCHECKED ---
+git init -q --bare "$tmp/dev.git"; D="$tmp/w/devrepo"; git clone -q "$tmp/dev.git" "$D" 2>/dev/null
+git -C "$D" checkout -q -b develop; echo d >"$D/d.txt"; git -C "$D" add d.txt; git -C "$D" commit -qm d
+git -C "$D" push -q -u origin develop 2>/dev/null; git -C "$tmp/dev.git" symbolic-ref HEAD refs/heads/develop
+git -C "$D" remote set-head origin -a >/dev/null 2>&1
+git -C "$D" checkout -q -b feat/d; echo e >"$D/e.txt"; git -C "$D" add e.txt; git -C "$D" commit -qm e
+git -C "$D" push -q -u origin feat/d 2>/dev/null
+gh_says '[]'
+out=$(check "$D")
+has "N6 main from origin/HEAD" '^OPEN +Main: feat/d is not in origin/develop and has no open PR' "$out"
+git -C "$D" config remote.origin.followRemoteHEAD never; git -C "$D" remote set-head origin -d
+out=$(check "$D")
+has "N6 no main ref: UNCHECKED" '^UNCHECKED +Main: no main ref found' "$out"
+hasnt "N6 no main ref: never yes" '^CLOSE: yes' "$out"
 
 # --- outside git ---
 out=$(check --no-fetch "$tmp/plain"); rc=$?
 expect "outside git: exit 0" 0 "$rc"
-expect "outside git: 5 repo checks SKIP" 5 "$(grep -c 'is not in a git repo' <<<"$out")"
+expect "outside git: one Repo SKIP (N4)" 1 "$(grep -cE '^SKIP +Repo: .* is not in a git repo: pass each repo' <<<"$out")"
 has "outside git: drafts still checked" '^OK +Client messages' "$out"
 has "outside git: timers still checked" '^OK +Timers' "$out"
-has "outside git: CLOSE yes" '^CLOSE: yes$' "$out"
+has "outside git: CLOSE yes, no git repo checked (N4)" '^CLOSE: yes \(no git repo checked\)$' "$out"
+out=$(check --no-fetch "$tmp/plain" "$L")
+has "N4 a dir outside git next to a repo: SKIP Repo" '^SKIP +Repo: ' "$out"
+hasnt "N4 a dir outside git next to a repo: a plain verdict" 'no git repo checked' "$out"
 
 # --- client-message drafts: recent counts, old does not ---
 echo old >"$CLOSE_CHECK_DRAFTS/old.txt"; touch -d '3 days ago' "$CLOSE_CHECK_DRAFTS/old.txt"
@@ -311,7 +402,7 @@ printf '[]' >"$tmp/fake/timers.json"
 printf '7\tWed Nov 11 09:30:00 2026 a test\n' >"$tmp/fake/atq.out"
 out=$(check --no-fetch "$tmp/plain")
 has "at job: NOTE" '^NOTE +at: 1 at job\(s\) queued, not counted' "$out"
-has "at job: CLOSE yes" '^CLOSE: yes$' "$out"
+has "at job: CLOSE yes" '^CLOSE: yes \(no git repo checked\)$' "$out"
 : >"$tmp/fake/atq.out"
 
 # --- nadavai: clean, uncommitted file, installed plugin behind HEAD, no upstream (L5) ---
@@ -335,6 +426,7 @@ hasnt "nadavai no upstream: never 'pushed'" '^OK +nadavai: clean, pushed' "$out"
 # --- json and usage ---
 out=$("$TOOL" --no-fetch --json "$tmp/plain")
 expect "json: close yes" yes "$(jq -r '.close' <<<"$out" 2>/dev/null)"
+expect "N4 json: the dir that is not a repo" "$tmp/plain" "$(jq -r '.not_repos[0]' <<<"$out" 2>/dev/null)"
 out=$("$TOOL" --no-fetch --json "$R")
 expect "json: close unknown" "unknown 1" "$(jq -r '"\(.close) \(.unchecked)"' <<<"$out" 2>/dev/null)"
 "$TOOL" --bogus >/dev/null 2>&1; expect "usage error exit 2" 2 "$?"
