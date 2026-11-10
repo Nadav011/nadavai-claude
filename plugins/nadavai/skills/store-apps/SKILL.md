@@ -148,5 +148,13 @@ this decision, it wins for that repo (`rules/working-style.md`: a project's stri
    https://developer.apple.com/help/app-store-connect/update-your-app/release-a-version-update-in-phases
    (both read 2026-11-09).
 
+## Keeping this skill current
+Every session that uses this skill adds what it learned before it ends: a trap, a check that would have caught a fault,
+or a fact a store or Capacitor changed. It goes into the reference it belongs to (a `shell-checklist.md` row, a
+`native-bar.md` note, a `store-apis.md` line), with its evidence, the app and the date. When the fix is not yet
+confirmed on a device, say so in the row and confirm it later. Then commit, push and run `update.sh` (nadavai rules).
+Why: Nadav asked on 2026-11-10 that the skill always improves; the Cash TestFlight layout faults (rows 20 to 23) had
+passed every check the skill listed until then.
+
 The next action is step 1: open the repo's build config (`package.json` scripts, `next.config.*`,
 `vite.config.*`) and fill the table row.

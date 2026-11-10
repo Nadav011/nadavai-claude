@@ -77,6 +77,7 @@ await SystemBars.setStyle({ style: SystemBarsStyle.Dark }); // light icons on da
 
 - Missing `viewport-fit=cover` is the #1 cause of `env()` = 0 on iOS and of Capacitor padding the WebView on Android.
 - Do not combine `ios.contentInset: 'always'` with CSS safe-area padding: insets apply twice.
+- `ios.contentInset: 'automatic'` doubles the top inset too, whenever the page scrolls: the extra band sits above the header at rest and scrolls away, so the header jumps. Keep `never` with CSS padding (seen in a Capacitor 8.6 remote shell, 2026-11-10).
 - Do not hardcode 20/44/47/59 px status bar heights; heights differ per device, orientation, and window size.
 - Insets change at runtime (rotation, iPad windowed mode, foldables, Android split screen, keyboard). Use CSS, or re-read on `resize`; never cache once at startup.
 - On iOS the bottom inset stays while the keyboard is visible; use `max()` with keyboard height (see `capacitor-keyboard`).
