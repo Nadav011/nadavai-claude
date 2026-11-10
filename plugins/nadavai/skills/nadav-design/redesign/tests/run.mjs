@@ -1177,6 +1177,8 @@ await test('REF-2', 'reference-coverage.py passes a ledger with no gap and fails
   if (frames.status !== 1 || !/reference\/R-1\.png is missing/.test(frames.raw)) why.push(`missing frame: exit ${frames.status} ${frames.raw}`);
   const twice = run('ref-twice.md', row('R-1', '[0–5 s]') + row('R-1', '[5–10 s]'));
   if (twice.status !== 1 || !/R-1: the id appears on two rows/.test(twice.raw)) why.push(`repeated id: exit ${twice.status} ${twice.raw}`);
+  const shortRow = run('ref-short.md', row('R-1', '[0–5 s]') + '| R-2 | [5–10 s] a section | scroll |\n');
+  if (shortRow.status !== 1 || !/R-2: the row has fewer than 7 cells/.test(shortRow.raw)) why.push(`a row that lost cells: exit ${shortRow.status} ${shortRow.raw}`);
   const nan = sh('python3', [path.join(T, 'reference-coverage.py'), path.join(TMP, 'ref-good.md'), '--total', 'nan']);
   if (nan.status !== 2) why.push(`--total nan: exit ${nan.status}`);
   const usage = sh('python3', [path.join(T, 'reference-coverage.py')]);
@@ -1207,6 +1209,12 @@ await test('FACT-1', 'facts-check.py passes pages whose figures are in the facts
   fs.writeFileSync(path.join(dir, 'open.json'), JSON.stringify({ ...facts, fund: { ...facts.fund, address: 'TBD ask Nadav' } }));
   const open = run('open', '<p>1,250,000</p>', 'open.json');
   if (open.status !== 1 || !/open value fund\.address/.test(open.raw)) why.push(`open value: exit ${open.status} ${open.raw}`);
+  const ent = run('entities', '<p>900 ש&quot;ח וגם &#8362;750</p>');
+  if (ent.status !== 1 || !ent.out || ent.out.problems.filter(p => /the figure (900|750) is not in the facts file/.test(p)).length !== 2) why.push(`figures behind HTML entities: exit ${ent.status} ${ent.raw}`);
+  const alt = run('alt', '<img src="a.png" alt="[תיאור התמונה]"><p>arr[i] ו-[0, 1] אינם שדות למילוי</p>');
+  if (alt.status !== 1 || !ent.out || alt.out.problems.length !== 1 || !/תיאור התמונה/.test(alt.raw)) why.push(`a placeholder in alt, and code-like brackets: exit ${alt.status} ${alt.raw}`);
+  const gone = sh('python3', [path.join(T, 'facts-check.py'), '--facts', path.join(dir, 'facts.json'), path.join(dir, 'no-such-folder')]);
+  if (gone.status !== 2) why.push(`a page path that does not exist: exit ${gone.status}`);
   const usage = sh('python3', [path.join(T, 'facts-check.py')]);
   if (usage.status !== 2) why.push(`no arguments: exit ${usage.status}`);
   return why.join(' · ');

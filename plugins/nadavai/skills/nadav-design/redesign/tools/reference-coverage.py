@@ -55,7 +55,11 @@ def main():
             continue
         rid, rest = m.group(1), m.group(2)
         if rest.count('|') < 6:
-            # a row of the «Differences on purpose» table (4 cells): it repeats an id and carries no stretch
+            # a row of the «Differences on purpose» table (4 cells) repeats an id and carries no stretch;
+            # a section row that lost cells still starts with one
+            if SPAN.match(rest.split('|')[0]):
+                problems.append(f'{rid}: the row has fewer than 7 cells')
+                seen.add(rid)
             continue
         if rid in seen:
             problems.append(f'{rid}: the id appears on two rows')

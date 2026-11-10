@@ -10,7 +10,7 @@ Mode is the first word of `$ARGUMENTS` (`setup`, `plan`, `screen`, `audit`, `red
 ## Hard rules (every mode)
 
 - Before the first step of any mode, read `shared/rules.md` (next to this file): tempo, track, his words, the standard, looking at screenshots, where checks run, platform.
-- **Track and reference.** A site that presents (portfolio, landing, showcase, film, 3D) is track `site`, a demo for a client is `client-demo`: read `tracks/<track>.md` first. When Nadav gave a reference ("like this", a link, a video, a screenshot), read `shared/reference.md` first and build that, never a concept of your own.
+- **Track and reference.** A site that presents (portfolio, landing, showcase, film, 3D) is track `site`, a demo for a client is `client-demo`: read `tracks/<track>.md` first. When Nadav gave a reference ("like this", a link, a video, a screenshot), read `shared/reference.md` first and build that, never your own concept.
 - Work **one step at a time**. A step ends with evidence (command output, file diff, or screenshot) shown to Nadav before the next step starts. Never merge steps, never assume a step passed (tempo: `shared/rules.md`).
 - On any failure: stop, report what failed and why in Hebrew, wait (tempo: `shared/rules.md`).
 - **Looking at screenshots.** Measure first, look second, several images in one turn, never an image twice: `shared/rules.md`, «Looking at screenshots» (`ui-check`, `dembrandt`, `tesseract`).
@@ -148,7 +148,7 @@ Optional after a critical screen, only if Nadav asks: `/interfaces:interface-rev
 
 ## Mode `ship` (before release and after)
 
-0. **Pre-flight.** Declare the tempo and the track. Every **Setup artifact** (Hard rules) exists or stop with the missing list. The QA credentials resolve and the last DoD run has `unreachable = 0`. `git status` clean, the release sha has a green landing (`ci-wait <repo> <sha>`, which covers the build; run `PM build` locally only in a repo without NadavAI CI) and the last nightly `nadavai-ui` on main is green; a red nightly blocks ship (`shared/rules.md`, «Where checks run»), and if `docs/ui-audit/PLAN.md` exists every P0 in it is closed. Evidence: the checklist.
+0. **Pre-flight.** Declare the tempo and the track. Every **Setup artifact** (Hard rules) exists or stop with the missing list. The QA credentials resolve and the last DoD run has `unreachable = 0`. `git status` clean, the release sha has a green landing (`ci-wait <repo> <sha>`, which covers the build; run `PM build` locally only in a repo without NadavAI CI) and the last nightly `nadavai-ui` on main is green; a red nightly blocks ship (`shared/rules.md`, «Where checks run»), and if `docs/ui-audit/PLAN.md` exists every P0 in it is closed; `REFERENCE.md`, if any, has 0 open rows. Evidence: the checklist.
 1. **Full audit.** Lighthouse from the nightly when it ran it on the release tree, otherwise `heavy-slot -- PM exec lhci autorun` with every route from `e2e/dod/routes.json` in `lighthouserc.json` (mobile preset), plus `chrome-devtools lighthouse_audit` (the DevTools CLI; the MCP server is off) on the three main screens for accessibility, best-practices and SEO detail (performance comes from `lhci`); the bar is the quality bar in Hard rules. Fix every failing assertion using the chrome-devtools skills (`a11y-debugging`, `debug-optimize-lcp`) and, when the app is deployed on Cloudflare, its `web-perf` skill; re-measure until `autorun` passes. Evidence: the autorun summary.
 2. **Israeli accessibility and privacy.** Run the `israeli-accessibility-compliance` skill checklist; fill the accessibility statement skeleton from setup with the real facts (contact, date, known gaps); confirm the privacy page is linked and, if PostHog replay is on, that masking is in place (`maskAllInputs`, `maskTextSelector: "*"`) and routes with personal data are excluded. Evidence: both page URLs and the replay config lines.
 3. **DoD.** `node e2e/dod/routes.mjs --check` passes (routes.json covers every route), the QA session logs in (`unreachable = 0`, no page skipped for permissions), then DoD = 100 on every route, styleguide included: from the nightly when it covers the release tree, otherwise `heavy-slot -- PM dod`. Evidence: `reports/dod/dod.json` and the route count.
@@ -181,6 +181,6 @@ Optional after a critical screen, only if Nadav asks: `/interfaces:interface-rev
 
 **New project:** `shadcn create --rtl` → `setup` (step 11b direction pick) → `retro` → `plan <feature>` → `screen <name>` per screen from the plan → `audit` after 4-5 screens → `screen` for the fixes → `ship` → `retro` → launch.
 
-**A site or a client demo:** `setup` (no 11b when he gave a reference) → `REFERENCE.md` and the order of work in `tracks/site.md` or `tracks/client-demo.md` → `ship`.
+**A site or a client demo:** with a reference, `REFERENCE.md` first → `setup` when it has a framework (no 11b) → the order of work in `tracks/site.md` or `tracks/client-demo.md` → `ship`.
 
 `next` (or no argument) tells Nadav where the project is in this order and what to run. `retro` after every run, so the skill learns from each project.

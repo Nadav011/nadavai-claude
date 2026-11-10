@@ -10,12 +10,15 @@ Ported from the general half of the Kfir Bar demo's `_tools/check_facts.py`. Wha
    a currency sign or the words ש"ח / שקל) is a number that exists in the facts file. A figure typed by hand into
    a page fails. Years, phone numbers and small counts are not checked this way.
 3. No placeholder left in a page: a bracketed fill-in ([שם], [name]), TODO, TBD, XXX, lorem ipsum.
+Text is read as a reader meets it: tags stripped, entities decoded, and the alt, title, placeholder, aria-label,
+content and value attributes included.
 
 What it does not check, and stays with the fresh reviewer: that names, dates and button labels agree between pages
 and e-mails, and anything arithmetic about this demo's own story (totals that must add up, ages against years),
 which belongs in a small check written for that demo.
 """
 import argparse
+import html
 import json
 import os
 import re
@@ -24,7 +27,7 @@ import sys
 PAGE_EXT = ('.html', '.htm', '.md', '.txt', '.mjml')
 THOUSANDS = re.compile(r'(?<![\d.,])\d{1,3}(?:,\d{3})+(?:\.\d+)?(?![\d,])')
 MONEY = re.compile(r'(?:[₪$€]\s?(\d[\d,]*(?:\.\d+)?))|(?:(\d[\d,]*(?:\.\d+)?)\s?(?:₪|\$|€|ש"ח|ש״ח|שקלים|שקל)(?![\w]))')
-PLACEHOLDER = re.compile(r'\[[^\]\[\n]{1,40}\](?![(\[:])|\bTODO\b|\bTBD\b|\bXXX+\b|lorem ipsum', re.IGNORECASE)
+PLACEHOLDER = re.compile(r'(?<![\w)\]])\[(?=[^\]\[\n]*[A-Za-z\u0590-\u05FF]{2})[^\]\[\n]{1,40}\](?![(\[:])|\bTODO\b|\bTBD\b|\bXXX+\b|lorem ipsum', re.IGNORECASE)
 # a bracket that is ordinary writing, not a fill-in: a footnote number, a checkbox, a markdown link label
 NOT_PLACEHOLDER = re.compile(r'^\[(?:\d+|x| )\]$', re.IGNORECASE)
 
@@ -61,7 +64,10 @@ def text_of(path):
     if path.lower().endswith(('.html', '.htm', '.mjml')):
         raw = re.sub(r'(?is)<(script|style)\b.*?</\1>', ' ', raw)
         raw = re.sub(r'(?s)<!--.*?-->', ' ', raw)
-        raw = re.sub(r'<[^>]+>', ' ', raw)
+        # text a reader meets that lives in attributes
+        attrs = re.findall(r'(?is)\b(?:alt|title|placeholder|aria-label|content|value)\s*=\s*"([^"]*)"', raw)
+        raw = re.sub(r'<[^>]+>', ' ', raw) + ' ' + ' '.join(attrs)
+        raw = html.unescape(raw)
     return raw
 
 
@@ -93,6 +99,10 @@ def main():
 
     problems, allowed = [], set()
     collect(facts, '', allowed, problems)
+    missing = [p for p in a.pages if not os.path.exists(p)]
+    if missing:
+        print(json.dumps({'error': 'no such page or folder: ' + ', '.join(missing)}, ensure_ascii=False))
+        sys.exit(2)
     pages = pages_of(a.pages)
     if not pages:
         problems.append('no page found to check')
