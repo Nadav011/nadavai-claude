@@ -18,7 +18,9 @@ added on top of finished layouts. In the first round of any work-tool design, de
 1. the one door in the top bar and the one entry in the screen header (G-01), on a phone and on
    the real small screen;
 2. what a first visit looks like (G-06) and that it sits inside the page flow;
-3. where the panel opens (docked beside the work on a desktop, a sheet on a phone).
+3. where the panel opens (docked beside the work on a desktop, a sheet on a phone);
+4. the tour inventory (G-07): every screen and every important action, each with its tour or
+   the reason it has none, and which one or two are core screens whose tour opens by itself.
 
 ## The contract
 
@@ -40,14 +42,58 @@ Screenshots in help are synthetic, never real data.
 
 **First visit (G-06).** A small card, once per screen, never again after it is closed (#330 [N]).
 He liked it enough to ask for it on every screen (#401 [N]). It is one quiet card inside the
-page, one line on a phone, and never opens by itself on a short screen ([B]).
+page, one line on a phone, and never opens by itself on a short screen ([B]). On a screen with a
+tour the card is the way into the tour: it carries "הראו לי" (he picked "הכרטיס הוא הכניסה
+לסיור", 10.11.2026 [A]). The card and the tour are one thing with two ways in, never two things
+shown one after the other.
 
-**Tours (G-07, G-08).** Once per core screen, skippable, resumable, at most five steps (#100
-[A]); not inside the setup wizard, at most one automatic start a day (#485 [A]). Each task is
-classed: reversible in place, tells a real person, or permanent. On the last two the tour stops
-at the button. A manifest check fails a tour that clicks a committing control (`tour-no-commit`).
-A missing target degrades to a centred card, never to a broken overlay. Step text is at most
-about twenty words.
+**Tours (G-07, G-08, G-16).** His answers of 10.11.2026, given in the planning session after he
+played three built versions on a copy of MediZen's demo, and recorded with the questions in
+`~/.omc/plans/medizen-tour-answers-2026-11-10.md` on the LENOVO:
+- the style: "a ו B משולב" [N], and on the built combined version, "כן מעולה ותמיד מקצה לקצה
+  ותמיד הכי מקיף שיש ומסביר וקולע בול" [N]. A is "shown to you" (the screen dims, a light
+  circle, one sentence, "הבא"); B is "do it together" (she does the step herself on the sample
+  record). Combined: every step looks like A, and a step that is safe to do is done like B;
+- how many and how long: shown "every screen and every important action has its own tour, up
+  to four steps and twelve words a step, under a minute, and a list in help like levels in a
+  game", he answered "כן מעולה מבחינתי לכל דבר שיהיה סיודר ואז יהיה אפשר לעושת תא הרישמה הזאת"
+  (as typed) [N]. The caps and the owner's view came with the option he approved [A].
+  This replaces "at most five steps" of #100 and the "about twenty words" this file had.
+
+A tour is short and there are many of them: one long tour does not teach. Each covers one job
+from its first tap to its result. A tour opens by itself only on a core screen, once, on the
+first visit (#100 [A]); not inside the setup wizard, and at most one automatic start a day (#485
+[A]). Every other tour is started by the person: from the card, from "הראו לי" in the panel, or
+from the list.
+
+Each step is classed before the tour is written: its action on the sample record is reversible
+in place and tells no one; or it tells a real person; or it is permanent. On the first kind the
+person does the step herself: the lit control is live, the rest of the screen does not respond
+(a tap elsewhere pulses the light again and says where to press), and the step moves on only
+when the screen shows the result. On the other two the step says what the control does, has
+"הבנתי", and the tour never presses it and never moves on because it was pressed. The class
+comes from the action's contract (`nadavai:action-safety`): booking for the sample record counts
+as reversible only where that contract shows no reminder, message or charge leaves for it.
+
+Also part of the contract, from the built version ([B]): "דילוג" on every step and progress
+dots; a skipped tour does not open by itself again; "הראו לי שוב" resumes at the same step and
+puts the person back where she was (a window reopened, the sample record selected again), which
+is the only thing a tour does by itself; with no sample record the tour offers to bring it back
+in one tap, or only shows where to press, and never practises on real data; focus stays between
+the card and the lit control, and Esc ends the tour; with reduced motion the light does not
+pulse. A missing target degrades to a centred card with "הבא", never to a broken overlay. A tour
+that clicks a committing control fails the manifest check (`tour-no-commit`).
+
+**The tour list (G-17, G-18).** The help panel lists every tour like the levels of a game: how
+many were learned out of how many, what is left, and a tap starts one (10.11.2026 [A]). It is
+built from the inventory, so a screen or an action without a tour shows up as a gap when the
+list is generated, not when a user looks for it. The owner of the business sees which tours
+each team member finished ([A]). That view is about learning: it is not a score and not a
+ranking, only the owner and the managers he names see it, and a team member sees what it shows
+about her ([P]; a project decides this with its permissions, and it is listed in the BRIEF).
+
+Not tested when this was written: WebKit and a real phone; and how the list and the owner's
+view look, which no demo has drawn yet.
 
 **Videos (optional per project).** Generated from the same manifest as the tours, on synthetic
 data, so a video never shows an old menu. Captions always on, never autoplay, a numbered step
@@ -89,5 +135,7 @@ measured cost per question.
 ## For a consumer app
 
 The door and the panel stay (G-01, G-02), short. No "מה זה?" beside every field, no sample
-record, and a tour only when the first screens cannot be made obvious. If a consumer screen
+record, and a tour only when the first screens cannot be made obvious; "a tour for every thing"
+(G-07) and the list (G-17, G-18) are work-tool rules. A tour that a consumer app does have
+follows G-08 and G-16; with no sample record its steps only show and never ask her to do. If a consumer screen
 needs an explanation to be used, the first fix is the screen.

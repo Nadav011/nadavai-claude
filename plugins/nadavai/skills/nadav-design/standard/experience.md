@@ -26,7 +26,8 @@ Source tags:
   candidate to drop if it gets in the way.
 A project may override a [B], [I] or [P] default by writing the override and its reason in its
 BRIEF.md. Decision numbers (#99) refer to `~/design-redesign/therapy-flow-v2/DECISIONS-ANSWERED.md`
-unless another source is named.
+unless another source is named. "Tour answers 10.11.2026" are his answers on first-visit tours,
+quoted in [help-system.md](help-system.md).
 
 Checks:
 - **auto: `<id>`** a check that can fail, listed in the table at the end.
@@ -64,16 +65,19 @@ Markers the checks read (web): help entries carry `data-help="door"` (top bar), 
 | G-03 | *(work tool)* An unclear field or label has "מה זה?" beside it: a small (i) with the words, a 44px hit area, opening the panel at that paragraph. There is no cap on how many, so each one is quiet and never takes a row of its own on a phone. | #345 [A] | reviewer |
 | G-04 | A tooltip is never the only explanation of anything: tooltips fail on touch. | [B] | auto: `tooltip-only` |
 | G-05 | Help is offered once per place, not three or four times on a screen. Beyond G-01 and G-03, no legend of "?" buttons, no repeated help links. | [B], from the r10 critique | reviewer |
-| G-06 | First visit to a screen shows one small card ("ככה זה עובד") with what the screen is for. Once closed it never returns; the same content stays behind G-01. | #330 [N], #401 [N] | reviewer |
+| G-06 | First visit to a screen shows one small card ("ככה זה עובד") with what the screen is for. On a screen that has a tour the card is the way into it: it carries "הראו לי", which starts that screen's tour. Once closed it never returns; the same content, and "הראו לי", stay behind G-01. | #330 [N], #401 [N], tour answers 10.11.2026 [A] | reviewer |
 | G-15 | That card sits inside the page flow, never above the work: one line on a phone, and it does not open by itself on a short screen. | [B], from the r10 and r11 critiques | auto: `core-unit` |
-| G-07 | A guided tour runs once per core screen, can be skipped and resumed, has at most five steps, never starts in the middle of a setup wizard, and at most one starts by itself per day. | #100 [A], #485 [A] | reviewer |
-| G-08 | A tour never presses a button that commits something. On a task that tells a real person or cannot be undone, the last step points at the button, says what it does in one sentence, and stops. Tours run on the sample record, not on real data. | [B] | auto: `tour-no-commit` |
+| G-07 | *(work tool)* Every screen and every important action has its own tour, or a written reason why it has none. A tour has at most four steps and at most twelve words a step, takes under a minute, can be skipped, and resumes at the step where the person stopped. Only a core screen's tour starts by itself: once, on the first visit, never in the middle of a setup wizard, and at most one a day. Every other tour starts from the card (G-06), from "הראו לי" in the panel or from the list (G-17). | tour answers 10.11.2026 [N] (a tour for every thing) and [A] (four steps, twelve words), #100 [A], #485 [A] | reviewer |
+| G-16 | How a tour step looks and moves on. Every step dims the screen, lights the real control and says one sentence. When the step's action, done on the sample record, tells no one, charges nothing and can be undone on the spot, the person does it herself: only the lit control responds, there is no "הבא", and the step moves on when the screen shows the result. A step that only explains has "הבא". A step that points at a control that tells a real person, saves for good or cannot be undone has "הבנתי", and the tour stops there. | tour answers 10.11.2026 [N] ("a ו B משולב", confirmed on the built version) | reviewer |
+| G-08 | A tour never presses a button that commits something: the person presses it herself on the sample record (G-16), or the last step points at the button, says what it does in one sentence, and stops. The only thing a tour does by itself is put the person back where she stopped (reopen a window, select the sample record again). Tours run on the sample record, never on real data: with no sample record a tour offers to bring it back in one tap, or only shows where to press. Whether an action on the sample record really tells no one is read from the action's own contract (`nadavai:action-safety`), never assumed. | [B]; the built version he confirmed on 10.11.2026 [B] | auto: `tour-no-commit` |
 | G-09 | Every route a person can reach from the menu has a help entry. | plan of the help system [B] | auto: `help-route` |
 | G-10 | Help content follows the reader's role and plan: nobody reads how to do what they cannot do. | [B] | reviewer |
 | G-11 | *(work tool)* A new account gets a sample record to learn on, removable, never counted in reports. | #93 [A] | reviewer |
 | G-12 | An existing user meets a change once, in a "what's new" entry that also lives in the help panel; it is never stacked above the work. | #96 [A], #395 [A] | reviewer |
 | G-13 | A problem screen links to its own explanation ("מה זה אומר"); a reason that needs more than one sentence ends in "מה זה?". | [B] | reviewer |
 | G-14 | There is a named way to reach a person, with hours, from the help panel. | #101 [A] | reviewer |
+| G-17 | *(work tool)* The help panel lists every tour of the app like the levels of a game: how many were learned out of how many ("למדת 7 מתוך 23"), what is left, and a tap starts one. The list is built from the tour inventory (G-07) and follows role and plan (G-10). | tour answers 10.11.2026 [A] | reviewer |
+| G-18 | *(work tool)* The owner of the business sees which tours each team member has finished. It shows learning, never a score or a ranking; only the owner and the managers he names see it, and a team member sees what is shown about her. | the view: tour answers 10.11.2026 [A]; who sees it and what it is not: [P] | reviewer |
 
 The help panel, the first-visit card, tours, videos and the AI helper are specified in
 [help-system.md](help-system.md), with what went wrong when MediZen built them.
