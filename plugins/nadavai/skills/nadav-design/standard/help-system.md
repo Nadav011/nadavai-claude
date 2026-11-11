@@ -221,6 +221,61 @@ of this rule ([P]): a resume never puts her back over something she chose or typ
 asks; and the tour offers to bring the sample back only where the project allows one at that
 moment (a clinic that imported its data has none).
 
+**The tour manifest (G-19, and the `tour-*` checks).** This paragraph and the next four are this
+skill's own [I]. A tour is designed in the demo and built again in the app, so its content is
+written once, as data, and both read the same file; only the way a step finds its control is
+written for each of them. Two layers:
+- `tours.json`, the content, which carries no selector and no code. Per tour: its id and title,
+  an optional job, job title and chapter `[n, of]`, the screen keys whose articles it serves, its
+  area and where, the screens on which it opens by itself (`auto`), the article tasks it shows,
+  its steps and its closing sentence. Per step: `do`, `next` or `stop`; a stop step's class (`S`
+  saves, `T` tells a real person, `P` is permanent or charges); `on: "sample"`; the anchor of its
+  control; what she reads, and the text when it only shows; a do step's action (open, pick,
+  select, type), its result, the G-20 test it names (`safeTest`) and, for a practice-only step,
+  `practiceOnly` with the mode's test for that action and the test that it is a stop step outside
+  the mode; and `need`, how a resumed run puts her back, which is only one of the two G-08 allows
+  (reopen a window, select the sample record again). The core screens, the written reason for a
+  screen or a task with no tour, and the important actions beyond an article's tasks are in the
+  same file.
+- A bindings file for each environment, which is not portable: anchor id to element, a `custom`
+  result to a predicate, and each window, condition and state value named in the manifest to
+  that environment's way of reading it.
+
+An anchor is a stable dot-separated id (`cal.new-appointment`), with an optional argument for a
+family of controls (`{ "anchor": "settings.tab", "arg": "הודעות" }`: a tab by its name, the edit
+button of a row by its label). A static control carries `data-tour="<id>"`, and
+`data-tour-arg="<arg>"` where there is one, in the demo's markup and in the app's components; it
+binds to the first visible element that carries them. Only a target that depends on state (the
+first free hour, an appointment that ended) is a resolver named in the bindings. A result is data
+too: a window is open, an anchor is present, the route or the view is a given key or changed, the
+window of a given record is open, a wizard reached step N, a field changed from its start and is
+not empty, a state value equals X; anything else is `custom`, named in the manifest and written
+in the bindings. The bindings own visibility: a hit on the target, inside it or on its ancestor
+counts as covering it, a target clipped by an ancestor's overflow is not on screen, and a target
+inside an inner scroll box is scrolled into that box's view before the step shows.
+
+The manifest freezes with the approved demo's tag (its `tag` field), and the app reads that same
+file; a later change to a tour is a change to the file, made once. For an app built under «An app
+is built once», the tours are authored once, in the app's preview, against this format.
+
+A help article is data keyed by the screen key. Each numbered task names the tour that shows it
+and the anchor ids of the controls its text mentions, in `inventory.json` beside the manifest,
+which also says whether the menu reaches the screen. So "an article names a control the screen
+does not have" is checked: a task's anchor must be one a tour step or the manifest's `anchors`
+list knows (`help-refs`).
+
+The format, an example and the checker are in [tours/](tours/): `tours.schema.json` and
+`inventory.schema.json`; `example/`, a manifest of six tours with its inventory and the bindings
+of a web app; and `tour-check.mjs`, which runs `tour-shape`, `tour-inventory`, `help-refs` and
+the part of `tour-no-commit` that data can show, with no browser (`node tour-check.mjs tours.json
+--inventory inventory.json`, exit 1 on a finding). Whether each anchor and result resolves on its
+screen needs the running app (`tour-anchors`). Seventeen of MediZen's demo tours were converted
+into the format on 11.11.2026 to test it. What did not carry over as content: the demo's code
+that, when a tour starts, closes what is open and sets the calendar's view has no field, and it
+is not one of the two things G-08 lets a tour do by itself, so whether it may stay is open; a
+result that stays reached once seen is the engine's default; and how the demo's own checks drive
+a do step (its `try`) stays in each environment's tests.
+
 **The tour list (G-17, G-18).** The help panel lists every tour like the levels of a game: how
 many were learned out of how many, what is left, and a tap starts one. It is built from the
 inventory (G-19), so a screen or an action without a tour shows up as a gap when the list is
