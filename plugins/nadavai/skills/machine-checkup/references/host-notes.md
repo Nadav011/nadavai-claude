@@ -100,6 +100,21 @@ fault. That the fault comes from waking out of runtime sleep is the leading read
 GFW_BOOT line), not a proven one: the 2026-11-10 fault began at 16:59 and this one at 23:05
 with no suspend or resume line near either.
 
+Reproduced and fixed, 2026-11-11 evening. A session on the MSI updated and rebooted it at
+22:15 with the card faulted: black screen until Nadav held the power button, so a faulted card
+hung the reboot 2 times of 2 and a healthy one returned 2 of 2. Then `cpu-ab.sh` alternated
+`power/control` between `auto` and `on` (CI paused 22:21 to 22:27): on the third forced wake-up,
+at 22:23:11 under full CPU load at 95 C, the driver logged "failed to wait for GFW_BOOT ...
+gpu_suspend.c:220", then the GSP timeout and "GPU requires reset". So the cause is the wake from
+runtime sleep, and it can be produced on demand by toggling `power/control` under load. The two
+rounds before the fault showed no cost of an awake card (whole-machine work 3420 and 3275 awake
+against 3178 and 3035 asleep; one CI workflow was still running, so treat it as "no loss beyond
+the spread", not a gain). Fix: `hosts/msi-gl66/72-nvidia-stay-awake.rules` sets
+`power/control` to `on` when the driver binds, `install.sh` installs it and `msi-tuning-check`
+has a row for it. Do not toggle `power/control` back to `auto` to measure anything: that is the
+trigger. If the fault ever shows with the card held awake, the wake-up reading is wrong and the
+next candidate is the driver version.
+
 **LENOVO** (Legion Pro 5 16IAX10H, Core Ultra 9 275HX 24 cores, 62 GB, RTX 5070 Ti, CachyOS,
 BIOS Q6CN79WW = latest per `download.lenovo.com/catalog/83LU_Win11.xml`; the main machine since
 2026-11-03). On Linux the firmware leaves `intel-rapl-mmio:0` at 30/30 W, so check that first:

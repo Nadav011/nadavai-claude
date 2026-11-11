@@ -1,0 +1,10 @@
+# The dGPU (RTX 3070 Mobile) never enters runtime sleep. It overrides 71-nvidia.rules, which
+# sets "auto" when the driver binds.
+# Why: the card's firmware fails to come back from runtime sleep ("failed to wait for GFW_BOOT",
+# then Xid 119/154 and "GPU requires reset"). Seen on 2026-11-03, 11-10 (twice) and reproduced
+# on 2026-11-11 within three forced wake-ups under CPU load. A card in that state hangs the next
+# reboot on a black screen until someone holds the power button (2 of 2), and this machine is
+# the only CI agent. Cost: the card idles awake instead of off; two clean rounds of cpu-ab.sh
+# showed no loss of CPU work at the 40 W limit beyond the spread between rounds.
+ACTION=="bind", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", ATTR{class}=="0x030000", TEST=="power/control", ATTR{power/control}="on"
+ACTION=="bind", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", ATTR{class}=="0x030200", TEST=="power/control", ATTR{power/control}="on"

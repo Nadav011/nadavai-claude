@@ -40,6 +40,10 @@ if nmcli -g connection.id connection show Nadav_5G >/dev/null 2>&1; then
   nmcli device reapply wlan0 >/dev/null 2>&1 || true
 fi
 
+# dGPU: never in runtime sleep (its firmware fails to wake, and then the next reboot hangs).
+sudo install -m 644 "$here/72-nvidia-stay-awake.rules" /etc/udev/rules.d/
+echo on | sudo tee /sys/bus/pci/devices/0000:01:00.0/power/control >/dev/null
+
 # Battery: stop charging at 80% (always on AC).
 sudo install -m 644 "$here/61-battery-charge.rules" /etc/udev/rules.d/
 echo 80 | sudo tee /sys/class/power_supply/BAT1/charge_control_end_threshold >/dev/null
