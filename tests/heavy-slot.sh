@@ -257,7 +257,7 @@ kill "$(cat "$t/c0")"; wait "$holder" "$waiter" 2>/dev/null
 [ -e "$t/c2" ] && ok "and it runs when its turn comes" || bad "the waiter never ran after the bad value was fixed"
 
 # The gap between two starts beyond the floor is short only while the CPU has a lot of room.
-printf 'heavy_slots=4\nheavy_floor=1\nheavy_cpu_max=85\n' >"$t/config/nadavai/capacity"
+printf 'heavy_slots=8\nheavy_floor=1\nheavy_cpu_max=85\n' >"$t/config/nadavai/capacity"
 calm; echo 8 >"$t/proc/gap"; echo 1 >"$t/proc/gap_short"
 "$hs" -- bash -c "echo \$\$ >'$t/s0'; exec sleep 120" & holder=$!; pids+=("$holder")
 wait_taken
@@ -270,6 +270,11 @@ started c; sleep 4
 [ ! -e "$t/gp.c" ] && ok "with the CPU at 70% it waits for the full gap" || bad "the full gap did not apply at 70% busy"
 for _ in $(seq 1 40); do [ -e "$t/gp.c" ] && break; sleep 0.2; done
 [ -e "$t/gp.c" ] && ok "and starts when the full gap has passed" || bad "the job never started after the full gap"
+calm; printf 'MemAvailable:   12582912 kB\nSwapTotal: 1000 kB\nSwapFree: 900 kB\n' >"$t/proc/meminfo"
+sleep 8   # past the full gap after job c
+started d; for _ in $(seq 1 30); do [ -e "$t/gp.d" ] && break; sleep 0.2; done
+started e; sleep 4
+[ -e "$t/gp.d" ] && [ ! -e "$t/gp.e" ] && ok "with 12 GB available (under twice the floor) it waits for the full gap" || bad "memory room and the gap: d=$([ -e "$t/gp.d" ] && echo ran || echo no) e=$([ -e "$t/gp.e" ] && echo ran || echo no)"
 kill "$(cat "$t/s0")" 2>/dev/null
 unset HEAVY_SLOT_TEST_PROC
 printf 'heavy_slots=1\n' >"$t/config/nadavai/capacity"

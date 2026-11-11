@@ -10,7 +10,8 @@
 # others while memory and swap have room). A job beyond the floor starts when all of these
 # hold, and otherwise says which one does not, once a minute:
 #   - 10 s have passed since the last such start, so the job before it shows in the numbers
-#     (4 s when the CPU is 30 points under its limit and nothing waits for it);
+#     (4 s when the CPU is 30 points under its limit, nothing waits for it, and twice the
+#     memory floor is available);
 #   - at least heavy_mem_min_gb GB of memory is available, swap is under heavy_swap_max percent
 #     used (systemd-oomd kills a terminal at 90), and memory pressure is under 10%;
 #   - disk pressure is under 40% (iowait looks like an idle CPU, so it is asked separately);
@@ -88,18 +89,20 @@ slots="" floor="" cpu_max="" mem_min="" swap_max=""
 # they were: a job that is already waiting re-reads the file on every pass, so a change to it
 # reaches the queue at once, and a typo there must not end the job.
 load_conf() {
-  local k v s=$cli_slots f="" c="" m="" w="" bad=""
+  local k v s=$cli_slots f="" c="" m="" w="" bad="" keys=0
   if [ -r "$conf" ]; then
     while IFS='=' read -r k v; do
       k=${k//[[:space:]]/}; v=${v%%#*}; v=${v//[[:space:]]/}
       case $k in
-        heavy_slots) [ "$strict" = 0 ] && s=$v ;;
-        heavy_floor) f=$v ;;
-        heavy_cpu_max) c=$v ;;
-        heavy_mem_min_gb) m=$v ;;
-        heavy_swap_max) w=$v ;;
+        heavy_slots) keys=1; [ "$strict" = 0 ] && s=$v ;;
+        heavy_floor) keys=1; f=$v ;;
+        heavy_cpu_max) keys=1; c=$v ;;
+        heavy_mem_min_gb) keys=1; m=$v ;;
+        heavy_swap_max) keys=1; w=$v ;;
       esac
     done <"$conf"
+    # A file with none of the keys may be one caught half way through a rewrite.
+    [ "${1:-}" = keep ] && [ "$keys" = 0 ] && return 1
   fi
   # Four per CPU: a job is often a fraction of one (on 2026-11-11 24 jobs of 0.3-0.6 CPU each
   # held a ceiling of one per CPU while 40 waited and half the CPU was idle). The load checks
@@ -161,9 +164,11 @@ mem_state() { # "<GB available> <percent of swap used>"; a failed read never blo
 }
 
 why=""
-mem_ok() { # is there memory for one more job? Sets $why when not. Two cheap reads, no sampling.
+mem_now=0
+mem_ok() { # is there memory for one more job? Sets $why when not, and $mem_now. Two cheap reads, no sampling.
   local mem swap
   read -r mem swap < <(mem_state)
+  mem_now=$mem
   if [ "$mem" -lt "$mem_min" ]; then why="memory: $mem GB available, under the $mem_min GB floor"; return 1; fi
   if [ "$swap" -ge "$swap_max" ]; then why="swap $swap% used, the limit is $swap_max%"; return 1; fi
   return 0
@@ -179,8 +184,11 @@ load_ok() { # may a job beyond the floor start now? Sets $why when not.
   v=$(psi io); if [ "$v" -ge "$io_psi_max" ]; then why="disk pressure $v%, the limit is $io_psi_max%"; return 1; fi
   p=$(psi cpu); if [ "$p" -ge "$cpu_psi_max" ]; then why="CPU pressure $p%, the limit is $cpu_psi_max%"; return 1; fi
   v=$(cpu_busy); if [ "$v" -ge "$cpu_max" ]; then why="CPU $v% busy, the limit is $cpu_max%"; return 1; fi
-  # The full gap, unless the CPU has a lot of room (30 points under its limit, pressure under 10%).
-  if [ "$age" -ge 0 ] && [ "$age" -lt "$gap" ] && { [ "$v" -ge $((cpu_max - 30)) ] || [ "$p" -ge 10 ]; }; then
+  # The full gap, unless there is a lot of room: the CPU 30 points under its limit with
+  # pressure under 10%, and twice the memory floor available (a job's memory shows later than
+  # its CPU, so memory needs the wider margin).
+  if [ "$age" -ge 0 ] && [ "$age" -lt "$gap" ] &&
+    { [ "$v" -ge $((cpu_max - 30)) ] || [ "$p" -ge 10 ] || [ "$mem_now" -lt $((mem_min * 2)) ]; }; then
     why="another job started $age s ago"; return 1
   fi
   return 0
