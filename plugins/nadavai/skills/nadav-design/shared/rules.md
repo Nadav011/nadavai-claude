@@ -108,13 +108,16 @@ For an app (a product with screens people work in):
    `scripts/salon-preview.ts` is the example for (b)'s browser policy, own port and 404 worker path, not for (a).
    a. **Environment.** The server process and the client bundle see only the variables on the preview's allowlist, a
       file in the app repo naming each variable and its preview value (a backend host is `.invalid`, the preview's
-      origin or the fake backend's local address). The start script starts from an empty environment, sets only
-      those variables, and turns off every other source: the framework's `.env*` loading, and any reading of env
-      files by the app's own config in the preview's mode. Proof: the script reads the resolved environment of the
-      running server and every environment value compiled into the client bundle, and fails on a name not on the
-      allowlist or a value that differs from it. The start script runs this proof at every start and refuses to
-      serve when it fails, because the landing CI holds no secrets and passes anyway: the proof must hold in the shell
-      the preview is started from. Framework notes, examples only:
+      origin or the fake backend's local address). The start script starts from an empty environment, sets only those
+      variables, and turns off every other source: the framework's `.env*` loading, and any reading of env files by
+      the app's own config in the preview's mode. Proof: the script reads the resolved environment of the running
+      server and every environment value compiled into the client bundle, and fails on a name not on the allowlist or
+      a value that differs from it. Names the process needs or the framework sets for itself (`PATH`, `HOME`,
+      `TMPDIR`, `NODE_ENV`, Next's `__NEXT_PRIVATE_*`) are on the allowlist with the value the start script sets, or
+      marked "set by the framework", and hold no secret; the proof reads `process.env` inside the running server after
+      start-up, not the environment it was spawned with. The start script runs this proof at every start and refuses
+      to serve when it fails, because the landing CI holds no secrets and passes anyway: the proof must hold in the
+      shell the preview is started from. Framework notes, examples only:
       - Vite: a variable already in the environment wins over the `.env` files, and every `process.env` variable with
         the env prefix (`VITE_` unless `envPrefix` names another) goes into `import.meta.env`, `.env` loading on or
         off. So the environment is emptied before Vite starts (spawned with the allowlist only, or `process.env`
@@ -123,57 +126,86 @@ For an app (a product with screens people work in):
         the files of the folder it is given whatever `envDir` says.
       - Next: it loads `.env`, `.env.local`, `.env.<NODE_ENV>` and `.env.<NODE_ENV>.local` from the folder it is
         started on (the one given to `next`, otherwise the working directory), `process.env` wins over them, and
-        `NEXT_PUBLIC_*` values are inlined into the client bundle. So Next starts with the emptied environment, and the
-        start script refuses to start while one of those files there holds a value; a file Next does not load, such as
-        a committed `.env.example`, does not stop it.
+        `NEXT_PUBLIC_*` values are inlined into the client bundle. So Next starts with the emptied environment, from a
+        folder where none of those files holds a value (a fresh `git worktree` of the commit has no untracked ones);
+        the start script refuses to start otherwise, and never deletes or moves such a file; a file Next does not
+        load, such as a committed `.env.example`, does not stop it.
    b. **Network.** Nothing the preview loads or sends leaves its own origin. Browser: a content security policy of
       `default-src 'self'` plus `form-action 'self'` (form posts do not fall back to `default-src`), with no other
-      origin in any directive (only the dev server's own `ws://` address, and `data:` or `blob:` where needed), so
-      fetch, WebSockets, images, scripts, frames, forms, fonts and workers are fenced, not only `connect-src`. It is a
-      response header, or a meta tag first in `<head>` (a meta policy does not cover what precedes it). The preview
-      has an origin of its own (a port no other build of the app uses, so no worker or stored data of the real app is
-      there) and registers no service worker (the app's worker path answers 404). Server, and any build step the start
-      script runs: a connection from server code to anything but the preview's origin and the fake backend's local
-      address is refused on every transport (fetch, `node:http(s)`, a database driver, a WebSocket client); the rule
-      requires the proof, the mechanism is the app's (a fence per transport, or a network namespace or container with
-      only loopback). Proof: planted calls to a harmless live host (example.com, never a send endpoint), from browser
-      code as a fetch, an image and a script, and from server code one request per transport it uses (one if the
-      fence is at process level), each come back blocked, and any answer fails the script; no service worker is
+      origin in any directive (only the dev server's own `ws://` address, `data:` or `blob:` where needed, and
+      keywords that open no origin, such as `'unsafe-inline'` for the dev client's injected styles and preamble, or a
+      nonce), so fetch, WebSockets, images, scripts, frames, forms, fonts and workers are fenced, not only
+      `connect-src`. It is a response header on every response the preview serves, worker scripts included, because a
+      worker follows the policy of its own script's response, not the page's; a meta tag first in `<head>` (a meta
+      policy does not cover what precedes it) is enough only for a page that starts no dedicated or shared worker from
+      a URL. The preview has an origin of its own (a port no other build of the app uses: storage, caches and workers
+      are per origin, so none of the real app's are there; cookies are per host and shared across ports, so the
+      preview's fake sign-in uses cookie names of its own and ignores every other cookie, and a hosted preview never
+      runs on the production domain or a subdomain of it) and registers no service worker (the app's worker path
+      answers 404). Server, and any build step the start script runs: a connection from server code to anything but
+      the preview's origin and the fake backend's local address is refused on every transport (fetch, `node:http(s)`,
+      a database driver, a WebSocket client); the rule requires the proof, the mechanism is the app's (a preload that
+      refuses every `net.connect` and `tls.connect` to a non-loopback address, which covers fetch, `node:http(s)`,
+      most database drivers and a WebSocket client at once; a fence per transport; or a network namespace or container
+      with only loopback, with the preview's port forwarded in for the browser). Proof: planted calls to a harmless
+      live host (example.com, never a send endpoint), from browser code as a fetch, an image and a script (and one
+      fetch from inside a worker when the app starts one), and from server code one request per transport it uses (one
+      if the fence is at process level), each come back blocked, and any answer fails the script; no service worker is
       registered; and the browser's recorded requests during a scripted play of the main journey include no other
-      origin. The planted calls are test-only code the no-demo check keeps out of the build users get. A preview that
-      runs no server code says so in the plan, and the server half is `n/a` with that reason.
-   c. **Effects.** Sends, charges, scheduled jobs, webhooks, analytics and real sign-in are covered by (a) and (b), and
-      the script's output says so item by item: for every provider the production app uses (messaging, payment, jobs,
-      webhooks, analytics, auth; read from the env example, the deploy config and the HTML, where a pixel or tag id
-      often sits), its key is absent from the resolved environment and its host is blocked, shown by one planted
-      browser fetch and one server request to it, with no credentials and never to a send endpoint. The start script
-      starts no scheduler, queue worker or cron runner, and fences any process it starts as (b) says. Sign-in reaches
-      only the fake backend, with invented accounts.
+      origin. The planted browser calls are made by the check script from the test browser (`page.evaluate`), so
+      nothing planted ships; the planted server request is a test-only script or route the no-demo check keeps out of
+      the build users get. A preview that runs no server code says so in the plan, and the server half is `n/a` with
+      that reason.
+   c. **Effects.** Sends, charges, scheduled jobs, webhooks, analytics and real sign-in made by a request are covered
+      by (a) and (b), and the script's output says so item by item: for every provider the production app uses
+      (messaging, payment, jobs, webhooks, analytics, auth; read from the env example, the deploy config and the HTML,
+      where a pixel or tag id often sits), its key is absent from the resolved environment and its host is blocked,
+      shown by one planted browser fetch and one server request to it, with no credentials and never to a send
+      endpoint. A send or a payment made by opening a link or another app (wa.me, api.whatsapp.com, `mailto:`, `sms:`,
+      `tel:`, a payment link) is a navigation, which no content security policy fences: in the preview the opener that
+      builds it is part of the fake data source and opens a local page that shows what would have been sent, and
+      invented people's phone numbers and addresses are ones no real person can hold (an `.invalid` or `example.com`
+      address; a number the fake source marks as invented and never hands to an opener). Proof: the script presses
+      every control that opens such a link, on and off the main journey, and fails on any page, popup or hand-off
+      whose URL is not the preview's origin (Playwright `context.on('page')` and `framenavigated`, not only the page's
+      own requests). The start script starts no scheduler, queue worker or cron runner, and fences any process it
+      starts as (b) says. Sign-in reaches only the fake backend, with invented accounts.
    d. **Where it runs.** The proofs run where the preview runs. On localhost: at every start, as (a) says, plus the
       planted calls. Anywhere else (one of his own domains, or a published claude.ai artifact, after his yes; a new
       host, a DNS record or any cost is asked at that moment, and unit 1 is marked `go` when it needs one): only as a
-      static build that carries the same policy in its own response headers or meta tag, or as a server on a host or
-      project of its own (never the app's production hosting) that holds only the allowlisted variables; and before
-      the link is shared, the environment proof and the planted calls run against the deployed URL and pass.
+      static build on a host or project of its own (never the app's production hosting project; the host serves the
+      built files only, with no functions, rewrites or proxies) that carries the same policy as (b) says, or as a
+      server on a host or project of its own (never the app's production hosting) that holds only the allowlisted
+      variables; never on the production domain or a subdomain of it. Before the link is shared, the environment proof
+      and the planted calls run against the deployed URL and pass (for a published artifact: the environment proof on
+      its published files, the planted calls from a browser that opened it), and one request to each same-origin
+      server path the app's code calls (`/api/*` and the like) is answered by the fake backend or with 404.
       `redesign/tools/early-show.sh` checks the host, https, the answer and the commit, and is not that proof.
 
-   Nobody plays the preview, on any machine, before its check script passes there; until then only the build
-   session runs it, and only to run the checks. Then Nadav plays it on localhost at that machine, elsewhere as (d) says.
+   Nobody plays the preview, on any machine, before its check script passes there; until then only the build session
+   runs it, and only to run the checks. Then Nadav plays it on localhost at that machine (his phone or another device
+   that reaches the same running process over the LAN or Tailscale counts, and the policy then names that origin),
+   elsewhere as (d) says.
 6. **Behaviour logic is written once** [I] (source: the session building mexicani-shifts, 11.11.2026). Logic the
-   preview needs (state that several people or devices change, the order offline changes arrive in, undo, alerts,
-   money arithmetic) is plain functions with no browser, framework or demo import, in a folder both the preview and
-   the production code import, never under the demo folder. Only the data source is demo-only: invented in the
-   preview, the server in production. Before Nadav plays a preview that simulates such behaviour, its logic has a
-   test that runs the cases exhaustively, or over a bounded set the test states, with at least one mutant (a
-   deliberate break of the logic) per assertion shown to fail it. Where production must run that logic elsewhere (the
-   server, SQL) and cannot import the function, the same cases run against that implementation too. The shared
-   functions are not demo code: point 4 is about the demo folder and the invented data, and the no-demo check still
-   covers that folder. Why: there the demo's task logic (marks from several offline phones, undo, alerts) took 11
-   review rounds, 8 finding a new bug, while each fix patched one path of an incremental merge; it closed when one
-   pure function derived all state from an append-only list of marks, outgoing messages became a diff of that state
-   applied by one step the app and the test both call, and the test ran every arrival order (237k orderings) with
-   mutants proving each assertion can fail. That function lived under the demo folder, so the plan would have
-   written the same logic again for production.
+   preview computes from what the person does while playing (state that several people or devices change, the order
+   offline changes arrive in, undo, alerts, money arithmetic) is plain functions with no browser, framework or demo
+   import, in a folder both the preview and the production code import, never under the demo folder. Only the data
+   source is demo-only: invented in the preview, the server in production. A fake that returns fixed invented data
+   computes nothing and is outside this point. Before Nadav plays a preview that simulates such behaviour, its logic
+   has a test that runs the cases exhaustively, or over every combination up to a size the test states (for example
+   all orderings of up to N changes), with at least one mutant (a deliberate break of the logic) per property the test
+   asserts shown to fail it. Where production runs that logic on the server, the preview either runs the same code (it
+   imports the function, or runs the same SQL in the fake backend's local database) or returns fixed data; it never
+   writes a second implementation, and where the server cannot import the function the same cases run against the
+   server's implementation too. In an app with live clients, logic that decides what is sent to people is reply logic:
+   before a change to it is switched on, `rules/action-safety.md`'s replay applies. The shared functions are not demo
+   code: point 4 is about the demo folder and the invented data, and the no-demo check still covers that folder. Why:
+   there the demo's task logic (marks from several offline phones, undo, alerts) took 11 review rounds, 8 finding a
+   new bug, while each fix patched one path of an incremental merge; it closed when one pure function derived all
+   state from an append-only list of marks, outgoing messages became a diff of that state applied by one step the app
+   and the test both call, and the test ran every arrival order (237k orderings) with mutants proving each assertion
+   can fail. That function lived under the demo folder, so the plan would have written the same logic again for
+   production.
 
 What runs when [I] (`rules/ci-policy.md` rule 1 decides where checks run): locally, each unit's scoped checks include
 the start-time environment proof and the planted calls against the running preview; the no-demo check needs a
@@ -188,18 +220,20 @@ session START-BUILD opens after he approved the build plan, as its unit 1 (`rede
 mode `redesign` never writes into the app repo. Where this section says unit 1, in a new app read setup step 10b.
 
 Where a fault goes [I]: a session that meets something in this rule or its tools that does not fit, is missing or is
-wrong stops that step and reports it to the session that maintains this skill (with none live, to Nadav in its
-closing report); the fix lands here through review. A build session re-reads this section in the installed skill
-before each unit, because it changes as projects report faults.
+wrong stops that step and reports it to the session that maintains this skill (with none live, to Nadav in its closing
+report). That session fixes it here through an independent review, under his answer below, and names the change in its
+closing report to him. A tightening of point 5 applies at once; a change to this section that alters a unit of a plan
+he approved goes to him before that unit runs. A build session re-reads this section in the installed skill before
+each unit, because it changes as projects report faults.
 
 MediZen and SHIFTS. Asked which goes first (SHIFTS first then MediZen, MediZen first, both together), Nadav typed his
 own answer on 11.11.2026: «שניהם ביחד בצורה חכמה שלא נעשדה טעות פעמיים כי זהם לא יפעו בואתו הזמן» [N]. The session's
 reading [I]: both are built by this rule; they do not run the same step at the same time, and a fault one finds in
-this rule or its tools is fixed here before the other reaches that step. MediZen's standalone demo predates the
-rule and is not approved yet: it goes on to his approval as the page it is, and is not converted; from that
-approval on the rule applies (the tag, a
-build plan Nadav approves, the preview as unit 1, the screens the demo did not draw designed in the preview). His
-decision of 10.11.2026 that its build starts only after everything is closed stands.
+this rule or its tools is fixed here before the other reaches that step. MediZen's standalone demo predates the rule
+and is not approved yet: it goes on to his approval as the page it is, through the rounds its own exit checklist lists
+(point 1's one-round limit is not applied to it), and is not converted; from that approval on the rule applies (the
+tag, a build plan Nadav approves, the preview as unit 1, the screens the demo did not draw designed in the preview).
+His decision of 10.11.2026 that its build starts only after everything is closed stands.
 
 Not covered: track `site`, and track `client-demo` with no app behind it (the page is the product, or no app
 exists); SportChat v4, an app in the middle of a build that started from a standalone demo: its running build keeps
