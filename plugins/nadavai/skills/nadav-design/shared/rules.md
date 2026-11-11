@@ -149,19 +149,21 @@ For an app (a product with screens people work in):
       a Node child started without it, so it is loaded through `NODE_OPTIONS=--require=…`, which the allowlist names,
       and a child that is not Node, other than a compiler the plan names that opens no connection (esbuild, SWC,
       Turbopack's compiler, a CSS engine); those are fenced by a network namespace or container with only loopback,
-      with the preview's port forwarded in for the browser, or not used and not started). Proof: planted calls to a
-      harmless live host (example.com, never a send endpoint), from browser code as a fetch, an image and a script
-      (and one fetch from inside a worker when the app starts one), and from server code one request per transport it
-      uses, plus one to a loopback port that is neither the preview's nor the fake backend's (one request only when
-      the fence is a namespace or container), each come back blocked, and any answer fails the script; no service
-      worker is registered; and the browser's recorded requests during a scripted play of the main journey include no
-      other origin. The planted browser calls are made by the check script from the test browser (`page.evaluate`), so
-      nothing planted ships; the planted server requests are made inside the running server process, and inside each
-      process it or the start script starts, through a test-only route or a start-up hook of the preview's mode that
-      the no-demo check keeps out of the build users get; a separate script proves only itself. The check script lists
-      every process under the start script after the scripted journey (`/proc`) and fails on a Node process with no
-      planted-request result, and on any other process the plan does not name with its fence or its reason. A preview
-      that runs no server code says so in the plan, and the server half is `n/a` with that reason.
+      with the preview's port forwarded in for the browser, or not used and not started). Proof: the policy of every
+      response is read and fails without `default-src 'self'`, `form-action 'self'` or `base-uri 'none'`, or with
+      another origin in a directive; and planted calls to a harmless live host (example.com, never a send endpoint),
+      from browser code as a fetch, an image and a script (and one fetch from inside a worker when the app starts
+      one), and from server code one request per transport it uses, plus one to a loopback port that is neither the
+      preview's nor the fake backend's (one request only when the fence is a namespace or container), each come back
+      blocked, and any answer fails the script; no service worker is registered; and the browser's recorded requests
+      during a scripted play of the main journey include no other origin. The planted browser calls are made by the
+      check script from the test browser (`page.evaluate`), so nothing planted ships; the planted server requests are
+      made inside the running server process, and inside each process it or the start script starts, through a
+      test-only route or a start-up hook of the preview's mode that the no-demo check keeps out of the build users
+      get; a separate script proves only itself. The check script lists every process under the start script after the
+      scripted journey (`/proc`) and fails on a Node process with no planted-request result, and on any other process
+      the plan does not name with its fence or its reason. A preview that runs no server code says so in the plan, and
+      the server half is `n/a` with that reason.
    c. **Effects.** Sends, charges, scheduled jobs, webhooks, analytics and real sign-in made by a request are covered
       by (a) and (b), and the script's output says so item by item: for every provider the production app uses
       (messaging, payment, jobs, webhooks, analytics, auth; read from the env example, the deploy config and the HTML,
@@ -179,23 +181,24 @@ For an app (a product with screens people work in):
         policy sets `frame-src` to the app's origin only, and the shell holds the frame and nothing else: no script
         that navigates, opens a window or posts a form on a message from the frame. Every popup, top navigation,
         navigation of the frame to another origin and form post out that the page starts is then refused, whatever
-        code or data built it (measured in Chromium, WebKit and Firefox; notes file). The script and Nadav open the
-        shell, never the app's port; opened at top level, the app in the preview's mode renders only a notice that
-        points to the shell. The shell passes its own path and query to the frame's `src`, so a deep link or a refresh
-        opens that screen. What the frame turns off is stubbed in the preview's mode or allowed by name: downloads by
-        `allow-downloads` (then the planted cases add a cross-origin `<a download>`, which must leave nothing), a
-        same-origin window such as a print view opened in the frame's place, and clipboard, fullscreen, camera,
-        microphone or location by name in `allow`; `payment`, `web-share` and `publickey-credentials-*` are never
-        added. On a phone the frame changes the page around the app (autofocus by the HTML spec; the rest is the
-        platforms' behaviour as the reviewers know it, not measured and not cited, and unit 1 checks it on his
-        phones): the shell carries the app's viewport meta (a frame's own is ignored), and safe-area insets, the
-        hiding of the browser's bars, the keyboard's resize and autofocus do not reach a cross-origin frame. Unit 1
-        lists what the app relies on of these; the build session checks those screens at top level through a flag of
-        the start script that only the check script's own run sets: it lets the app render at top level, still in the
-        preview's mode behind every other fence, in a test browser that aborts every request outside the preview's
-        origins. The flag is never set for a preview anyone plays, and the proof that the app's port shows only the
-        notice runs without it. The build session never sends Nadav to the app's port, and does not fix in the app a
-        layout difference that only the frame causes.
+        code or data built it (measured in Chromium, WebKit and Firefox; notes file), with one measured exception: in
+        Firefox a click with a modifier key that the page's own code dispatches on a link that is not in the document
+        opened a new page, and the guard below is what stops it. The script and Nadav open the shell, never the app's
+        port; opened at top level, the app in the preview's mode renders only a notice that points to the shell. The
+        shell passes its own path and query to the frame's `src`, so a deep link or a refresh opens that screen. What
+        the frame turns off is stubbed in the preview's mode or allowed by name: downloads by `allow-downloads` (then
+        the planted cases add a cross-origin `<a download>`, which must leave nothing), a same-origin window such as a
+        print view opened in the frame's place, and clipboard, fullscreen, camera, microphone or location by name in
+        `allow`; `payment`, `web-share` and `publickey-credentials-*` are never added. On a phone the frame changes
+        the page around the app (autofocus by the HTML spec; the rest is the platforms' behaviour as the reviewers
+        know it, not measured and not cited, and unit 1 checks it on his phones): the shell carries the app's viewport
+        meta (a frame's own is ignored), and safe-area insets, the hiding of the browser's bars, the keyboard's resize
+        and autofocus do not reach a cross-origin frame. Unit 1 lists what the app relies on of these; the build
+        session checks those screens at top level through a flag of the start script that only the check script's own
+        run sets: it lets the app render at top level, still in the preview's mode behind every other fence, in a test
+        browser that aborts every request outside the preview's origins. The flag is never set for a preview anyone
+        plays, and the proof that the app's port shows only the notice runs without it. The build session never sends
+        Nadav to the app's port, and does not fix in the app a layout difference that only the frame causes.
       - The guard. A link or a form the person opens himself is not a navigation the page starts: a middle click, or a
         click with Ctrl or Shift, on a link to another origin inside the frame opened a new page to it (Chromium and
         Firefox), and a Ctrl or Shift click on a form's submit button, or Shift+Enter in a form with one field and no
@@ -203,54 +206,63 @@ For an app (a product with screens people work in):
         to the tab bar and a long press on a phone are the same kind of action and were not measured. So in the
         preview's mode a guard loads before anything else in every same-origin document of the frame (on Next, the
         first script in the root layout's `<head>`, before hydration; a `srcdoc` or other child frame gets the guard
-        too) and does three things. It rewrites the `href` of every `<a href>` and `<area href>` that points outside
-        the preview's two origins (another origin, or a scheme other than http, https and `javascript`, whose link
-        runs in place and whose modified clicks the click layer cancels) to a local page that shows where it would
-        have gone; it rewrites the same way the `action` of every form and the `formaction` of every control that
-        points outside them (a `javascript:` one is left to the submit cancel below); and it keeps watching for new or
-        changed ones (a `MutationObserver` on `href`, `action` and `formaction`), so a destination the app's own
-        handler sets during the submit is rewritten before the browser reads it (the submit cancel below has already
-        looked by then; measured, notes file). A `blob:` link of the preview's own origins and a `data:` link that
-        carries `download` are files the page made and are left alone. An SVG `<a xlink:href>` is not rewritten, and
-        the click layer below is what stops it. It cancels every `submit` whose destination (the form's `action`, or
-        the submitter's `formaction`) is outside the two origins, whatever key or click sent it, with one exception:
-        the placeholder React writes for a form whose action is a function (an `action` or `formaction` that starts
-        with `javascript:throw new Error('A React form was unexpectedly submitted`, which React writes in the browser,
-        or equals `javascript:throw new Error('React form unexpectedly submitted.')`, which its server renderer writes
-        and hydration keeps) is left to React, which cancels that submission itself and runs the function; cancelled
-        by the guard, React 19 did not run it (the eleventh and twelfth reviews' runs; notes file). The two texts are
-        React's own, and unit 1 reads them from the React the app installs. Every other `javascript:` destination is
-        cancelled. And it cancels the browser's default, never the app's handlers (`preventDefault` only, no
-        `stopPropagation`), for what the person opens himself: `auxclick` and any click with a modifier key or a
-        button other than the main one whose event path holds a link (`<a>`, `<area>`, an SVG `<a>`, matched as
-        `a[*|href]`) or a submit control; `contextmenu` whose path holds a link or an image; and `dragstart` whose
-        path holds a link, unless the drag's source or an element between it and that link carries `draggable="true"`
-        (the app's own drag). Because a `submit` event does not leave its shadow root and a closed root hides its
-        inner path and its links from the window, the guard also wraps `Element.prototype.attachShadow` before any
-        other script runs, and on every shadow root, open or closed, registers the same listeners and runs the same
-        rewrite with its observer (notes file); it keeps the roots it wrapped that are still in the page in a list the
-        check script reads. A shadow root the wrapper cannot see (a declarative `<template shadowrootmode>`, or one
-        parsed by `setHTMLUnsafe` or `parseHTMLUnsafe`) is a fault: the check script fails on `shadowrootmode` in any
-        file the preview serves, HTML or script, on those two calls in the client code, and on `document.write` and
-        `document.writeln` in the app's own code. `-webkit-touch-callout: none`, for the long press on an iPhone, is
-        set on the root element and on links and images, and adopted as a stylesheet into every shadow root the
-        wrapper sees whose document allows it; whether it reaches a link inside a shadow root on a device is unproven
-        (notes file). The app's own handlers still run for every event and its form actions run; what the preview
-        loses is the browser's default on a link or a submit control: a modified or middle click on a link opens
-        nothing, and a modified click on a submit button, or Shift+Enter in a form that has a submit button (in
-        Chromium, measured), sends no form and runs no form action, the app's own forms included (expected in the
-        preview's mode, and not fixed in the app). The app's other modifier clicks, its context menus, its drags and
-        its forms keep working (measured in three browsers for a checkbox, a context menu, a drag that starts on an
-        image inside a draggable card, a link whose `href` is `javascript:`, and React 19 forms whose action is a
-        function, rendered in the browser and rendered on the server then hydrated; notes file), and the scripted
-        journey plays one of each the app has, a drag through the test browser's own drag and a form whose action is a
-        function included, and fails when its effect does not happen. The local page shows the address as text, never
-        as a link, because a guarded link that does open in a new tab shows that page at top level, outside the frame;
-        and the app's pages carry `<meta name="format-detection" content="telephone=no, email=no, address=no">`, so
-        iOS does not turn a number or an address in the text into a link. The guard is a layer and not the proof: the
-        notes file says what it was measured to stop, what it was not, and what stays unproven until a real unit 1;
-        unit 1 shows each unproven item it can on the devices Nadav uses and lists the rest in its report as not
-        shown. That nothing real can be reached rests on the next part.
+        too: the guard installs itself in every same-origin child document, when its frame is added to the page, when
+        the frame loads, and when the app's code reaches for the frame's window or document; where that does not reach
+        (a document rewritten by `document.open`, or one the walk of the proof finds unguarded), the code that makes
+        the document calls the guard's installer in the preview's mode, or that part of the app is stubbed there) and
+        does three things. It rewrites the `href` of every `<a href>`, `<area href>` and MathML element with `href`
+        that points outside the preview's two origins (another origin, or a scheme other than http, https and
+        `javascript`, whose link runs in place and whose modified clicks the click layer cancels) to a local page that
+        shows where it would have gone; it rewrites the same way the `action` of every form and the `formaction` of
+        every control that points outside them (a `javascript:` one is left to the submit cancel below); and it keeps
+        watching for new or changed ones (a `MutationObserver` on `href`, `action` and `formaction`), so a destination
+        the app's own handler sets during the submit is rewritten before the browser reads it (the submit cancel below
+        has already looked by then; measured in Chromium and WebKit; Firefox builds the submission before the observer
+        runs, and opens no new page from a form; notes file). A `blob:` link of the preview's own origins or a `data:`
+        link, when it carries `download`, is a file the page made and is left alone. An SVG `<a xlink:href>` is not
+        rewritten, and the click layer below is what stops it. It cancels every `submit` whose destination (the form's
+        `action`, or the submitter's `formaction`) is outside the two origins, whatever key or click sent it, with one
+        exception: the placeholder React writes for a form whose action is a function (an `action` or `formaction`
+        that starts with `javascript:throw new Error('A React form was unexpectedly submitted`, which React writes in
+        the browser, or equals `javascript:throw new Error('React form unexpectedly submitted.')`, which its server
+        renderer writes and hydration keeps) is left to React, which cancels that submission itself and runs the
+        function; cancelled by the guard, React 19 did not run it (the eleventh and twelfth reviews' runs; notes
+        file). The two texts are React's own, and unit 1 reads them from the React the app installs. Every other
+        `javascript:` destination is cancelled. And it cancels the browser's default, never the app's handlers
+        (`preventDefault` only, no `stopPropagation`), for what the person opens himself: `auxclick` and any click
+        with a modifier key or a button other than the main one whose event path holds a link (`<a>`, `<area>`, an SVG
+        `<a>`, matched as `a[*|href]`, or a MathML element with `href`) or a submit control; `contextmenu` whose path
+        holds a link or an image; and `dragstart` whose path holds a link, unless the drag's source or an element
+        between it and that link carries `draggable="true"` (the app's own drag). Because a `submit` event does not
+        leave its shadow root and a closed root hides its inner path and its links from the window, the guard also
+        wraps `Element.prototype.attachShadow` before any other script runs, and on every shadow root, open or closed,
+        registers the same listeners and runs the same rewrite with its observer (notes file); it keeps the roots it
+        wrapped that are still in the page in a list the check script reads, one list for each window. A tree that is
+        not in a document is seen by none of these listeners, so the guard also wraps `dispatchEvent`: before the
+        page's code dispatches an event in such a tree, its top node gets the same listeners and the target the same
+        rewrite. A shadow root the wrapper cannot see (a declarative `<template shadowrootmode>`, one parsed by
+        `setHTMLUnsafe` or `parseHTMLUnsafe`, or one made through the `attachShadow` of a document the guard is not
+        in) is a fault: the check script fails on `shadowrootmode` in any file the preview serves, HTML or script, on
+        those two calls in the client code, and on `document.open`, `document.write` and `document.writeln` in the
+        app's own code; the walk of the proof is what catches a document the guard is not in. `-webkit-touch-callout:
+        none`, for the long press on an iPhone, is set on the root element and on links and images, and adopted as a
+        stylesheet into every shadow root the wrapper sees whose document allows it; whether it reaches a link inside
+        a shadow root on a device is unproven (notes file). The app's own handlers still run for every event and its
+        form actions run; what the preview loses is the browser's default on a link or a submit control: a modified or
+        middle click on a link opens nothing, and a modified click on a submit button, or Shift+Enter in a form that
+        has a submit button (in Chromium, measured), sends no form and runs no form action, the app's own forms
+        included (expected in the preview's mode, and not fixed in the app). The app's other modifier clicks, its
+        context menus, its drags and its forms keep working (measured in three browsers for a checkbox, a context
+        menu, a drag that starts on an image inside a draggable card, a link whose `href` is `javascript:`, and React
+        19 forms whose action is a function, rendered in the browser and rendered on the server then hydrated; notes
+        file), and the scripted journey plays one of each the app has, a drag through the test browser's own drag and
+        a form whose action is a function included, and fails when its effect does not happen. The local page shows
+        the address as text, never as a link, because a guarded link that does open in a new tab shows that page at
+        top level, outside the frame; and the app's pages carry `<meta name="format-detection" content="telephone=no,
+        email=no, address=no">`, so iOS does not turn a number or an address in the text into a link. The guard is a
+        layer and not the proof: the notes file says what it was measured to stop, what it was not, and what stays
+        unproven until a real unit 1; unit 1 shows each unproven item it can on the devices Nadav uses and lists the
+        rest in its report as not shown. That nothing real can be reached rests on the next part.
       - Nothing real to go to. Every way out named above needs a real destination: an address, a number or a service
         that the preview still holds. So the preview holds none. Each link builder a search of the app's source finds
         is switched in the preview's mode to the local page that shows what would have been sent or dialled (this is
@@ -297,29 +309,37 @@ For an app (a product with screens people work in):
         Shift+Enter in a planted form with one field and no button, a middle click on a link in the served HTML of the
         first screen, on a planted SVG `<a xlink:href>` and on a link inside a planted closed shadow root, a
         Shift+Enter in a one-field form inside a planted closed shadow root, a Shift+Enter in a planted one-field form
-        whose own `submit` listener sets its action to another origin, and a `navigator.share` call (where the test
-        browser has one; where it has none the script prints the case as not testable there) each leave nothing
-        outside the preview's two origins (no request, page, popup or navigation), in Chromium and in WebKit (the
-        Playwright image, as `working-style.md` routes it, with `--network host` so it reaches a preview that listens
-        on loopback, and with every request outside the preview's origins aborted), and the console reports the
-        shell's `frame-src` refusal of the `tel:` case (WebKit names the `tel:` URL; Chromium logs `Framing ''` and
-        its frame ends on `chrome-error://chromewebdata/`). The scripted journey leaves nothing outside them either,
-        and after each of its screens the script scans every `<a>`, `<area>` and SVG `<a>` (`href` and `xlink:href`),
-        every form's `action` and every `formaction`, in every document of the frame and in every shadow root on the
-        guard's list, open or closed, and fails on one that points outside the preview's two origins, on one the guard
-        rewrote whose first address (the local page's `u=`) is neither inert on the ledger nor invented by the data
-        rule, and on a contact the ledger marks as replaced that is found in the text or an attribute of any document
-        of the frame; the app's port opened at top level renders only the notice; the scan of what the preview serves
-        finds no occurrence that is off the ledger, and no ledger line marks an opened or shown destination as
-        neutralized by a blocked host; and the script fails on an invented phone number that is valid outside a
-        reserved range. Unit 1 shows this proof failing with the `sandbox` attribute removed, again with the shell's
-        `frame-src` removed, and again with the guard removed, and shows the scan failing on a planted form whose
-        action is a real-looking host, on a planted `wa.me` link inside a dependency's file, on a planted bare number
-        of the app's country in a source file, and on a second builder, in a new file, for a host already on the
-        ledger; and on the phones Nadav uses it shows by hand a `tel:` tap, a `wa.me` tap, a long press on a link and
-        a long press on a link inside a closed shadow root, each ending on the local page. The order unit 1 runs its
-        proofs in, each with its pass and fail condition, is in `shared/preview-unit1-checks.md`; where that list and
-        this point differ, this point holds and the difference is a fault to report.
+        whose own `submit` listener sets its action to another origin, a middle click on a link and a Shift+Enter in a
+        one-field form in an `about:blank` child frame that planted code fills, a middle click on a link in a closed
+        shadow root made with that child document's `attachShadow`, a Ctrl click that planted code dispatches on a
+        link that is not in the document, a middle click on a planted MathML element with `href`, and a
+        `navigator.share` call (where the test browser has one; where it has none the script prints the case as not
+        testable there) each leave nothing outside the preview's two origins (no request, page, popup or navigation),
+        in Chromium and in WebKit (the Playwright image, as `working-style.md` routes it, with `--network host` so it
+        reaches a preview that listens on loopback, and with every request outside the preview's origins aborted), and
+        the console reports the shell's `frame-src` refusal of the `tel:` case (WebKit names the `tel:` URL; Chromium
+        logs `Framing ''` and its frame ends on `chrome-error://chromewebdata/`). The scripted journey leaves nothing
+        outside them either, and after each of its screens the script walks the frame's `frames`, recursively, and
+        fails on a same-origin document in which a link it plants is not rewritten or a Ctrl click it dispatches on
+        that link does not come back cancelled (a guard that is missing, or one whose listeners a `document.open`
+        removed); then it scans every `<a>`, `<area>`, SVG `<a>` (`href` and `xlink:href`) and MathML element with
+        `href`, every form's `action` and every `formaction`, in every document of the frame and in every shadow root
+        on the guard's list, open or closed, and fails on one that points outside the preview's two origins, on a link
+        or a form to the local page, the guard's or the app's own, whose first address (its `u=`) is neither inert on
+        the ledger nor invented by the data rule, and on a contact the ledger marks as replaced that is found, read
+        unescaped and with numbers found as the destination scan finds them, in the text or an attribute of any
+        document of the frame or any shadow root on the guard's list; the app's port opened at top level renders only
+        the notice; the scan of what the preview serves finds no occurrence that is off the ledger, and no ledger line
+        marks an opened or shown destination as neutralized by a blocked host; and the script fails on an invented
+        phone number that is valid outside a reserved range. Unit 1 shows this proof failing with the `sandbox`
+        attribute removed, again with the shell's `frame-src` removed, and again with the guard removed, and shows the
+        scan failing on a planted form whose action is a real-looking host, on a planted `wa.me` link inside a
+        dependency's file, on a planted bare number of the app's country in a source file, and on a second builder, in
+        a new file, for a host already on the ledger; and on the phones Nadav uses it shows by hand a `tel:` tap, a
+        `wa.me` tap, a long press on a link and a long press on a link inside a closed shadow root, each ending on the
+        local page. The order unit 1 runs its proofs in, each with its pass and fail condition, is in
+        `shared/preview-unit1-checks.md`; where that list and this point differ, this point holds and the difference
+        is a fault to report.
    d. **Where it runs.** The proofs run where the preview runs. On localhost: the environment proof at every start, as
       (a) says, and the rest before anyone plays, as «What runs when» says. Anywhere else (one of his own domains,
       never a claude.ai artifact, which cannot serve the two origins and their policy headers, and after his yes; a

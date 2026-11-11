@@ -41,61 +41,101 @@ a loopback address the fence does not allow, so nothing leaves the host and an u
 
 ## The shell frame and the guard (run on 11.11.2026 with Playwright 1.65 and React 19.3.1)
 
-`dev/probes/frame-sandbox/probe.cjs` runs twenty-six ways out of an app page in three set-ups: in a sandboxed frame
+`dev/probes/frame-sandbox/probe.cjs` runs thirty-five ways out of an app page in four set-ups: in a sandboxed frame
 (`sandbox="allow-scripts allow-same-origin allow-forms allow-modals"`, the shell on a second port with `frame-src` set
-to the app's origin only) with a guard in the app; in the same frame with no guard; and at top level with neither (the
-control). The guard does four things. It points every `<a href>` and `<area href>`, every form's `action` and every
-`formaction` that leaves the two origins at a local page, and keeps watching them (left alone: a `javascript:`
-destination, React's two placeholders, a `blob:` link of the two origins, and a `data:` link that carries `download`).
-It cancels the browser's default, never the app's handlers, for a click with a modifier key or another button where
-the event's path holds a link or a submit control, for the context menu where it holds a link or an image, and for a
-drag of a link the app did not make draggable. It cancels every form submission whose destination is outside the two
-origins, except the two placeholders React writes for a function action (one in the browser, one on the server). And
-through a wrapped `attachShadow` it registers those listeners, and runs the same rewrite with its observer, on every
-shadow root. The app page in the probe sets no policy of its own. The test browser aborts and records every request
-that is not to 127.0.0.1. Cases that attempted a request outside:
+to the app's origin only) with a guard in the app and the app's own policy on its responses (`default-src 'self'`,
+`form-action 'self'`, `base-uri 'none'`, inline script and style allowed), which is the rule's set-up; in the same
+frame with the guard and no app policy; in the same frame with neither; and at top level with neither (the control).
+The guard does five things. It points every `<a href>`, `<area href>` and MathML element with `href`, every form's
+`action` and every `formaction` that leaves the two origins at a local page, and keeps watching them (left alone: a
+`javascript:` destination, React's two placeholders, and a `blob:` link of the two origins or a `data:` link when it
+carries `download`). It cancels the browser's default, never the app's handlers, for a click with a modifier key or
+another button where the event's path holds a link or a submit control, for the context menu where it holds a link or
+an image, and for a drag of a link the app did not make draggable. It cancels every form submission whose destination
+is outside the two origins, except the two placeholders React writes for a function action (one in the browser, one on
+the server). Through a wrapped `attachShadow` it registers those listeners, and runs the same rewrite with its
+observer, on every shadow root, and through a wrapped `dispatchEvent` on the top node of a tree that is not in a
+document before the page's code dispatches an event there. And it installs itself in every same-origin child document:
+when its frame is added, when the frame loads, and when the app's code reads the frame's `contentWindow` or
+`contentDocument`. What belongs to a window (the wrappers, the list of roots) is set once for the window, and what
+belongs to a document (the rewrite, the listeners) once for each document. The test browser aborts and records every
+request that is not to 127.0.0.1. Cases that attempted a request outside:
 
-| Browser | frame + guard | frame only | top level (control) |
-|---|---|---|---|
-| Chromium 158 | 0 of 26 | 12 of 26 | 19 of 26 |
-| WebKit 27.2 | 0 of 26 | 0 of 26 | 14 of 26 |
-| Firefox 159 | 0 of 26 | 5 of 26 | 19 of 26 |
+| Browser | frame + guard + app policy | frame + guard | frame only | top level (control) |
+|---|---|---|---|---|
+| Chromium 158 | 0 of 35 | 0 of 35 | 18 of 35 | 26 of 35 |
+| WebKit 27.2 | 0 of 35 | 0 of 35 | 2 of 35 | 18 of 35 |
+| Firefox 159 | 0 of 35 | 1 of 35 | 13 of 35 | 28 of 35 |
 
 - Frame only, what went out. Chromium: a middle click, a Ctrl+click and a Shift+click on a link to another origin; a
   middle click on an SVG `<a xlink:href>` and on a link inside a closed shadow root; a Ctrl+click and a Shift+click on
   a form's submit button; Shift+Enter in a form with one field and no button, in the page, inside a closed shadow
-  root, and in the two forms whose own `submit` listener sets the destination; and a Shift+click on a button whose
-  `formaction` is another origin. Each form went to the other origin in a new page. A middle click on a submit button
-  sent nothing. Firefox: the three clicks on the link, and the middle clicks on the SVG link and on the link in the
-  closed shadow root. WebKit: none.
+  root, and in the two forms whose own `submit` listener sets the destination; a Shift+click on a button whose
+  `formaction` is another origin; and all six cases in a child document the page fills and in a closed shadow root
+  made with that document's `attachShadow` (two clicks on a link, two forms, a link and a form in the root). Each form
+  in the page went to the other origin in a new page. A middle click on a submit button sent nothing. Firefox: the
+  three clicks on the link; the middle clicks on the SVG link and on the link in the closed shadow root; the two
+  clicks on the link and the two forms in the child document, and the link in the root made with its `attachShadow`; a
+  Ctrl click that a handler dispatches on a link that is not in the document; and a middle click and a Ctrl+click on a
+  MathML element with `href`. WebKit: the two forms in the child document, which navigated the child in place.
 - Frame only, what did not go out in any of the three: `location.assign` and `location.replace` to another origin, a
   plain click on a link to another origin, `window.open`, an `<a target="_blank">`, a write to `top.location` (it
   throws `SecurityError`), a plain form post to another origin, and plain clicks on `tel:`, `mailto:` and `sms:` links
   and `location.href = 'tel:…'`.
-- With the guard, none of the twenty-six went out in any of the three.
+- With the guard and the app's policy, none of the thirty-five went out in any of the three. With the guard and no app
+  policy one did, in Firefox: the form in the child document whose `submit` listener sets its destination navigated
+  the child there in place. A child document's navigation is fenced by the app's own policy (`form-action` and
+  `default-src`), not by the shell's `frame-src`, and Firefox reads the destination before the guard's observer runs.
 - A destination set during the submit (the thirteenth review's run in Chromium 158, then this probe). The browser
   reads a form's destination after the `submit` event, so a listener that runs after the guard's own can change it.
   Under a guard that only looked at the destination in its `submit` listener, a one-field form whose own listener set
   the `action` attribute, or `form.action`, to another origin went there in a new page on Shift+Enter in Chromium.
-  With the guard also rewriting and watching `action` and `formaction`, both cases opened the local page instead, in a
-  new page, and nothing went out; in WebKit and Firefox Shift+Enter opens no new page and the frame refused them with
-  the guard and without it. At top level with neither, both went out in all three.
-- What a handler starts by itself while a modifier key is held (this session's run in Chromium 158, not part of the
-  probe): a Shift, Ctrl or middle click on a plain button whose handler sets a form's action to another origin and
-  calls `form.submit()` or `requestSubmit()`, calls `location.assign`, or clicks a link it has just created. In the
-  frame none of them went out, with the guard and without it; at top level all but the middle click did.
-- Downloads (the thirteenth review's run in three browsers, with `allow-downloads`, not part of this probe). A guard
-  that rewrote every link that is not http or https turned a rendered same-origin `blob:` or `data:` `<a download>`
-  into a download of the local page under the app's file name. The guard here leaves a `blob:` link of the two origins
-  and a `data:` link that carries `download`; that was not run.
-- The app's own controls, in all three browsers and in each set-up (with the guard and without): a Shift+click on a
-  checkbox ran the app's handler and checked it; a right click on a cell ran the app's context-menu handler; a drag
-  that starts on an image inside the app's draggable card dropped on its drop zone (Playwright's `dragAndDrop`); with
-  React 19.3.1, a form whose `action` is a function and a button whose `formAction` is a function each ran it once,
-  rendered in the browser and rendered on the server then hydrated (after hydration the attribute still held the
-  server's text, and React reported no hydration error); and a plain click on an `<a href="javascript:void(0)">` ran
-  the app's handler and left the frame on the app's page. A draggable card that is itself a link was not run here (in
-  the eleventh review's run it did not drop with the guard or without it, so that harness shows nothing either way).
+  With the guard also rewriting and watching `action` and `formaction`, in Chromium both cases opened the local page
+  instead, in a new page, and in WebKit the frame went to the local page; without the guard WebKit's frame refused the
+  outside address. In Firefox the frame refused the outside address with the guard and without it: Firefox builds the
+  submission before the observer runs, and opens no new page from a form (the fourteenth review tried Shift, Ctrl, Alt
+  and Meta with Enter). At top level with neither, both went out in all three.
+- Child documents (the fourteenth review's run, then this probe). A same-origin `about:blank` frame that the page's
+  code fills has no script of its own, and a guard that ran only in the page's document was not in it: with the frame
+  and the app's policy, a middle and a Ctrl click on a link there, a Shift+Enter in a form there, and the same in a
+  closed shadow root made through that document's `attachShadow` went out in Chromium (7 of 9) and Firefox (4 of 9).
+  With the guard installing itself in the child, none did. Chromium gives the frame's window a new document when the
+  frame loads and keeps the window, so a guard that kept its list of roots for each document lost the roots made
+  before the load (measured here); the list is kept for each window. A walk over every same-origin document under the
+  frame, which plants a link and dispatches a Ctrl click on it, found the link rewritten and the click cancelled in
+  the page and in the child with the guard, and neither without it. Not run: a child document rewritten by
+  `document.open`, which removes a document's listeners, and a frame reached as `window.frames[i]` in the task that
+  created it.
+- A click the page dispatches itself (the fourteenth review's run, then this probe). In Firefox a click with `ctrlKey`
+  that a handler dispatched on a link that is not in the document opened a new page from the sandboxed frame (frame
+  only: out); Chromium and WebKit opened nothing. With the guard's `dispatchEvent` wrapper it went nowhere in any of
+  the three.
+- MathML (the fourteenth review's run, then this probe). In Firefox a MathML element with `href` is a link: a middle
+  click and a Ctrl+click on one went out with the frame only, and not with the guard. Chromium and WebKit made no
+  request for it in any set-up.
+- What only the app's policy stops (the fourteenth review's run in Chromium, not part of this probe): with the frame
+  and the guard and no app policy, a `submit` listener that inserted a `<base>` to another origin sent a relative
+  action there on Shift+Enter, and a same-origin link with a `ping` to another origin sent the ping on a plain click
+  (also in WebKit). `base-uri 'none'` and `default-src` refused both. The guard watches neither.
+- What a handler starts by itself while a modifier key is held (this session's run in Chromium 158 with the earlier
+  guard and with none, not part of the probe): a Shift, Ctrl or middle click on a plain button whose handler sets a
+  form's action to another origin and calls `form.submit()` or `requestSubmit()`, calls `location.assign`, or clicks a
+  link it has just created. In the frame none of them went out, with that guard and without it; at top level all but
+  the middle click did.
+- Downloads. A guard that rewrote every link that is not http or https turned a rendered same-origin `blob:` or
+  `data:` `<a download>` into a download of the local page under the app's file name (the thirteenth review's run in
+  three browsers, with `allow-downloads`). The guard here leaves a `blob:` link of the two origins or a `data:` link
+  alone only when it carries `download`: under a guard that left every such `blob:` link alone, a link without
+  `download` sent nothing in the frame, but a middle click opened the `blob:` page in a new page where the guard is
+  not (the fourteenth review's run). Whether the right file is saved was not run.
+- The app's own controls, in all three browsers and in each of the four set-ups: a Shift+click on a checkbox ran the
+  app's handler and checked it; a right click on a cell ran the app's context-menu handler; a drag that starts on an
+  image inside the app's draggable card dropped on its drop zone (Playwright's `dragAndDrop`); with React 19.3.1, a
+  form whose `action` is a function and a button whose `formAction` is a function each ran it once, rendered in the
+  browser and rendered on the server then hydrated (after hydration the attribute still held the server's text, and
+  React reported no hydration error); and a plain click on an `<a href="javascript:void(0)">` ran the app's handler
+  and left the frame on the app's page. A draggable card that is itself a link was not run here (in the eleventh
+  review's run it did not drop with the guard or without it, so that harness shows nothing either way).
 - React's form actions (the eleventh review's run in Chromium 158, React 19.3.1, with the app's own policy on, then
   this probe). For a function `action` or `formAction` React writes `javascript:throw new Error('A React form was
   unexpectedly submitted…` into the attribute, and its submit listener runs the function only when the submission is
@@ -192,6 +232,17 @@ report as not shown.
 - Next: that the guard runs before every chunk on a cold and a warm load; how React treats an `href` the guard
   rewrote, at hydration and on a later render (a mismatch line in the console is expected and was neither measured nor
   cited); a Next server action (a form whose `action` is empty) after hydration.
+- Firefox: its own context menu on Shift+right-click, which a cancelled `contextmenu` does not stop; "Open Link in New
+  Tab" there uses the link's current address, which the guard rewrote for an `<a>` and not for an SVG `<a>` or a
+  MathML `href`.
+- A library that builds a same-origin child document (a print view, a rich-text editor in its frame mode), and whether
+  the guard survives the way the library fills it.
+- An app or a dependency that replaces a DOM method the guard calls (`matches`, `getAttribute`, `preventDefault`); the
+  walk after each screen is what shows the guard still works.
+- `<link rel="preconnect">` and `dns-prefetch` to another host: no policy fences them; they reveal a host name and
+  send nothing of ours, and the destination scan finds a literal one.
+- Playwright's Chromium runs with its popup blocker off, so the counts for the frame alone are an upper bound for a
+  person's own Chrome.
 - The scan: whether a phone-number library finds a bare number written with the country code, no plus and no
   separators (unit 1 plants one in that shape).
 - Downloads: whether a library in the app renders `blob:` or `data:` download links, and that they still save the

@@ -1,12 +1,14 @@
 // Which ways out of a preview does the browser itself refuse?
-// The app page runs in three set-ups, each with the same cases:
+// The app page runs in four set-ups, each with the same cases:
+//   0. frame + guard + the app's policy   set-up 1 with the app's own responses carrying the policy the rule asks
+//                      for (default-src 'self', form-action 'self', base-uri 'none'; inline script and style
+//                      allowed, as a dev server needs): this is the rule's set-up;
 //   1. frame + guard   in a sandboxed frame (no allow-popups, no allow-top-navigation*), the shell's policy has
 //                      frame-src set to the app's origin only, and a guard in the app that
 //                      - rewrites every <a href> and <area href>, every form's action and every formaction
 //                        that points outside the two origins to a local page, and keeps watching them, in the
 //                        document and in every shadow root made with attachShadow (left alone: a javascript:
-//                        destination, React's two placeholders, a blob: link of the two origins, and a data:
-//                        link that carries download);
+//                        destination, React's two placeholders, and a blob: or data: link that carries download);
 //                      - cancels the browser's default, never the app's handlers, for a click with a modifier key
 //                        or another button where the event's path holds a link or a submit control, for the
 //                        context menu on a link or an image, and for a drag of a link the app did not make
@@ -15,6 +17,9 @@
 //                        for a function action (one on the client, one on the server), which React cancels
 //                        itself;
 //                      - registers those listeners on the window and on every shadow root made with attachShadow;
+//                      - installs itself in every same-origin child document, when its frame is added, when it
+//                        loads and when the app's code reaches for it, and fences a tree that is not in the
+//                        document before a script dispatches an event in it;
 //   2. frame only      the same frame with no guard;
 //   3. top level       no frame and no guard (the control).
 // Nothing leaves the machine: the test browser aborts every request that is not to 127.0.0.1 and records it, and
@@ -41,6 +46,7 @@ const APP = 18291;
 const APP_ORIGIN = `http://127.0.0.1:${APP}`;
 const SHELL_ORIGIN = `http://127.0.0.1:${SHELL}`;
 const SANDBOX = 'allow-scripts allow-same-origin allow-forms allow-modals';
+const APP_POLICY = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; form-action 'self'; base-uri 'none'";
 
 // React 19's production builds as one script, when they can be found: the app's forms with a function action.
 // The same component is rendered on the server and hydrated in the browser.
@@ -86,19 +92,22 @@ const GUARD = `<script>(() => {
   const REACT_CLIENT = "javascript:throw new Error('A React form was unexpectedly submitted";
   const REACT_SERVER = "javascript:throw new Error('React form unexpectedly submitted.')";
   const isReact = (raw) => raw.startsWith(REACT_CLIENT) || raw === REACT_SERVER;
-  // 1. Destinations that leave point at a local page, in the document and in every shadow root: a link's href, a
-  // form's action, a control's formaction. Watching them is what catches a destination the app's own handler sets
-  // during the submit, after the submit listener below has looked: the observer runs before the browser reads it.
-  const LINKS = 'a[href],area[href]';
+  const LINKS = 'a[href],area[href],math[href],math [href]'; // what the rewrite reaches
   const SEL = LINKS + ',form[action],[formaction]';
+  const LINK = 'a[*|href],area[href],math[href],math [href]'; // what counts as a link in an event's path
+  const OPENER = LINK + ',button:not([type=button]):not([type=reset]),input[type=submit],input[type=image]';
+  const FRAMES = 'iframe,frame';
+  const cancel = (e) => e.preventDefault();
+  // 1. Destinations that leave point at a local page, in every document and every shadow root: a link's href, a
+  // form's action, a control's formaction. Watching them is what catches a destination the app's own handler sets
+  // during the submit, after the submit listener below has looked.
   const fixAttr = (el, name, link) => {
     const raw = el.getAttribute(name);
     if (!raw) return;
-    let u; try { u = new URL(raw, document.baseURI); } catch { return; }
+    let u; try { u = new URL(raw, el.baseURI); } catch { return; }
     if (OK.has(u.origin) && (u.protocol === 'http:' || u.protocol === 'https:')) return;
     if (u.protocol === 'javascript:') return; // a link runs in place; a form is cancelled below unless it is React's
-    if (link && u.protocol === 'blob:' && OK.has(u.origin)) return; // a file the page made
-    if (link && u.protocol === 'data:' && el.hasAttribute('download')) return; // a file the page made
+    if (link && el.hasAttribute('download') && (u.protocol === 'data:' || (u.protocol === 'blob:' && OK.has(u.origin)))) return; // a file the page made
     el.setAttribute(name, '/would-open?u=' + encodeURIComponent(raw));
     if (link) el.removeAttribute('target');
   };
@@ -107,22 +116,23 @@ const GUARD = `<script>(() => {
     if (el.matches('form[action]')) fixAttr(el, 'action', false);
     if (el.matches('[formaction]')) fixAttr(el, 'formaction', false);
   };
-  const sweep = (root) => root.querySelectorAll && root.querySelectorAll(SEL).forEach(fix);
+  // 5. A same-origin child document gets the guard: when its frame is added, when it loads (a browser can give
+  // the frame's window a new document then), and, through the wrapped getters below, before the app's code reaches it.
+  const adopt = (fr) => {
+    const go = () => { try { const w = fr.contentWindow; if (w && w.document) install(w); } catch { /* another origin */ } };
+    go(); fr.addEventListener('load', go);
+  };
+  const sweep = (root) => { if (!root.querySelectorAll) return; root.querySelectorAll(SEL).forEach(fix); root.querySelectorAll(FRAMES).forEach(adopt); };
   const watch = (root) => {
     new MutationObserver((ms) => ms.forEach((m) => {
-      if (m.type === 'attributes') { if (m.target.matches(SEL)) fix(m.target); } else m.addedNodes.forEach((n) => { if (n.nodeType === 1) { if (n.matches(SEL)) fix(n); sweep(n); } });
+      if (m.type === 'attributes') { if (m.target.matches(SEL)) fix(m.target); } else m.addedNodes.forEach((n) => { if (n.nodeType === 1) { if (n.matches(SEL)) fix(n); if (n.matches(FRAMES)) adopt(n); sweep(n); } });
     })).observe(root, { subtree: true, childList: true, attributes: true, attributeFilter: ['href', 'action', 'formaction'] });
     sweep(root);
   };
-  watch(document);
-  document.addEventListener('DOMContentLoaded', () => sweep(document));
   // 2. What the person opens himself (a new tab or window, the context menu, a drag): only the browser's default
   // is cancelled, never the app's own handlers, and only where the event's path holds a link or a submit control.
-  const LINK = 'a[*|href],area[href]';
-  const OPENER = LINK + ',button:not([type=button]):not([type=reset]),input[type=submit],input[type=image]';
-  const path = (e) => e.composedPath().filter((n) => n instanceof Element);
+  const path = (e) => e.composedPath().filter((n) => n.nodeType === 1); // an element of any document
   const has = (e, sel) => path(e).some((n) => n.matches(sel));
-  const cancel = (e) => e.preventDefault();
   // a drag that the app itself made draggable is the app's own, also inside a link
   const ownDrag = (e) => { for (const n of path(e)) { if (n.getAttribute('draggable') === 'true') return true; if (n.matches(LINK)) return false; } return false; };
   const fence = (root) => {
@@ -133,27 +143,68 @@ const GUARD = `<script>(() => {
     // 3. A form is fenced by where it goes, whatever key or click sent it. submit does not leave a shadow root.
     root.addEventListener('submit', (e) => {
       const b = e.submitter;
-      const raw = (b && b.hasAttribute('formaction') ? b.getAttribute('formaction') : e.target.getAttribute('action')) || location.href;
+      const raw = (b && b.hasAttribute('formaction') ? b.getAttribute('formaction') : e.target.getAttribute('action')) || e.target.ownerDocument.URL;
       if (isReact(raw)) return;
-      let u; try { u = new URL(raw, document.baseURI); } catch { return cancel(e); }
+      let u; try { u = new URL(raw, e.target.baseURI); } catch { return cancel(e); }
       if (!OK.has(u.origin)) cancel(e);
     }, true);
   };
-  fence(window);
-  // Every shadow root gets the same listeners and the same rewrite: a closed root hides its path and its links
-  // from the window. The list is for the check script, which cannot reach a closed root by itself.
   const CALLOUT = 'a,area,img{-webkit-touch-callout:none}';
-  let sheet = null; try { sheet = new CSSStyleSheet(); sheet.replaceSync(CALLOUT); } catch { /* no constructed sheets */ }
-  const roots = [];
-  window.__guardRoots = () => roots.map((w) => w.deref()).filter((r) => r && r.host.isConnected);
-  const attach = Element.prototype.attachShadow;
-  Element.prototype.attachShadow = function attachShadowFenced(init) {
-    const r = attach.call(this, init);
-    fence(r); watch(r); roots.push(new WeakRef(r));
-    // a root in another document (a template's content, createHTMLDocument) refuses a sheet made in this one
-    if (sheet) { try { r.adoptedStyleSheets = [...r.adoptedStyleSheets, sheet]; } catch { /* that document */ } }
-    return r;
+  const sheetOf = (d) => { // a constructed sheet serves only the document it was made for
+    if (d.__guardSheet === undefined) { try { d.__guardSheet = new d.defaultView.CSSStyleSheet(); d.__guardSheet.replaceSync(CALLOUT); } catch { d.__guardSheet = null; } }
+    return d.__guardSheet;
   };
+  const fenced = new WeakSet();
+  // Once per window: the wrappers and the list of roots. A window can get a new document and keeps both.
+  const perWindow = (win) => {
+    if (win.__guardRoots) return;
+    const roots = [];
+    // The list is for the check script, which cannot reach a closed root by itself.
+    win.__guardRoots = () => roots.map((w) => w.deref()).filter((r) => r && r.host.isConnected);
+    // Every shadow root gets the same listeners and the same rewrite: a closed root hides its path and its links.
+    const proto = win.Element.prototype;
+    const attach = proto.attachShadow;
+    proto.attachShadow = function attachShadowFenced(init) {
+      const r = attach.call(this, init);
+      fence(r); watch(r); roots.push(new WeakRef(r));
+      // a root in a document with no window (a template's content, createHTMLDocument) takes no sheet
+      const sheet = sheetOf(this.ownerDocument);
+      if (sheet) { try { r.adoptedStyleSheets = [...r.adoptedStyleSheets, sheet]; } catch { /* that document */ } }
+      return r;
+    };
+    // 4. A tree that is not in a document is seen by no listener. Before a script dispatches an event in one, its
+    // top node gets the same listeners and the target its rewrite.
+    const dispatch = win.EventTarget.prototype.dispatchEvent;
+    win.EventTarget.prototype.dispatchEvent = function dispatchEventFenced(ev) {
+      if (this && this.nodeType === 1 && !this.isConnected) {
+        const top = this.getRootNode();
+        if (!fenced.has(top)) { fenced.add(top); fence(top); }
+        if (this.matches(SEL)) fix(this);
+      }
+      return dispatch.call(this, ev);
+    };
+    for (const name of ['contentWindow', 'contentDocument']) {
+      const d = Object.getOwnPropertyDescriptor(win.HTMLIFrameElement.prototype, name);
+      Object.defineProperty(win.HTMLIFrameElement.prototype, name, { ...d, get() {
+        const v = d.get.call(this);
+        try { const w = name === 'contentWindow' ? v : v && v.defaultView; if (w && w.document) install(w); } catch { /* another origin */ }
+        return v;
+      } });
+    }
+  };
+  // Once per document: the rewrite and the listeners.
+  const install = (win) => {
+    const doc = win.document;
+    if (doc.__guard) return;
+    doc.__guard = true;
+    perWindow(win);
+    watch(doc);
+    doc.addEventListener('DOMContentLoaded', () => sweep(doc));
+    fence(doc);
+    try { if (win !== window && doc.documentElement) doc.documentElement.style.setProperty('-webkit-touch-callout', 'none'); } catch { /* not there yet */ }
+  };
+  install(window);
+  window.__guard = install; // for the app's own code, where a child document is made in a way the guard does not see
 })();</script><style>:root,a,area,img{-webkit-touch-callout:none}</style>`;
 const appHtml = (guard) => `<!doctype html><meta charset="utf-8"><title>app</title>${guard ? GUARD : ''}
 <a id="tel" href="tel:+12025550123">call</a>
@@ -179,6 +230,17 @@ document.getElementById('cell').addEventListener('contextmenu', (e) => { window.
 document.getElementById('card').addEventListener('dragstart', (e) => e.dataTransfer.setData('text/plain', 'card'));
 document.getElementById('drop').addEventListener('dragover', (e) => e.preventDefault());
 document.getElementById('drop').addEventListener('drop', (e) => { e.preventDefault(); window.__drop += 1; });</script>
+<math><mi id="mml" href="https://example.com/mathml">x</mi></math>
+<button type="button" id="synth">a handler dispatches a Ctrl click on a link that is not in the document</button>
+<iframe id="kid" width="320" height="70"></iframe><div id="realmhost" style="display:inline-block"></div>
+<script>{ const d = document.getElementById('kid').contentDocument;
+  d.body.innerHTML = '<a id="kl" href="https://example.com/kid-link">kid link</a><form action="https://example.com/kid-form" method="post"><input id="kq" name="q" size="4"></form><form id="kg" action="/would-open" method="post"><input id="kgq" name="q" size="4"></form>';
+  d.getElementById('kg').addEventListener('submit', (e) => { e.target.action = 'https://example.com/kid-late'; });
+  const rr = d.defaultView.Element.prototype.attachShadow.call(document.getElementById('realmhost'), { mode: 'closed' });
+  rr.innerHTML = '<a href="https://example.com/realm-link" style="display:inline-block;padding:6px">realm link</a><form action="https://example.com/realm-form" method="post"><input name="q" size="4"></form>';
+  window.__realmInput = rr.querySelector('input'); window.__realmA = rr.querySelector('a');
+  document.getElementById('synth').addEventListener('click', () => { const a = document.createElement('a'); a.href = 'https://example.com/synthetic-ctrl';
+    a.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window, ctrlKey: true })); }); }</script>
 <svg width="120" height="24"><a id="svga" xlink:href="https://example.com/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><rect width="120" height="24" fill="#ccc"/></a></svg>
 <div id="closedlink" style="display:inline-block"></div><div id="closedform" style="display:inline-block"></div><div id="openlink" style="display:inline-block"></div>
 <script>{ const r = document.getElementById('closedlink').attachShadow({ mode: 'closed' });
@@ -192,12 +254,13 @@ document.getElementById('drop').addEventListener('drop', (e) => { e.preventDefau
   window.__openA = o.querySelector('a');
   setTimeout(() => { const late = document.createElement('a'); late.href = 'https://example.com/closed-late'; late.textContent = 'late'; r.appendChild(late); window.__lateA = late; }, 50); }</script>
 ${reactBundle ? `<div id="ssr">${ssrHtml}</div><div id="root"></div><script src="/react.js"></script><script src="/react-app.js"></script>` : ''}`;
-const shellHtml = (guard) => `<!doctype html><meta charset="utf-8"><title>shell</title>
-<iframe id="app" width="700" height="500" sandbox="${SANDBOX}" src="${APP_ORIGIN}/app${guard ? '?guard=1' : ''}"></iframe>`;
+const shellHtml = (query) => `<!doctype html><meta charset="utf-8"><title>shell</title>
+<iframe id="app" width="700" height="500" sandbox="${SANDBOX}" src="${APP_ORIGIN}/app${query}"></iframe>`;
 
 const serve = (port, handler) => new Promise((r) => { const s = http.createServer(handler); s.listen(port, '127.0.0.1', () => r(s)); });
 
 const click = (sel, opts) => (f) => f.click(sel, { timeout: 3000, ...opts });
+const kid = (f) => { const k = f.childFrames()[0]; if (!k) throw new Error('no child frame'); return k; };
 const CASES = [
   ['click <a href="tel:">', click('#tel')],
   ['click <a href="mailto:">', click('#mailto')],
@@ -225,6 +288,15 @@ const CASES = [
   ['Shift+Enter in a one-field form inside a closed shadow root', async (f) => { await f.evaluate(() => window.__closedInput.focus()); await f.page().keyboard.press('Shift+Enter'); }],
   ['Shift+Enter in a one-field form whose own submit listener sets its action attribute to another origin', (f) => f.locator('#late1q').press('Shift+Enter', { timeout: 3000 })],
   ['Shift+Enter in a one-field form whose own submit listener sets form.action to another origin', (f) => f.locator('#late2q').press('Shift+Enter', { timeout: 3000 })],
+  ['middle click on a link in a child document the page fills', (f) => kid(f).click('#kl', { button: 'middle', timeout: 3000 })],
+  ['Ctrl+click on a link in a child document the page fills', (f) => kid(f).click('#kl', { modifiers: ['Control'], timeout: 3000 })],
+  ['Shift+Enter in a one-field form in that child document', (f) => kid(f).locator('#kq').press('Shift+Enter', { timeout: 3000 })],
+  ['Shift+Enter in a one-field form in that child document whose submit listener sets its action', (f) => kid(f).locator('#kgq').press('Shift+Enter', { timeout: 3000 })],
+  ["middle click on a link in a closed shadow root made with the child document's attachShadow", click('#realmhost', { button: 'middle', position: { x: 12, y: 10 } })],
+  ['Shift+Enter in a one-field form in that shadow root', async (f) => { await f.evaluate(() => window.__realmInput.focus()); await f.page().keyboard.press('Shift+Enter'); }],
+  ['a handler dispatches a Ctrl click on a link that is not in the document', click('#synth')],
+  ['middle click on a MathML element with href', click('#mml', { button: 'middle' })],
+  ['Ctrl+click on a MathML element with href', click('#mml', { modifiers: ['Control'] })],
 ];
 // The app's own controls must keep working under the guard. Each step is tried by itself, so one that a browser
 // cannot play does not hide the others.
@@ -251,26 +323,54 @@ const APP_CONTROLS = async (f) => {
     js: window.__js, at: location.pathname,
     listed: window.__guardRoots ? window.__guardRoots().map((r) => [...r.querySelectorAll('a[href],form[action]')].map((a) => a.getAttribute(a.matches('form') ? 'action' : 'href'))) : null,
     roots: [window.__openA.getAttribute('href'), window.__closedA.getAttribute('href'), window.__lateA ? window.__lateA.getAttribute('href') : '(not added yet)'],
+    realm: window.__realmA.getAttribute('href'),
   }));
   return { ...r, errors };
 };
+// The walk a check script makes after each screen: in every same-origin document under the app's frame, a link the
+// script plants is rewritten and a Ctrl click it dispatches on that link comes back cancelled. A document where
+// either is missing has no working guard.
+const WALK = async (f) => {
+  const out = [];
+  const visit = async (fr, name) => {
+    let r;
+    try {
+      r = await fr.evaluate(() => new Promise((res) => {
+        const a = document.createElement('a'); a.href = 'https://example.com/walk'; a.textContent = 'walk';
+        (document.body || document.documentElement).appendChild(a);
+        setTimeout(() => {
+          const href = a.getAttribute('href');
+          const went = a.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, ctrlKey: true, view: window }));
+          a.remove();
+          res({ rewritten: href.startsWith('/would-open'), cancelled: !went, roots: typeof window.__guardRoots === 'function' ? window.__guardRoots().length : null });
+        }, 0);
+      }));
+    } catch (e) { r = { error: String(e.message).split('\n')[0].slice(0, 60) }; }
+    out.push(`${name}: ${r.error ? r.error : `planted link rewritten ${r.rewritten}, its Ctrl click cancelled ${r.cancelled}, roots on the guard's list ${r.roots === null ? 'no list' : r.roots}`}`);
+    let i = 0;
+    for (const c of fr.childFrames()) { i += 1; await visit(c, `${name} > child ${i} (${c.url().slice(0, 30)})`); }
+  };
+  await visit(f, 'the app document');
+  return out;
+};
 const MODES = [
-  ['frame + guard', true, true],
-  ['frame only', true, false],
-  ['top level, no frame and no guard (control)', false, false],
+  ["frame + guard + the app's policy (the rule's set-up)", true, true, true],
+  ['frame + guard', true, true, false],
+  ['frame only', true, false, false],
+  ['top level, no frame and no guard (control)', false, false, false],
 ];
 
 (async () => {
   const shell = await serve(SHELL, (req, res) => {
     res.writeHead(200, { 'content-type': 'text/html', 'content-security-policy': `default-src 'self'; frame-src ${APP_ORIGIN}` });
-    res.end(shellHtml(/guard=1/.test(req.url)));
+    res.end(shellHtml(req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : ''));
   });
   const app = await serve(APP, (req, res) => {
     const u = req.url;
     if (u.startsWith('/react.js') && reactBundle) { res.writeHead(200, { 'content-type': 'text/javascript' }); return res.end(reactBundle); }
     if (u.startsWith('/react-app.js')) { res.writeHead(200, { 'content-type': 'text/javascript' }); return res.end(REACT_APP); }
     if (u.startsWith('/px.svg')) { res.writeHead(200, { 'content-type': 'image/svg+xml' }); return res.end('<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40"><rect width="40" height="40" fill="#89a"/></svg>'); }
-    res.writeHead(200, { 'content-type': 'text/html' });
+    res.writeHead(200, /policy=1/.test(u) ? { 'content-type': 'text/html', 'content-security-policy': APP_POLICY } : { 'content-type': 'text/html' });
     res.end(u.startsWith('/would-open') ? '<!doctype html><title>would open</title><p id="would">would have opened</p>' : appHtml(/guard=1/.test(u)));
   });
   // Chromium: no name is ever resolved, so not even a DNS lookup for example.com leaves the host.
@@ -278,7 +378,8 @@ const MODES = [
   console.log('legend: OUT = a request outside 127.0.0.1 was attempted (and aborted); no = none was');
   console.log(`${browserName} ${browser.version()}  sandbox="${SANDBOX}"  ${reactVersion ? 'react ' + reactVersion : 'no react found: the React form cases are not run'}`);
   const totals = {};
-  for (const [mode, framed, guard] of MODES) {
+  for (const [mode, framed, guard, policy] of MODES) {
+    const query = guard ? (policy ? '?guard=1&policy=1' : '?guard=1') : '';
     console.log(`\n== ${mode}`);
     let out = 0;
     for (const [name, act] of CASES) {
@@ -297,7 +398,7 @@ const MODES = [
       page.on('console', (m) => consoleMsgs.push(m.text()));
       let frame;
       if (framed) {
-        await page.goto(`http://127.0.0.1:${SHELL}/${guard ? '?guard=1' : ''}`);
+        await page.goto(`http://127.0.0.1:${SHELL}/${query}`);
         for (let i = 0; i < 20 && !frame; i += 1) { frame = page.frames().find((f) => f.url().startsWith(`${APP_ORIGIN}/app`)); if (!frame) await page.waitForTimeout(100); }
       } else {
         await page.goto(`${APP_ORIGIN}/app`);
@@ -325,7 +426,7 @@ const MODES = [
       const page = await ctx.newPage();
       let frame;
       if (framed) {
-        await page.goto(`http://127.0.0.1:${SHELL}/${guard ? '?guard=1' : ''}`);
+        await page.goto(`http://127.0.0.1:${SHELL}/${query}`);
         for (let i = 0; i < 20 && !frame; i += 1) { frame = page.frames().find((f) => f.url().startsWith(`${APP_ORIGIN}/app`)); if (!frame) await page.waitForTimeout(100); }
       } else { await page.goto(`${APP_ORIGIN}/app`); frame = page.mainFrame(); }
       let r; try { r = await APP_CONTROLS(frame); } catch (e) { r = { errors: [String(e.message).split('\n')[0].slice(0, 80)] }; }
@@ -334,8 +435,11 @@ const MODES = [
       console.log(`-- React ${reactVersion || '(not found)'}, rendered on the server and hydrated: ${r.react ? `a form whose action is a function ran it ${r.react.ssrAction} time(s), a button whose formAction is a function ran it ${r.react.ssrFormAction} time(s); the action attribute after hydration is "${r.ssrAttr}"; recoverable hydration error: ${r.react.recover || 'none'}` : 'not run'}`);
       console.log(`-- a plain click on <a href="javascript:void(0)"> ran the app's handler ${r.js} time(s); the frame is at ${r.at}`);
       console.log(`-- href of the links inside shadow roots after load: open root ${r.roots && r.roots[0]} | closed root ${r.roots && r.roots[1]} | added later to the closed root ${r.roots && r.roots[2]}`);
+      console.log(`-- href of the link in the closed root made with the child document's attachShadow: ${r.realm}`);
       console.log(`-- read through the guard's own list of roots: ${r.listed ? `${r.listed.length} root(s), link and form destinations ${JSON.stringify(r.listed)}` : 'no guard, no list'}`);
-      if (external.length) console.log(`-- outside requests during the controls: ${external.join(', ')}`);
+      let walked; try { walked = await WALK(frame); } catch (e) { walked = ['walk failed: ' + String(e.message).split('\n')[0].slice(0, 80)]; }
+      for (const line of walked) console.log(`-- walk: ${line}`);
+      if (external.length) console.log(`-- outside requests during the controls and the walk: ${external.join(', ')}`);
       if (r.errors && r.errors.length) console.log(`-- steps that did not play: ${r.errors.join(' || ')}`);
       await ctx.close();
     }

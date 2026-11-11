@@ -4,8 +4,9 @@ A reading aid for `rules.md`, «An app is built once», point 5: the proofs of t
 each with its pass and fail condition. It adds no rule. Where this list and point 5 differ, point 5 holds and the
 difference is a fault to report («Where a fault goes»). Source: the eleventh independent review of the rule
 (11.11.2026), which wrote the list for a Next app with a Capacitor shell, in Hebrew and RTL, corrected against point 5
-by the twelfth and the thirteenth; a Vite app reads "the root layout's `<head>`" as its `index.html` and skips the
-lines that name Next. A fail stops the unit. Each planted case is shown failing first, then passing clean.
+by the twelfth, the thirteenth and the fourteenth; a Vite app reads "the root layout's `<head>`" as its `index.html`
+and skips the lines that name Next. A fail stops the unit. Each planted case is shown failing first, then passing
+clean.
 
 1. **Start-up environment proof** (5a).
    - Pass: the server refuses to serve with one planted variable that is not on the allowlist, and with one planted
@@ -36,9 +37,10 @@ lines that name Next. A fail stops the unit. Each planted case is shown failing 
      Sign-in reaches only the fake backend.
    - Fail: a provider with no line, a key present, or an answer from a provider's host.
 5. **Where the guard loads** (5c).
-   - Pass: the guard is the first script in the root layout's `<head>` and in every other same-origin document of the
-     frame (a `srcdoc` or child frame), and runs before any other script on a cold load and on a warm one (one way to
-     show it: a test script that records `attachShadow` calls and link creation finds none before the guard).
+   - Pass: the guard is the first script in the root layout's `<head>`, installs itself in every other same-origin
+     document of the frame (a `srcdoc`, `about:blank` or other child frame; the walk of step 11 is what shows it
+     there), and runs before any other script on a cold load and on a warm one (one way to show it: a test script that
+     records `attachShadow` calls and link creation finds none before the guard).
    - Fail: a script, a shadow root or a link before it.
 6. **The app's own forms and controls inside the frame, effect checked** (5c).
    - Pass: one of each kind the app has keeps its effect: a modifier click, a context menu, a drag, and a form whose
@@ -69,19 +71,22 @@ lines that name Next. A fail stops the unit. Each planted case is shown failing 
      or a fixed contact is marked neutralized by a switched builder and not replaced.
 10. **Static fault checks** (5c).
     - Pass: a planted `shadowrootmode` in served HTML and in a served script file, a planted `setHTMLUnsafe` and
-      `parseHTMLUnsafe` call, and a planted `document.write` in the app's own code each fail the check.
+      `parseHTMLUnsafe` call, and a planted `document.open` or `document.write` in the app's own code each fail the
+      check.
     - Fail: one of them passes.
 11. **Scripted journey** (5b, 5c).
-    - Pass: the recorded requests include no other origin; the scan after each screen finds no link or form
-      destination outside the two origins in any document of the frame or any shadow root on the guard's list, no
-      rewritten destination whose first address is neither inert on the ledger nor invented, and no contact the ledger
-      marks as replaced; no `Location` header outside the two origins comes from the app's server or the fake backend;
-      and the app's port opened at top level, without the check script's flag, renders only the notice.
+    - Pass: the recorded requests include no other origin; the walk after each screen finds the guard working in every
+      same-origin document under the frame (a link the script plants is rewritten, and a Ctrl click it dispatches on
+      that link comes back cancelled); the scan after each screen finds no link or form destination outside the two
+      origins in any document of the frame or any shadow root on the guard's list, no rewritten destination whose
+      first address is neither inert on the ledger nor invented, and no contact the ledger marks as replaced; no
+      `Location` header outside the two origins comes from the app's server or the fake backend; and the app's port
+      opened at top level, without the check script's flag, renders only the notice.
     - Fail: any of these.
 12. **Data** (5c).
     - Pass: every email address in the fake data and in the fake backend's recorded responses is `.invalid` or
-      `example.com`; every URL in them is on the preview's origin; and every phone number is in a reserved range or
-      one digit short.
+      `example.com`; every URL in them is on the preview's origin and every host name is `.invalid`, `example.com` or
+      the preview's own; and every phone number is in a reserved range or one digit short.
     - Fail: a valid number of the app's country outside a reserved range, a real mail domain, or a URL to another
       origin.
 13. **The top-level run for the phone's layout** (5c, the frame bullet).
