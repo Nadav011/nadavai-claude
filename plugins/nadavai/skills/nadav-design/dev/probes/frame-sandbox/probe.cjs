@@ -2,9 +2,11 @@
 // The app page runs in three set-ups, each with the same cases:
 //   1. frame + guard   in a sandboxed frame (no allow-popups, no allow-top-navigation*), the shell's policy has
 //                      frame-src set to the app's origin only, and a guard in the app rewrites every link that
-//                      points outside it to a local page, cancels the browser's default for what the person
-//                      opens himself on a link or a submit control (a click with a modifier key or another
-//                      button, the context menu, a drag), and cancels every form submission that leaves;
+//                      points outside it to a local page; cancels the browser's default, never the app's
+//                      handlers, for a click with a modifier key or another button where the event's path
+//                      holds a link or a submit control, for the context menu on a link or an image, and for
+//                      a drag of a link the app did not make draggable; cancels every form submission that
+//                      leaves; and registers all of that on every shadow root as well as on the window;
 //   2. frame only      the same frame with no guard;
 //   3. top level       no frame and no guard (the control).
 // Nothing leaves the machine: the test browser aborts every request that is not to 127.0.0.1 and records it, and
@@ -45,20 +47,30 @@ const GUARD = `<script>(() => {
   // What the person opens himself (a new tab or window, the context menu, a drag): only the browser's default
   // is cancelled, never the app's own handlers, and only where the event's path holds a link or a submit control.
   const OK = new Set([location.origin, '${SHELL_ORIGIN}']);
-  const has = (e, sel) => e.composedPath().some((n) => n instanceof Element && n.matches(sel));
-  const OPENER = 'a[href],area[href],button:not([type=button]):not([type=reset]),input[type=submit],input[type=image]';
+  const LINK = 'a[*|href],area[href]';
+  const OPENER = LINK + ',button:not([type=button]):not([type=reset]),input[type=submit],input[type=image]';
+  const path = (e) => e.composedPath().filter((n) => n instanceof Element);
+  const has = (e, sel) => path(e).some((n) => n.matches(sel));
   const cancel = (e) => e.preventDefault();
-  addEventListener('click', (e) => (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) && has(e, OPENER) && cancel(e), true);
-  addEventListener('auxclick', (e) => has(e, OPENER) && cancel(e), true);
-  addEventListener('contextmenu', (e) => has(e, 'a[href],area[href],img') && cancel(e), true);
-  addEventListener('dragstart', (e) => has(e, 'a[href],area[href],img') && cancel(e), true);
-  // A form is fenced by where it goes, whatever key or click sent it.
-  addEventListener('submit', (e) => {
-    const b = e.submitter;
-    const raw = (b && b.hasAttribute('formaction') ? b.getAttribute('formaction') : e.target.getAttribute('action')) || location.href;
-    let u; try { u = new URL(raw, document.baseURI); } catch { return cancel(e); }
-    if (!OK.has(u.origin)) cancel(e);
-  }, true);
+  // a drag that the app itself made draggable is the app's own, also inside a link
+  const ownDrag = (e) => { for (const n of path(e)) { if (n.getAttribute('draggable') === 'true') return true; if (n.matches(LINK)) return false; } return false; };
+  const fence = (root) => {
+    root.addEventListener('click', (e) => (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) && has(e, OPENER) && cancel(e), true);
+    root.addEventListener('auxclick', (e) => has(e, OPENER) && cancel(e), true);
+    root.addEventListener('contextmenu', (e) => has(e, LINK + ',img') && cancel(e), true);
+    root.addEventListener('dragstart', (e) => has(e, LINK) && !ownDrag(e) && cancel(e), true);
+    // A form is fenced by where it goes, whatever key or click sent it. submit does not leave a shadow root.
+    root.addEventListener('submit', (e) => {
+      const b = e.submitter;
+      const raw = (b && b.hasAttribute('formaction') ? b.getAttribute('formaction') : e.target.getAttribute('action')) || location.href;
+      let u; try { u = new URL(raw, document.baseURI); } catch { return cancel(e); }
+      if (!OK.has(u.origin)) cancel(e);
+    }, true);
+  };
+  fence(window);
+  // Every shadow root gets the same listeners: a closed root hides its path from window.
+  const attach = Element.prototype.attachShadow;
+  Element.prototype.attachShadow = function attachShadowFenced(init) { const r = attach.call(this, init); fence(r); return r; };
 })();</script><style>a,area,img{-webkit-touch-callout:none}</style>`;
 const appHtml = (guard) => `<!doctype html><meta charset="utf-8"><title>app</title>${guard ? GUARD : ''}
 <a id="tel" href="tel:+12025550123">call</a>
@@ -72,7 +84,14 @@ const appHtml = (guard) => `<!doctype html><meta charset="utf-8"><title>app</tit
 <input type="checkbox" id="cb"><div id="cell" style="width:80px;height:30px">cell</div>
 <script>window.__cb = 0; window.__menu = 0;
 document.getElementById('cb').addEventListener('click', () => { window.__cb += 1; });
-document.getElementById('cell').addEventListener('contextmenu', (e) => { window.__menu += 1; e.preventDefault(); });</script>`;
+document.getElementById('cell').addEventListener('contextmenu', (e) => { window.__menu += 1; e.preventDefault(); });</script>
+<svg width="120" height="24"><a id="svga" xlink:href="https://example.com/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><rect width="120" height="24" fill="#ccc"/></a></svg>
+<div id="closedlink" style="display:inline-block"></div><div id="closedform" style="display:inline-block"></div>
+<script>{ const r = document.getElementById('closedlink').attachShadow({ mode: 'closed' });
+  r.innerHTML = '<a href="https://example.com/closed" style="display:inline-block;padding:6px">closed link</a>';
+  const f = document.getElementById('closedform').attachShadow({ mode: 'closed' });
+  f.innerHTML = '<form action="https://example.com/closed-form" method="post"><input name="q"></form>';
+  window.__closedInput = f.querySelector('input'); }</script>`;
 const shellHtml = (guard) => `<!doctype html><meta charset="utf-8"><title>shell</title>
 <iframe id="app" sandbox="${SANDBOX}" src="${APP_ORIGIN}/app${guard ? '?guard=1' : ''}"></iframe>`;
 
@@ -101,6 +120,9 @@ const CASES = [
   ['middle click on a form\'s submit', click('#post', { button: 'middle' })],
   ['Shift+Enter in a one-field form with no button', (f) => f.locator('#q').press('Shift+Enter', { timeout: 3000 })],
   ['Shift+click on a button whose formaction is another origin', click('#fab', { modifiers: ['Shift'] })],
+  ['middle click on an SVG <a xlink:href>', click('#svga', { button: 'middle' })],
+  ['middle click on a link inside a closed shadow root', click('#closedlink', { button: 'middle' })],
+  ['Shift+Enter in a one-field form inside a closed shadow root', async (f) => { await f.evaluate(() => window.__closedInput.focus()); await f.page().keyboard.press('Shift+Enter'); }],
 ];
 // The app's own controls must keep working under the guard.
 const APP_CONTROLS = async (f) => {

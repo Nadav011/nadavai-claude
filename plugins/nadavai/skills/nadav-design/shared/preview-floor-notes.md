@@ -41,42 +41,56 @@ a loopback address the fence does not allow, so nothing leaves the host and an u
 
 ## The shell frame and the guard (run on 11.11.2026 with Playwright 1.65)
 
-`dev/probes/frame-sandbox/probe.cjs` runs twenty-one ways out of an app page in three set-ups: in a sandboxed frame
-(`sandbox="allow-scripts allow-same-origin allow-forms allow-modals"`, the shell on a second port with `frame-src`
-set to the app's origin only) with a guard in the app; in the same frame with no guard; and at top level with
-neither (the control). The guard points every `<a>` and `<area>` that leaves the app's origin at a local page;
-cancels the browser's default, never the app's handlers, for a click with a modifier key or another button, the
-context menu and a drag, where the event's path holds a link or a submit control; and cancels every form
-submission whose destination is outside the two origins. The app page in the probe sets no policy of its own. The
-test browser aborts and records every request that is not to 127.0.0.1. Cases that attempted a request outside:
+`dev/probes/frame-sandbox/probe.cjs` runs twenty-four ways out of an app page in three set-ups: in a sandboxed
+frame (`sandbox="allow-scripts allow-same-origin allow-forms allow-modals"`, the shell on a second port with
+`frame-src` set to the app's origin only) with a guard in the app; in the same frame with no guard; and at top level
+with neither (the control). The guard points every `<a>` and `<area>` that leaves the app's origin at a local page;
+cancels the browser's default, never the app's handlers, for a click with a modifier key or another button where
+the event's path holds a link or a submit control, for the context menu where it holds a link or an image, and for
+a drag of a link the app did not make draggable; cancels every form submission whose destination is outside the two
+origins; and registers all of that on the window and, through a wrapped `attachShadow`, on every shadow root. The
+app page in the probe sets no policy of its own. The test browser aborts and records every request that is not to
+127.0.0.1. Cases that attempted a request outside:
 
 | Browser | frame + guard | frame only | top level (control) |
 |---|---|---|---|
-| Chromium 158 | 0 of 21 | 7 of 21 | 14 of 21 |
-| WebKit 27.2 | 0 of 21 | 0 of 21 | 11 of 21 |
-| Firefox 159 | 0 of 21 | 3 of 21 | 14 of 21 |
+| Chromium 158 | 0 of 24 | 10 of 24 | 17 of 24 |
+| WebKit 27.2 | 0 of 24 | 0 of 24 | 12 of 24 |
+| Firefox 159 | 0 of 24 | 5 of 24 | 17 of 24 |
 
 - Frame only, what went out. Chromium: a middle click, a Ctrl+click and a Shift+click on a link to another origin;
-  a Ctrl+click and a Shift+click on a form's submit button; Shift+Enter in a form with one field and no button; and
-  a Shift+click on a button whose `formaction` is another origin. Each form went to the other origin in a new page.
-  A middle click on a submit button sent nothing. Firefox: the three clicks on the link. WebKit: none.
+  a middle click on an SVG `<a xlink:href>` and on a link inside a closed shadow root; a Ctrl+click and a Shift+click
+  on a form's submit button; Shift+Enter in a form with one field and no button, in the page and inside a closed
+  shadow root; and a Shift+click on a button whose `formaction` is another origin. Each form went to the other origin
+  in a new page. A middle click on a submit button sent nothing. Firefox: the three clicks on the link, and the
+  middle clicks on the SVG link and on the link in the closed shadow root. WebKit: none.
 - Frame only, what did not go out in any of the three: `location.assign` and `location.replace` to another origin,
   a plain click on a link to another origin, `window.open`, an `<a target="_blank">`, a write to `top.location` (it
   throws `SecurityError`), a plain form post to another origin, and plain clicks on `tel:`, `mailto:` and `sms:`
   links and `location.href = 'tel:…'`.
-- With the guard, none of the twenty-one went out in any of the three.
-- The app's own controls under the guard, in all three browsers and all three set-ups: a Shift+click on a checkbox
-  ran the app's handler and checked it, and a right click on a cell ran the app's context-menu handler. A drag
-  between cells was not run: a test browser did not start a native drag inside the cross-origin frame even with no
-  guard (the ninth review's attempt).
+- With the guard, none of the twenty-four went out in any of the three.
+- The app's own controls, in all three browsers and in each set-up (with the guard and without): a Shift+click on a
+  checkbox ran the app's handler and checked it, and a right click on a cell ran the app's context-menu handler.
+- A native drag was not run by this probe. In the tenth review's run (Chromium 158, Playwright's `dragAndDrop`, not
+  part of this probe) a draggable element with no link or image in its path started and dropped inside the
+  cross-origin frame with the guard and without it; one that started on an image inside the app's draggable card,
+  or inside a link, was cancelled by an earlier guard that also cancelled a drag on an image and on any link. The
+  guard here cancels a drag only on a link the app did not make draggable; that narrower rule was not run.
 - At top level with neither: every navigation, popup and post to another origin went out in all three, and so did
-  every form case sent with a modifier key; the modifier and middle clicks on a link went out in Chromium and
-  Firefox, and in WebKit opened a new empty page with no request.
-- Not stopped by `form-action 'self'` either (the eighth and ninth reviews' runs in Chromium 158, with the app's own
-  policy on; not part of this probe): a Ctrl or Shift click on the submit button of a form to another origin, and a
-  Shift+Enter in a form with one field and no button, each sent the form in a new page, in the frame and at top
-  level. A plain click and Enter were refused by `form-action`. The guard's cancelling of a submission by its
-  destination stopped all of them.
+  every form case sent with a modifier key, in the page and in the closed shadow root; the modifier and middle clicks
+  on a link (the SVG link and the link in the closed root included) went out in Chromium and Firefox, and made no
+  request in WebKit.
+- Not stopped by `form-action 'self'` either (Chromium 158 with the app's own policy on, not part of this probe: the
+  clicks in the frame and at top level in the eighth review's run, Shift+Enter in the frame in the ninth's, and
+  Shift+Enter at top level in the tenth's): a Ctrl or Shift click on the submit button of a form to another origin,
+  and a Shift+Enter in a form with one field and no button, each sent the form in a new page. A plain click and
+  Enter were refused by `form-action`.
+- Shadow roots (the tenth review's run in Chromium 158, with the app's own policy on; this probe repeats the closed
+  root cases with no policy): `submit` does not leave its shadow root, and a closed root hides its inner path from a
+  listener on the window, so a guard that listens on the window only let the form and the link in a closed root
+  through. The same listeners registered on every shadow root through a wrapped `attachShadow` stopped them. A root
+  the wrapper cannot see (a declarative `<template shadowrootmode>` in served HTML, or one parsed by `setHTMLUnsafe`
+  or `parseHTMLUnsafe`) was not run by anyone.
 - How a refused hand-off to another app shows. At top level a `tel:`, `sms:` or `mailto:` link makes no request and
   no page in any of the three (Chromium and WebKit print nothing; Firefox prints "Prevented navigation to … due to
   an unknown protocol" for `tel:` and `sms:`, and nothing for `mailto:`), so the control cannot show a hand-off. In
@@ -85,14 +99,16 @@ test browser aborts and records every request that is not to 127.0.0.1. Cases th
   to custom protocol … from a sandboxed context"); Chromium prints "Framing '' violates … frame-src", which does
   not name the URL, and its frame then shows `chrome-error://chromewebdata/`.
 - `navigator.share` did not exist in any of the three, so that case is not testable in them.
-- Not run: the Cmd key, the browser's context menu on a link, a long press, a drag to the tab bar, and real phones.
-  A project's unit 1 shows those by hand on the devices he uses.
-- Not covered by the guard's rewrite of links, from the eighth review's run in Chromium (not part of this probe): a
+- Not run by anyone: the Cmd key, the browser's context menu on a link, a long press, a drag to the tab bar, and
+  real phones. A project's unit 1 shows those by hand on the devices he uses.
+- What the guard's rewrite of links does not reach (the eighth review's run in Chromium, not part of this probe): a
   link inside a shadow root, an SVG `<a xlink:href>`, a link resolved through a `<base>` on another origin, a link
-  in a `srcdoc` frame, and a server-rendered link clicked before the guard has run. Cancelling by the event's path
-  stopped the person opening any of them in a new page except in the `srcdoc` frame, which needs the guard
-  installed in that document too. The rule therefore asks for `base-uri 'none'`, for the guard in every same-origin
-  document of the frame, and for a scan of every link and form after each screen of the journey.
+  in a `srcdoc` frame, and a server-rendered link clicked before the guard has run. For those the guard relies on
+  cancelling the click by the event's path, which this probe shows for the SVG link and the closed root; the
+  `srcdoc` frame needs the guard installed in that document too. The rule therefore asks for `base-uri 'none'`, for
+  the guard in every same-origin document of the frame, and for the scans of (c).
+- That React logs an attribute-mismatch line for a link the guard rewrote before hydration is expected, and was
+  neither measured nor cited.
 - The app must allow being framed by the shell (no `X-Frame-Options: DENY`, and a `frame-ancestors` that names the
   shell's origin when it sets one). On Next the allowlist also sets `NEXT_TELEMETRY_DISABLED=1`, so Next does not
   try its telemetry host, which the fence would refuse.
