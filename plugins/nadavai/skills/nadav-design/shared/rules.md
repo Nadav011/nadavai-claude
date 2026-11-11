@@ -105,7 +105,8 @@ For an app (a product with screens people work in):
    backend in the app repo (a staging or test backend is not invented data), and four properties hold. Each is proven
    by the preview's check script, which also holds point 4's no-demo check; a property with no passing proof is not
    held, and unit 1 shows each proof failing on its planted case, then passing clean. therapy-flow's
-   `scripts/salon-preview.ts` is the example for (b)'s browser policy, own port and 404 worker path, not for (a).
+   `scripts/salon-preview.ts` is the example for (b)'s browser policy, own port and 404 worker path, not for (a). What
+   was measured for this point, and the probes that measured it: `shared/preview-floor-notes.md`.
    a. **Environment.** The server process and the client bundle see only the variables on the preview's allowlist, a
       file in the app repo naming each variable and its preview value (a backend host is `.invalid`, the preview's
       origin or the fake backend's local address). The start script starts from an empty environment, sets only those
@@ -117,19 +118,8 @@ For an app (a product with screens people work in):
       marked "set by the framework", and hold no secret; the proof reads `process.env` inside the running server after
       start-up, not the environment it was spawned with. The start script runs this proof at every start and refuses
       to serve when it fails, because the landing CI holds no secrets and passes anyway: the proof must hold in the
-      shell the preview is started from. Framework notes, examples only:
-      - Vite: a variable already in the environment wins over the `.env` files, and every `process.env` variable with
-        the env prefix (`VITE_` unless `envPrefix` names another) goes into `import.meta.env`, `.env` loading on or
-        off. So the environment is emptied before Vite starts (spawned with the allowlist only, or `process.env`
-        reduced to it before Vite's server is created); `envDir: false` turns the files off (`envFile: false` is its
-        deprecated name); and the app's `vite.config` calls no `loadEnv` in the preview's mode, since `loadEnv` reads
-        the files of the folder it is given whatever `envDir` says.
-      - Next: it loads `.env`, `.env.local`, `.env.<NODE_ENV>` and `.env.<NODE_ENV>.local` from the folder it is
-        started on (the one given to `next`, otherwise the working directory), `process.env` wins over them, and
-        `NEXT_PUBLIC_*` values are inlined into the client bundle. So Next starts with the emptied environment, from a
-        folder where none of those files holds a value (a fresh `git worktree` of the commit has no untracked ones);
-        the start script refuses to start otherwise, and never deletes or moves such a file; a file Next does not
-        load, such as a committed `.env.example`, does not stop it.
+      shell the preview is started from. What that takes on Vite and on Next, checked against their docs:
+      `shared/preview-floor-notes.md`.
    b. **Network.** Nothing the preview loads or sends leaves its own origin. Browser: a content security policy of
       `default-src 'self'` plus `form-action 'self'` (form posts do not fall back to `default-src`), with no other
       origin in any directive (only the dev server's own `ws://` address, `data:` or `blob:` where needed, and
@@ -140,65 +130,77 @@ For an app (a product with screens people work in):
       policy of its own script's response, not the page's; a meta tag first in `<head>` (a meta policy does not cover
       what precedes it) is enough only for a page that starts no dedicated or shared worker from a URL. An app that
       opens WebRTC peer connections gets them from the fake data source in the preview, since no directive the proofs
-      use fences them. The preview has an origin of its own (a port no other build of the app uses: storage, caches
-      and workers are per origin, so none of the real app's are there; cookies are per host and shared across ports,
-      so the preview's fake sign-in uses cookie names of its own and ignores every other cookie, and a hosted preview
-      never runs on the production domain, a subdomain of it, or a domain a production cookie is scoped to with
-      `Domain=`) and registers no service worker (the app's worker path answers 404). Server, and any build step the
-      start script runs: a connection from server code to anything but the preview's origin and the fake backend's
-      local address is refused on every transport (fetch, `node:http(s)`, a database driver, a WebSocket client); the
-      rule requires the proof, the mechanism is the app's (a preload that refuses `net.Socket.prototype.connect` to
-      anything but the preview's own port and the fake backend's port: run on Node 24, every TCP client reached it,
-      fetch, `node:http(s)`, `node:http2`, `net.connect`, `net.createConnection`, `tls.connect`, a raw `new
-      net.Socket()` as `pg` opens one, and the global WebSocket, while patching `net.connect` and `tls.connect` alone
-      let `node:http` and a raw socket through; it does not cover UDP (`node:dgram`), a native addon that opens its
-      own socket, or a child process that is not Node, which are fenced by a network namespace or container with only
-      loopback, with the preview's port forwarded in for the browser, or not used and not started). Proof: planted
-      calls to a harmless live host (example.com, never a send endpoint), from browser code as a fetch, an image and a
-      script (and one fetch from inside a worker when the app starts one), and from server code one request per
-      transport it uses, plus one to a loopback port that is neither the preview's nor the fake backend's (one request
-      only when the fence is a namespace or container), each come back blocked, and any answer fails the script; no
-      service worker is registered; and the browser's recorded requests during a scripted play of the main journey
-      include no other origin. The planted browser calls are made by the check script from the test browser
-      (`page.evaluate`), so nothing planted ships; the planted server request is a test-only script or route the
-      no-demo check keeps out of the build users get. A preview that runs no server code says so in the plan, and the
-      server half is `n/a` with that reason.
+      use fences them. Fonts and other public files the app loads from a CDN (Google Fonts in a `<link>`,
+      `next/font/google`) are served from the preview's own origin, self-hosted in the app or copied into the repo
+      before the fence; the policy never names the CDN. The preview has origins of its own (the app's port and the
+      shell's port of (c), which no other build of the app uses: storage, caches and workers are per origin, so none
+      of the real app's are there; cookies are per host and shared across ports, so the preview's fake sign-in uses
+      cookie names of its own and ignores every other cookie, and a hosted preview never runs on the production
+      domain, a subdomain of it, or a host inside a production cookie's `Domain=` scope) and registers no service
+      worker (the app's worker path answers 404). Server, and any build step the start script runs: a connection from
+      server code to anything but the preview's origin and the fake backend's local address is refused on every
+      transport (fetch, `node:http(s)`, a database driver, a WebSocket client); the rule requires the proof, the
+      mechanism is the app's (a preload that refuses `net.Socket.prototype.connect` to anything but the preview's own
+      port and the fake backend's port, which every TCP client the notes file lists reached; it does not cover UDP
+      (`node:dgram`), a native addon that opens its own socket, or a process the preload is not loaded into: a child
+      that is not Node, and a Node child started without it, so it is loaded through `NODE_OPTIONS=--require=…`, which
+      the allowlist names; those are fenced by a network namespace or container with only loopback, with the preview's
+      port forwarded in for the browser, or not used and not started). Proof: planted calls to a harmless live host
+      (example.com, never a send endpoint), from browser code as a fetch, an image and a script (and one fetch from
+      inside a worker when the app starts one), and from server code one request per transport it uses, plus one to a
+      loopback port that is neither the preview's nor the fake backend's (one request only when the fence is a
+      namespace or container), each come back blocked, and any answer fails the script; no service worker is
+      registered; and the browser's recorded requests during a scripted play of the main journey include no other
+      origin. The planted browser calls are made by the check script from the test browser (`page.evaluate`), so
+      nothing planted ships; the planted server requests are made inside the running server process, and inside each
+      process it or the start script starts, through a test-only route or a start-up hook of the preview's mode that
+      the no-demo check keeps out of the build users get; a separate script proves only itself. A preview that runs no
+      server code says so in the plan, and the server half is `n/a` with that reason.
    c. **Effects.** Sends, charges, scheduled jobs, webhooks, analytics and real sign-in made by a request are covered
       by (a) and (b), and the script's output says so item by item: for every provider the production app uses
       (messaging, payment, jobs, webhooks, analytics, auth; read from the env example, the deploy config and the HTML,
       where a pixel or tag id often sits), its key is absent from the resolved environment and its host is blocked,
       shown by one planted browser fetch and one server request to it, with no credentials and never to a send
       endpoint. A send, a call or a payment made by opening a link or another app (wa.me, api.whatsapp.com,
-      `whatsapp:`, `tel:`, `sms:`, `mailto:`, a payment link) is a navigation, which no content security policy
-      fences, so the fence is the source and the data. In the preview's mode every such link opens a local page that
-      shows what would have been sent or dialled, wherever the app builds it (one opener in the fake data source, or
-      each builder switched in the preview's mode), and a contact the app itself hard-codes (a support number) is
-      replaced. A phone number in a valid format cannot be proven unheld: invented addresses are `.invalid` or
-      `example.com`, and invented phone numbers are in a range the country's regulator reserves for fiction where one
-      exists, otherwise invalid by length (one digit short), never a real-format number marked as invented. Proof: the
-      script searches the app's source for `wa.me`, `api.whatsapp.com`, `whatsapp:`, `tel:`, `sms:`, `mailto:`, the
-      payment provider's link host, `window.open` and assignments to `location`, presses every control that reaches
-      one of them, on and off the main journey, and fails on any page, popup, navigation or hand-off whose URL is not
-      the preview's origin (Playwright `context.on('page')` and `framenavigated`, plus the URL of every `window.open`
-      and every clicked link recorded by an init script, since a `tel:` or `mailto:` hand-off may commit no
-      navigation; unit 1 shows this proof failing on a planted `location.href = 'tel:…'`); it also fails on an
-      invented phone number that is valid outside a reserved range. The start script starts no scheduler, queue worker
-      or cron runner, and fences any process it starts as (b) says. Sign-in reaches only the fake backend, with
-      invented accounts.
-   d. **Where it runs.** The proofs run where the preview runs. On localhost: at every start, as (a) says, plus the
-      planted calls. Anywhere else (one of his own domains, or a published claude.ai artifact, after his yes; a new
-      host, a DNS record or any cost is asked at that moment, and unit 1 is marked `go` when it needs one): only as a
-      static build on a host or project of its own (never the app's production hosting project; the host serves the
-      built files only, with no functions, proxies, or rewrites to another host or a function; a fallback to its own
-      `index.html` for client routes is allowed) that carries the same policy as (b) says, or as a server on a host or
-      project of its own (never the app's production hosting) that holds only the allowlisted variables; never on the
-      production domain, a subdomain of it, or a domain a production cookie is scoped to. Before the link is shared,
-      the environment proof and the planted calls run against the deployed URL and pass (for a published artifact: the
-      environment proof on its published files, the planted calls from a browser that opened it), and one request to
-      each same-origin server path the app's code calls (`/api/*` and the like) is answered by the fake backend or
-      with 404. `redesign/tools/early-show.sh` checks the host, https, the answer and the commit, and is not that
-      proof. The fake backend answers no redirect to another origin, and the script fails on a `Location` header
-      outside the origin; until the check script passes, the preview listens on loopback only.
+      `whatsapp:`, `tel:`, `sms:`, `mailto:`, a payment link) is a navigation, which no content security policy on the
+      app's own page fences, and a list of the controls that open one is never complete (links come from data, from
+      rich text, from a dependency, from a scheme built out of parts). So the browser refuses them itself: in the
+      preview's mode the app runs inside a shell page served from a second port of the preview's own, in an `<iframe
+      sandbox="allow-scripts allow-same-origin allow-forms allow-modals">` with no `allow-popups`, no
+      `allow-top-navigation*` and no `allow` attribute, and the shell's policy sets `frame-src` to the app's origin
+      only. Every popup, top navigation, navigation of the frame to another origin and form post out is then refused,
+      whatever code or data built it (measured in Chromium, WebKit and Firefox; notes file). The script and Nadav open
+      the shell, never the app's port; opened outside the frame, the app in the preview's mode shows only a notice
+      that points to the shell. Two more layers hold for a hand-off to another app (`tel:`, `sms:`, `mailto:`,
+      `whatsapp:`), which a test browser cannot observe outside Chromium, and for `navigator.share`: each link builder
+      a search of the app's source finds is switched in the preview's mode to a local page that shows what would have
+      been sent or dialled, and a contact the app itself hard-codes (a support number) is replaced; and the data
+      reaches nobody: invented addresses are `.invalid` or `example.com`, URLs in the fake data are on the preview's
+      origin, and invented phone numbers are in a range the country's regulator reserves for fiction where one exists,
+      otherwise invalid by length (one digit short), never a real-format number marked as invented. Proof: from inside
+      the frame, a planted `location.href = 'tel:…'`, a `location.assign` and a `window.open` to another origin, an
+      `<a target="_blank">` whose `href` comes from fake data, a form post out, a write to `top.location` and a
+      `navigator.share` call each leave nothing outside the preview's two origins (no request, page, popup or
+      navigation), in Chromium and in WebKit (the Playwright image, as `working-style.md` routes it), and Chromium's
+      console names the refusal of the `tel:` case; the scripted journey leaves nothing outside them either; unit 1
+      shows this proof failing with the `sandbox` attribute removed; and the script fails on an invented phone number
+      that is valid outside a reserved range. The start script starts no scheduler, queue worker or cron runner, and
+      fences any process it starts as (b) says. Sign-in reaches only the fake backend, with invented accounts.
+   d. **Where it runs.** The proofs run where the preview runs. On localhost: the environment proof at every start, as
+      (a) says, and the rest before anyone plays, as «What runs when» says. Anywhere else (one of his own domains,
+      after his yes; a new host, a DNS record or any cost is asked at that moment, and unit 1 is marked `go` when it
+      needs one): only as a static build on a host or project of its own (never the app's production hosting project;
+      the host serves the built files only, with no functions, proxies, or rewrites to another host or a function; a
+      fallback to its own `index.html` for client routes is allowed) that carries the same policy as (b) says, with
+      the shell and the app on two origins as (c) says, or as a server on a host or project of its own (never the
+      app's production hosting) that holds only the allowlisted variables; never on the production domain, a subdomain
+      of it, or a host inside a production cookie's `Domain=` scope. Before the link is shared, the whole check script
+      except the no-demo check runs against the deployed URL and passes (the environment proof on its served or
+      published files; the planted calls, the frame's planted cases and the recorded journey from a browser that
+      opened it), and one request to each same-origin server path the app's code calls (`/api/*` and the like) is
+      answered by the fake backend or with 404. `redesign/tools/early-show.sh` checks the host, https, the answer and
+      the commit, and is not that proof. The fake backend answers no redirect to another origin, and the script fails
+      on a `Location` header outside the origin; until the check script passes, the preview listens on loopback only.
 
    Nobody plays the preview, on any machine, before its check script passes there (on a local tree: all of it except
    the no-demo check, as «What runs when» says); until then only the build session runs it, and only to run the
@@ -228,10 +230,10 @@ For an app (a product with screens people work in):
    production.
 
 What runs when [I] (`rules/ci-policy.md` rule 1 decides where checks run): locally, before anyone plays a tree, the
-whole check script runs on it except the no-demo check: the start-time environment proof, the planted calls, the press
-of every link-opening control and the recorded requests of the scripted journey (through `heavy-slot`); the no-demo
-check needs a production build, so it runs in the landing CI, except that unit 1, which builds the script, runs all of
-it locally to show each proof failing, then passing. The CI step uses the `code` path filter of `~/nadavai`'s
+whole check script runs on it except the no-demo check: the start-time environment proof, the planted calls, the
+frame's planted cases and the recorded requests of the scripted journey (through `heavy-slot`); the no-demo check
+needs a production build, so it runs in the landing CI, except that unit 1, which builds the script, runs all of it
+locally to show each proof failing, then passing. The CI step uses the `code` path filter of `~/nadavai`'s
 `templates/ci/woodpecker-landing.yml`, or none. With no landing CI yet the plan says so and the whole script runs
 locally on every unit; on a long branch (point 2) the landing CI runs it on the cut-over PR.
 
