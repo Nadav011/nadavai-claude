@@ -6,10 +6,10 @@ const { spawnSync, spawn, fork } = require('node:child_process');
 const path = require('node:path');
 
 const PRELOAD = path.join(__dirname, 'preload.cjs');
-const ALLOWED = 47301; // the "fake backend": a server this probe starts
-const OTHER = 47302; // another loopback port, which the fence must refuse
+const ALLOWED = 18301; // the "fake backend": a server this probe starts
+const OTHER = 18302; // another loopback port, which the fence must refuse
 const TARGET = '127.0.0.2';
-const TPORT = 47303; // the listener on the outside target
+const TPORT = 18303; // the listener on the outside target
 
 if (!process.env.FENCE_PROBE_CHILD) {
   const r = spawnSync(process.execPath, [__filename], {

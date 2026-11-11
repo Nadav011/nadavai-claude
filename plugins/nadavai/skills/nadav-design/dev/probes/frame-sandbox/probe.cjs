@@ -2,7 +2,8 @@
 // The app page runs in three set-ups, each with the same cases:
 //   1. frame + guard   in a sandboxed frame (no allow-popups, no allow-top-navigation*), the shell's policy has
 //                      frame-src set to the app's origin only, and a guard in the app rewrites every link that
-//                      points outside it to a local page;
+//                      points outside it to a local page and cancels what the person opens himself (a click
+//                      with a modifier key or another button, the context menu, a drag);
 //   2. frame only      the same frame with no guard;
 //   3. top level       no frame and no guard (the control).
 // Nothing leaves the machine: the test browser aborts every request that is not to 127.0.0.1 and records it, and
@@ -19,8 +20,8 @@ const path = require('node:path');
 const browserName = process.argv[2] || 'chromium';
 const pw = require(path.join(process.argv[3] || '/pw', 'playwright'));
 
-const SHELL = 47290;
-const APP = 47291;
+const SHELL = 18290; // below the ephemeral range, so no outgoing connection can hold it
+const APP = 18291;
 const APP_ORIGIN = `http://127.0.0.1:${APP}`;
 const SANDBOX = 'allow-scripts allow-same-origin allow-forms allow-modals';
 
@@ -39,7 +40,14 @@ const GUARD = `<script>(() => {
     if (m.type === 'attributes') fix(m.target); else m.addedNodes.forEach((n) => { if (n.nodeType === 1) { if (n.matches('a[href],area[href]')) fix(n); sweep(n); } });
   })).observe(document, { subtree: true, childList: true, attributes: true, attributeFilter: ['href'] });
   document.addEventListener('DOMContentLoaded', () => sweep(document));
-})();</script>`;
+  // The event layer: what the person opens himself (a new tab or window, the context menu, a drag) never starts.
+  const stop = (e) => { e.preventDefault(); e.stopImmediatePropagation(); };
+  const own = (e) => (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) && stop(e);
+  addEventListener('click', own, true);
+  addEventListener('auxclick', stop, true);
+  addEventListener('contextmenu', stop, true);
+  addEventListener('dragstart', stop, true);
+})();</script><style>*{-webkit-touch-callout:none}</style>`;
 const appHtml = (guard) => `<!doctype html><meta charset="utf-8"><title>app</title>${guard ? GUARD : ''}
 <a id="tel" href="tel:+12025550123">call</a>
 <a id="mailto" href="mailto:someone@example.com">mail</a>
@@ -70,6 +78,8 @@ const CASES = [
   ['Ctrl+click on <a href="https://example.com">', click('#ext', { modifiers: ['Control'] })],
   ['Shift+click on <a href="https://example.com">', click('#ext', { modifiers: ['Shift'] })],
   ['Ctrl+click on <a href="tel:">', click('#tel', { modifiers: ['Control'] })],
+  ['Ctrl+click on a form\'s submit (post to https://example.com)', click('#post', { modifiers: ['Control'] })],
+  ['Shift+click on a form\'s submit (post to https://example.com)', click('#post', { modifiers: ['Shift'] })],
 ];
 const MODES = [
   ['frame + guard', true, true],
@@ -86,7 +96,8 @@ const MODES = [
     res.writeHead(200, { 'content-type': 'text/html' });
     res.end(req.url.startsWith('/would-open') ? '<!doctype html><title>would open</title><p id="would">would have opened</p>' : appHtml(/guard=1/.test(req.url)));
   });
-  const browser = await pw[browserName].launch(browserName === 'chromium' ? { ignoreDefaultArgs: ['--disable-dev-shm-usage'] } : {});
+  // Chromium: no name is ever resolved, so not even a DNS lookup for example.com leaves the host.
+  const browser = await pw[browserName].launch(browserName === 'chromium' ? { ignoreDefaultArgs: ['--disable-dev-shm-usage'], args: ['--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1'] } : {});
   console.log('legend: OUT = a request outside 127.0.0.1 was attempted (and aborted); no = none was');
   console.log(`${browserName} ${browser.version()}  sandbox="${SANDBOX}"`);
   const totals = {};
