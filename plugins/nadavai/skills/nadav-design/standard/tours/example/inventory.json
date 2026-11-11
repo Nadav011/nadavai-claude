@@ -4,7 +4,8 @@
     "cal-week": {
       "title": "יומן · שבוע",
       "menu": true,
-      "recordAnchors": ["cal.appointment", "cal.print", "cal.ended-appointment", "appt.happened", "appt.note", "appt.paid", "pay.method", "pay.confirm", "pay.practice-receipt"],
+      "recordAnchors": ["cal.appointment", "cal.ended-appointment", "appt.happened", "appt.note", "appt.paid", "pay.method", "pay.confirm", "pay.practice-receipt"],
+      "bulkAnchors": ["cal.print"],
       "tasks": [
         { "text": "לקבוע תור", "tour": "book", "anchors": ["cal.new-appointment", "appt.save"] },
         { "text": "לסגור טיפול שהסתיים", "tour": "close-1", "anchors": ["appt.happened", "appt.note", "appt.paid"] },
@@ -14,7 +15,8 @@
     "cal-day": {
       "title": "יומן · יום",
       "viewOf": "cal-week",
-      "recordAnchors": ["cal.appointment", "cal.print", "cal.ended-appointment", "appt.happened", "appt.note", "appt.paid", "pay.method", "pay.confirm", "pay.practice-receipt"],
+      "recordAnchors": ["cal.appointment", "cal.ended-appointment", "appt.happened", "appt.note", "appt.paid", "pay.method", "pay.confirm", "pay.practice-receipt"],
+      "bulkAnchors": ["cal.print"],
       "menu": true,
       "tasks": [
         { "text": "לקבוע תור", "tour": "book" },

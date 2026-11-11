@@ -1367,7 +1367,11 @@ const TOUR_FIXTURES = [
   ['sample-not-record', 'tour-no-commit', 'G-20', 'the eighth review\'s E9: the reminder save as a do step classed S at on: sample, on a control no recordAnchors lists (a real clinic rule)', m => { tourOf(m, 'reminder').steps[3] = { kind: 'do', act: 'open', class: 'S', on: 'sample', anchor: 'settings.save', result: { kind: 'present', arg: 'settings.saved-toast' }, safeTest: 'e2e/x.spec.ts: saving the rule sends nothing', text: 'לוחצים "שמירה".' }; }],
   ['sample-not-record', 'tour-no-commit', 'G-08', 'an unclassed do step at on: sample on a settings tab, which is nobody\'s record', m => { tourOf(m, 'reminder').steps[0].on = 'sample'; }],
   ['sample-not-record', 'tour-no-commit', 'G-20', 'a practice-only step at on: sample on a control no recordAnchors lists', m => { tourOf(m, 'close-3').steps[3].anchor = 'pay.month-close'; }],
-  ['none-on-record', 'tour-no-commit', 'G-08', 'a do step at on: none on the calendar\'s print, which exports many people\'s appointments', m => { m.tours.push({ id: 'cal-print', title: 'הדפסה', screens: ['cal-week'], area: 'יומן', where: 'יומן', tasks: [], steps: [{ kind: 'do', act: 'open', on: 'none', anchor: 'cal.print', result: { kind: 'open', arg: 'cal.print-sheet' }, safeTest: 'e2e/x.spec.ts: y', text: 'לוחצים "הדפסה".' }], finish: 'סוף.' }); }],
+  ['do-on-bulk', 'tour-no-commit', 'G-20', 'the case that passed: a do step at on: sample on the calendar\'s print, a bulk control', m => { m.tours.push({ id: 'cal-print', title: 'הדפסה', screens: ['cal-week'], area: 'יומן', where: 'יומן', tasks: [], steps: [{ kind: 'do', act: 'open', on: 'sample', anchor: 'cal.print', result: { kind: 'open', arg: 'cal.print-sheet' }, safeTest: 'e2e/x.spec.ts: y', text: 'לוחצים "הדפסה".' }], finish: 'סוף.' }); }],
+  ['do-on-bulk', 'tour-no-commit', 'G-20', 'a do step at on: none on the calendar\'s print', m => { m.tours.push({ id: 'cal-print', title: 'הדפסה', screens: ['cal-week'], area: 'יומן', where: 'יומן', tasks: [], steps: [{ kind: 'do', act: 'open', on: 'none', anchor: 'cal.print', result: { kind: 'open', arg: 'cal.print-sheet' }, safeTest: 'e2e/x.spec.ts: y', text: 'לוחצים "הדפסה".' }], finish: 'סוף.' }); }],
+  ['do-on-bulk', 'tour-no-commit', 'G-20', 'a do step whose result names the calendar\'s print', m => { tourOf(m, 'book').steps[1].result = { kind: 'present', arg: 'cal.print' }; }],
+  ['do-on-bulk', 'tour-no-commit', 'G-20', 'a do step whose result is a changed field of the calendar\'s print (fieldChanged)', m => { tourOf(m, 'book').steps[1].result = { kind: 'fieldChanged', arg: 'cal.print' }; }],
+  ['anchor-both', 'manifest', null, 'an id listed in both recordAnchors and bulkAnchors', (m, i) => { i.screens['cal-week'].recordAnchors.push('cal.print'); }],
   ['do-class', 'tour-no-commit', 'G-20', 'at stage demo, a practice-only step with both tests and no class', m => { m.stage = 'demo'; delete tourOf(m, 'close-3').steps[1].class; }],
   ['none-on-record', 'tour-no-commit', 'G-08', 'a do step at on: none whose result is a changed field on a person\'s record (fieldChanged)', m => { tourOf(m, 'reminder').steps[2].result = { kind: 'fieldChanged', arg: 'appt.note' }; }],
   ['none-on-record', 'tour-no-commit', 'G-08', 'a do step at on: none whose result names a record control with an arg ({ anchor, arg })', m => { tourOf(m, 'book').steps[1].result = { kind: 'present', arg: { anchor: 'appt.service', arg: 'first' } }; }],
@@ -1633,6 +1637,12 @@ await test('TOUR-none-no-inventory', 'without --inventory the example\'s on: "no
   const mu = tourCheck(TOUR_EX, null, mutant('none-no-inventory'));
   if (!mu.out || mu.out.notes.some(x => x.message === note)) why.push('mutant without M:none-no-inventory still prints the note');
   return why.join(' · ');
+});
+await test('TOUR-bulk-show', 'a showing step and a stop step on a bulk control (cal.print) pass: only a do step on one is a finding', async () => {
+  const m = clone(TOUR_EX);
+  m.tours.push({ id: 'cal-print', title: 'הדפסה', screens: ['cal-week'], area: 'יומן', where: 'יומן', tasks: [], steps: [{ kind: 'next', anchor: 'cal.print', text: 'כאן מדפיסים את היומן.' }, { kind: 'stop', class: 'T', anchor: 'cal.print', text: '"הדפסה" מוציאה את תורי כולם.' }], finish: 'סוף.' });
+  const r = tourCheck(m, INV_EX, undefined, ['--require-stage', 'app']);
+  return r.status === 0 && r.out && !r.out.findings.length ? '' : `exit ${r.status} ${JSON.stringify(r.out && r.out.findings.map(f => f.code))}`;
 });
 await test('TOUR-stage', 'with --require-stage app the example passes and a manifest at demo fails with stage-required only; without its line it passes; another value is a usage error, and so is app without --inventory (without that line it passes)', async () => {
   const why = [];
