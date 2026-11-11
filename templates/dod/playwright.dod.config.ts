@@ -22,7 +22,8 @@ export default defineConfig({
   workers: Number(process.env.DOD_WORKERS ?? 4),
   retries: 0,
   reporter: [["list"]],
-  outputDir: "./test-results/dod",
+  // Each phase its own: the checks phase's .last-run.json does not replace the scored phase's.
+  outputDir: process.env.DOD_PHASE === "checks" ? "./test-results/dod-checks" : "./test-results/dod",
   globalSetup: "./e2e/dod/global-setup.ts",
   globalTeardown: "./e2e/dod/global-teardown.ts",
   use: {

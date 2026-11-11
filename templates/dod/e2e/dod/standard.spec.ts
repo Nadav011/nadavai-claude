@@ -8,8 +8,13 @@ import path from "node:path";
 import { test, type Page } from "@playwright/test";
 import {
   expectedState,
+  CHECKS_DEADLINE_FILE,
+  CHECKS_SIGNIN_FILE,
+  checksStoppedWhy,
+  loadParams,
   loadRoutes,
   loadStandard,
+  NOT_FOUND_PRINT,
   notFinished,
   plannedChecks,
   RESULTS_DIR,
@@ -18,10 +23,11 @@ import {
   standardFile,
   VIEWPORTS,
   type EntryResult,
+  type NotFoundPrint,
   type RouteEntry,
   type StandardConfig,
 } from "./dod-shared";
-import { reachRoute, settle, touchTargets } from "./dod-page";
+import { accessCheck, hasSignInForm, reachRoute, settle, touchTargets, type AccessContext } from "./dod-page";
 import {
   BUILT_IN_FORBIDDEN,
   coreUnitVisible,
@@ -34,6 +40,14 @@ import {
 
 const routes = loadRoutes();
 const standard = loadStandard();
+// What the scored phase's access check had, so this phase runs the same check on its own load.
+const ACCESS: AccessContext = {
+  routes,
+  params: loadParams(),
+  notFoundPrint: fs.existsSync(NOT_FOUND_PRINT) ? (JSON.parse(fs.readFileSync(NOT_FOUND_PRINT, "utf8")) as NotFoundPrint) : null,
+};
+/** Starts every reason the checks phase gives for judging nothing: the page is not the scored one. */
+const NOT_SCORED_PAGE = "not checked: not the page the scored phase measured";
 const FORBIDDEN = [...BUILT_IN_FORBIDDEN, ...(standard?.forbiddenWords ?? []).map(forbiddenWordSource)];
 
 /**
@@ -61,7 +75,7 @@ const RESIZE_MS = 250;
 const STANDARD_BUDGET_MS = 30_000;
 /** Each wait between tries (putting the viewport back, asking the page to answer). */
 const AFTER_STANDARD_MS = 5_000;
-/** A checks test's whole time: two tries, the waits between them, and room for the loads. */
+/** A checks test's whole time (105 s): two tries, the waits between them, and room for the loads. */
 const STANDARD_TIMEOUT_MS = 2 * STANDARD_BUDGET_MS + 3 * AFTER_STANDARD_MS + 30_000;
 const OUT_OF_TIME = `out of time (the standard's ${STANDARD_BUDGET_MS / 1000}s budget)`;
 
@@ -72,6 +86,26 @@ interface Guard {
   stopped: string | null;
   /** A new document started loading in the main frame (a navigation or a reload). */
   newDocument: boolean;
+  /** The scored phase's result for this entry: the page the checks must be on. */
+  scored: EntryResult;
+}
+
+/**
+ * Whether the page this phase loaded is the page the scored phase measured, and null when it is.
+ * The same access check (status, redirect, markers, not-found print, denied and error wording),
+ * then what the scored phase recorded: the same path, a painted page, and no sign-in form where
+ * it had none (a session that is not signed in shows its form in place at the same URL).
+ */
+async function notTheScoredPage(page: Page, route: string, status: number | null, scored: EntryResult): Promise<string | null> {
+  const access = await accessCheck(page, route, status, ACCESS);
+  if (access.unreachable_reason) return `${access.unreachable_reason} (the scored phase had HTTP ${scored.status})`;
+  const landed = new URL(page.url()).pathname;
+  const measured = scored.measured_url ? new URL(scored.measured_url).pathname : landed;
+  if (landed !== measured) return `landed on ${landed}, the scored phase measured ${measured}`;
+  if (!scored.signin_form && (await hasSignInForm(page))) return "a sign-in form is on the page, where the scored phase had none: this phase's session is not signed in";
+  const notPainted = await reachRoute(page);
+  if (notPainted) return `the page did not paint: ${notPainted}`;
+  return null;
 }
 
 /** What a resize did to the page, if it moved it: a new document, or only a new URL. */
@@ -134,17 +168,18 @@ async function runStandard(
 ) {
   const { route } = entry;
   const failed = (err: unknown) => ({ count: 0, samples: [], error: err instanceof Error ? err.message.slice(0, 300) : String(err) });
-  // The page loaded again, as the checks expect it: the reduced-motion copy the scored part left
-  // is not the page people see. Its own navigation is not a move.
-  await step(g, page, async () => {
-    try {
-      await page.goto(g.url, { waitUntil: "domcontentloaded" });
-      await settle(page);
-      await reachRoute(page);
-    } finally {
-      g.newDocument = false;
-    }
-  });
+  // The page loaded again, in this phase's fresh context. Its own navigation is not a move, and
+  // nothing is judged until it is shown to be the page the scored phase measured.
+  let status: number | null = null;
+  try {
+    const resp = await page.goto(g.url, { waitUntil: "domcontentloaded" });
+    status = resp?.status() ?? null;
+    await settle(page);
+  } finally {
+    g.newDocument = false;
+  }
+  const wrong = await notTheScoredPage(page, route, status, g.scored);
+  if (wrong) throw new Error(`${NOT_SCORED_PAGE}: ${wrong}`);
   const checks = await step(g, page, () =>
     page.evaluate(domChecks, {
       noHelp: entry.noHelp,
@@ -252,7 +287,7 @@ async function tryStandard(
 }
 
 /** What the standard's checks may add to an entry: their own fields, never a scored one. */
-type StandardPart = Pick<EntryResult, "standard" | "probe" | "standard_error" | "standard_retried" | "standard_skipped">;
+type StandardPart = Pick<EntryResult, "standard" | "probe" | "standard_error" | "standard_retried" | "standard_skipped" | "standard_unchecked">;
 
 /** Entries whose checks ran out of time in this run, across workers (one line each). */
 const TIMEOUTS_FILE = path.join(RESULTS_DIR, "standard-timeouts.txt");
@@ -277,8 +312,9 @@ async function checkStandard(
   viewport: { width: number; height: number },
   scheme: string,
   name: string,
-  measuredUrl: string,
+  scored: EntryResult,
 ): Promise<StandardPart> {
+  const measuredUrl = scored.measured_url ?? entry.route;
   const planned = plannedChecks(cfg, entry.route, viewport, scheme);
   if (timeoutsSoFar() >= cfg.maxTimeouts) {
     const why = `not checked: ${cfg.maxTimeouts} entries of this run ran out of time, so the standard's checks stopped for the rest of it`;
@@ -292,7 +328,7 @@ async function checkStandard(
     if (nav.g && r.isNavigationRequest() && r.frame() === page.mainFrame()) nav.g.newDocument = true;
   });
   const attempt = async () => {
-    const g: Guard = { deadline: Date.now() + STANDARD_BUDGET_MS, url: measuredUrl, stopped: null, newDocument: false };
+    const g: Guard = { deadline: Date.now() + STANDARD_BUDGET_MS, url: measuredUrl, stopped: null, newDocument: false, scored };
     nav.g = g;
     const r = await tryStandard(cfg, page, entry, viewport, scheme, g);
     nav.g = null;
@@ -322,6 +358,8 @@ async function checkStandard(
     ...(t.probe ? { probe: t.probe } : {}),
     ...(t.error ? { standard_error: t.error } : {}),
     ...(retried ? { standard_retried: retried } : {}),
+    // Judged nothing, because it was not on the scored page: "not checked", with the reason.
+    ...(t.error?.startsWith(NOT_SCORED_PAGE) ? { standard_unchecked: t.error } : {}),
   };
 }
 
@@ -355,12 +393,18 @@ if (standard)
             if (!scored || !scored.reached || scored.unreachable) return;
             test.setTimeout(STANDARD_TIMEOUT_MS);
             const planned = plannedChecks(standard, route, viewport, scheme);
+            // This phase's own sign-in failed (global-setup said so): a signed-in entry is not checked.
+            if (entry.audience !== "anonymous" && fs.existsSync(CHECKS_SIGNIN_FILE)) {
+              const why = `not checked: the checks phase could not sign in (${fs.readFileSync(CHECKS_SIGNIN_FILE, "utf8").slice(0, 200)})`;
+              fs.writeFileSync(standardFile(name), JSON.stringify({ standard: notFinished(planned, why), standard_unchecked: why }, null, 2));
+              return;
+            }
             // The checks end before the test does, whatever is still running in them, and this
             // body is the only writer of the entry's file: nothing can write it after the test (and
             // so after the aggregation) has ended.
             let timer: ReturnType<typeof setTimeout> | undefined;
             const part: StandardPart = await Promise.race([
-              checkStandard(standard, page, entry, viewport, scheme, name, scored.measured_url ?? route).catch(
+              checkStandard(standard, page, entry, viewport, scheme, name, scored).catch(
                 (err: unknown): StandardPart => ({
                   standard: notFinished(planned, `the checks failed: ${err instanceof Error ? err.message.slice(0, 200) : String(err)}`),
                 }),
@@ -373,6 +417,13 @@ if (standard)
               }),
             ]);
             clearTimeout(timer);
+            // The runner stopped this phase while the checks ran (its deadline, or a signal): the
+            // checks it cut off say why, and the entry is "not checked" with that reason.
+            if (fs.existsSync(CHECKS_DEADLINE_FILE) && Object.values(part.standard ?? {}).some((c) => c.error)) {
+              const why = `not checked: the checks phase ${checksStoppedWhy(standard.checksMinutes)}`;
+              for (const c of Object.values(part.standard ?? {})) if (c.error) c.error = why;
+              part.standard_unchecked = why;
+            }
             fs.writeFileSync(standardFile(name), JSON.stringify(part, null, 2));
           });
         });

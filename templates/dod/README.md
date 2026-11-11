@@ -196,7 +196,23 @@ the project has `e2e/dod/standard.json`. Without it nothing changes and `dod.jso
   `standard_error`, `standard_retried`, `standard_skipped`), never over a scored field. The run's
   exit code is the scored phase's: a hang, a crash or a red test in the checks phase cannot change
   it, and with no check enforced it cannot change a number either. In enforce mode the enforced
-  checks' deductions are applied in the aggregation, so the CI score step sees them.
+  checks' deductions are applied in the aggregation, so the CI score step sees them. The one case
+  where the file's presence fails a run: a `standard.json` that is not valid (an unknown id under
+  `enforce`, a bad `mode`) stops the run in the scored phase's global-setup, before the walk.
+- The checks judge only the page the scored phase measured. Each checks test runs the scored
+  phase's own access check on its load (`accessCheck` in `dod-page.ts`: status, redirect, markers,
+  not-found print, denied and error wording) and then compares it with what the scored phase
+  recorded: the same path (`measured_url`), a painted page, and no sign-in form where the scored
+  page had none. When any of these fails, or the checks phase's own sign-in did not land
+  (global-setup confirms it in both phases, and says so loudly), every planned check of that entry
+  is "errored" with that reason and the entry is listed in `standard.not_checked`: a failure where
+  enforced, a reported gap otherwise, never "clean".
+- `pnpm dod` stopped by SIGINT or SIGTERM interrupts the phase that is running (so its teardown still
+  writes `dod.json`; a checks phase stopped this way lists its entries as "not checked: the checks
+  phase stopped by SIGTERM"), kills it a minute later if it is still there, and starts no other; it
+  exits with the scored phase's code if that phase had finished, else 130 or 143. The
+  QA session file is deleted after each phase however it ended, and first thing in each teardown.
+  Each phase keeps its own Playwright output (`test-results/dod`, `test-results/dod-checks`).
 - What the checks phase still does, and the guarantee does not cover: it signs in again and loads
   every checked route once more (twice when a try is retried) with the QA session, after the scored
   phase. It cannot change this run's scores, but an app that rate-limits by session or by account
@@ -206,7 +222,7 @@ the project has `e2e/dod/standard.json`. Without it nothing changes and `dod.jso
   out of time, a check call that failed as a whole, or any error under `CI` (`true` or `1`) gets one
   more try on a page that still answers (the viewport back and a trivial call, 5 s each), keeping
   the first try's result for every check that did not error in it (`standard_retried` says why).
-  Each checks test ends its checks 10 s before its own timeout (135 s) and writes its file itself,
+  Each checks test ends its checks 10 s before its own timeout (105 s) and writes its file itself,
   once, so nothing is written after the phase's teardown has read it. A resize that loads a new document (a navigation or a same-URL reload) or
   changes the URL (`history.replaceState`) stops the measuring with an error that says which; a
   reload too early to see is recorded as the raw "Execution context was destroyed". A check that
@@ -222,6 +238,9 @@ the project has `e2e/dod/standard.json`. Without it nothing changes and `dod.jso
   its teardown still writes `dod.json`, and a minute later it is killed). Every entry it left no
   result for is listed in `standard.not_checked` (count and reason) and in the summary, and is
   "errored" where enforced; so is every entry when the checks phase has not run at all.
+  `templates/ci/ui.yml` gives the job 120 minutes: with the default 60 here, the scored walk and
+  the job's other steps share the other 60; a project whose scored walk takes longer lowers
+  `checksMinutes` or raises `timeout-minutes`.
 - `textFloorPx`: the smallest text the probe accepts (default 12).
 - `helpDir` (optional): turns on `help-route`.
 - `coreUnit` (optional): turns on `core-unit` for that one route.
@@ -318,6 +337,10 @@ Five projects run an older copy. What changes for each, in the order it bites:
   checks are a second Playwright run after the scored one; a project that calls `playwright test`
   directly gets the scored phase only. A test of the project's own in `e2e/dod` runs in the checks
   phase, not between scored entries.
+- **The sign-in must land.** global-setup now fails the sign-in when, after the submit, the page
+  is still the sign-in path or shows a sign-in form, or `DOD_READY_PATH` does: before, it saved
+  whatever session it had. A project whose ready page has a password field on purpose points
+  `DOD_READY_PATH` elsewhere.
 - **Run from the root.** The template finds its files from the working directory (or `DOD_ROOT`),
   not from `__dirname`; an ESM project drops its `import.meta` and JSON-attribute patch.
 - **Heavily customised copies port by hand**, check by check, instead of copying the files over:

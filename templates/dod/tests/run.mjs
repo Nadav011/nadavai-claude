@@ -111,6 +111,13 @@ function startServer() {
   // one (a dev server's first compile), longer than a test's timeout.
   let srvLoads = 0;
   let slowStart = 0;
+  // Round 6: sign-ins per user. A user named once-… signs in the first time only (the checks
+  // phase's sign-in fails); every sign-in sets qan=<its count>, and the /e-… pages turn into the
+  // wrong page when there is no session or from the second sign-in on (the checks phase).
+  const logins = new Map();
+  const LOGIN_FORM =
+    '<form method="post" action="/login"><label for="u">אימייל</label><input id="u" name="u" type="email" autocomplete="username">' +
+    '<label for="pw">סיסמה</label><input id="pw" name="pw" type="password" autocomplete="current-password"><button type="submit">כניסה</button></form>';
   const server = http.createServer((req, res) => {
     req.resume();
     const url = new URL(req.url ?? "/", "http://fixture");
@@ -129,7 +136,17 @@ function startServer() {
       if (req.method === "POST") {
         srvLoads = 0;
         slowStart = 0;
-        return res.writeHead(303, { "set-cookie": "qa=1; Path=/; HttpOnly", location: "/" }).end();
+        let body = "";
+        req.on("data", (c) => (body += c));
+        req.on("end", () => {
+          const user = new URLSearchParams(body).get("u") ?? "";
+          const n = (logins.get(user) ?? 0) + 1;
+          logins.set(user, n);
+          // A failed sign-in answers with its form again, 200 and no cookie.
+          if (user.startsWith("once-") && n > 1) return html("login", "<p>הפרטים שגויים.</p>" + LOGIN_FORM);
+          res.writeHead(303, { "set-cookie": ["qa=1; Path=/; HttpOnly", `qan=${n}; Path=/`], location: "/" }).end();
+        });
+        return;
       }
       return html(
         "login",
@@ -206,6 +223,20 @@ function startServer() {
         '<script>const o=Element.prototype.checkVisibility;Element.prototype.checkVisibility=function(a){if(this.getAttribute("role")==="dialog")throw new Error("tampered");return o.call(this,a)}</script>',
     };
     if (R4[url.pathname]) return html(url.pathname.slice(1), R4[url.pathname]);
+    // Round 6 (B1): the same page in the scored phase, the wrong one in the checks phase: a sign-in
+    // form in place at the same URL, a redirect to /login, an HTTP 404 with a clean not-found page.
+    if (url.pathname.startsWith("/e-")) {
+      const cookie = req.headers.cookie ?? "";
+      const stale = !/(?:^|;\s*)qa=1(?:;|$)/.test(cookie) || Number(cookie.match(/(?:^|;\s*)qan=(\d+)/)?.[1] ?? 0) >= 2;
+      const defect = fs.readFileSync(path.join(FIXTURES, "one-primary.html"), "utf8");
+      if (!stale) return html(url.pathname.slice(1), defect);
+      if (url.pathname === "/e-inplace") return html("e-inplace", "<p>יש להתחבר כדי לראות את המסך הזה.</p>" + LOGIN_FORM);
+      if (url.pathname === "/e-redir") return res.writeHead(302, { location: "/login" }).end();
+      if (url.pathname === "/e-gone") {
+        res.writeHead(404, { "content-type": "text/html; charset=utf-8" });
+        return res.end(shell("e-gone", "<p>לא מצאנו את מה שחיפשת. אפשר לחזור לדף הבית.</p>"));
+      }
+    }
     if (url.pathname === "/srv" && ++srvLoads >= 9) return res.writeHead(429, { "content-type": "text/html; charset=utf-8" }).end("rate limited");
     if (url.pathname === "/srv") return html("srv", P);
     if (url.pathname === "/slowfirst") {
@@ -253,7 +284,7 @@ function startServer() {
 
 // --- running the template --------------------------------------------------------------------
 const BACKEND_VARS = /^(NEXT_PUBLIC_SUPABASE_URL|VITE_SUPABASE_URL|PUBLIC_SUPABASE_URL|SUPABASE_URL|DATABASE_URL|NEXT_PUBLIC_API_URL|VITE_API_URL|DOD_BACKEND_URL|ARGOS_TOKEN|DOD_ROOT|DOD_VERTICAL|CI)$/;
-function playwright(cwd, port, extraEnv = {}) {
+function playwright(cwd, port, extraEnv = {}, signal = null) {
   const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !BACKEND_VARS.test(k)));
   Object.assign(env, {
     PORT: String(port),
@@ -274,7 +305,16 @@ function playwright(cwd, port, extraEnv = {}) {
     // dot on the log, json in pw.json (each test's duration; the checks phase in pw.checks.json).
     env.PLAYWRIGHT_JSON_OUTPUT_NAME = path.join(cwd, "pw.json");
     const child = spawn(process.execPath, argv, { cwd, env, stdio: ["ignore", fd, fd] });
+    // { after, delayMs, sig }: once the log shows `after`, wait delayMs and send sig to the runner alone.
+    let poll;
+    if (signal)
+      poll = setInterval(() => {
+        if (!fs.readFileSync(log, "utf8").includes(signal.after)) return;
+        clearInterval(poll);
+        setTimeout(() => child.kill(signal.sig), signal.delayMs);
+      }, 500);
     child.on("exit", (code, signal) => {
+      clearInterval(poll);
       fs.closeSync(fd);
       resolve({ code, signal, secs: Math.round((Date.now() - t0) / 1000), log: fs.readFileSync(log, "utf8") });
     });
@@ -593,7 +633,7 @@ async function smallRuns(kind, port) {
     // for a page that blocks on every resize ends at its budget (two tries and the waits at most).
     const scoredSame = ["375__light", "1440__light"].every((v) => Math.abs(dr[`dod busy-resize__${v}`] - dp[`dod busy-resize__${v}`]) < 10);
     const checkSecs = ["375__light", "1440__light"].map((v) => dc[`standard busy-resize__${v}`]);
-    ok(scoredSame && checkSecs.every((x) => x > 25 && x < 135), `${kind}: /busy-resize: the scored test takes as long as without standard.json, its checks test ${checkSecs.map((x) => x?.toFixed(1)).join(" s and ")} s (bounded by 135 s)`);
+    ok(scoredSame && checkSecs.every((x) => x > 25 && x < 105), `${kind}: /busy-resize: the scored test takes as long as without standard.json, its checks test ${checkSecs.map((x) => x?.toFixed(1)).join(" s and ")} s (bounded by its 105 s timeout)`);
     console.log(`     ${kind} wall time: ${plain.secs} s without standard.json, ${run.secs} s in report mode (both phases)`);
     // CF3: what dod.json says about an entry's checks is what its checks file holds.
     const files = fs.readdirSync(path.join(dir, "reports", "dod", "results")).filter((f) => f.endsWith(".standard.json"));
@@ -668,6 +708,61 @@ async function smallRuns(kind, port) {
   });
   const bad = await playwright(badDir, port);
   ok(bad.code !== 0 && bad.log.includes('"enforce" must be a list of check ids'), `${kind}: an unknown id under "enforce" is a configuration error in the run (exit ${bad.code})`);
+  // Round 6 (CF-d, B2): it stops the run in global-setup, before the walk, and leaves no session.
+  ok(
+    !fs.existsSync(path.join(badDir, "reports", "dod", "results", "clean__375__light.json")) &&
+      !fs.existsSync(path.join(badDir, "node_modules", ".cache", "dod", "qa-storage-state.json")),
+    `${kind}: a bad standard.json stops the run before the walk and leaves no QA session file`,
+  );
+  // Round 6 (B1): the checks judge only the page the scored phase measured. "enforce":
+  // ["one-primary"], and each page has two accent actions in the scored phase, so a correct
+  // result is one-primary "found 2" or, when the checks phase gets another page, "errored" with
+  // the real reason: never "clean".
+  const STD6 = { ...STANDARD, mode: "report", enforce: ["one-primary"], coreUnit: undefined };
+  const opOf = (r, x) => r.routes[x]?.standard?.["one-primary"];
+  const gaDir = project(path.join(WORK, `${kind}-gate-signin`), kind, { "e2e/dod/routes.json": ["/e-inplace"], "e2e/dod/standard.json": STD6 });
+  const ga = await playwright(gaDir, port, { DOD_USER: `once-${kind}-${Date.now()}@example.com` });
+  if (ranClean(ga, `${kind}: a run whose checks-phase sign-in fails exits 0 (the scored phase's code)`)) {
+    const g = report(gaDir);
+    const op = opOf(g, "/e-inplace");
+    ok(
+      op?.verdict === "errored" && String(op?.error).includes("could not sign in") && g.routes["/e-inplace"]?.score === 90 && g.standard?.not_checked?.entries === 4 && ga.log.includes("the sign-in did not land"),
+      `${kind}: the checks phase's sign-in fails: every check of the signed-in entries is errored, not clean (${op?.verdict}: ${String(op?.error).slice(0, 90)}; score ${g.routes["/e-inplace"]?.score})`,
+    );
+  }
+  const gbDir = project(path.join(WORK, `${kind}-gate-page`), kind, { "e2e/dod/routes.json": ["/e-gone", "/e-inplace", "/e-redir"], "e2e/dod/standard.json": STD6 });
+  const gb = await playwright(gbDir, port, { DOD_USER: `twice-${kind}-${Date.now()}@example.com` });
+  if (ranClean(gb, `${kind}: a run whose checks phase gets other pages exits 0`)) {
+    const g = report(gbDir);
+    for (const [x, want] of [
+      ["/e-gone", "HTTP 404"],
+      ["/e-inplace", "a sign-in form is on the page"],
+      ["/e-redir", "/login"],
+    ]) {
+      const op = opOf(g, x);
+      ok(
+        op?.verdict === "errored" && String(op?.error).includes(want) && String(op?.error).includes("not the page the scored phase measured") && g.routes[x]?.score === 90,
+        `${kind}: ${x} in the checks phase is not the scored page: errored with "${want}", not clean (${op?.verdict}: ${String(op?.error).slice(0, 120)})`,
+      );
+    }
+  }
+  // Round 6 (CF-a, B2): SIGTERM to the runner alone. During the checks phase: the checks phase
+  // stops, the exit code is the scored phase's (0) and no session file is left; during the scored
+  // phase: no checks phase, exit 143, no session file.
+  // One worker and two routes, so checks are still running and still waiting 4 s into the phase.
+  const sigDir = project(path.join(WORK, `${kind}-signal-checks`), kind, { "e2e/dod/routes.json": ["/busy-resize", "/clean"], "e2e/dod/standard.json": { ...STANDARD, mode: "report", coreUnit: undefined } });
+  const sg = await playwright(sigDir, port, { DOD_WORKERS: "1" }, { after: "scored phase done", delayMs: 4000, sig: "SIGTERM" });
+  const sgWhy = Object.keys((fs.existsSync(path.join(sigDir, "reports", "dod", "dod.json")) && report(sigDir).standard?.not_checked?.reasons) || {});
+  ok(
+    sg.code === 0 && !fs.existsSync(path.join(sigDir, "node_modules", ".cache", "dod", "qa-storage-state.json")) && sg.secs < 90 && sgWhy.some((k) => k.includes("stopped by SIGTERM")),
+    `${kind}: SIGTERM to the runner during the checks phase: exit ${sg.code} (the scored phase's), no session file, stopped in ${sg.secs} s, dod.json says why (${sgWhy.join("; ").slice(0, 100)})`,
+  );
+  const sig2Dir = project(path.join(WORK, `${kind}-signal-scored`), kind, { "e2e/dod/routes.json": ["/slow"], "e2e/dod/standard.json": { ...STANDARD, mode: "report", coreUnit: undefined } });
+  const sg2 = await playwright(sig2Dir, port, {}, { after: "QA session saved", delayMs: 4000, sig: "SIGTERM" });
+  ok(
+    sg2.code === 143 && !sg2.log.includes("scored phase done") && !fs.existsSync(path.join(sig2Dir, "node_modules", ".cache", "dod", "qa-storage-state.json")),
+    `${kind}: SIGTERM to the runner during the scored phase: exit ${sg2.code}, no checks phase, no session file`,
+  );
   // F3: after maxTimeouts entries ran out of time, the rest of the run is not checked: one worker,
   // /busy-once's 375 light entry runs out first, the 7 entries after it are skipped, and in
   // enforce mode each of them is errored.

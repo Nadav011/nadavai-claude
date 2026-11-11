@@ -15,13 +15,12 @@ import {
   loadRoutes,
   loadScoring,
   NOT_FOUND_PRINT,
-  normalizeRegionText,
   routeSlug,
   type EntryResult,
   type NotFoundPrint,
   type RouteEntry,
 } from "./dod-shared";
-import { reachRoute, settle, touchTargets } from "./dod-page";
+import { accessCheck, hasSignInForm, reachRoute, settle, touchTargets } from "./dod-page";
 
 // The scored phase. It never reads standard.json: the experience standard's checks are another
 // phase (standard.spec.ts), run by run-dod.mjs after every entry of this one has finished.
@@ -34,24 +33,6 @@ const notFoundPrint: NotFoundPrint | null = fs.existsSync(NOT_FOUND_PRINT)
   : null;
 
 
-
-/** The route's own region text, the same region reachRoute reads. */
-function regionText(page: Page): Promise<string> {
-  return page.evaluate(() => {
-    const region = document.querySelector("main, #main-content, #root, #__next") ?? document.body;
-    return (region as HTMLElement).innerText ?? "";
-  });
-}
-
-/**
- * Not-found and denial wording, the fallback when the page carries neither the standard's
- * markers nor the app's printed not-found text. Each is a phrase, never a bare number or a
- * bare word: "forbidden" or a "404" on a stat card is content.
- */
-const NOT_FOUND_WORDING =
-  /הדף לא נמצא|העמוד לא נמצא|הדף שחיפשת|שגיאה 404|page not found|this page could not be found|404 not found|error 404/i;
-const DENIED_WORDING =
-  /אין לך הרשאה|אין לך גישה|שגיאה 403|שגיאה 401|access denied|you (do not|don't) have (permission|access)|not authorized to|403 forbidden|401 unauthorized/i;
 
 async function fontFamilies(page: Page): Promise<string[]> {
   return page.evaluate(() => {
@@ -160,100 +141,16 @@ async function measureEntry(
     result.status = resp?.status() ?? null;
     await settle(page);
 
-    // Access check: the QA account must be able to open every page. A non-2xx,
-    // a bounce to a login or access-denied screen, or an empty body means the
-    // page was not measured, so it must not be scored as if it passed.
-    const landed = new URL(page.url()).pathname + new URL(page.url()).search;
-    const expected = route.split("?")[0] ?? route;
-    // ANY redirect away from the requested path means this page was not
-    // measured, wherever it went. The rule used to be `!landed.startsWith(expected)`
-    // AND a keyword test for a login-looking destination — two holes at once.
-    // A middleware that sends an unauthorised visitor to `/` matches no keyword,
-    // so on Green Room 52 admin and coach routes could each have been awarded
-    // the HOME PAGE's score, four entries apiece, and the report would have
-    // said 100. And `startsWith` let `/admin` stand in for `/adminXYZ`.
-    //
-    // Apps do have legitimate aliases, so `alias` is the narrow, declared
-    // exception: the destination must itself be a route in the list, so it is
-    // measured under its own name. A GATED route (an area listed in `_gated`)
-    // may leave its own area only if route-params.json says so in writing,
-    // under `_alias` — otherwise "it left /admin" is indistinguishable from
-    // "the middleware refused it", the very failure this check exists to catch.
-    const landedPath = landed.split("?")[0] ?? landed;
-    const GATED_AREAS = params._gated ?? [];
-    const gated = GATED_AREAS.find(
-      (prefix) => expected === prefix || expected.startsWith(`${prefix}/`),
-    );
-    const leftItsArea =
-      !!gated && !(landedPath === gated || landedPath.startsWith(`${gated}/`));
-    const declaredAlias = params._alias ?? {};
-    const alias =
-      landedPath !== expected &&
-      (!leftItsArea || route in declaredAlias) &&
-      routes.some(({ route: r }) => (r.split("?")[0] ?? r) === landedPath);
-    if (alias) result.redirected_to = landed;
-    const bounced = landedPath !== expected && !alias;
-    const deniedText = await page
-      .locator("body")
-      .innerText()
-      .catch(() => "");
-    // The standard's own markers are the first signal: a page that renders its
-    // no-access or not-found state says so in markup, whatever its words. A route that
-    // asks for that state (?state=no-access) is the designed screen, not a refusal.
-    const askedState = new URLSearchParams(route.split("?")[1] ?? "").get("state");
-    const marker = await page
-      .evaluate(() =>
-        ["no-access", "not-found"].find((s) =>
-          [...document.querySelectorAll(`[data-state="${s}"]`)].some((el) =>
-            el.checkVisibility({ opacityProperty: true, visibilityProperty: true }),
-          ),
-        ),
-      )
-      .catch(() => undefined);
-    // Then the app's real not-found page, printed in global-setup: the same region
-    // text means this route rendered it.
-    const rendersNotFound =
-      !!notFoundPrint &&
-      notFoundPrint.text.length > 0 &&
-      normalizeRegionText(await regionText(page).catch(() => ""), expected) === notFoundPrint.text;
-    if (result.status !== null && result.status >= 400) {
+    // Access check: the QA account must be able to open every page (accessCheck in
+    // dod-page.ts, the same code the checks phase runs on its own load of the route).
+    const access = await accessCheck(page, route, result.status, { routes, params, notFoundPrint });
+    if (access.redirected_to) result.redirected_to = access.redirected_to;
+    if (access.unreachable_reason) {
       result.unreachable = true;
-      result.unreachable_reason = `HTTP ${result.status}`;
-    } else if (bounced) {
-      result.unreachable = true;
-      result.unreachable_reason = `redirected to ${landed}: the QA account has no access`;
-    } else if (marker === "no-access" && askedState !== "no-access") {
-      result.unreachable = true;
-      result.unreachable_reason = 'access-denied screen rendered ([data-state="no-access"])';
-    } else if (
-      !route.includes("404") &&
-      askedState !== "not-found" &&
-      (marker === "not-found" || rendersNotFound || NOT_FOUND_WORDING.test(deniedText))
-    ) {
-      // A route in the list that answers with the app's own not-found page is
-      // not being measured — it is the 404 screen being measured 110 times.
-      // /book/confirmed did exactly this: it needs ?bookingId=, so the gate
-      // scored the not-found page 100 while the screen that shows a customer
-      // their door code was never opened. A route list is only as good as the
-      // parameters that make its pages real.
-      result.unreachable = true;
-      result.unreachable_reason = `renders the not-found page (${
-        marker === "not-found" ? "[data-state=\"not-found\"]" : rendersNotFound ? "the app's not-found text" : "not-found wording"
-      }) — the route needs a query parameter (add it to routes.json)`;
-    } else if (DENIED_WORDING.test(deniedText)) {
-      // A phrase, never the digits: a 401 or 403 is a status code and is caught above
-      // through the response status, while "401" in a price is content.
-      result.unreachable = true;
-      result.unreachable_reason = "access-denied screen rendered";
-    } else if (askedState !== "error" && /משהו השתבש|שגיאה בטעינה|something went wrong|try again later/i.test(deniedText)) {
-      // (A route asked as ?state=error is meant to show the error screen.)
-      // An error boundary that caught a failed fetch renders a tidy little
-      // card: no overflow, no axe violation, no console error (it was
-      // caught), two fonts, no small targets. Indistinguishable from a
-      // perfect page unless the copy is matched.
-      result.unreachable = true;
-      result.unreachable_reason = "the app's own error screen rendered";
+      result.unreachable_reason = access.unreachable_reason;
     }
+    // Recorded, not scored: the checks phase compares its own load with it.
+    result.signin_form = await hasSignInForm(page);
 
     // Only worth asking once the response itself is sound: an access-denied
     // screen has painted perfectly well, it is just the wrong page.

@@ -1,8 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
 import { chromium, type FullConfig } from "@playwright/test";
+import { hasSignInForm } from "./dod-page";
 import {
   CHECKS_DEADLINE_FILE,
+  CHECKS_SIGNIN_FILE,
+  loadStandard,
   NOT_FOUND_PRINT,
   PHASE,
   REPORTS_DIR,
@@ -80,6 +83,9 @@ async function printNotFound(baseURL: string) {
  * which is the correct, loud failure.
  */
 export default async function globalSetup(config: FullConfig) {
+  // A standard.json that cannot be read stops the run here, before the walk, not in the teardown
+  // after it. Validation only: a valid file changes nothing in the scored phase.
+  loadStandard();
   // This suite signs in with the widest role the app has and then opens every page
   // in it, hundreds of browser entries deep. Pointed at a production backend that is
   // a full-access crawl of real customer data by an automated browser. Nothing here
@@ -134,6 +140,7 @@ export default async function globalSetup(config: FullConfig) {
     for (const f of fs.readdirSync(RESULTS_DIR))
       if (f.endsWith(".standard.json") || f === "standard-timeouts.txt") fs.rmSync(path.join(RESULTS_DIR, f), { force: true });
     fs.rmSync(CHECKS_DEADLINE_FILE, { force: true });
+    fs.rmSync(CHECKS_SIGNIN_FILE, { force: true });
   } else {
     fs.rmSync(RESULTS_DIR, { recursive: true, force: true });
     fs.rmSync(SCREENS_DIR, { recursive: true, force: true });
@@ -170,15 +177,29 @@ export default async function globalSetup(config: FullConfig) {
     await page.fill(process.env.DOD_PASSWORD_SELECTOR ?? "input[type=password]", password);
     await page.click(process.env.DOD_SUBMIT_SELECTOR ?? "button[type=submit]");
     await page.waitForLoadState("networkidle").catch(() => {});
+    // The sign-in must have landed: after the submit, not still on the sign-in path and no sign-in
+    // form on screen, and none on the ready page either. A form that answers a wrong password with
+    // itself again is a failed sign-in, whatever the HTTP status said.
+    const loginPath = new URL(process.env.DOD_LOGIN_PATH ?? "/login", page.url()).pathname;
+    const afterSubmit = new URL(page.url()).pathname;
+    if (afterSubmit === loginPath || (await hasSignInForm(page)))
+      throw new Error(`the sign-in did not land: after the submit the page is ${afterSubmit}, ${afterSubmit === loginPath ? "the sign-in path" : "with a sign-in form"}`);
     await page.goto(process.env.DOD_READY_PATH ?? "/", { waitUntil: "domcontentloaded" });
+    if (new URL(page.url()).pathname === loginPath || (await hasSignInForm(page)))
+      throw new Error(`the sign-in did not land: ${process.env.DOD_READY_PATH ?? "/"} shows the sign-in again`);
     // Readable by this user only: it holds the QA account's session cookies. Removed above, so
     // the mode applies to a new file; global-teardown deletes it after the run.
     fs.mkdirSync(path.dirname(STORAGE_STATE), { recursive: true, mode: 0o700 });
     fs.writeFileSync(STORAGE_STATE, JSON.stringify(await page.context().storageState()), { mode: 0o600 });
     console.log(`[dod] QA session saved for ${user}.`);
   } catch (err) {
-    console.error(`[dod] QA login failed: ${err instanceof Error ? err.message : String(err)}`);
-    console.error("[dod] Every gated page will report as unreachable and the score will be 0. Fix the login first.");
+    const why = err instanceof Error ? err.message : String(err);
+    console.error(`[dod] QA login failed: ${why}`);
+    if (PHASE === "checks") {
+      // The checks phase judges nothing signed-in without a session: each such entry says so.
+      fs.writeFileSync(CHECKS_SIGNIN_FILE, why.slice(0, 500));
+      console.error("[dod] The standard's checks of every signed-in page are \"not checked\" (errored where enforced).");
+    } else console.error("[dod] Every gated page will report as unreachable and the score will be 0. Fix the login first.");
   } finally {
     await browser.close();
   }

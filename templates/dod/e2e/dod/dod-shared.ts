@@ -295,8 +295,19 @@ export function notFinished(ids: string[], why: string): Record<string, CheckRes
 
 /** Which phase of `pnpm dod` this process is (run-dod.mjs sets DOD_PHASE). */
 export const PHASE: "scored" | "checks" = process.env.DOD_PHASE === "checks" ? "checks" : "scored";
-/** Written by run-dod.mjs when the checks phase reached its deadline (`checksMinutes`). */
+/** Written by global-setup of the checks phase when its sign-in did not land: what went wrong. */
+export const CHECKS_SIGNIN_FILE = path.join(RESULTS_DIR, "checks-signin-failed.txt");
+/** Written by run-dod.mjs when it stopped the checks phase (its `checksMinutes` deadline, or a
+ *  signal to the runner), with why. */
 export const CHECKS_DEADLINE_FILE = path.join(RESULTS_DIR, "checks-deadline.json");
+/** Why run-dod.mjs stopped the checks phase (its deadline, or a signal to the runner). */
+export function checksStoppedWhy(minutes: number): string {
+  try {
+    return (JSON.parse(fs.readFileSync(CHECKS_DEADLINE_FILE, "utf8")) as { why?: string }).why ?? `reached its deadline (checksMinutes ${minutes})`;
+  } catch {
+    return `reached its deadline (checksMinutes ${minutes})`;
+  }
+}
 /** The checks phase's own file for an entry, next to the scored one. */
 export const standardFile = (name: string) => path.join(RESULTS_DIR, `${name}.standard.json`);
 
@@ -403,6 +414,9 @@ export interface EntryResult {
   standard_unchecked?: string;
   /** The URL the scored phase measured (after a declared alias); the checks phase loads it. */
   measured_url?: string;
+  /** Whether the measured page showed a sign-in form (a visible password field). The checks phase
+   *  compares: a form there that the scored phase did not see means its session is not signed in. */
+  signin_form?: boolean;
   /** The mechanical probe, by size ("320x700"); light scheme only. */
   probe?: Record<string, ProbeAt>;
 }

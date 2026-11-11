@@ -3,6 +3,7 @@ import path from "node:path";
 import {
   aggregate,
   CHECKS_DEADLINE_FILE,
+  checksStoppedWhy,
   loadScoring,
   notFinished,
   PHASE,
@@ -26,13 +27,14 @@ import {
 } from "./dod-shared";
 
 export default async function globalTeardown() {
+  // First, before anything that can throw (a bad standard.json, a missing routes.json): the QA
+  // session is needed only while the run lasts, and global-setup signs in again on every run.
+  // DOD_KEEP_STORAGE_STATE=1 keeps it for a tool that needs the session afterwards.
+  if (process.env.DOD_KEEP_STORAGE_STATE !== "1") fs.rmSync(STORAGE_STATE, { force: true });
   const routes = loadRoutes();
   const excluded = excludedRoutes(loadParams());
   const standard = loadStandard();
   const enforce = standardEnforced(standard);
-  // The QA session is needed only while the run lasts: global-setup signs in again on every run.
-  // DOD_KEEP_STORAGE_STATE=1 keeps it for a tool that needs the session afterwards.
-  if (process.env.DOD_KEEP_STORAGE_STATE !== "1") fs.rmSync(STORAGE_STATE, { force: true });
   const scoring = loadScoring();
   // Configuration the run could not act on: said in dod.json and on the console, never silent.
   const configErrors: string[] = [];
@@ -68,13 +70,18 @@ export default async function globalTeardown() {
         if (part.standard_error) e.standard_error = part.standard_error;
         if (part.standard_retried) e.standard_retried = part.standard_retried;
         if (part.standard_skipped) e.standard_skipped = part.standard_skipped;
+        // Judged nothing (not the scored page, or no session): "not checked", with its reason.
+        if (part.standard_unchecked) {
+          e.standard_unchecked = part.standard_unchecked;
+          notChecked[part.standard_unchecked] = (notChecked[part.standard_unchecked] ?? 0) + 1;
+        }
         continue;
       }
       const why =
         PHASE === "scored"
           ? "not checked: the checks phase has not run (pnpm dod runs it after the scored phase)"
           : fs.existsSync(CHECKS_DEADLINE_FILE)
-            ? `not checked: the checks phase reached its deadline (checksMinutes ${standard.checksMinutes})`
+            ? `not checked: the checks phase ${checksStoppedWhy(standard.checksMinutes)}`
             : "not checked: its checks test left no result (it failed or was cut short)";
       e.standard = notFinished(plannedChecks(standard, e.route, e.viewport, e.scheme), why);
       e.standard_unchecked = why;
