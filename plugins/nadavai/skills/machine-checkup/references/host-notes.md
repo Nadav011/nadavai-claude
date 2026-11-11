@@ -75,6 +75,13 @@ Mobile with an HDMI screen: https://forums.developer.nvidia.com/t/driver-580-gsp
 GC6 exit: https://forums.developer.nvidia.com/t/gsp-rm-firmware-bug-heartbeat-stops-after-gc6-exit-leads-to-fatal-gpu-loss-xid-79-and-broken-display-recovery/366591 ),
 so there is nothing to apply on evidence yet; the two levers people report are the runtime power
 setting and the driver version.
+It came back under nvidia 620.70.06 on 2026-11-10 at 23:05, five hours after boot:
+`gpuWaitForGfwBootComplete_TU102: failed to wait for GFW_BOOT`, then Xid 119 (GSP RPC timeout),
+`nvidia-smi` showing "[GPU requires reset]", `nvidia-cdi-refresh.service` failing on "error
+getting MIG mode: GPU requires reset", and "GCx pre-requisite" every 5 s. Found by
+`update-audit.sh` and `msi-tuning-check` on 2026-11-11; the GFW_BOOT line points at the card
+waking from runtime sleep, which makes the `NVreg_DynamicPowerManagement=0x02` measurement the
+next step.
 
 **LENOVO** (Legion Pro 5 16IAX10H, Core Ultra 9 275HX 24 cores, 62 GB, RTX 5070 Ti, CachyOS,
 BIOS Q6CN79WW = latest per `download.lenovo.com/catalog/83LU_Win11.xml`; the main machine since
