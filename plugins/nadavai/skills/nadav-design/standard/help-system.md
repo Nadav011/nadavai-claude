@@ -81,7 +81,10 @@ In the design-skill session, the same evening:
   לא נכון לעצור באמצע מדריך כי זה 4 או לא להראות משהו שלוקח לו יותר מ4 וחשוב כי זה 4 אתה מבי
   מה אני ארומר" [N]. So there is no cap on steps: a number never cuts a tour and
   never drops something important. How a long job is laid out (chapters, below) he left to
-  this session [I].
+  this session [I];
+- on 11.11.2026, asked whether a new person should practise closing a treatment, a payment
+  and a receipt to the end somewhere safe, with the stop at "הבנתי" as the rule until then:
+  he picked "כן, בתוך מצב התרגול" [A].
 
 **How long, and a long job (G-07).** A tour takes as many steps as its job needs to reach its
 result ([N], above). A result is a change to the record that the screen shows and the help
@@ -99,13 +102,19 @@ one tour however many steps it takes.
 "סגירת טיפול ותשלום" in MediZen has three results: the treatment is closed, the payment is
 taken, the receipt is sent. Its spec classes all three as permanent (HL-03: a receipt takes a
 fixed number and is corrected only by a credit), and G-20 never lets a tour do them on the
-sample in the clinic's real books. So each of the three chapters takes her through the steps
-she can do and ends at "הבנתי" on its button, with the sentence of what pressing it does.
-MediZen's sample patient has no payments and no receipts (#391), and nobody adds one to make a
-chapter work: where the control does not exist on the sample, the step is a centred card.
-Whether she should be able to do such a job to its end somewhere safe is Nadav's to decide,
-and open. MediZen already has a practice mode in its spec (HL-12) in which no document number
-is taken, so there the question is whether a tour's permanent chapters may run inside it.
+sample in the clinic's real books. So in the real clinic each of the three chapters takes her
+through the steps she can do and ends at "הבנתי" on its button, with the sentence of what
+pressing it does. MediZen's sample patient has no payments and no receipts (#391), and nobody
+adds one to make a chapter work: where the control does not exist on the sample, the step is a
+centred card. To do the job to its end she goes into practice mode. Asked on 11.11.2026 whether
+she should practise these to the end somewhere safe, Nadav picked "כן, בתוך מצב התרגול" [A]:
+MediZen's spec has a practice mode (HL-12) in which every message lands in a "היה נשלח" tray,
+every payment is pretend, no provider is called and no document number is taken, so there the
+tour runs the payment and the receipt to the end and she issues a practice receipt herself. The
+chapter's card offers it ("לתרגל את זה עד הסוף"), her tap opens the mode's own entry dialog, and
+leaving the mode discards the copy. How the tour is carried into the mode and back is for
+MediZen's spec to draw; this file fixes only that she enters by her own tap and that outside the
+mode the step stops.
 
 Why break at results at all: the more steps in one sitting, the fewer people finish (Chameleon's
 2024 benchmark: tours of more than four steps complete below the average, five-step tours about
@@ -168,8 +177,10 @@ issuing a numbered document (a receipt, an invoice, a credit), taking or recordi
 and closing a record for good. A practice receipt that took a real number cannot be removed. The
 real books are every place in the live account where a document number is taken or the documents
 provider is called; a separate "sample" numbering inside the live account is not outside them
-unless Nadav says so. Whether a tour may do these in a practice mode that takes no number and
-reaches no provider is his open question (below the example above).
+unless Nadav says so. The one exception is a practice mode in which no document number is taken
+and no provider can be reached, proven by that mode's own tests: there she does them herself, to
+the end (his pick of 11.11.2026 [A], in the example above). She enters the mode by her own tap;
+a tour that opened by itself never moves her into it.
 
 What a step created is removed when she finishes the job's last chapter, or at the end of the
 day on which she left the tour and did not come back to it; a resume after that starts at the
