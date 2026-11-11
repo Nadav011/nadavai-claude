@@ -1348,6 +1348,10 @@ const TOUR_FIXTURES = [
   ['practice-not-sample', 'tour-no-commit', 'G-20', 'a practice-only step that does not run on the sample record', m => { delete tourOf(m, 'close-3').steps[1].on; }],
   ['record-not-sample', 'tour-no-commit', 'G-08', 'a do step that opens a record that is not the sample record', m => { delete tourOf(m, 'close-1').steps[0].on; }],
   ['do-class', 'tour-no-commit', 'G-20', 'a practice-only step with no class and no tests', m => { const s = tourOf(m, 'close-3').steps[1]; delete s.class; s.practiceOnly = {}; s.safeTest = 'e2e/x.spec.ts: y'; }],
+  ['view-of', 'tour-shape', 'G-21', 'a viewOf that names a screen the inventory does not have', (m, i) => { i.screens['cal-day'].viewOf = 'ghost'; }],
+  ['view-of', 'tour-shape', 'G-21', 'a viewOf that names the key itself', (m, i) => { i.screens['cal-day'].viewOf = 'cal-day'; }],
+  ['view-of', 'tour-shape', 'G-21', 'a viewOf that names a screen that is itself a view', (m, i) => { i.screens.import.viewOf = 'cal-day'; }],
+  ['view-of', 'tour-shape', 'G-21', 'a view of a screen in another core entry', m => { m.core = [{ id: 'calendar', screens: ['cal-week'] }, { id: 'day', screens: ['cal-day'] }, { id: 'patients', screens: ['patients'] }]; }],
   ['start-screen', 'manifest', null, 'a start on a screen the tour does not list', m => { tourOf(m, 'book').start.screen = 'settings-msgs'; }],
   ['chapter-end', 'tour-shape', 'G-07', 'a chapter whose phone run ends at a showing step', m => { const t = tourOf(m, 'close-1'); t.steps.push({ kind: 'next', when: 'phone', anchor: 'appt.note', text: 'בטלפון: כאן עוד משהו.' }, { kind: 'stop', class: 'S', when: 'desktop', anchor: 'appt.note', text: 'במחשב: "סיכום" פותח את הרשומה.' }); }],
   ['article-anchor', 'help-refs', 'G-02, G-19', 'an article on one screen names a control of another screen', (m, i) => { i.screens.patients.tasks[0].anchors.push('cal.print'); }],
@@ -1390,6 +1394,11 @@ await test('TOUR-usage', 'tour-check exits 2 with no manifest, a missing file, a
     const r = sh('node', [path.join(TOURS, 'tour-check.mjs'), ...args]);
     if (r.status !== 2 || !r.stderr.includes(re)) why.push(`${args.join(' ') || '(none)'}: exit ${r.status} ${r.stderr.trim()}`);
   }
+  for (const [file, re] of [[path.join(TMP, 'tours-missing.json'), /cannot read/], [bad, /not JSON/]]) {
+    const r = sh('node', [path.join(TOURS, 'tour-check.mjs'), file, '--json']);
+    let o = null; try { o = JSON.parse(r.stdout); } catch { /* reported below */ }
+    if (r.status !== 2 || !o || o.ok !== false || !re.test(o.error)) why.push(`${path.basename(file)} --json: exit ${r.status} ${r.stdout.trim()}`);
+  }
   return why.join(' · ');
 });
 await test('TOUR-text', 'tour-check prints one line per finding with the check, the rule, the tour and the step, and exits 1', async () => {
@@ -1408,7 +1417,7 @@ await test('TOUR-schema', 'tour-check holds the manifest and the inventory to th
     ['a stop step with no class', m => { delete tourOf(m, 'book').steps[4].class; }, '/tours/0/steps/4'],
     ['an anchor id with no dot', m => { tourOf(m, 'book').steps[0].anchor = 'newbutton'; }, '/tours/0/steps/0/anchor'],
     ['an open result whose arg is not a window id', m => { tourOf(m, 'book').steps[1].result.arg = { window: 'appt.create' }; }, '/tours/0/steps/1/result/arg'],
-    ['a route result with neither is nor changed', m => { tourOf(m, 'pat-debt').steps[2].result.arg = { was: 'x' }; }, '/tours/4/steps/2/result/arg'],
+    ['a route result with neither is nor changed', m => { tourOf(m, 'reminder').steps[0].result.arg = { was: 'x' }; }, '/tours/5/steps/0/result/arg'],
     ['chapter 0', m => { tourOf(m, 'close-1').chapter = [0, 3]; }, '/tours/1/chapter/0'],
     ['a reopen with no window', m => { delete tourOf(m, 'book').steps[2].need[0].window; }, '/tours/0/steps/2/need/0'],
     ['an arg with no anchor', m => { delete tourOf(m, 'pat-debt').steps[0].anchor; }, '/tours/4/steps/0'],
@@ -1452,7 +1461,7 @@ await test('TOUR-words', 'a step of exactly twelve words passes and one of thirt
   }
   return why.join(' · ');
 });
-await test('TOUR-views', 'core screens count once per screen: six keys of which one is marked viewOf pass, the same without the mark or without the inventory fail', async () => {
+await test('TOUR-views', 'core screens count once per screen: six keys of which one is a view pass, fail without the mark, and without the inventory are a note; six entries fail without the inventory too', async () => {
   const why = [];
   const m = clone(TOUR_EX);
   m.core = [{ id: 'calendar', screens: ['cal-week', 'cal-day'] }, ...['patients', 'settings-msgs', 'import', 'appt-new'].map(id => ({ id, screens: [id] }))];
@@ -1460,10 +1469,59 @@ await test('TOUR-views', 'core screens count once per screen: six keys of which 
   if (ok.status !== 0 || !ok.out || ok.out.findings.length) why.push(`with viewOf: exit ${ok.status} ${JSON.stringify(ok.out && ok.out.findings.map(f => f.code))}`);
   const inv = clone(INV_EX);
   delete inv.screens['cal-day'].viewOf;
-  for (const [what, r] of [['without viewOf', tourCheck(m, inv)], ['without the inventory', tourCheck(m, null)]]) {
-    const got = r.out ? r.out.findings.map(f => f.code) : [];
-    if (r.status !== 1 || got.join(',') !== 'core-count') why.push(`${what}: exit ${r.status} ${JSON.stringify(got)}`);
-  }
+  const r = tourCheck(m, inv);
+  const got = r.out ? r.out.findings.map(f => f.code) : [];
+  if (r.status !== 1 || got.join(',') !== 'core-count') why.push(`without viewOf: exit ${r.status} ${JSON.stringify(got)}`);
+  const bare = tourCheck(m, null);
+  if (bare.status !== 0 || !bare.out || bare.out.findings.length || !bare.out.notes.some(n => /needs --inventory/.test(n.message))) why.push(`without the inventory: exit ${bare.status} ${JSON.stringify(bare.out && { f: bare.out.findings.map(f => f.code), n: bare.out.notes })}`);
+  const six = clone(m);
+  six.core.push({ id: 'reports', screens: ['reports'] });
+  const s6 = tourCheck(six, null);
+  if (s6.status !== 1 || !s6.out || s6.out.findings.map(f => f.code).join(',') !== 'core-count') why.push(`six entries without the inventory: exit ${s6.status} ${JSON.stringify(s6.out && s6.out.findings.map(f => f.code))}`);
+  const cyc = clone(INV_EX);
+  cyc.screens['cal-week'].viewOf = 'cal-day';
+  const c = tourCheck(TOUR_EX, cyc);
+  if (c.status !== 1 || !c.out || c.out.findings.map(f => f.code).join(',') !== 'view-of,view-of') why.push(`a cycle: exit ${c.status} ${JSON.stringify(c.out && c.out.findings.map(f => f.code))}`);
+  return why.join(' · ');
+});
+// manifests that must pass, each with the marked line that makes them pass: without it the checker fails them
+const TOUR_PASSES = [
+  ['walk-skip', 'a chapter whose phone run ends at a do step with a result and whose computer run ends at a stop step', m => { const t = tourOf(m, 'close-1'); const stop = t.steps.pop(); t.steps.push({ kind: 'next', when: 'desktop', anchor: 'appt.note', text: 'במחשב: כאן הסיכום.' }, { ...stop, when: 'desktop' }); }],
+  ['walk-stop', 'the same chapter: the computer run stops at its stop step and does not judge the steps before it', m => { const t = tourOf(m, 'close-1'); const stop = t.steps.pop(); t.steps.push({ kind: 'next', when: 'desktop', anchor: 'appt.note', text: 'במחשב: כאן הסיכום.' }, { ...stop, when: 'desktop' }); }],
+  ['anchor-args', 'an article names an arg that its anchors entry lists', (m, i) => { m.anchors['cal.print'].args = ['week', 'day']; i.screens['cal-week'].tasks[2].anchors = [{ anchor: 'cal.print', arg: 'week' }]; }],
+  ['start-record', 'a start on the sample record', m => { tourOf(m, 'close-1').start = { screen: 'cal-week', record: 'sample', date: 'today' }; }],
+];
+for (const [code, what, change] of TOUR_PASSES) {
+  await test(`TOUR-pass-${code}`, `tour-check passes ${what}; without the line M:${code} it fails it`, async () => {
+    const m = clone(TOUR_EX);
+    const inv = clone(INV_EX);
+    change(m, inv);
+    const r = tourCheck(m, inv);
+    if (r.status !== 0 || !r.out || r.out.findings.length) return `fixture: exit ${r.status} ${JSON.stringify(r.out && r.out.findings.map(f => [f.code, f.step]))}`;
+    const mu = tourCheck(m, inv, mutant(code));
+    return mu.status === 1 && mu.out && mu.out.findings.length ? '' : `mutant without M:${code}: exit ${mu.status} ${JSON.stringify(mu.out && mu.out.findings.map(f => f.code))}`;
+  });
+}
+await test('TOUR-walk', 'a chapter that ends at a stop step only under a condition fails at the showing step before it, which ends the run when the condition does not hold', async () => {
+  const m = clone(TOUR_EX);
+  const t = tourOf(m, 'close-1');
+  const stop = t.steps.pop();
+  t.steps.push({ kind: 'next', anchor: 'appt.note', text: 'כאן הסיכום.' }, { ...stop, when: 'appt.has-note' });
+  const r = tourCheck(m, INV_EX);
+  const got = r.out ? r.out.findings.map(f => `${f.code}@${f.step}`) : [];
+  return r.status === 1 && got.join(',') === 'chapter-end@2' ? '' : `exit ${r.status} ${JSON.stringify(got)}`;
+});
+await test('TOUR-kinds', 'a do step that opens a person\'s record without on: sample fails, and one that opens a rule\'s window (open) passes', async () => {
+  const why = [];
+  const m = clone(TOUR_EX);
+  tourOf(m, 'reminder').steps[1].result = { kind: 'open', arg: 'settings.rule-window' };
+  const ok = tourCheck(m, INV_EX);
+  if (ok.status !== 0 || !ok.out || ok.out.findings.length) why.push(`open on a rule: exit ${ok.status} ${JSON.stringify(ok.out && ok.out.findings.map(f => f.code))}`);
+  const p = clone(TOUR_EX);
+  const s = tourOf(p, 'close-2').steps[0];
+  delete s.on;
+  const bad = tourCheck(p, INV_EX);
+  if (bad.status !== 1 || !bad.out || bad.out.findings.map(f => f.code).join(',') !== 'record-not-sample') why.push(`recordOpen without on: exit ${bad.status} ${JSON.stringify(bad.out && bad.out.findings.map(f => f.code))}`);
   return why.join(' · ');
 });
 await test('TOUR-malformed', 'a tour or a step that is not an object, or a manifest that is not an object, exits 2 with the reason, as JSON under --json', async () => {

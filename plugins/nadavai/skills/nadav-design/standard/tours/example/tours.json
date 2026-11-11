@@ -31,7 +31,7 @@
           "text": "בוחרים את נועה לדוגמה, מטופלת לתרגול שלא מקבלת הודעות.",
           "showText": "כאן בוחרים מטופל מהרשימה, או כותבים שם או טלפון.",
           "variants": [{ "when": "appt.other-picked", "text": "לתרגול בוחרים את נועה לדוגמה. לוחצים \"החלפה\"." }] },
-        { "kind": "do", "act": "select", "anchor": "appt.service", "result": { "kind": "custom", "arg": "appt.service-chosen" },
+        { "kind": "do", "act": "select", "on": "sample", "anchor": "appt.service", "result": { "kind": "custom", "arg": "appt.service-chosen" },
           "need": [{ "do": "reopen", "window": "appt.create" }, { "do": "selectSample" }],
           "safeTest": "e2e/tours/sample-safe.spec.ts: choosing a service sends nothing",
           "text": "בוחרים טיפול מהרשימה." },
@@ -129,10 +129,8 @@
           "safeTest": "e2e/tours/sample-safe.spec.ts: a filter changes nothing",
           "text": "לוחצים \"לא שולם\". נשארים רק מי שחייבים כסף." },
         { "kind": "next", "anchor": "patients.row", "text": "בכל שורה רואים כמה המטופל חייב, ומאז מתי." },
-        { "kind": "do", "act": "open", "when": "phone", "anchor": "patients.row", "result": { "kind": "route", "arg": { "is": "card-money" } },
-          "safeTest": "e2e/tours/sample-safe.spec.ts: opening a card changes nothing",
-          "text": "בטלפון לוחצים על השורה. הכרטיס נפתח." },
-        { "kind": "stop", "class": "P", "anchor": "patients.charge", "text": "\"חיוב\" גובה מהכרטיס השמור. אי אפשר לבטל אותו." }
+        { "kind": "next", "when": "phone", "anchor": "patients.row", "text": "בטלפון לוחצים על השורה, והחיוב נמצא בכרטיס שנפתח." },
+        { "kind": "stop", "class": "P", "when": "desktop", "anchor": "patients.charge", "text": "\"חיוב\" גובה מהכרטיס השמור. אי אפשר לבטל אותו." }
       ],
       "finish": "עכשיו ידוע איך מוצאים ממי לגבות, ואיפה גובים."
     },
@@ -144,7 +142,7 @@
       "where": "הגדרות · הודעות",
       "tasks": ["לשנות תזכורת"],
       "steps": [
-        { "kind": "do", "act": "open", "when": "settings.msgs-closed", "anchor": "settings.tab", "arg": "הודעות", "result": { "kind": "view", "arg": { "is": "settings-msgs" } },
+        { "kind": "do", "act": "open", "when": "settings.msgs-closed", "anchor": "settings.tab", "arg": "הודעות", "result": { "kind": "route", "arg": { "is": "settings-msgs" } },
           "safeTest": "e2e/tours/sample-safe.spec.ts: opening a settings part changes nothing",
           "text": "לוחצים על \"הודעות\" ברשימת ההגדרות." },
         { "kind": "do", "act": "open", "anchor": "settings.row-edit", "arg": "תזכורת לפני תור", "result": { "kind": "open", "arg": "settings.edit-sheet" },

@@ -220,11 +220,12 @@ target degrades to a centred card with "הבא", never to a broken overlay. Adde
 of this rule ([P]): a resume never puts her back over something she chose or typed since, it
 asks; and the tour offers to bring the sample back only where the project allows one at that
 moment (a clinic that imported its data has none). So the only things a tour does by itself are
-bringing her, when it starts, to its start state (its screen and the sample record, the view and
-the date; it closes a window that holds no unsaved input, asks first where one does, and never
-saves, sends or discards anything: this skill's reading of G-08 [I]), and putting her back where
-she stopped, as above. It opens no window at its start: a tour that needs one begins with a step
-that opens it on the sample's record [I].
+bringing her, when it starts, to its start state, and putting her back where she stopped, as
+above (this skill's reading of G-08 [I]). The built version, at a tour's start, went to its
+screen and, where the tour needed it, set the view and the date and closed what was open ([B]). Going to the sample record and
+never to a named one, opening no window at the start (a tour that needs one begins with a step
+that opens it on the sample's record), and asking before closing a window that holds unsaved
+input are this skill's reading [I]. A start never saves, sends or discards anything.
 
 **The tour manifest (G-19, and the `tour-*` checks).** This paragraph and the next four are this
 skill's own [I]. A tour is designed in the demo and built again in the app, so its content is
@@ -237,7 +238,9 @@ written for each of them. Two layers:
   `date: "today"`; `close`; and nothing else), the article tasks it shows, its steps and its
   closing sentence. Per step: `do`, `next` or `stop`; a stop step's class (`S` saves, `T` tells
   a real person, `P` is permanent or charges); `on: "sample"`, which a practice-only step and a
-  do step that opens a record must carry, since tours run on the sample record; the anchor of its
+  do step that opens a person's record must carry, since tours run on the sample record (the
+  checker reads only the flag: that the bindings then reach the sample's record and no other is
+  judged in the running app); the anchor of its
   control; what she reads, and the text when it only shows; a do step's action (open, pick,
   select, type), its result, the G-20 test it names (`safeTest`) and, for a practice-only step,
   `practiceOnly` with the mode's test for that action and the test that it is a stop step outside
@@ -257,9 +260,11 @@ button of a row by its label). A static control carries `data-tour="<id>"`, and
 binds to the first visible element that carries them. Only a target that depends on state (the
 first free hour, an appointment that ended) is a resolver named in the bindings. A result is data
 too: a window is open, an anchor is present, the route or the view is a given key or changed, the
-window of a given record is open, a wizard reached step N, a field changed from its start and is
-not empty, a state value equals X; anything else is `custom`, named in the manifest and written
-in the bindings. The bindings own visibility: a hit on the target, inside it or on its ancestor
+window or card of a person's record is open (`recordOpen`: a patient, a customer, an
+appointment, a document addressed to someone, the kinds the sample record stands in for; the
+window of a settings entry, a rule or a template is `open`), a wizard reached step N, a field
+changed from its start and is not empty, a state value equals X; anything else is `custom`,
+named in the manifest and written in the bindings. The bindings own visibility: a hit on the target, inside it or on its ancestor
 counts as covering it, a target clipped by an ancestor's overflow is not on screen, and a target
 inside an inner scroll box is scrolled into that box's view before the step shows.
 
@@ -272,10 +277,12 @@ format.
 A help article is data keyed by the screen key. Each numbered task names the tour that shows it
 and the anchor ids of the controls its text mentions, in `inventory.json` beside the manifest,
 which also says whether the menu reaches the screen and which keys are views of one screen
-(`viewOf`, so a core screen's views count once). `help-refs` judges an article task that names a
-tour that does not exist or does not list that task, and an anchor the manifest does not know on
-that screen: one that no tour on that screen points at (with the same arg, where it has one) and
-no `anchors` entry for that screen lists. Whether the control is really on the screen, for an
+(`viewOf`, so a core screen's views count once; a `viewOf` names another screen of the inventory
+that is not a view, in the same core entry, and whether it really is a view is the reviewer's).
+`help-refs` judges an article task that names a tour that does not exist or does not list that
+task, and an anchor the manifest does not know on that screen: one that no tour on that screen
+points at (with the same arg, where it has one; a chapter stands on the screens of its whole job)
+and no `anchors` entry for that screen lists. Whether the control is really on the screen, for an
 `anchors` entry and for an article's anchor alike, is judged only in the running app
 (`tour-anchors`, not built).
 
@@ -286,15 +293,16 @@ the part of `tour-no-commit` that data can show, with no browser (`node tour-che
 --inventory inventory.json`, exit 1 on a finding). Whether each anchor and result resolves on its
 screen needs the running app (`tour-anchors`). Seventeen of MediZen's demo tours were converted
 into the format on 11.11.2026 to test it. Against `start` as first written (screen, view,
-close), 5 of the 17 start-ups did not fit, in four kinds: the calendar's start puts it on this
-week and today, sets the view by device and closes windows without checking for unsaved input;
-the closing window's start opens it on an ended appointment that is not the sample's; the
-patient card's start goes to one named patient, as 19 tours of the demo do (and 7 go to one
-named message rule); and the conversion dropped the demo's computed light around the free hour
-(`box`) and its per-step starting values. `record`, a view per device and `date` were added
-from that; the closing window's start is not data by design. A result that stays reached once
-seen is the engine's default, and how the demo's own checks drive a do step (its `try`) stays
-in each environment's tests.
+close), 5 of the 17 start-ups did not fit, in three kinds: the calendar's start (three tours)
+puts it on this week and today, sets the view by device and closes windows without checking for
+unsaved input; the closing window's start opens it on an ended appointment that is not the
+sample's; and the patient card's start goes to one named patient, as 19 tours of the demo do
+(and 7 go to one named message rule). With `record`, a view per device and `date` added, 15 of
+the 17 fit, the patient card's tour only by moving it to the sample record, and the closing
+window's start is left out of the data by design. Separately, at the level of steps, the
+conversion dropped the demo's computed light around the free hour (`box`) and its per-step and
+per-tour starting values. A result that stays reached once seen is the engine's default, and
+how the demo's own checks drive a do step (its `try`) stays in each environment's tests.
 
 **The tour list (G-17, G-18).** The help panel lists every tour like the levels of a game: how
 many were learned out of how many, what is left, and a tap starts one. It is built from the

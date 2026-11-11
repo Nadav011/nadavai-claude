@@ -219,14 +219,14 @@
       "required": ["kind", "arg"],
       "description": "What the screen shows when a do step is done.",
       "properties": {
-        "kind": { "enum": ["open", "present", "route", "view", "recordOpen", "step", "fieldChanged", "stateEquals", "custom"] },
+        "kind": { "enum": ["open", "present", "route", "view", "recordOpen", "step", "fieldChanged", "stateEquals", "custom"], "description": "recordOpen is the window or card of a person's record, which a do step opens only on the sample record (on: sample); open is any other window, such as a settings entry, a rule or a template." },
         "arg": {}
       },
       "allOf": [
         { "if": { "required": ["kind"], "properties": { "kind": { "const": "open" } } }, "then": { "properties": { "arg": { "$ref": "#/$defs/id", "description": "the window that is open" } } } },
         { "if": { "required": ["kind"], "properties": { "kind": { "const": "present" } } }, "then": { "properties": { "arg": { "$ref": "#/$defs/anchorRef" } } } },
         { "if": { "required": ["kind"], "properties": { "kind": { "enum": ["route", "view"] } } }, "then": { "properties": { "arg": { "$ref": "#/$defs/keyTest" } } } },
-        { "if": { "required": ["kind"], "properties": { "kind": { "const": "recordOpen" } } }, "then": { "properties": { "arg": { "$ref": "#/$defs/id", "description": "the anchor whose record's window is open" } } } },
+        { "if": { "required": ["kind"], "properties": { "kind": { "const": "recordOpen" } } }, "then": { "properties": { "arg": { "$ref": "#/$defs/id", "description": "the anchor of a person's record (a patient, a customer, an appointment, a document addressed to someone), the kind the sample record stands in for, whose window or card is open; a settings entry, a rule or a template opens with open" } } } },
         { "if": { "required": ["kind"], "properties": { "kind": { "const": "step" } } }, "then": { "properties": { "arg": { "$ref": "#/$defs/wizardStep" } } } },
         { "if": { "required": ["kind"], "properties": { "kind": { "const": "fieldChanged" } } }, "then": { "properties": { "arg": { "$ref": "#/$defs/anchorRef" } } } },
         { "if": { "required": ["kind"], "properties": { "kind": { "const": "stateEquals" } } }, "then": { "properties": { "arg": { "$ref": "#/$defs/stateTest" } } } },

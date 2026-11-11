@@ -8,8 +8,10 @@
 //   tour-shape      a step over twelve words, a step with no skip, a do step with no result, a chapter
 //                   that can end (on the phone or the computer) neither at a result nor at a stop step, a
 //                   tour that opens by itself on a screen that is not core, more than five core screens
-//                   (views count as one screen where inventory.json marks them viewOf it); it notes every
-//                   tour of more than six steps with no chapter break, which is never a finding
+//                   (views count as one screen where inventory.json marks them viewOf it; without the
+//                   inventory, more than five entries), a viewOf that names no other plain screen of the
+//                   inventory in the same core entry; it notes every tour of more than six steps with no
+//                   chapter break, which is never a finding
 //   tour-no-commit  the part read from data: a do step classed T or P that is not practice-only, a
 //                   practice-only step without both tests or without on: "sample", a do step that opens a
 //                   record (result recordOpen) without on: "sample", a do step with no G-20 test named (at
@@ -46,8 +48,10 @@ const NOT_COVERED = [
   'tour-no-commit: whether a step\'s class is right (a numbered document, a payment and a close for good are always T or P); the manifest\'s class is taken as written',
   'tour-no-commit: a stop step followed by a step that depends on that control having been pressed (the manifest does not record what a control opens)',
   'tour-no-commit: that the named tests exist and pass (the project\'s own suite)',
-  'tour-no-commit: whether a do step that acts on a record other than by opening it (result recordOpen) runs on the sample record',
-  'tour-anchors: every anchor (the anchors entries and the articles\' too), result, condition, window and state id resolving on its screen (the running app)',
+  'tour-no-commit: whether a do step that acts on a person\'s record other than by opening it (result recordOpen) runs on the sample record',
+  'tour-no-commit: that a step marked on: "sample" really reaches the sample\'s record and no other (the bindings, in the running app); only the flag is read',
+  'tour-shape: that a key marked viewOf really is a view of that screen (the reviewer)',
+  'tour-anchors: every anchor (the anchors entries and the articles\' too), result, condition, window and state id resolving on its screen, and a step marked on: "sample" resolving to the sample\'s record and no other (the running app)',
   'tour-shape: whether a chapter break sits at a real result (the reviewer)',
 ];
 
@@ -55,10 +59,16 @@ function die(msg) {
   console.error(`tour-check: ${msg}\n${USAGE}`);
   process.exit(2);
 }
+// a file that cannot be read or is not JSON: exit 2, said as JSON under --json
+function unreadable(msg) {
+  if (!asJson) die(msg);
+  console.log(JSON.stringify({ ok: false, error: msg, manifest: manifestFile, inventory: inventoryFile, findings: [], notes: [] }, null, 2));
+  process.exit(2);
+}
 function readJson(file, what) {
   let text;
-  try { text = fs.readFileSync(file, 'utf8'); } catch (e) { die(`cannot read ${what} ${file}: ${e.code || e.message}`); }
-  try { return JSON.parse(text); } catch (e) { die(`${what} ${file} is not JSON: ${e.message}`); }
+  try { text = fs.readFileSync(file, 'utf8'); } catch (e) { unreadable(`cannot read ${what} ${file}: ${e.code || e.message}`); }
+  try { return JSON.parse(text); } catch (e) { unreadable(`${what} ${file} is not JSON: ${e.message}`); }
 }
 
 // ---------- a small validator for the part of JSON Schema the two schema files use ----------
@@ -193,11 +203,36 @@ for (const [job, list] of jobs) {
 const words = s => String(s || '').trim().split(/\s+/).filter(Boolean).length;
 const coreKeys = new Set(arr(M && M.core).flatMap(c => arr(c && c.screens)));
 const noTest = []; // do steps that name no G-20 test: findings at stage app, one note at stage demo
-const START_KEYS = ['screen', 'record', 'view', 'date', 'close'];
-// keys that inventory.json marks as a view of another screen count as that screen; every other key is a screen
-const viewOf = k => { const sc = INV && obj(INV.screens)[k]; return plain(sc) && typeof sc.viewOf === 'string' ? sc.viewOf : k; };
-const coreScreens = new Set([...coreKeys].map(viewOf));
-if (coreScreens.size > 5) add('tour-shape', 'G-21', 'core-count', { path: '/core' }, `${coreScreens.size} core screens (${[...coreScreens].join(', ')}), at most five; keys of one core entry count as one screen only where inventory.json marks them viewOf it`); // M:core-count
+const START_KEYS = [
+  'screen',
+  'record', // M:start-record
+  'view',
+  'date',
+  'close',
+];
+// A key counts as another screen only through a viewOf in inventory.json that names another screen of the inventory,
+// not itself a view, in the same core entry as the key. Any other viewOf is a finding, and its key counts on its own.
+// Whether the key really is a view of that screen is the reviewer's.
+const invScreens = obj(INV && INV.screens);
+const coreList = arr(M.core).filter(plain);
+const viewOfKey = k => obj(invScreens[k]).viewOf;
+const badView = k => {
+  const v = viewOfKey(k);
+  if (v === k) return 'names the key itself';
+  if (!plain(invScreens[v])) return `names "${v}", which the inventory does not have`;
+  if (typeof viewOfKey(v) === 'string') return `names "${v}", which is itself a view of "${viewOfKey(v)}"`;
+  if (coreKeys.has(k) && !coreList.some(c => arr(c.screens).includes(k) && arr(c.screens).includes(v))) return `names "${v}", which is not in the same core entry as "${k}"`;
+  return null;
+};
+const views = Object.keys(invScreens).filter(k => typeof viewOfKey(k) === 'string');
+for (const k of views) if (badView(k)) add('tour-shape', 'G-21', 'view-of', { screen: k, path: `inventory/screens/${k}/viewOf` }, `viewOf ${badView(k)}; a key is a view only of another screen of the inventory that is not a view, in the same core entry`); // M:view-of
+const fold = k => (views.includes(k) && !badView(k) ? viewOfKey(k) : k);
+const coreScreens = new Set([...coreKeys].map(fold));
+// without the inventory no view can be folded: more than five entries is still more than five screens, while more
+// than five keys in at most five entries is a note
+const coreCount = INV ? coreScreens.size : coreList.length;
+if (coreCount > 5) add('tour-shape', 'G-21', 'core-count', { path: '/core' }, INV ? `${coreCount} core screens (${[...coreScreens].join(', ')}), at most five; keys of one core entry count as one screen only where inventory.json marks them viewOf it` : `${coreCount} core entries, so more than five core screens`); // M:core-count
+if (!INV && coreCount <= 5 && coreKeys.size > 5) notes.push({ check: 'tour-shape', message: `${coreKeys.size} core keys in ${coreCount} entries: whether that is more than five core screens needs --inventory, which marks the keys that are views of one screen` });
 const okEnd = s => !!s && (s.kind === 'stop' || (s.kind === 'do' && !!s.result));
 tours.forEach((t, ti) => {
   const steps = arr(t.steps);
@@ -213,7 +248,7 @@ tours.forEach((t, ti) => {
     const tp = s.class === 'T' || s.class === 'P';
     if (s.kind === 'do' && ((tp && !s.practiceOnly) || (s.practiceOnly && missing.length))) add('tour-no-commit', 'G-20', 'do-class', at, s.practiceOnly ? `a practice-only do step without ${missing.join(' and ')}: it is a stop step in the mode too` : `a do step classed ${s.class} is not practice-only: it is a stop step`); // M:do-class
     if (s.practiceOnly && s.on !== 'sample') add('tour-no-commit', 'G-20', 'practice-not-sample', at, 'a practice-only step without on: "sample": inside the mode the tour runs on the sample record\'s copy, never on a real person\'s'); // M:practice-not-sample
-    if (s.kind === 'do' && plain(s.result) && s.result.kind === 'recordOpen' && s.on !== 'sample') add('tour-no-commit', 'G-08', 'record-not-sample', at, 'a do step opens a record and does not carry on: "sample": tours run on the sample record, never on real data'); // M:record-not-sample
+    if (s.kind === 'do' && plain(s.result) && s.result.kind === 'recordOpen' && s.on !== 'sample') add('tour-no-commit', 'G-08', 'record-not-sample', at, 'a do step opens a person\'s record (recordOpen) and does not carry on: "sample": tours run on the sample record, never on real data'); // M:record-not-sample
     if (s.kind === 'do' && !s.safeTest && !po.modeTest) noTest.push(at);
     for (const n of arr(s.need)) if (n && n.do !== 'reopen' && n.do !== 'selectSample') add('tour-no-commit', 'G-08', 'need-action', at, `the resume action "${n.do}" is not one of the two a tour does by itself (reopen a window, select the sample record again)`); // M:need-action
   });
@@ -225,9 +260,9 @@ tours.forEach((t, ti) => {
     for (const d of ['phone', 'desktop']) {
       for (let i = steps.length - 1; i >= 0; i--) {
         const s = steps[i];
-        if (s.when === (d === 'phone' ? 'desktop' : 'phone')) continue;
+        if (s.when === (d === 'phone' ? 'desktop' : 'phone')) continue; // M:walk-skip
         if (!okEnd(s)) bad.add(i);
-        if (!s.when || s.when === d) break;
+        if (!s.when || s.when === d) break; // M:walk-stop
       }
     }
     for (const i of [...bad].sort((a, b) => a - b)) add('tour-shape', 'G-07', 'chapter-end', { tour: t.id, step: i + 1, path: `/tours/${ti}/steps/${i}` }, `chapter ${arr(t.chapter).join(' of ')} can end at this "${steps[i].kind}" step${steps[i].kind === 'do' ? ' with no result' : ''}, neither at a result nor at a stop step`); // M:chapter-end
@@ -262,7 +297,7 @@ if (INV) {
   }
   for (const [id, e] of Object.entries(obj(M.anchors))) for (const k of arr(obj(e).screens)) {
     know(k, id);
-    for (const a of Array.isArray(obj(e).args) ? e.args : [ANY]) know(k, id, a);
+    for (const a of Array.isArray(obj(e).args) ? e.args : [ANY]) know(k, id, a); // M:anchor-args
   }
   const known = (k, a) => {
     const args = knownOn.has(k) && knownOn.get(k).get(refId(a));
