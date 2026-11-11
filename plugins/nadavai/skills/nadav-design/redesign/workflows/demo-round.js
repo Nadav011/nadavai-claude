@@ -269,7 +269,7 @@ const rebuild = async (tag, ph) => {
 
 const LENSES = [
   { key: 'craft', text: 'craft, native feel, flows, every state (empty, loading, error, offline, permission) and accessibility (contrast, 44px targets, accessible names, focus order); every entry in the problem lists of the shots\' report.json files is a finding, and every "advisory" lead (contrast, targets) is reported or dismissed with a reason' },
-  { key: 'words', text: 'words, RTL, data consistency across screens, and completeness against the sources: INVENTORY.md (nothing today\'s app has is lost; every component variant visible in the phone its variant map names), DECISIONS-ANSWERED.md (every answer visible where it belongs), FEATURES-PROPOSED.md (no new feature hidden in an «אחרי» phone) and the plan' },
+  { key: 'words', text: 'words, RTL, data consistency across screens, and completeness against the sources: INVENTORY.md for the screens this demo draws, the screens of this run (nothing today\'s app has on them is lost; every component variant visible in the phone its variant map names; a screen INVENTORY.md lists that this demo does not draw is designed later in the app\'s preview and is never a finding), DECISIONS-ANSWERED.md (every answer visible where it belongs), FEATURES-PROPOSED.md (no new feature hidden in an «אחרי» phone) and the plan' },
 ]
 const rejectedNote = () => {
   const all = JSON.stringify(S.rejected)

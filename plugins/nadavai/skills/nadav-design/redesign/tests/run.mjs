@@ -439,6 +439,35 @@ await test('GM6', 'a tab-bar item may point at a screen that does not exist yet 
   const html = r.status === 0 ? fs.readFileSync(path.join(dir, 'demo.html'), 'utf8') : '';
   return r.status === 0 && /aria-disabled="true"[^>]*>|<span[^>]*aria-disabled="true"/.test(html) ? '' : `exit ${r.status}: ${r.stdout.slice(-200)}`;
 });
+// «An app is built once» (shared/rules.md): the page draws the main journey only; the rest is designed in the app's preview.
+await test('DI1', 'a direction-only demo (journey screens only) goes green: the words lens checks INVENTORY.md only for the screens it draws', async () => {
+  // a verifier that follows its prompt: told to check INVENTORY.md for every screen, it reports the undrawn screens as
+  // lost and keeps them open; told the scope, it reports nothing about them
+  let unscoped = false;
+  const scoped = /INVENTORY\.md for the screens this demo draws[\s\S]*does not draw is designed later in the app.s preview and is never a finding/;
+  const over = {
+    audit: c => { if (/verify:words/.test(c.label) && !scoped.test(c.prompt)) unscoped = true; return undefined; },
+    confirm: c => { if (!unscoped) return undefined; const got = ids(c.prompt); return { inputs: got, confirmed: [], still_open: got.map(id => ({ ...finding('home', { lens: 'words', what: 'INVENTORY.md screen «profile» is lost' }), id })), regressions: [], summary: 'still open' }; },
+  };
+  const { result, calls } = await demo({ screens: ['home'], story: { screens: ['home'], file: 'STORY.md' } }, over);
+  if (!calls.some(c => /verify:words/.test(c.label))) return 'no words verifier ran';
+  return !unscoped && result.gates.demoClean === true ? '' : `unscoped ${unscoped}, gates ${JSON.stringify(result.gates)}`;
+});
+await test('DI2', 'plan review: a unit for an undrawn screen cites its INVENTORY.md row, a screen unit citing neither is HIGH, and check-anchors accepts the row', async () => {
+  const why = [];
+  const { calls } = await plan({});
+  const writer = calls.find(c => kind(c.schema) === 'write');
+  const reviews = calls.filter(c => kind(c.schema) === 'verdict');
+  const rule = /does not draw cites its INVENTORY\.md row[\s\S]*a screen unit that cites neither is a HIGH finding/;
+  if (!writer || !rule.test(writer.prompt) || !/or, for a screen the demo does not draw, its INVENTORY\.md row/.test(writer.prompt)) why.push('the writer prompt lacks the INVENTORY.md citation rule');
+  if (!reviews.length || reviews.some(c => !rule.test(c.prompt))) why.push(`${reviews.filter(c => !rule.test(c.prompt)).length} of ${reviews.length} review prompts lack the rule`);
+  const p = path.join(TMP, 'undrawn-unit.md');
+  fs.writeFileSync(p, fs.readFileSync(path.join(MINI, 'plan/build-plan.md'), 'utf8').replace('\n\n## Round 1 changes', '\n| U-3 | Settings, not drawn by the demo | `src/app/settings/page.tsx` | — (`INVENTORY.md «settings»`; designed in the preview) | every control and state of the row | S | U-1 |\n\n## Round 1 changes'));
+  if (!/U-3 \| Settings, not drawn/.test(fs.readFileSync(p, 'utf8'))) why.push('the fixture plan did not take the undrawn-screen row');
+  const r = sh('python3', [path.join(T, 'check-anchors.py'), '--config', 'redesign.json', '--plan', p]);
+  if (r.status !== 0) why.push(`check-anchors on a plan with an undrawn-screen unit: exit ${r.status}: ${r.stdout.slice(-200)}`);
+  return why.join(' · ');
+});
 await test('GM7', 'component variants may share «מצב» phones, mapped in INVENTORY.md and checked by the words lens', async () => {
   const { calls } = await demo({});
   const words = calls.find(c => /verify:words/.test(c.label));

@@ -53,45 +53,70 @@ before anything else is built, and no alternative concept is offered unless he a
 The demo of an app becomes the app: its screens are never built a second time to look like a demo. Nadav named
 the double build as a problem that keeps coming back and asked for a rule against it in his rules and in this
 skill: «שזה יהיה בחוקים של שלנו גם של הסקיל שלא יהי את הפידחות האלה יותר» (11.11.2026) [N]. He left what the
-rule says to the session that wrote it, so the four points below are its choice [I].
+rule says to the session that wrote it, so points 1 to 4 below are its choice [I]; point 5 applies his global
+gates to the preview (`floor`).
 
 Why: every second build opens gaps. SportChat v4: 39 of 183 findings were visible differences between the demo and
 the built app, found by hand. MediZen: the standalone demo (`~/design-redesign/tf2-r12/proto/v2.html`, about 10,000
-lines) is in round 13 and still changing, its spec took 8+ commits in one day, and its build is planned at 27 to 54
-weeks, so the demo and the app drift apart. shifts: four look rounds on standalone pages of two or three isolated
-screens failed («לא יודע כבר»); the look is now applied to the whole demo that lives inside the app. And he
-understands a demo only when it plays like the real app (`standard/rejected.md`, "A catalog of screens and states as
-the demo").
+lines) is still in review rounds, its spec took 8+ commits in one day, and its build is planned at 27 to 54 weeks, so
+the demo and the app drift apart. shifts: four look rounds on standalone pages of two or three isolated screens
+failed («לא יודע כבר»); the look is now applied to the whole demo that lives inside the app. And he understands a
+demo only when it plays like the real app (`standard/rejected.md`, "A catalog of screens and states as the demo").
 
 For an app (a product with screens people work in):
 1. **A standalone page for the direction only.** A page outside the app's code is allowed for one thing: the first
-   direction round (the look and the direction), and only one round. It is already the main journey as one playable
-   flow, never isolated screens. Why: the shifts rounds on isolated screens failed, and every later round on a page
-   of its own is work the app never gets.
-2. **After the direction, the demo lives in the app.** Once Nadav approved the direction, the demo is built in the
-   app's own code, from its real components, on invented data (a preview or demo mode of the app), and that is what
-   he is shown and plays with. Going live is replacing the invented data source with the real one, not a second
-   build of the screens. Why: what he approves is then the code that ships, so there is nothing to drift. Examples:
-   shifts' `src/demo/` (mock data, the app's own shadcn components); therapy-flow's `pnpm dev:salon`
-   (`scripts/salon-preview.ts`, the real app on a synthetic in-process backend).
+   direction round (the look and the direction), and only one round, unless Nadav asks for another. It is already
+   the main journey as one playable flow, never isolated screens. Why: the shifts rounds on isolated screens failed,
+   and every later round on a page of its own is work the app never gets.
+2. **After the plan is approved, the demo lives in the app.** The order is: the direction approved and tagged, then
+   the build plan, then Nadav approves the build plan, then the build session starts, and its first unit is the
+   preview. Approval of the direction never starts work in an app repo. From then on the demo is built in the app's
+   own code, from its real components, on invented data (a preview or demo mode of the app), and that is what he is
+   shown and plays with. In a new app, going live is replacing the invented data source with the real one, not a
+   second build of the screens. In an app with live users, the redesigned screens stay on a long branch or behind a
+   flag until the plan's cut-over unit (a `go` item), so nothing reaches customers unit by unit. Why: what he
+   approves is then the code that ships, so there is nothing to drift. Examples: shifts' `src/demo/` (mock data, the
+   app's own shadcn components); therapy-flow's `pnpm dev:salon` (`scripts/salon-preview.ts`, the real app on a
+   synthetic in-process backend).
 3. **Approved means a frozen, tagged commit.** The approved demo is a git tag in its repo, and the build plan names
    the tag. Any design change after it is made in the app's preview, never in the standalone page; from then on that
-   page is read-only reference, and a parity check compares the app to the tag. Why: a page that keeps changing under
-   a plan built from it (MediZen) leaves the build aiming at a moving target; a tag is the one version both sides read.
+   page is read-only reference. A screen the tagged demo drew is compared to its phones by a fresh reviewer on shots
+   at `screen`'s visual change gate. That is the weaker check: a scripted parity tool is not in this skill on main
+   (it is on an unmerged branch), and no text here calls it available until it lands. Why: a page that keeps
+   changing under a plan built from it (MediZen) leaves the build aiming at a moving target; a tag is the one version
+   both sides read.
 4. **The preview comes first.** The preview on invented data is the first unit of a build, not a later one. Demo code
-   and invented data never reach the build real users get, and a check proves it (shifts' `pnpm verify:no-demo` is
-   the example). Why: the screens are designed inside the preview, so it exists before them; and invented people in
-   the production build would be shown to real customers.
+   and invented data never reach the build real users get, and a check proves it on every such build: the web
+   build, and for a Capacitor or Expo app also the OTA bundle and each store build (shifts' `pnpm verify:no-demo` is
+   the example; a paid build service is asked first, the money gate). Why: the screens are designed inside the
+   preview, so it exists before them; and invented people in the production build would be shown to real customers.
+5. **The preview cannot reach anything real** (`floor`: `action-safety.md`; `working-style.md`, Approval gates: no
+   message to a real person, no charge, nothing that cannot be undone). It runs on invented data only. It holds no
+   production credential, key or address (its environment comes from a fixed preview file; real backend hosts are
+   replaced by an `.invalid` host, as `scripts/salon-preview.ts` does). Its network is fenced to its own origin (CSP
+   `connect-src 'self'` or a request fence). Sends, charges, scheduled jobs, webhooks and analytics are off or fakes,
+   and no real account signs into it. Its checks go both ways: nothing of the demo in the build real users get
+   (point 4), AND nothing in the preview can reach production, shown by a planted outbound call to a live host that
+   comes back blocked (as MediZen's draft plan, `~/.omc/plans/medizen-build-plan-2026-11-10.md`, describes for its
+   own preview). Until both checks exist and pass, the preview is not shown outside the machine it runs on.
 
-Who builds the preview: in a new app, setup step 10b; in an app that is redesigned, the build session, as unit 1 of
-the plan (`redesign/README.md`, step 8), because mode `redesign` never writes into the app repo.
+Where Nadav opens the preview [I]: on the machine it runs on (localhost, when he is at that machine); anywhere else
+only on one of his own domains or as a published claude.ai artifact, after his yes and after both checks of point 5
+pass, the link checked with `redesign/tools/early-show.sh`. A new host, a DNS record or anything that costs money is
+asked at that moment (the money gate), and unit 1 is marked `go` when it needs any of those.
+
+Who builds the preview: in a new app, setup step 10b, and only inside a task Nadav gave to build that app; in an app
+that is redesigned, the build session that START-BUILD opens after he approved the build plan, as unit 1 of the plan
+(`redesign/README.md`, step 8), because mode `redesign` never writes into the app repo.
 
 Not covered by this rule:
 - Track `site`, and track `client-demo` when no app stands behind it: the page is the product, or no app exists.
 - An app in the middle of a build that started from a standalone demo (SportChat v4): it finishes as planned, with
   its parity and capability checks. Its plan is not rewritten to this order.
-- An existing standalone demo that is not approved yet (MediZen's): it is finished on its own page and frozen
-  (tagged) at approval, not converted into the app; its build then starts with the preview (point 4).
+- MediZen's standalone demo is not converted, and this rule changes nothing in its work. How its build is ordered
+  (when the preview is built, when the demo freezes, where its remaining screens are drawn) is decided in its own
+  build plan, which is Nadav's to approve, and his decision of 10.11.2026 that its build starts only after everything
+  is closed stands. The round machinery of `redesign/README.md` stays documented because that run still uses it.
 
 ## Looking at screenshots
 

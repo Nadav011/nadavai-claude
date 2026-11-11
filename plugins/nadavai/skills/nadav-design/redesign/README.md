@@ -5,12 +5,14 @@ A whole-app redesign. For an app, the standalone output of this mode is the dire
 of its own: a design language Nadav approved, an inventory of every screen and state of today's app, the main journey
 as one playable flow with «היום» and «אחרי» columns for the screens it passes through, the shared components and
 design values, the decisions (asked, answered, numbered), the proposed features, a history Nadav can go back through,
-and a build plan whose citations of the demo are machine-checked, reviewed until approved, cross-checked by a second
-model, and handed to a build session with a START-BUILD prompt. The page gets one review round with Nadav; when he
-approves the direction its commit is tagged and the page is read-only from then on. The plan's first unit is the
-app's own preview on invented data, and every screen and state the page did not draw is designed there by the build
-session. A standalone demo that started before this rule and is not approved yet (MediZen's) finishes its rounds
-under step 6 and is tagged at approval; it is not converted into the app.
+and a build plan whose citations of the demo are machine-checked (citations of INVENTORY.md rows are not), reviewed
+until approved, cross-checked by a second model, and handed to a build session with a START-BUILD prompt. The page
+gets one review round with Nadav; when he approves the direction its commit is tagged and the page is read-only from
+then on. The tag leads to the build plan, and the build session starts only after he approves that plan. The plan's
+first unit is the app's own preview on invented data, and every screen and state the page did not draw is designed
+there by the build session. MediZen's standalone demo is not converted, and this mode changes nothing in its work:
+its order is decided in its own build plan (`shared/rules.md`, «An app is built once», «Not covered»). The round
+machinery of step 6 stays documented because that run still uses it.
 
 **It never writes into the app repo**, not even `.omc/`: the app is read and its dev server is run, nothing more.
 Everything this mode produces lives in the output repo: the run log (`RUN-LOG.md`, the checklist with one evidence line
@@ -250,13 +252,14 @@ Chat in plain Hebrew, short lines, the why before the what; code, files and comm
 - **One round on this page** (`shared/rules.md`, «An app is built once»): the first build of step 3 is verified,
   Nadav reviews it, his answers are applied and confirmed, and he approves the direction. Everything below is the
   machinery of that one round: its runs (a fix run, a cut run restarted, a continuation) are runs of the same round,
-  not new rounds. A demo the rule does not cover (MediZen's, started before it) keeps using this machinery round
-  after round until it is approved.
+  not new rounds. The machinery stays documented for MediZen's demo, which the rule does not cover; how many rounds
+  that run takes is decided by its own plan and by Nadav, not here.
 - A round applies Nadav's new answers and fixes, then verifies. Fix lanes own their screens' files only; a change
   to another lane's file is a request, applied in two passes; the shared lane alone edits `parts/`.
 - Verify with FRESH Opus agents that made none of the fixes, read-only, by lenses: (a) craft, native feel, flows,
-  states, accessibility; (b) words, RTL, data consistency, completeness against INVENTORY, answers, features and the
-  plan; (c) STORY: the main journey across screens. Verifiers get the list of rejected findings so they do not
+  states, accessibility; (b) words, RTL, data consistency, completeness against INVENTORY for the screens this page
+  draws (a screen INVENTORY.md lists that the page does not draw is designed in the app's preview and is never a
+  finding here), answers, features and the plan; (c) STORY: the main journey across screens. Verifiers get the list of rejected findings so they do not
   re-report them without new evidence.
 - **The gate** (SporChat rounds 24–26: five full sweeps of a large demo found 7, 2, 4, 4, 8 P1 and never reached zero,
   because a fresh sweep of a big surface always finds something new): ONE full fresh sweep; fix everything it found;
@@ -300,9 +303,11 @@ Chat in plain Hebrew, short lines, the why before the what; code, files and comm
   `tools/decisions-open.py` counts 0. His answer is numbered in DECISIONS-ANSWERED.md. Tag that commit of the output
   repo: `git -C <out> tag -a demo-approved-<YYYY-MM-DD> -m "answer <N>"`, and write the tag in RUN-LOG.md. From then on
   the page is read-only reference: nothing in `sections/`, `css/`, `parts/` or `proto/` changes, and a design change
-  he asks for later becomes a plan item, made in the app's preview. If he does not approve the direction, ask him how
-  to go on (a new direction on this page, or the direction made straight in the app's preview); a second round is
-  never started on its own.
+  he asks for later becomes a plan item, made in the app's preview. The tag starts nothing in the app repo: it leads
+  to the build plan (step 8), and the build session starts only after Nadav approves that plan. If he does not
+  approve the direction, ask him how to go on (a new direction on this page, or the direction worked out in the app's
+  preview, which then goes to a build plan and his approval of it like any other, so its unit 1 is the preview); a
+  second round is never started on its own.
 - With the Workflow tool (only when Nadav opted into multi-agent orchestration): `workflows/demo-round.js`, see
   «Running a round». Otherwise the same roles as subagents (`model: 'opus'`), one at a time.
 - Evidence: the round's `gates` and `confirms` (structured fields), the rebuild's clean reports, his numbered
@@ -318,16 +323,27 @@ Chat in plain Hebrew, short lines, the why before the what; code, files and comm
 ### 8. Build plan
 - `plan/build-plan.md` from the template: it names the approved tag, and its units come in build order, each with
   acceptance, size, dependencies, `go` where Nadav must approve (migrations, auth, payments, store publishing, paid
-  services). Every answer and every feature row lands somewhere. `tools/check-anchors.py`: 0 missing, 0 wrong.
-- **Unit 1 is the app's preview on invented data** (`shared/rules.md`, «An app is built once», point 4): the app's
-  own routes and real components on an invented data source kept in a folder of its own (shifts' `src/demo/`,
-  therapy-flow's `pnpm dev:salon`), its own start script, and a check that fails when demo code or invented data is
-  in the build real users get (shifts' `pnpm verify:no-demo`). Its acceptance: Nadav plays the main journey in it,
-  and the check fails on a planted demo import and passes clean. Then tokens and shared components, then the screens.
+  services). Every answer and every feature row lands somewhere. `tools/check-anchors.py`: 0 missing, 0 wrong. It
+  checks the demo citations only; a citation of an INVENTORY.md row is checked by the reviewers, not by a tool.
+- **Unit 1 is the app's preview on invented data** (`shared/rules.md`, «An app is built once», points 4 and 5): the
+  app's own routes and real components on an invented data source kept in a folder of its own (shifts' `src/demo/`,
+  therapy-flow's `pnpm dev:salon`), its own start script, ask before any new dependency it needs, and isolation: no
+  production credential, key or address (a fixed preview env file, real hosts replaced by an `.invalid` host),
+  network fenced to its own origin, sends, charges, scheduled jobs, webhooks and analytics off, no real account
+  signing in. Its acceptance: two checks, both shown failing on a planted case and then passing clean. (a) No demo
+  code or invented data in the build real users get (shifts' `pnpm verify:no-demo`; for a Capacitor or Expo app also
+  the OTA bundle and each store build). (b) Nothing in the preview reaches production (a planted outbound call to a
+  live host comes back blocked). Then Nadav plays the main journey in it, on the machine it runs on until both checks
+  pass. It is marked `go` when it needs a new host, a DNS record or anything that costs money. Then tokens and shared
+  components, then the screens.
 - **Every screen is designed in that preview.** A screen the tagged demo drew cites its column labels and is built
   to those phones; a screen or state the demo did not draw cites its INVENTORY.md row and is designed there, from
-  BRIEF.md and the shared components, through `screen`'s gates, and shown to Nadav playing. Going live means the same
-  screens run on the real data source in the build users get; no unit builds a screen a second time.
+  BRIEF.md and the shared components, through `screen`'s gates, and shown to Nadav playing. Such a unit's size
+  includes its design time, and its acceptance is every control, state and role variant of its INVENTORY.md row, or
+  the numbered answer that removes it (standard S-04; a reviewer checks it against the row, because the capability
+  diff tool is not in this skill on main yet). In an app with live users, the redesigned screens stay on a long
+  branch or behind a flag until a cut-over unit marked `go`, so nothing reaches customers unit by unit. No unit builds
+  a screen a second time.
 - Review: a fresh Opus reviewer, read-only, until APPROVE; after an APPROVE, the fix round is checked by a DIFF-ONLY
   confirm against a snapshot (on 2.10.2026 full reviews after an APPROVE kept breeding new findings for 10 rounds).
   Fix by simplifying, never by adding machinery.
@@ -370,7 +386,9 @@ contact addresses masked until they work; published only on Nadav's own domain).
    Args carry only paths and small values, and for every item file its `sources`: `{"<item id>": "answer N"}` for each
    item that carries Nadav's answer, so a lane that rejects one is caught even when it does not echo the source. The
    gate depends on it: an answer item missing from `sources` is invisible to `answersApplied`.
-2. Write the args (see the header of `workflows/demo-round.js`; `themes: ["dark"]` for a dark-only app), then dry-run:
+2. Write the args (see the header of `workflows/demo-round.js`; `screens` lists only the screens the page draws, the
+   main journey, because the words lens checks INVENTORY.md for those screens only; `themes: ["dark"]` for a
+   dark-only app), then dry-run:
    `node tools/dry-run-workflow.mjs workflows/demo-round.js args.json` and again with `--empty`. Exit 0 before launching.
 3. Launch: `Workflow({ scriptPath: '<skill>/redesign/workflows/demo-round.js', args })`. Log the run id in
    ORCHESTRATION-LOG.md.
@@ -437,7 +455,7 @@ resume.
 | `fonts` | local font files `[{family, file, weight, style}]` embedded by build.py (no URLs; no new font without asking Nadav) |
 | `tokens` | theme-independent custom properties: `font`, radii, `safe-b`, `nav-h` |
 | `theme` | `default` and the `dark` / `light` token sets the base CSS uses (`page*`, `bg`, `surface*`, `hair`, `ink*`, `accent*`, `ok`, `warn*`, `danger`, `focus`) |
-| `screens` | `[{id, tab}]` in demo order; `sections/<id>.html` carries `id="s-<id>"` |
+| `screens` | `[{id, tab}]` in demo order, the screens the page draws (the main journey); `sections/<id>.html` carries `id="s-<id>"` |
 | `nav` | the tab bar: `items: [{id, label, icon, screen}]` in order from the start edge (`screen: null` = drawn but inert); `{{NAV:<id>}}`, `{{NAV:<id>:unread-<other>}}` |
 | `labels` | the label words check-anchors treats as citations (`today`, `after`, `new`, `state`, `proposal`) |
 | `plan`, `anchors` | the plan path; `unit_id` regex, `id_sources`, `retired`, `split`, `stop` for check-anchors |

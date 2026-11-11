@@ -17,8 +17,10 @@ FEATURES-PROPOSED.md, INVENTORY.md. The demo at that tag is read-only: a design 
 
 1. Check that this file's status line reads `Status: OWNER-APPROVED answer <N> commit <sha>`. Then run every item of
    <out>/plan/START-BUILD-CHECKLIST.md and show its result. Start nothing while an item fails.
-2. Build the units in plan order, one branch and PR per unit. Unit 1 is the app's preview on invented data and the
-   check that keeps demo code and invented data out of the production build; every later screen is designed and
+2. Build the units in plan order, one branch and PR per unit (in an app with live users, on the plan's long branch
+   or behind its flag until the cut-over unit). Unit 1 is the app's preview on invented data, isolated from
+   everything real, with its two checks (nothing of the demo in a build users get; a planted call to production
+   comes back blocked), and it is not shown outside this machine until both pass; every later screen is designed and
    shown to Nadav in that preview, and no screen is built a second time. Each screen goes through the nadav-design
    `screen` mode gates: DoD 100 on every route the change touches, the visual change gate with the demo's phone for
    that label (or, for a screen the demo did not draw, today's screen) next to the screen in the preview at 375 and
