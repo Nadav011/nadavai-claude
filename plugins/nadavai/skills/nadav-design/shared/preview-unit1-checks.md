@@ -1,77 +1,82 @@
 # What unit 1 shows before anyone plays the preview
 
-A reading aid for `rules.md`, «An app is built once», point 5: the proofs of that point in the order unit 1 runs
-them, each with its pass and fail condition. It adds no rule. Where this list and point 5 differ, point 5 holds and
-the difference is a fault to report («Where a fault goes»). Source: the eleventh independent review of the rule
-(11.11.2026), which wrote the list for a Next app with a Capacitor shell, in Hebrew and RTL, corrected against point
-5 by the twelfth; a Vite app reads "the root layout's `<head>`" as its `index.html` and skips the lines that name
-Next. A fail stops the unit. Each planted case is shown failing first, then passing clean.
+A reading aid for `rules.md`, «An app is built once», point 5: the proofs of that point in the order unit 1 runs them,
+each with its pass and fail condition. It adds no rule. Where this list and point 5 differ, point 5 holds and the
+difference is a fault to report («Where a fault goes»). Source: the eleventh independent review of the rule
+(11.11.2026), which wrote the list for a Next app with a Capacitor shell, in Hebrew and RTL, corrected against point 5
+by the twelfth and the thirteenth; a Vite app reads "the root layout's `<head>`" as its `index.html` and skips the
+lines that name Next. A fail stops the unit. Each planted case is shown failing first, then passing clean.
 
 1. **Start-up environment proof** (5a).
    - Pass: the server refuses to serve with one planted variable that is not on the allowlist, and with one planted
      value that differs from it. With neither, it serves, and `process.env` read inside the running server and every
      environment value compiled into the client bundle equal the allowlist (on Next, `NEXT_TELEMETRY_DISABLED=1`
      included).
-   - Fail: an extra name, a differing value, or, on Next, a start from a folder where a `.env*` file Next loads
-     holds a value.
+   - Fail: an extra name, a differing value, or, on Next, a start from a folder where a `.env*` file Next loads holds
+     a value.
 2. **Server fence** (5b).
    - Pass: one planted request per transport the server code uses (fetch, `node:http(s)`, the database driver, a
      WebSocket client) and one to a loopback port that is neither the preview's nor the fake backend's, each refused,
-     from inside the running server and from inside each process it or the start script starts. The process list
-     after the scripted journey holds no Node process without a planted-request result and no other process the plan
-     does not name.
+     from inside the running server and from inside each process it or the start script starts (one request only when
+     the fence is a network namespace or a container). A preview that runs no server code says so in the plan, and
+     this step is `n/a` with that reason. The process list after the scripted journey holds no Node process without a
+     planted-request result and no other process the plan does not name.
    - Fail: any answer, or a process with no result.
 3. **Browser policy** (5b).
    - Pass: every response, worker scripts included, carries `default-src 'self'`, `form-action 'self'` and `base-uri
-     'none'` with no other origin in any directive. A planted fetch, image and script to example.com (and one fetch
-     from inside a worker when the app starts one) are blocked. No service worker is registered, and the app's worker
-     path answers 404.
+     'none'` with no other origin in any directive (a meta tag first in `<head>` is enough only for a page that starts
+     no worker from a URL). A planted fetch, image and script to example.com (and one fetch from inside a worker when
+     the app starts one) are blocked. No service worker is registered, and the app's worker path answers 404.
    - Fail: any answer, `'strict-dynamic'`, or a CDN or any other origin in the policy.
 4. **Effects, provider by provider** (5c, its first part).
-   - Pass: for every provider the production app uses (messaging, payment, jobs, webhooks, analytics, auth; read
-     from the env example, the deploy config and the HTML), the script prints that its key is absent from the
-     resolved environment and that one planted browser fetch and one planted server request to its host, with no
-     credentials and never to a send endpoint, were blocked. The start script starts no scheduler, queue worker or
-     cron runner. Sign-in reaches only the fake backend.
+   - Pass: for every provider the production app uses (messaging, payment, jobs, webhooks, analytics, auth; read from
+     the env example, the deploy config and the HTML), the script prints that its key is absent from the resolved
+     environment and that one planted browser fetch and one planted server request to its host, with no credentials
+     and never to a send endpoint, were blocked. The start script starts no scheduler, queue worker or cron runner.
+     Sign-in reaches only the fake backend.
    - Fail: a provider with no line, a key present, or an answer from a provider's host.
 5. **Where the guard loads** (5c).
-   - Pass: the guard is the first script in the root layout's `<head>` and in every other same-origin document of
-     the frame (a `srcdoc` or child frame), and runs before any other script on a cold load and on a warm one (one
-     way to show it: a test script that records `attachShadow` calls and link creation finds none before the guard).
+   - Pass: the guard is the first script in the root layout's `<head>` and in every other same-origin document of the
+     frame (a `srcdoc` or child frame), and runs before any other script on a cold load and on a warm one (one way to
+     show it: a test script that records `attachShadow` calls and link creation finds none before the guard).
    - Fail: a script, a shadow root or a link before it.
 6. **The app's own forms and controls inside the frame, effect checked** (5c).
    - Pass: one of each kind the app has keeps its effect: a modifier click, a context menu, a drag, and a form whose
-     action is a function, rendered in the browser and, where the app renders one on the server, after hydration.
-     The expected losses, and only these: a modified or middle click on an app link opens nothing; a modified click
-     on an app submit, or Shift+Enter in a form that has a submit button, sends no form and runs no form action.
+     action is a function, rendered in the browser and, where the app renders one on the server, after hydration. The
+     expected losses, and only these: a modified or middle click on an app link opens nothing; a modified click on an
+     app submit, or Shift+Enter in a form that has a submit button (in Chromium), sends no form and runs no form
+     action.
    - Fail: any other effect missing.
-7. **The frame's planted cases, in Chromium and in WebKit** (5c; WebKit in the Playwright image as
-   `working-style.md` routes it, with every request outside the preview's origins aborted and recorded). The cases
-   are the ones point 5 (c)'s proof lists, the `tel:` console line, and a cross-origin `<a download>` when the
-   frame allows downloads. The proof is shown failing with the `sandbox` attribute removed, again with the shell's
-   `frame-src` removed, and again with the guard removed.
+7. **The frame's planted cases, in Chromium and in WebKit** (5c; WebKit in the Playwright image as `working-style.md`
+   routes it, with `--network host` so it reaches a preview that listens on loopback, and with every request outside
+   the preview's origins aborted and recorded). The cases are the ones point 5 (c)'s proof lists, the `tel:` console
+   line, and a cross-origin `<a download>` when the frame allows downloads. The proof is shown failing with the
+   `sandbox` attribute removed, again with the shell's `frame-src` removed, and again with the guard removed.
    - Pass: no request, page, popup or navigation outside the preview's two origins.
    - Fail: any.
 8. **Links inside shadow roots** (5c).
    - Pass: after load, no `href` in any shadow root on the guard's list, open or closed, points outside the two
      origins, a link added to a root later included.
    - Fail: any.
-9. **Destination scan and ledger** (5c), on the app's source, on the bodies the journey received and on a local
-   build of the preview's mode.
+9. **Destination scan and ledger** (5c), on the app's own source, HTML, public files and fake data, on the bodies the
+   journey received and on a local build of the preview's mode, with escaped text read unescaped and a served source
+   map read like any other file.
    - Pass: every occurrence is on the ledger; and each planted case fails the scan: a form whose action is a
      real-looking host, a `wa.me` link inside a dependency's file, a bare number of the app's country in a source
-     file, and a second builder, in a new file, for a host already on the ledger.
-   - Fail: a planted case passes; a ledger line marks an opened or shown destination as neutralized by a blocked
-     host; or a fixed contact is marked neutralized by a switched builder and not replaced.
+     file, written the way the app writes its own (for example the country code and the digits with no plus and no
+     separators), and a second builder, in a new file, for a host already on the ledger.
+   - Fail: a planted case passes; a ledger line marks an opened or shown destination as neutralized by a blocked host;
+     or a fixed contact is marked neutralized by a switched builder and not replaced.
 10. **Static fault checks** (5c).
     - Pass: a planted `shadowrootmode` in served HTML and in a served script file, a planted `setHTMLUnsafe` and
       `parseHTMLUnsafe` call, and a planted `document.write` in the app's own code each fail the check.
     - Fail: one of them passes.
 11. **Scripted journey** (5b, 5c).
     - Pass: the recorded requests include no other origin; the scan after each screen finds no link or form
-      destination outside the two origins in any document of the frame or any shadow root on the guard's list; no
-      `Location` header outside the two origins comes from the app's server or the fake backend; and the app's port
-      opened at top level, without the check script's flag, renders only the notice.
+      destination outside the two origins in any document of the frame or any shadow root on the guard's list, no
+      rewritten destination whose first address is neither inert on the ledger nor invented, and no contact the ledger
+      marks as replaced; no `Location` header outside the two origins comes from the app's server or the fake backend;
+      and the app's port opened at top level, without the check script's flag, renders only the notice.
     - Fail: any of these.
 12. **Data** (5c).
     - Pass: every email address in the fake data and in the fake backend's recorded responses is `.invalid` or
@@ -90,7 +95,7 @@ Next. A fail stops the unit. Each planted case is shown failing first, then pass
       the address as text.
     - Fail: anything else. What cannot be shown on his devices is listed in the report as not shown
       (`preview-floor-notes.md`, "Unproven until a real unit 1").
-15. **No-demo check** (point 4), locally for unit 1 and in the landing CI after it; for a Capacitor or Expo app
-    also in the OTA bundle's build command.
+15. **No-demo check** (point 4), locally for unit 1 and in the landing CI after it; for a Capacitor or Expo app also
+    in the OTA bundle's build command.
     - Pass: a planted import from the demo folder fails the web build and the OTA bundle's build.
     - Fail: either builds.

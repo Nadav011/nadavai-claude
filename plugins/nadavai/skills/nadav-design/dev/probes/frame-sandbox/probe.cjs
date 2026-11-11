@@ -2,9 +2,11 @@
 // The app page runs in three set-ups, each with the same cases:
 //   1. frame + guard   in a sandboxed frame (no allow-popups, no allow-top-navigation*), the shell's policy has
 //                      frame-src set to the app's origin only, and a guard in the app that
-//                      - rewrites every <a href> and <area href> that points outside the two origins to a local
-//                        page (a javascript: href is left alone), in the document and in every shadow root made
-//                        with attachShadow;
+//                      - rewrites every <a href> and <area href>, every form's action and every formaction
+//                        that points outside the two origins to a local page, and keeps watching them, in the
+//                        document and in every shadow root made with attachShadow (left alone: a javascript:
+//                        destination, React's two placeholders, a blob: link of the two origins, and a data:
+//                        link that carries download);
 //                      - cancels the browser's default, never the app's handlers, for a click with a modifier key
 //                        or another button where the event's path holds a link or a submit control, for the
 //                        context menu on a link or an image, and for a drag of a link the app did not make
@@ -78,22 +80,38 @@ ReactDOMClient.createRoot(document.getElementById('root')).render(h('div', null,
 // The guard: loaded first.
 const GUARD = `<script>(() => {
   const OK = new Set([location.origin, '${SHELL_ORIGIN}']);
-  // 1. Links that leave point at a local page, in the document and in every shadow root.
-  const SEL = 'a[href],area[href]';
-  const fix = (a) => {
-    const raw = a.getAttribute('href');
+  // React writes one of these as the action of a form whose action is a function (the first in the browser, the
+  // second on the server, which hydration keeps), cancels the submission itself and runs the function; when the
+  // submission is already cancelled it does not run it.
+  const REACT_CLIENT = "javascript:throw new Error('A React form was unexpectedly submitted";
+  const REACT_SERVER = "javascript:throw new Error('React form unexpectedly submitted.')";
+  const isReact = (raw) => raw.startsWith(REACT_CLIENT) || raw === REACT_SERVER;
+  // 1. Destinations that leave point at a local page, in the document and in every shadow root: a link's href, a
+  // form's action, a control's formaction. Watching them is what catches a destination the app's own handler sets
+  // during the submit, after the submit listener below has looked: the observer runs before the browser reads it.
+  const LINKS = 'a[href],area[href]';
+  const SEL = LINKS + ',form[action],[formaction]';
+  const fixAttr = (el, name, link) => {
+    const raw = el.getAttribute(name);
     if (!raw) return;
-    let u; try { u = new URL(raw, location.href); } catch { return; }
+    let u; try { u = new URL(raw, document.baseURI); } catch { return; }
     if (OK.has(u.origin) && (u.protocol === 'http:' || u.protocol === 'https:')) return;
-    if (u.protocol === 'javascript:') return; // runs in place; its modified clicks are cancelled below
-    a.setAttribute('href', '/would-open?u=' + encodeURIComponent(raw));
-    a.removeAttribute('target');
+    if (u.protocol === 'javascript:') return; // a link runs in place; a form is cancelled below unless it is React's
+    if (link && u.protocol === 'blob:' && OK.has(u.origin)) return; // a file the page made
+    if (link && u.protocol === 'data:' && el.hasAttribute('download')) return; // a file the page made
+    el.setAttribute(name, '/would-open?u=' + encodeURIComponent(raw));
+    if (link) el.removeAttribute('target');
+  };
+  const fix = (el) => {
+    if (el.matches(LINKS)) fixAttr(el, 'href', true);
+    if (el.matches('form[action]')) fixAttr(el, 'action', false);
+    if (el.matches('[formaction]')) fixAttr(el, 'formaction', false);
   };
   const sweep = (root) => root.querySelectorAll && root.querySelectorAll(SEL).forEach(fix);
   const watch = (root) => {
     new MutationObserver((ms) => ms.forEach((m) => {
       if (m.type === 'attributes') { if (m.target.matches(SEL)) fix(m.target); } else m.addedNodes.forEach((n) => { if (n.nodeType === 1) { if (n.matches(SEL)) fix(n); sweep(n); } });
-    })).observe(root, { subtree: true, childList: true, attributes: true, attributeFilter: ['href'] });
+    })).observe(root, { subtree: true, childList: true, attributes: true, attributeFilter: ['href', 'action', 'formaction'] });
     sweep(root);
   };
   watch(document);
@@ -107,11 +125,6 @@ const GUARD = `<script>(() => {
   const cancel = (e) => e.preventDefault();
   // a drag that the app itself made draggable is the app's own, also inside a link
   const ownDrag = (e) => { for (const n of path(e)) { if (n.getAttribute('draggable') === 'true') return true; if (n.matches(LINK)) return false; } return false; };
-  // React writes one of these as the action of a form whose action is a function (the first on the client, the
-  // second on the server, which hydration keeps), cancels the submission itself and runs the function; when the
-  // submission is already cancelled it does not run it.
-  const REACT_CLIENT = "javascript:throw new Error('A React form was unexpectedly submitted";
-  const REACT_SERVER = "javascript:throw new Error('React form unexpectedly submitted.')";
   const fence = (root) => {
     root.addEventListener('click', (e) => (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) && has(e, OPENER) && cancel(e), true);
     root.addEventListener('auxclick', (e) => has(e, OPENER) && cancel(e), true);
@@ -121,7 +134,7 @@ const GUARD = `<script>(() => {
     root.addEventListener('submit', (e) => {
       const b = e.submitter;
       const raw = (b && b.hasAttribute('formaction') ? b.getAttribute('formaction') : e.target.getAttribute('action')) || location.href;
-      if (raw.startsWith(REACT_CLIENT) || raw === REACT_SERVER) return;
+      if (isReact(raw)) return;
       let u; try { u = new URL(raw, document.baseURI); } catch { return cancel(e); }
       if (!OK.has(u.origin)) cancel(e);
     }, true);
@@ -151,12 +164,16 @@ const appHtml = (guard) => `<!doctype html><meta charset="utf-8"><title>app</tit
 <form id="f" action="https://example.com/post" method="post"><button id="post">post</button></form>
 <form id="one" action="https://example.com/one" method="post"><input id="q" name="q"></form>
 <form id="fa" action="/would-open" method="post"><button id="fab" formaction="https://example.com/formaction">other</button></form>
+<form id="late1" action="/would-open" method="post"><input id="late1q" name="q"></form>
+<form id="late2" action="/would-open" method="post"><input id="late2q" name="q"></form>
 <input type="checkbox" id="cb"><div id="cell" style="width:80px;height:30px">cell</div>
 <a id="jslink" href="javascript:void(0)">a link the app handles itself</a>
 <div id="card" draggable="true" style="width:120px"><img id="cardimg" src="/px.svg" width="40" height="40"> card</div>
 <div id="drop" style="width:160px;height:60px;background:#eee">drop zone</div>
 <script>window.__cb = 0; window.__menu = 0; window.__drop = 0; window.__js = 0;
 document.getElementById('jslink').addEventListener('click', () => { window.__js += 1; });
+document.getElementById('late1').addEventListener('submit', (e) => { e.target.setAttribute('action', 'https://example.com/late-attribute'); });
+document.getElementById('late2').addEventListener('submit', (e) => { e.target.action = 'https://example.com/late-property'; });
 document.getElementById('cb').addEventListener('click', () => { window.__cb += 1; });
 document.getElementById('cell').addEventListener('contextmenu', (e) => { window.__menu += 1; e.preventDefault(); });
 document.getElementById('card').addEventListener('dragstart', (e) => e.dataTransfer.setData('text/plain', 'card'));
@@ -206,6 +223,8 @@ const CASES = [
   ['middle click on an SVG <a xlink:href>', click('#svga', { button: 'middle' })],
   ['middle click on a link inside a closed shadow root', click('#closedlink', { button: 'middle' })],
   ['Shift+Enter in a one-field form inside a closed shadow root', async (f) => { await f.evaluate(() => window.__closedInput.focus()); await f.page().keyboard.press('Shift+Enter'); }],
+  ['Shift+Enter in a one-field form whose own submit listener sets its action attribute to another origin', (f) => f.locator('#late1q').press('Shift+Enter', { timeout: 3000 })],
+  ['Shift+Enter in a one-field form whose own submit listener sets form.action to another origin', (f) => f.locator('#late2q').press('Shift+Enter', { timeout: 3000 })],
 ];
 // The app's own controls must keep working under the guard. Each step is tried by itself, so one that a browser
 // cannot play does not hide the others.
@@ -230,7 +249,7 @@ const APP_CONTROLS = async (f) => {
     reactAttr: document.getElementById('ra') ? document.getElementById('ra').getAttribute('action').slice(0, 44) : null,
     ssrAttr: document.getElementById('sa') ? document.getElementById('sa').getAttribute('action') : null,
     js: window.__js, at: location.pathname,
-    listed: window.__guardRoots ? window.__guardRoots().map((r) => [...r.querySelectorAll('a[href]')].map((a) => a.getAttribute('href'))) : null,
+    listed: window.__guardRoots ? window.__guardRoots().map((r) => [...r.querySelectorAll('a[href],form[action]')].map((a) => a.getAttribute(a.matches('form') ? 'action' : 'href'))) : null,
     roots: [window.__openA.getAttribute('href'), window.__closedA.getAttribute('href'), window.__lateA ? window.__lateA.getAttribute('href') : '(not added yet)'],
   }));
   return { ...r, errors };
@@ -315,7 +334,7 @@ const MODES = [
       console.log(`-- React ${reactVersion || '(not found)'}, rendered on the server and hydrated: ${r.react ? `a form whose action is a function ran it ${r.react.ssrAction} time(s), a button whose formAction is a function ran it ${r.react.ssrFormAction} time(s); the action attribute after hydration is "${r.ssrAttr}"; recoverable hydration error: ${r.react.recover || 'none'}` : 'not run'}`);
       console.log(`-- a plain click on <a href="javascript:void(0)"> ran the app's handler ${r.js} time(s); the frame is at ${r.at}`);
       console.log(`-- href of the links inside shadow roots after load: open root ${r.roots && r.roots[0]} | closed root ${r.roots && r.roots[1]} | added later to the closed root ${r.roots && r.roots[2]}`);
-      console.log(`-- read through the guard's own list of roots: ${r.listed ? `${r.listed.length} root(s), hrefs ${JSON.stringify(r.listed)}` : 'no guard, no list'}`);
+      console.log(`-- read through the guard's own list of roots: ${r.listed ? `${r.listed.length} root(s), link and form destinations ${JSON.stringify(r.listed)}` : 'no guard, no list'}`);
       if (external.length) console.log(`-- outside requests during the controls: ${external.join(', ')}`);
       if (r.errors && r.errors.length) console.log(`-- steps that did not play: ${r.errors.join(' || ')}`);
       await ctx.close();
