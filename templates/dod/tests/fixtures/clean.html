@@ -1,0 +1,13 @@
+<!-- The page on which no check fires: each check's exemption is here on purpose. -->
+<p>הזמנות של היום, לפי שעה.</p>
+<button class="primary">שמירה</button>
+<button disabled aria-describedby="why">שליחה</button> <span id="why">אפשר לשלוח אחרי שבוחרים לקוח.</span>
+<div aria-busy="true"><button disabled>שומרים</button></div>
+<button data-help="what" title="מה זה" aria-label="מה זה התאריך">?</button>
+<label for="mail">אימייל</label><input id="mail" name="email" type="email" autocomplete="email" placeholder="name@example.com">
+<label for="tel">טלפון</label><input id="tel" name="phone" type="tel" autocomplete="tel" aria-invalid="true" aria-describedby="tel-err">
+<p id="tel-err">מספר טלפון צריך להיות 10 ספרות, למשל 050-123-4567.</p>
+<div data-state="clear"><p>אין משהו שמחכה. הכול מטופל.</p></div>
+<div data-state="empty"><p>עוד אין לקוחות.</p><a href="#new">הוספת לקוח</a></div>
+<section data-toast-region aria-label="הודעות"><div role="status">הקבלה נשלחה.</div></section>
+<nav class="bar" aria-label="ניווט"><a href="#a">יומן</a><a href="#b">לקוחות<span class="badge">3</span></a><a href="#c">כסף</a><a href="#d">הודעות</a><a href="#e">עוד</a></nav>

@@ -1,65 +1,57 @@
-// Definition-of-Done audit. Never fails on findings: everything is recorded to
+// Definition-of-Done audit, the scored phase. Never fails on findings: everything is recorded to
 // reports/results/*.json and merged into reports/dod.json by global-teardown.
 import fs from "node:fs";
 import path from "node:path";
 import { test, type Page } from "@playwright/test";
-import { argosScreenshot } from "@argos-ci/playwright";
 import AxeBuilder from "@axe-core/playwright";
-import params from "./route-params.json";
-import routes from "./routes.json";
-import { RESULTS_DIR, SCHEMES, SCREENS_DIR, VIEWPORTS, routeSlug, type EntryResult } from "./dod-shared";
+import {
+  AXE_TAGS,
+  RESULTS_DIR,
+  SCHEMES,
+  SCREENS_DIR,
+  VIEWPORTS,
+  loadArgos,
+  loadParams,
+  loadRoutes,
+  loadScoring,
+  NOT_FOUND_PRINT,
+  normalizeRegionText,
+  routeSlug,
+  type EntryResult,
+  type NotFoundPrint,
+  type RouteEntry,
+} from "./dod-shared";
+import { reachRoute, settle, touchTargets } from "./dod-page";
 
-const SETTLE_MS = 1200;
+// The scored phase. It never reads standard.json: the experience standard's checks are another
+// phase (standard.spec.ts), run by run-dod.mjs after every entry of this one has finished.
+const routes = loadRoutes();
+const params = loadParams();
+const scoring = loadScoring();
+// The app's own not-found page, printed once by global-setup (absent: no comparison).
+const notFoundPrint: NotFoundPrint | null = fs.existsSync(NOT_FOUND_PRINT)
+  ? (JSON.parse(fs.readFileSync(NOT_FOUND_PRINT, "utf8")) as NotFoundPrint)
+  : null;
 
-async function settle(page: Page) {
-  await page.waitForLoadState("networkidle").catch(() => {});
-  await page.waitForTimeout(SETTLE_MS);
+
+
+/** The route's own region text, the same region reachRoute reads. */
+function regionText(page: Page): Promise<string> {
+  return page.evaluate(() => {
+    const region = document.querySelector("main, #main-content, #root, #__next") ?? document.body;
+    return (region as HTMLElement).innerText ?? "";
+  });
 }
 
 /**
- * Did the app paint this route, or is the probe about to measure a loading screen?
- * Returns null when the page is really there, otherwise the reason it is not.
- *
- * Every other probe here looks for a defect, and a page that never rendered has none:
- * no contrast failures, no small targets, no console errors. So it scores 100, and the
- * report says the screen passed when what it means is that nobody looked at it. The
- * thresholds are deliberately loose — a short screen is still a screen, and a page that
- * documents a loading state is not stuck in one — because a blunt version of this check
- * fails real screens, which is worse than the hole it closes.
+ * Not-found and denial wording, the fallback when the page carries neither the standard's
+ * markers nor the app's printed not-found text. Each is a phrase, never a bare number or a
+ * bare word: "forbidden" or a "404" on a stat card is content.
  */
-async function reachRoute(page: Page): Promise<string | null> {
-  const painted = () =>
-    page.evaluate(() => {
-      // Read the ROUTE'S OWN region, never the whole body. Any app with a shell —
-      // a skip link, a nav, a footer — puts several hundred characters on screen
-      // before the route contributes a single one, so a body-length test can never
-      // fail there no matter what the page did.
-      const region = document.querySelector("main, #main-content, #root, #__next");
-      const text = (() => {
-        if (region) return (region as HTMLElement).innerText ?? "";
-        const clone = document.body.cloneNode(true) as HTMLElement;
-        for (const el of clone.querySelectorAll(
-          'nav, footer, header, [role="navigation"], [role="banner"], [role="contentinfo"], script, style, [aria-hidden="true"]',
-        ))
-          el.remove();
-        return clone.innerText ?? "";
-      })();
-      const clean = text.replace(/\s+/g, " ").trim();
-      if (clean.length < 10) return `content region has ${clean.length} characters`;
-      const busy = [...document.querySelectorAll('[role="status"], [aria-busy="true"]')].some((el) =>
-        /loading|טוענים|טוען|רגע/i.test((el as HTMLElement).textContent ?? ""),
-      );
-      return busy && clean.length < 200 ? "still showing a loading state" : null;
-    });
-
-  const deadline = Date.now() + 15_000;
-  let reason = await painted();
-  while (reason !== null && Date.now() < deadline) {
-    await page.waitForTimeout(500);
-    reason = await painted();
-  }
-  return reason;
-}
+const NOT_FOUND_WORDING =
+  /הדף לא נמצא|העמוד לא נמצא|הדף שחיפשת|שגיאה 404|page not found|this page could not be found|404 not found|error 404/i;
+const DENIED_WORDING =
+  /אין לך הרשאה|אין לך גישה|שגיאה 403|שגיאה 401|access denied|you (do not|don't) have (permission|access)|not authorized to|403 forbidden|401 unauthorized/i;
 
 async function fontFamilies(page: Page): Promise<string[]> {
   return page.evaluate(() => {
@@ -80,80 +72,6 @@ async function overflow(page: Page) {
   });
 }
 
-async function touchTargets(page: Page) {
-  return page.evaluate(() => {
-    const els = Array.from(document.querySelectorAll<HTMLElement>('button, a[href], [role="button"]'));
-    const samples: string[] = [];
-    let failures = 0;
-
-    /**
-     * WCAG 2.2 SC 2.5.8 exempts a target that "is in a sentence, or its size is
-     * otherwise constrained by the line-height of non-target text". A link inside a
-     * paragraph cannot be 44px tall without tearing the paragraph apart, and axe —
-     * which implements the exemption — agrees: on the run that produced this rule it
-     * reported target-size on two routes while the naive measurement below flagged
-     * eighteen links sitting in Hebrew sentences. A standalone control is still held
-     * to 44px; only prose is let through, and only when there is prose beside it.
-     */
-    const inSentence = (el: HTMLElement, display: string): boolean => {
-      if (display !== "inline") return false;
-      const parent = el.parentElement;
-      if (!parent) return false;
-      // The prose beside the link is not always a bare text node. A component that
-      // splits a sentence and wraps each phrase — this app's consent text does
-      // exactly that — leaves the link surrounded by <span>s, and a text-node-only
-      // test declares a link that plainly sits mid-sentence to be standalone. What
-      // has to be there is non-target text: anything readable next to it that is
-      // not itself a control, so a row of nothing but links is still measured.
-      return Array.from(parent.childNodes).some((n) => {
-        if (n === el) return false;
-        if (n.nodeType === Node.TEXT_NODE) return (n.textContent ?? "").trim().length > 0;
-        if (n.nodeType !== Node.ELEMENT_NODE) return false;
-        const e = n as HTMLElement;
-        if (e.matches("a[href], button, [role=\"button\"]")) return false;
-        return (e.textContent ?? "").trim().length > 0;
-      });
-    };
-
-    /**
-     * A compact control often reaches 44px through an invisible absolutely-positioned
-     * ::before that spills outside its box — the standard way to give a 24px-tall
-     * switch a thumb-sized hit area without drawing a 44px switch. The element's own
-     * rect says 48x26 and the finger gets 48x44, so measuring the rect alone reports
-     * a control that is already correct. Hit-testing with elementFromPoint would be
-     * the direct measurement, but it only works above the fold; the pseudo-element's
-     * own geometry works wherever the element is.
-     */
-    const hitAreaOf = (el: HTMLElement, r: DOMRect) => {
-      let extraW = 0;
-      let extraH = 0;
-      for (const pseudo of ["::before", "::after"]) {
-        const ps = getComputedStyle(el, pseudo);
-        if (ps.content === "none" || ps.position !== "absolute") continue;
-        const out = (v: string) => Math.max(0, -(Number.parseFloat(v) || 0));
-        extraH = Math.max(extraH, out(ps.top) + out(ps.bottom));
-        extraW = Math.max(extraW, out(ps.left) + out(ps.right));
-      }
-      return { w: Math.max(el.clientWidth, r.width) + extraW, h: Math.max(el.clientHeight, r.height) + extraH };
-    };
-
-    for (const el of els) {
-      const r = el.getBoundingClientRect();
-      const cs = getComputedStyle(el);
-      if (r.width === 0 || r.height === 0 || cs.visibility === "hidden" || cs.display === "none") continue;
-      if (inSentence(el, cs.display)) continue;
-      const { w, h } = hitAreaOf(el, r);
-      if (h < 44 || w < 44) {
-        failures++;
-        if (samples.length < 8) {
-          const label = (el.getAttribute("aria-label") || el.textContent || "").trim().slice(0, 30);
-          samples.push(`${el.tagName.toLowerCase()}${el.id ? "#" + el.id : ""} "${label}" ${Math.round(w)}x${Math.round(h)}`);
-        }
-      }
-    }
-    return { checked: true, failures, samples };
-  });
-}
 
 async function reducedMotionViolations(page: Page) {
   return page.evaluate(() => {
@@ -189,182 +107,263 @@ async function reducedMotionViolations(page: Page) {
   });
 }
 
-for (const route of routes as string[]) {
+
+
+
+/**
+ * Everything that is scored, for one entry, in one sequence: the load, the access checks, the
+ * screenshot, overflow, axe, fonts, touch targets, the reduced-motion reload and the console count
+ * over all of it. It returns with the console count frozen. The experience standard's checks are
+ * not in this run at all: run-dod.mjs runs them as a second Playwright run after this one.
+ */
+async function measureEntry(
+  page: Page,
+  entry: RouteEntry,
+  viewport: { width: number; height: number },
+  scheme: (typeof SCHEMES)[number],
+  slug: string,
+  name: string,
+): Promise<EntryResult> {
+  const { route } = entry;
+  const consoleErrors: string[] = [];
+  let frozen = false;
+  page.on("console", (m) => {
+    if (!frozen && m.type() === "error") consoleErrors.push(m.text().slice(0, 300));
+  });
+  page.on("pageerror", (e) => {
+    if (!frozen) consoleErrors.push(`pageerror: ${e.message.slice(0, 300)}`);
+  });
+  let measuredUrl = "";
+  const result: EntryResult = {
+    route,
+    slug,
+    audience: entry.audience,
+    viewport: { ...viewport },
+    scheme,
+    status: null,
+    load_error: null,
+    unreachable: false,
+    unreachable_reason: null,
+    reached: false,
+    not_reached_reason: null,
+    screenshot: null,
+    overflow: { scrollWidth: 0, clientWidth: 0, failed: false },
+    axe: { version: null, counted: 0, scored: 0, by_impact: {}, violations: [] },
+    console_errors: consoleErrors,
+    fonts: { families: [], count: 0 },
+    touch_targets: { checked: false, failures: 0, samples: [] },
+    reduced_motion: { violations: 0, samples: [] },
+  };
+
+  try {
+    const resp = await page.goto(route, { waitUntil: "domcontentloaded" });
+    result.status = resp?.status() ?? null;
+    await settle(page);
+
+    // Access check: the QA account must be able to open every page. A non-2xx,
+    // a bounce to a login or access-denied screen, or an empty body means the
+    // page was not measured, so it must not be scored as if it passed.
+    const landed = new URL(page.url()).pathname + new URL(page.url()).search;
+    const expected = route.split("?")[0] ?? route;
+    // ANY redirect away from the requested path means this page was not
+    // measured, wherever it went. The rule used to be `!landed.startsWith(expected)`
+    // AND a keyword test for a login-looking destination — two holes at once.
+    // A middleware that sends an unauthorised visitor to `/` matches no keyword,
+    // so on Green Room 52 admin and coach routes could each have been awarded
+    // the HOME PAGE's score, four entries apiece, and the report would have
+    // said 100. And `startsWith` let `/admin` stand in for `/adminXYZ`.
+    //
+    // Apps do have legitimate aliases, so `alias` is the narrow, declared
+    // exception: the destination must itself be a route in the list, so it is
+    // measured under its own name. A GATED route (an area listed in `_gated`)
+    // may leave its own area only if route-params.json says so in writing,
+    // under `_alias` — otherwise "it left /admin" is indistinguishable from
+    // "the middleware refused it", the very failure this check exists to catch.
+    const landedPath = landed.split("?")[0] ?? landed;
+    const GATED_AREAS = params._gated ?? [];
+    const gated = GATED_AREAS.find(
+      (prefix) => expected === prefix || expected.startsWith(`${prefix}/`),
+    );
+    const leftItsArea =
+      !!gated && !(landedPath === gated || landedPath.startsWith(`${gated}/`));
+    const declaredAlias = params._alias ?? {};
+    const alias =
+      landedPath !== expected &&
+      (!leftItsArea || route in declaredAlias) &&
+      routes.some(({ route: r }) => (r.split("?")[0] ?? r) === landedPath);
+    if (alias) result.redirected_to = landed;
+    const bounced = landedPath !== expected && !alias;
+    const deniedText = await page
+      .locator("body")
+      .innerText()
+      .catch(() => "");
+    // The standard's own markers are the first signal: a page that renders its
+    // no-access or not-found state says so in markup, whatever its words. A route that
+    // asks for that state (?state=no-access) is the designed screen, not a refusal.
+    const askedState = new URLSearchParams(route.split("?")[1] ?? "").get("state");
+    const marker = await page
+      .evaluate(() =>
+        ["no-access", "not-found"].find((s) =>
+          [...document.querySelectorAll(`[data-state="${s}"]`)].some((el) =>
+            el.checkVisibility({ opacityProperty: true, visibilityProperty: true }),
+          ),
+        ),
+      )
+      .catch(() => undefined);
+    // Then the app's real not-found page, printed in global-setup: the same region
+    // text means this route rendered it.
+    const rendersNotFound =
+      !!notFoundPrint &&
+      notFoundPrint.text.length > 0 &&
+      normalizeRegionText(await regionText(page).catch(() => ""), expected) === notFoundPrint.text;
+    if (result.status !== null && result.status >= 400) {
+      result.unreachable = true;
+      result.unreachable_reason = `HTTP ${result.status}`;
+    } else if (bounced) {
+      result.unreachable = true;
+      result.unreachable_reason = `redirected to ${landed}: the QA account has no access`;
+    } else if (marker === "no-access" && askedState !== "no-access") {
+      result.unreachable = true;
+      result.unreachable_reason = 'access-denied screen rendered ([data-state="no-access"])';
+    } else if (
+      !route.includes("404") &&
+      askedState !== "not-found" &&
+      (marker === "not-found" || rendersNotFound || NOT_FOUND_WORDING.test(deniedText))
+    ) {
+      // A route in the list that answers with the app's own not-found page is
+      // not being measured — it is the 404 screen being measured 110 times.
+      // /book/confirmed did exactly this: it needs ?bookingId=, so the gate
+      // scored the not-found page 100 while the screen that shows a customer
+      // their door code was never opened. A route list is only as good as the
+      // parameters that make its pages real.
+      result.unreachable = true;
+      result.unreachable_reason = `renders the not-found page (${
+        marker === "not-found" ? "[data-state=\"not-found\"]" : rendersNotFound ? "the app's not-found text" : "not-found wording"
+      }) — the route needs a query parameter (add it to routes.json)`;
+    } else if (DENIED_WORDING.test(deniedText)) {
+      // A phrase, never the digits: a 401 or 403 is a status code and is caught above
+      // through the response status, while "401" in a price is content.
+      result.unreachable = true;
+      result.unreachable_reason = "access-denied screen rendered";
+    } else if (askedState !== "error" && /משהו השתבש|שגיאה בטעינה|something went wrong|try again later/i.test(deniedText)) {
+      // (A route asked as ?state=error is meant to show the error screen.)
+      // An error boundary that caught a failed fetch renders a tidy little
+      // card: no overflow, no axe violation, no console error (it was
+      // caught), two fonts, no small targets. Indistinguishable from a
+      // perfect page unless the copy is matched.
+      result.unreachable = true;
+      result.unreachable_reason = "the app's own error screen rendered";
+    }
+
+    // Only worth asking once the response itself is sound: an access-denied
+    // screen has painted perfectly well, it is just the wrong page.
+    if (!result.unreachable) {
+      result.not_reached_reason = await reachRoute(page);
+      result.reached = result.not_reached_reason === null;
+    }
+
+    const shot = path.join(SCREENS_DIR, `${name}.png`);
+    await page.screenshot({ path: shot, fullPage: true });
+    result.screenshot = path.relative(path.resolve(SCREENS_DIR, "..", ".."), shot);
+
+    // Argos compares this frame with the same frame from the previous run and
+    // shows what moved. It answers the question the score cannot — "one token
+    // changed, which other screens changed with it" — and it is the reason the
+    // DoD walks every route rather than a sample. Without ARGOS_TOKEN it is a
+    // no-op, so a local run costs nothing and uploads nothing.
+    // The package is optional: it is loaded only when ARGOS_TOKEN is set, and
+    // global-setup has already stopped the run if the token is set without it.
+    if (process.env.ARGOS_TOKEN) await (await loadArgos())(page, name, { threshold: 0.2 });
+
+    result.overflow = await overflow(page);
+
+    // Retried once, because a page that finishes a client-side navigation while
+    // axe is walking it throws "Execution context was destroyed" — and the
+    // catch below would then record the page as UNREACHABLE, which reads as
+    // "the QA account has no access" when what actually happened is that the
+    // page moved. axe documents this case itself
+    // (dequelabs/axe-core-npm error-handling.md). One settle and one retry.
+    const runAxe = () => new AxeBuilder({ page }).withTags([...AXE_TAGS]).analyze();
+    let axe: Awaited<ReturnType<typeof runAxe>>;
+    try {
+      axe = await runAxe();
+    } catch {
+      await settle(page);
+      axe = await runAxe();
+    }
+    result.axe.violations = axe.violations.map((v) => ({
+      id: v.id,
+      impact: v.impact ?? "unknown",
+      help: v.help,
+      nodes: v.nodes.length,
+      samples: v.nodes.slice(0, 4).map((n) => ({
+        target: n.target.map(String).join(" "),
+        html: n.html.replace(/\s+/g, " ").slice(0, 200),
+      })),
+    }));
+    result.axe.version = axe.testEngine?.version ?? null;
+    for (const v of axe.violations) {
+      const impact = v.impact ?? "unknown";
+      result.axe.by_impact[impact] = (result.axe.by_impact[impact] ?? 0) + v.nodes.length;
+      result.axe.counted += v.nodes.length;
+      if (impact === "critical" || impact === "serious" || scoring.axe.minorModerate === "enforce")
+        result.axe.scored += v.nodes.length;
+    }
+
+    result.fonts.families = await fontFamilies(page);
+    result.fonts.count = result.fonts.families.length;
+
+    if (viewport.width === 375) result.touch_targets = await touchTargets(page);
+
+    measuredUrl = page.url();
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await settle(page);
+    result.reduced_motion = await reducedMotionViolations(page);
+    // The reload must land where the first load did: a session that expired in between
+    // sends it to a sign-in screen, and that screen's motion is not this page's.
+    const rmLanded = new URL(page.url()).pathname;
+    if (!result.unreachable && rmLanded !== new URL(measuredUrl).pathname) {
+      result.unreachable = true;
+      result.unreachable_reason = `the reduced-motion reload landed on ${rmLanded}: the session may have expired during the run`;
+    }
+  } catch (err) {
+    result.load_error = err instanceof Error ? err.message.slice(0, 500) : String(err);
+    result.unreachable = true;
+    result.unreachable_reason = result.load_error;
+  }
+  frozen = true;
+  result.measured_url = measuredUrl || page.url();
+  return result;
+}
+
+for (const entry of routes) {
+  const { route } = entry;
   for (const viewport of VIEWPORTS) {
     for (const scheme of SCHEMES) {
       const slug = routeSlug(route);
       const name = `${slug}__${viewport.width}__${scheme}`;
 
       test.describe(`${route} @${viewport.width} ${scheme}`, () => {
-        test.use({ viewport: { width: viewport.width, height: viewport.height }, colorScheme: scheme });
+        test.use({
+          viewport: { width: viewport.width, height: viewport.height },
+          colorScheme: scheme,
+          // A phone-width entry has a touch pointer, as a phone does: `(pointer: coarse)` matches
+          // and a control sized by pointer type (S-12) is measured at its touch size. Never
+          // isMobile, which would change the viewport handling and text sizing.
+          hasTouch: viewport.width < 768,
+          // A public page is measured as a visitor sees it: a fresh context with no
+          // cookies and no storage, not the QA session from global-setup.
+          ...(entry.audience === "anonymous" ? { storageState: { cookies: [], origins: [] } } : {}),
+        });
 
         test(`dod ${name}`, async ({ page }) => {
-          const consoleErrors: string[] = [];
-          page.on("console", (m) => {
-            if (m.type() === "error") consoleErrors.push(m.text().slice(0, 300));
-          });
-          page.on("pageerror", (e) => consoleErrors.push(`pageerror: ${e.message.slice(0, 300)}`));
-
-          const result: EntryResult = {
-            route,
-            slug,
-            viewport: { ...viewport },
-            scheme,
-            status: null,
-            load_error: null,
-            unreachable: false,
-            unreachable_reason: null,
-            reached: false,
-            not_reached_reason: null,
-            screenshot: null,
-            overflow: { scrollWidth: 0, clientWidth: 0, failed: false },
-            axe: { critical_serious: 0, violations: [] },
-            console_errors: consoleErrors,
-            fonts: { families: [], count: 0 },
-            touch_targets: { checked: false, failures: 0, samples: [] },
-            reduced_motion: { violations: 0, samples: [] },
-          };
-
-          try {
-            const resp = await page.goto(route, { waitUntil: "domcontentloaded" });
-            result.status = resp?.status() ?? null;
-            await settle(page);
-
-            // Access check: the QA account must be able to open every page. A non-2xx,
-            // a bounce to a login or access-denied screen, or an empty body means the
-            // page was not measured, so it must not be scored as if it passed.
-            const landed = new URL(page.url()).pathname + new URL(page.url()).search;
-            const expected = route.split("?")[0] ?? route;
-            // ANY redirect away from the requested path means this page was not
-            // measured, wherever it went. The rule used to be `!landed.startsWith(expected)`
-            // AND a keyword test for a login-looking destination — two holes at once.
-            // A middleware that sends an unauthorised visitor to `/` matches no keyword,
-            // so on Green Room 52 admin and coach routes could each have been awarded
-            // the HOME PAGE's score, four entries apiece, and the report would have
-            // said 100. And `startsWith` let `/admin` stand in for `/adminXYZ`.
-            //
-            // Apps do have legitimate aliases, so `alias` is the narrow, declared
-            // exception: the destination must itself be a route in the list, so it is
-            // measured under its own name. A GATED route (an area listed in `_gated`)
-            // may leave its own area only if route-params.json says so in writing,
-            // under `_alias` — otherwise "it left /admin" is indistinguishable from
-            // "the middleware refused it", the very failure this check exists to catch.
-            const landedPath = landed.split("?")[0] ?? landed;
-            const GATED_AREAS = (params as { _gated?: string[] })._gated ?? [];
-            const gated = GATED_AREAS.find(
-              (prefix) => expected === prefix || expected.startsWith(`${prefix}/`),
-            );
-            const leftItsArea =
-              !!gated && !(landedPath === gated || landedPath.startsWith(`${gated}/`));
-            const declaredAlias = (params as { _alias?: Record<string, string> })._alias ?? {};
-            const alias =
-              landedPath !== expected &&
-              (!leftItsArea || route in declaredAlias) &&
-              (routes as string[]).some((r) => (r.split("?")[0] ?? r) === landedPath);
-            if (alias) result.redirected_to = landed;
-            const bounced = landedPath !== expected && !alias;
-            const deniedText = await page
-              .locator("body")
-              .innerText()
-              .then((x) => x.slice(0, 400))
-              .catch(() => "");
-            if (result.status !== null && result.status >= 400) {
-              result.unreachable = true;
-              result.unreachable_reason = `HTTP ${result.status}`;
-            } else if (bounced) {
-              result.unreachable = true;
-              result.unreachable_reason = `redirected to ${landed}: the QA account has no access`;
-            } else if (/הדף לא נמצא|page not found|404/i.test(deniedText) && !route.includes("404")) {
-              // A route in the list that answers with the app's own not-found page is
-              // not being measured — it is the 404 screen being measured 110 times.
-              // /book/confirmed did exactly this: it needs ?bookingId=, so the gate
-              // scored the not-found page 100 while the screen that shows a customer
-              // their door code was never opened. A route list is only as good as the
-              // parameters that make its pages real.
-              result.unreachable = true;
-              result.unreachable_reason =
-                "renders the not-found page — the route needs a query parameter (add it to routes.json)";
-            } else if (/403|401|אין לך הרשאה|אין הרשאה|access denied|unauthorized|forbidden/i.test(deniedText)) {
-              result.unreachable = true;
-              result.unreachable_reason = "access-denied screen rendered";
-            } else if (/משהו השתבש|שגיאה בטעינה|something went wrong|try again later/i.test(deniedText)) {
-              // An error boundary that caught a failed fetch renders a tidy little
-              // card: no overflow, no axe violation, no console error (it was
-              // caught), two fonts, no small targets. Indistinguishable from a
-              // perfect page unless the copy is matched.
-              result.unreachable = true;
-              result.unreachable_reason = "the app's own error screen rendered";
-            }
-
-            // Only worth asking once the response itself is sound: an access-denied
-            // screen has painted perfectly well, it is just the wrong page.
-            if (!result.unreachable) {
-              result.not_reached_reason = await reachRoute(page);
-              result.reached = result.not_reached_reason === null;
-            }
-
-            const shot = path.join(SCREENS_DIR, `${name}.png`);
-            await page.screenshot({ path: shot, fullPage: true });
-            result.screenshot = path.relative(path.resolve(SCREENS_DIR, "..", ".."), shot);
-
-            // Argos compares this frame with the same frame from the previous run and
-            // shows what moved. It answers the question the score cannot — "one token
-            // changed, which other screens changed with it" — and it is the reason the
-            // DoD walks every route rather than a sample. Without ARGOS_TOKEN it is a
-            // no-op, so a local run costs nothing and uploads nothing.
-            if (process.env.ARGOS_TOKEN) await argosScreenshot(page, name, { threshold: 0.2 });
-
-            result.overflow = await overflow(page);
-
-            // Retried once, because a page that finishes a client-side navigation while
-            // axe is walking it throws "Execution context was destroyed" — and the
-            // catch below would then record the page as UNREACHABLE, which reads as
-            // "the QA account has no access" when what actually happened is that the
-            // page moved. axe documents this case itself
-            // (dequelabs/axe-core-npm error-handling.md). One settle and one retry.
-            const runAxe = () =>
-              new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag22aa"]).analyze();
-            let axe: Awaited<ReturnType<typeof runAxe>>;
-            try {
-              axe = await runAxe();
-            } catch {
-              await settle(page);
-              axe = await runAxe();
-            }
-            result.axe.violations = axe.violations.map((v) => ({
-              id: v.id,
-              impact: v.impact ?? "unknown",
-              help: v.help,
-              nodes: v.nodes.length,
-              samples: v.nodes.slice(0, 4).map((n) => ({
-                target: n.target.map(String).join(" "),
-                html: n.html.replace(/\s+/g, " ").slice(0, 200),
-              })),
-            }));
-            result.axe.critical_serious = axe.violations
-              .filter((v) => v.impact === "critical" || v.impact === "serious")
-              .reduce((n, v) => n + v.nodes.length, 0);
-
-            result.fonts.families = await fontFamilies(page);
-            result.fonts.count = result.fonts.families.length;
-
-            if (viewport.width === 375) result.touch_targets = await touchTargets(page);
-
-            await page.emulateMedia({ reducedMotion: "reduce" });
-            await page.reload({ waitUntil: "domcontentloaded" });
-            await settle(page);
-            result.reduced_motion = await reducedMotionViolations(page);
-          } catch (err) {
-            result.load_error = err instanceof Error ? err.message.slice(0, 500) : String(err);
-            result.unreachable = true;
-            result.unreachable_reason = result.load_error;
-          }
-
+          const result = await measureEntry(page, entry, viewport, scheme, slug, name);
           fs.mkdirSync(RESULTS_DIR, { recursive: true });
           fs.writeFileSync(path.join(RESULTS_DIR, `${name}.json`), JSON.stringify(result, null, 2));
           test.info().annotations.push({
             type: "dod",
-            description: `status=${result.status} unreachable=${result.unreachable} reached=${result.reached} overflow=${result.overflow.failed} axe=${result.axe.critical_serious} console=${consoleErrors.length} fonts=${result.fonts.count} touch=${result.touch_targets.failures} rm=${result.reduced_motion.violations}`,
+            description: `status=${result.status} unreachable=${result.unreachable} reached=${result.reached} overflow=${result.overflow.failed} axe=${result.axe.counted} console=${result.console_errors.length} fonts=${result.fonts.count} touch=${result.touch_targets.failures} rm=${result.reduced_motion.violations}`,
           });
         });
       });

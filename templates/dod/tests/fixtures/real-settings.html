@@ -1,0 +1,63 @@
+<!doctype html>
+<!-- Real markup: a settings form in stock shadcn/Radix attributes (Switch, Checkbox, RadioGroup,
+     Select, Tabs with an indicator, a Tooltip trigger with words, an icon button with aria-label,
+     an avatar with title, a user's message, a sonner toast, an open Dialog). No check may fire. -->
+<html lang="he" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>real-settings</title><link rel="stylesheet" href="/real.css"></head><body>
+<header aria-hidden="true" data-aria-hidden="true"><span>סטודיו מיכל</span><a data-help="door" data-slot="button" class="border" href="#help">עזרה</a></header>
+<main aria-hidden="true" data-aria-hidden="true">
+  <div class="page-head"><h1>הגדרות העסק</h1><a data-help="screen" href="#help">מה עושים כאן</a></div>
+  <div data-slot="tabs" dir="rtl">
+    <div role="tablist" data-slot="tabs-list" aria-orientation="horizontal">
+      <button type="button" role="tab" data-slot="tabs-trigger" aria-selected="true" data-state="active" id="t1" aria-controls="p1">כללי</button>
+      <button type="button" role="tab" data-slot="tabs-trigger" aria-selected="false" data-state="inactive" id="t2" aria-controls="p2" tabindex="-1">תזכורות</button>
+      <span class="tabs-indicator" aria-hidden="true"></span>
+    </div>
+  </div>
+  <form id="p1" role="tabpanel" aria-labelledby="t1" data-state="active">
+    <label data-slot="label" for="bn">שם העסק</label>
+    <input data-slot="input" id="bn" name="businessName" autocomplete="organization" value="סטודיו מיכל">
+    <label data-slot="label" for="subj">נושא המייל לתזכורת</label>
+    <input data-slot="input" id="subj" name="reminderSubject" autocomplete="off" value="תזכורת לתור">
+    <label data-slot="label" for="ph">טלפון לעסק</label>
+    <input data-slot="input" id="ph" name="phone" type="tel" autocomplete="tel" placeholder="050-1234567">
+    <div class="row">
+      <button type="button" role="switch" aria-checked="true" data-state="checked" data-slot="switch" id="sw" aria-labelledby="swl"></button>
+      <span id="swl">שליחת תזכורות אוטומטית</span>
+    </div>
+    <div class="row">
+      <button type="button" role="checkbox" aria-checked="true" data-state="checked" data-slot="checkbox" id="cb" aria-labelledby="cbl"></button>
+      <span id="cbl">לשלוח גם במייל</span>
+    </div>
+    <div role="radiogroup" data-slot="radio-group" aria-label="מתי לשלוח" class="row">
+      <button type="button" role="radio" aria-checked="true" data-state="checked" data-slot="radio-group-item" id="r1" aria-labelledby="r1l"></button><span id="r1l">יום לפני</span>
+      <button type="button" role="radio" aria-checked="false" data-state="unchecked" data-slot="radio-group-item" id="r2" aria-labelledby="r2l" tabindex="-1"></button><span id="r2l">שעתיים לפני</span>
+    </div>
+    <span data-slot="label" id="lang-l">שפת ההודעות</span>
+    <button type="button" role="combobox" data-slot="select-trigger" aria-controls="lang-list" aria-expanded="false" aria-autocomplete="none" aria-labelledby="lang-l" data-state="closed"><span data-slot="select-value">עברית</span></button>
+    <div class="row">
+      <button type="button" data-slot="button" class="border" data-state="closed">שעות פעילות</button>
+      <button type="button" data-slot="button" class="size-9" aria-label="מחיקת התבנית"><svg aria-hidden="true" width="16" height="16"><path d="M3 4h10M6 4V2h4v2M5 4l1 10h4l1-10" stroke="currentColor" fill="none"/></svg></button>
+    </div>
+    <div class="row">
+      <span data-slot="avatar"><img data-slot="avatar-image" title="מיכל ברק" alt="מיכל ברק" width="32" height="32" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32'/%3E"></span>
+      <span>מיכל ברק, בעלת העסק</span>
+    </div>
+    <h2>הודעה אחרונה מלקוחה</h2>
+    <div class="msg" data-user-content>תודה רבה! נתראה ביום שלישי 🙏</div>
+    <p><button type="submit" data-slot="button" class="bg-primary">שמירה</button></p>
+  </form>
+</main>
+<section aria-hidden="true" aria-label="Notifications alt+T" tabindex="-1" aria-live="polite" aria-relevant="additions text" aria-atomic="false">
+  <ol data-sonner-toaster="true" dir="rtl"><li data-sonner-toast="" data-type="success" data-mounted="true" tabindex="0"><div data-content=""><div data-title="">ההגדרות נשמרו.</div></div></li></ol>
+</section>
+<div data-slot="dialog-overlay" data-state="open"></div>
+<div role="dialog" data-slot="dialog-content" data-state="open" id="dlg" aria-labelledby="dlg-t" aria-describedby="dlg-d" tabindex="-1">
+  <h2 id="dlg-t">שינוי שעת התזכורת</h2>
+  <p id="dlg-d">התזכורות שכבר נקבעו לא ישתנו.</p>
+  <div class="row">
+    <button type="button" data-slot="button" class="bg-primary">שמירת השינוי</button>
+    <button type="button" data-slot="button" class="border">ביטול</button>
+  </div>
+</div>
+</body></html>

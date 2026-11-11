@@ -1,0 +1,20 @@
+{
+  "_comment": "The experience standard's check ids, read by the DoD run (dod-shared.ts, the page checks) and by routes.mjs --check (standard-check.mjs, the static checks). An id under \"enforce\" in standard.json must be one of these; each side enforces its own ids and accepts the other's. state-coverage has a half on each side.",
+  "page": [
+    "help-door",
+    "tooltip-only",
+    "disabled-reason",
+    "placeholder-label",
+    "input-attrs",
+    "one-primary",
+    "nav-count",
+    "empty-action",
+    "error-toast",
+    "error-field",
+    "forbidden-words",
+    "state-coverage",
+    "core-unit",
+    "probe"
+  ],
+  "static": ["state-coverage", "help-route", "brand-assets", "both-directions"]
+}

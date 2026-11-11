@@ -17,6 +17,11 @@ concurrency:
 jobs:
   ui:
     runs-on: ubuntu-latest
+    # A backstop. `pnpm dod` (e2e/dod/run-dod.mjs) runs the scored phase, then the standard's
+    # checks with their own deadline (standard.json `checksMinutes`, default 60) and `maxTimeouts`,
+    # and exits with the scored phase's code. Raise it for a project whose scored walk alone takes
+    # longer than an hour.
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -44,7 +49,11 @@ jobs:
         if: always()
         with:
           name: dod-report
-          path: reports/dod
+          # Never the QA session: the kit keeps it outside reports/ (node_modules/.cache/dod), and
+          # an older kit wrote it here, so it is excluded by name as well.
+          path: |
+            reports/dod
+            !reports/dod/**/qa-storage-state.json
 
   # The fast half of `ui`, without the DoD walk. The same steps stay in `ui`, so the nightly
   # still covers them. No `needs:`: the runner picks the job by its id.

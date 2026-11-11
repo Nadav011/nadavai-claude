@@ -1,7 +1,72 @@
 import fs from "node:fs";
 import path from "node:path";
 import { chromium, type FullConfig } from "@playwright/test";
-import { REPORTS_DIR, RESULTS_DIR, SCREENS_DIR, STORAGE_STATE } from "./dod-shared";
+import {
+  CHECKS_DEADLINE_FILE,
+  NOT_FOUND_PRINT,
+  PHASE,
+  REPORTS_DIR,
+  RESULTS_DIR,
+  SCREENS_DIR,
+  STORAGE_STATE,
+  loadArgos,
+  normalizeRegionText,
+  type NotFoundPrint,
+} from "./dod-shared";
+
+// The same launch flag as playwright.dod.config.ts: Chromium's shared memory stays in RAM.
+const LAUNCH = { ignoreDefaultArgs: ["--disable-dev-shm-usage"] };
+
+/**
+ * Open a route that cannot exist, as the session the entries will use, and keep what the app
+ * shows for it. A single-page app answers 200 for any path and paints its own not-found
+ * screen, in its own words; with this print an entry that renders that same screen is caught
+ * whatever those words are. A catch-all redirect or an empty screen leaves no print.
+ */
+async function printNotFound(baseURL: string) {
+  const made = `/__dod-no-such-route-${Date.now().toString(36)}`;
+  const browser = await chromium.launch(LAUNCH);
+  try {
+    const context = await browser.newContext({
+      baseURL,
+      ...(fs.existsSync(STORAGE_STATE) ? { storageState: STORAGE_STATE } : {}),
+    });
+    const page = await context.newPage();
+    const resp = await page.goto(made, { waitUntil: "domcontentloaded", timeout: 60_000 });
+    await page.waitForLoadState("networkidle").catch(() => {});
+    await page.waitForTimeout(1200);
+    const landed = new URL(page.url()).pathname;
+    const region = await page.evaluate(() => {
+      const r = document.querySelector("main, #main-content, #root, #__next") ?? document.body;
+      return (r as HTMLElement).innerText ?? "";
+    });
+    let text = landed === made ? normalizeRegionText(region, made) : "";
+    // An app whose catch-all route renders its home screen would make the home screen look
+    // like a not-found page: compare with the ready path and keep no print when they match.
+    if (text) {
+      const ready = process.env.DOD_READY_PATH ?? "/";
+      await page.goto(ready, { waitUntil: "domcontentloaded", timeout: 60_000 });
+      await page.waitForLoadState("networkidle").catch(() => {});
+      await page.waitForTimeout(1200);
+      const home = await page.evaluate(() => {
+        const r = document.querySelector("main, #main-content, #root, #__next") ?? document.body;
+        return (r as HTMLElement).innerText ?? "";
+      });
+      if (normalizeRegionText(home, ready) === text) text = "";
+    }
+    const print: NotFoundPrint = { path: made, status: resp?.status() ?? null, landed, text };
+    fs.writeFileSync(NOT_FOUND_PRINT, JSON.stringify(print, null, 2));
+    console.log(
+      print.text
+        ? `[dod] not-found page printed (HTTP ${print.status}, ${print.text.length} characters).`
+        : `[dod] no not-found print: ${made} landed on ${landed}, or shows the same screen as the ready path.`,
+    );
+  } catch (err) {
+    console.log(`[dod] no not-found print: ${err instanceof Error ? err.message.split("\n")[0] : String(err)}`);
+  } finally {
+    await browser.close();
+  }
+}
 
 /**
  * The DoD runs as the QA account, which must be able to open EVERY page of the app:
@@ -41,31 +106,56 @@ export default async function globalSetup(config: FullConfig) {
       (k) => process.env[k] && !LOOPBACK.test(process.env[k] as string),
     );
     if (remote.length) {
+      // Name the variable and its host only: a DATABASE_URL carries a password, and this
+      // message ends up in terminal and CI logs. (Ported from cash-next-app's copy.)
+      const hostOf = (value: string) => {
+        try {
+          return new URL(value).host || "unparseable";
+        } catch {
+          return "unparseable";
+        }
+      };
       throw new Error(
         `[dod] refusing to run: ${remote
-          .map((k) => `${k}=${process.env[k]}`)
+          .map((k) => `${k} (${hostOf(process.env[k] as string)})`)
           .join(", ")} — not a loopback address. The DoD signs in with full access and ` +
           "browses every page; it runs against a local stack only. Set DOD_ALLOW_REMOTE=1 to override.",
       );
     }
   }
 
-  fs.rmSync(RESULTS_DIR, { recursive: true, force: true });
-  fs.rmSync(SCREENS_DIR, { recursive: true, force: true });
-  fs.mkdirSync(RESULTS_DIR, { recursive: true });
-  fs.mkdirSync(SCREENS_DIR, { recursive: true });
-  fs.mkdirSync(REPORTS_DIR, { recursive: true });
+  // Stop before the first page rather than fail every entry: a token without the
+  // package means someone wanted visual diffs and would otherwise get none.
+  if (process.env.ARGOS_TOKEN) await loadArgos();
+
+  if (PHASE === "checks") {
+    // The checks phase keeps everything the scored phase wrote and starts its own files afresh.
+    fs.mkdirSync(RESULTS_DIR, { recursive: true });
+    for (const f of fs.readdirSync(RESULTS_DIR))
+      if (f.endsWith(".standard.json") || f === "standard-timeouts.txt") fs.rmSync(path.join(RESULTS_DIR, f), { force: true });
+    fs.rmSync(CHECKS_DEADLINE_FILE, { force: true });
+  } else {
+    fs.rmSync(RESULTS_DIR, { recursive: true, force: true });
+    fs.rmSync(SCREENS_DIR, { recursive: true, force: true });
+    fs.mkdirSync(RESULTS_DIR, { recursive: true });
+    fs.mkdirSync(SCREENS_DIR, { recursive: true });
+    fs.mkdirSync(REPORTS_DIR, { recursive: true });
+    fs.rmSync(NOT_FOUND_PRINT, { force: true });
+  }
   fs.rmSync(STORAGE_STATE, { force: true });
+  // An older kit kept the QA session in reports/, which CI uploads: a leftover copy goes.
+  fs.rmSync(path.join(REPORTS_DIR, "qa-storage-state.json"), { force: true });
 
   const user = process.env.DOD_USER;
   const password = process.env.DOD_PASSWORD;
+  const baseURL = config.projects[0]?.use?.baseURL ?? `http://localhost:${process.env.PORT ?? "3000"}`;
   if (!user || !password) {
     console.log("[dod] no DOD_USER/DOD_PASSWORD: running anonymously, every gated page will report as unreachable.");
+    if (PHASE === "scored") await printNotFound(baseURL);
     return;
   }
 
-  const baseURL = config.projects[0]?.use?.baseURL ?? `http://localhost:${process.env.PORT ?? "3000"}`;
-  const browser = await chromium.launch();
+  const browser = await chromium.launch(LAUNCH);
   const page = await browser.newPage({ baseURL });
   // A sign-in screen behind Suspense paints its fields only once the client bundle is
   // there, and on a cold dev server the first compile of that route can take minutes.
@@ -81,8 +171,10 @@ export default async function globalSetup(config: FullConfig) {
     await page.click(process.env.DOD_SUBMIT_SELECTOR ?? "button[type=submit]");
     await page.waitForLoadState("networkidle").catch(() => {});
     await page.goto(process.env.DOD_READY_PATH ?? "/", { waitUntil: "domcontentloaded" });
-    fs.mkdirSync(path.dirname(STORAGE_STATE), { recursive: true });
-    await page.context().storageState({ path: STORAGE_STATE });
+    // Readable by this user only: it holds the QA account's session cookies. Removed above, so
+    // the mode applies to a new file; global-teardown deletes it after the run.
+    fs.mkdirSync(path.dirname(STORAGE_STATE), { recursive: true, mode: 0o700 });
+    fs.writeFileSync(STORAGE_STATE, JSON.stringify(await page.context().storageState()), { mode: 0o600 });
     console.log(`[dod] QA session saved for ${user}.`);
   } catch (err) {
     console.error(`[dod] QA login failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -90,4 +182,6 @@ export default async function globalSetup(config: FullConfig) {
   } finally {
     await browser.close();
   }
+  // The not-found print is the scored phase's; the checks phase reads none of it.
+  if (PHASE === "scored") await printNotFound(baseURL);
 }

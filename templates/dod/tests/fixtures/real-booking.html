@@ -1,0 +1,58 @@
+<!doctype html>
+<!-- Two changes from stock, both what the standard asks of a project: the slots' legend is linked
+     to its group with aria-describedby (E-02), and the cmdk input is 16px on a phone, since stock
+     CommandInput's text-sm (14px) makes iOS zoom (I-03). -->
+<!-- Stock shadcn: a booking screen. Combobox (Popover + Command/cmdk) open, a Calendar (react-day-picker v9
+     markup, startMonth = this month so "previous month" is aria-disabled), time slots in a ToggleGroup. -->
+<html lang="he" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>real-booking</title><link rel="stylesheet" href="/real.css"><link rel="stylesheet" href="/real-extra.css"><style>@media (max-width: 767px) { [cmdk-input] { font-size: 16px; } }</style></head><body>
+<header><span>סטודיו מיכל</span><a data-help="door" data-slot="button" class="border" href="#help">עזרה</a></header>
+<main>
+  <div class="page-head"><h1>קביעת תור</h1><a data-help="screen" href="#help">מה עושים כאן</a></div>
+  <span id="svc-l" style="display:block;font-size:14px;margin:12px 0 6px">טיפול</span>
+  <button type="button" data-slot="button" class="border" role="combobox" aria-expanded="true" aria-controls="radix-p1" aria-haspopup="dialog" data-state="open" aria-labelledby="svc-l" style="width:200px;justify-content:space-between">בחירת טיפול<svg aria-hidden="true" width="16" height="16"></svg></button>
+  <div data-radix-popper-content-wrapper="" dir="rtl" style="position:fixed;left:0;top:0;transform:translate(150px,170px);min-width:max-content;z-index:50">
+    <div data-side="bottom" data-align="start" role="dialog" id="radix-p1" data-state="open" data-slot="popover-content" tabindex="-1" style="position:static">
+      <div tabindex="-1" cmdk-root="" data-slot="command">
+        <label cmdk-label="" for="«rd»" id="«rc»" style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border-width:0"></label>
+        <div data-slot="command-input-wrapper" style="display:flex;align-items:center;border-bottom:1px solid var(--border);padding:0 8px"><svg aria-hidden="true" width="16" height="16"></svg>
+          <input data-slot="command-input" placeholder="חיפוש טיפול..." cmdk-input="" autocomplete="off" autocorrect="off" spellcheck="false" aria-autocomplete="list" role="combobox" aria-expanded="true" aria-controls="«re»" aria-labelledby="«rc»" id="«rd»" type="text" value=""></div>
+        <div cmdk-list="" role="listbox" tabindex="-1" aria-label="Suggestions" id="«re»" data-slot="command-list">
+          <div cmdk-list-sizer="">
+            <div cmdk-group="" role="presentation" data-value="טיפולים"><div cmdk-group-heading="" aria-hidden="true" id="«rf»" style="font-size:12px;padding:6px 8px;color:var(--muted-foreground)">טיפולים</div>
+              <div cmdk-group-items="" role="group" aria-labelledby="«rf»">
+                <div cmdk-item="" role="option" aria-disabled="false" aria-selected="true" data-disabled="false" data-selected="true" data-value="טיפול פנים" data-slot="command-item">טיפול פנים</div>
+                <div cmdk-item="" role="option" aria-disabled="false" aria-selected="false" data-disabled="false" data-selected="false" data-value="מניקור" data-slot="command-item">מניקור</div>
+                <div cmdk-item="" role="option" aria-disabled="true" aria-selected="false" data-disabled="true" data-selected="false" data-value="פדיקור" data-slot="command-item">פדיקור (אין תורים החודש)</div>
+              </div></div></div></div>
+      </div>
+    </div>
+  </div>
+  <h2>תאריך</h2>
+  <div data-slot="calendar" class="rdp-root" dir="rtl" lang="he" data-mode="single">
+    <div class="rdp-months">
+      <nav class="rdp-nav" aria-label="Navigation bar">
+        <button type="button" class="rdp-button_previous" tabindex="-1" aria-disabled="true" aria-label="Go to the Previous Month"><svg aria-hidden="true" width="16" height="16"></svg></button>
+        <button type="button" class="rdp-button_next" aria-label="Go to the Next Month"><svg aria-hidden="true" width="16" height="16"></svg></button>
+      </nav>
+      <div class="rdp-month">
+        <div class="rdp-month_caption"><span class="rdp-caption_label" role="status" aria-live="polite">נובמבר 2026</span></div>
+        <table role="grid" class="rdp-month_grid" aria-multiselectable="false" aria-label="נובמבר 2026">
+          <thead aria-hidden="true"><tr class="rdp-weekdays"><th scope="col" aria-label="יום ראשון" class="rdp-weekday">א׳</th><th scope="col" aria-label="יום שני" class="rdp-weekday">ב׳</th><th scope="col" aria-label="יום שלישי" class="rdp-weekday">ג׳</th><th scope="col" aria-label="יום רביעי" class="rdp-weekday">ד׳</th></tr></thead>
+          <tbody class="rdp-weeks"><tr class="rdp-week">
+            <td class="rdp-day rdp-disabled" role="gridcell" data-day="2026-11-08" data-disabled="true"><button class="rdp-day_button" type="button" disabled tabindex="-1" aria-label="יום ראשון, 8 בנובמבר 2026">8</button></td>
+            <td class="rdp-day rdp-disabled" role="gridcell" data-day="2026-11-09" data-disabled="true"><button class="rdp-day_button" type="button" disabled tabindex="-1" aria-label="יום שני, 9 בנובמבר 2026">9</button></td>
+            <td class="rdp-day rdp-today rdp-selected" role="gridcell" data-day="2026-11-10" data-today="true" data-selected="true" aria-selected="true"><button class="rdp-day_button" type="button" tabindex="0" data-selected-single="true" aria-label="היום, יום שלישי, 10 בנובמבר 2026, נבחר">10</button></td>
+            <td class="rdp-day" role="gridcell" data-day="2026-11-11"><button class="rdp-day_button" type="button" tabindex="-1" aria-label="יום רביעי, 11 בנובמבר 2026">11</button></td>
+          </tr></tbody></table>
+      </div></div></div>
+  <h2>שעה</h2>
+  <div role="group" dir="rtl" data-slot="toggle-group" data-variant="outline" aria-label="שעות פנויות" aria-describedby="slots-legend">
+    <button type="button" data-state="off" aria-pressed="false" data-slot="toggle-group-item" disabled>09:00</button>
+    <button type="button" data-state="on" aria-pressed="true" data-slot="toggle-group-item">10:00</button>
+    <button type="button" data-state="off" aria-pressed="false" data-slot="toggle-group-item">10:30</button>
+  </div>
+  <p id="slots-legend" style="font-size:14px">שעות אפורות כבר תפוסות.</p>
+  <p><button type="button" data-slot="button" class="bg-primary">קביעת התור</button></p>
+</main>
+</body></html>

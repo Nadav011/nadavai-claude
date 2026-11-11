@@ -2,7 +2,14 @@
 // Enumerate every route of the app and keep e2e/dod/routes.json complete.
 //
 //   node e2e/dod/routes.mjs            write routes.json (merges: keeps extra entries you added)
-//   node e2e/dod/routes.mjs --check    exit 1 if the app has routes routes.json does not cover
+//   node e2e/dod/routes.mjs --check    exit 1 if the app has routes routes.json does not cover,
+//                                      or routes.json has a route the app no longer has;
+//                                      with e2e/dod/standard.json, also runs the experience
+//                                      standard's static checks (standard-check.mjs)
+//
+// An entry is a string ("/plans") or an object
+// ({ "route": "/", "audience": "anonymous", "static": true }); a write keeps objects as
+// they are and adds new routes as strings.
 //
 // Detects Next app router (app/**/page.tsx), Next pages router (pages/**) and,
 // in a Vite app, React Router (<Route path="..."> and { path: "..." } inside a
@@ -21,8 +28,9 @@
 // in the score precisely because it never appears in it.
 import fs from "node:fs";
 import path from "node:path";
+import { standardCheck } from "./standard-check.mjs";
 
-const ROOT = process.cwd();
+const ROOT = path.resolve(process.env.DOD_ROOT ?? process.cwd());
 const DIR = path.join(ROOT, "e2e", "dod");
 const OUT = path.join(DIR, "routes.json");
 const PARAMS = path.join(DIR, "route-params.json");
@@ -38,6 +46,15 @@ const params = fs.existsSync(PARAMS) ? JSON.parse(fs.readFileSync(PARAMS, "utf8"
  * read, which is why it lives in the file with its reason rather than in code.
  */
 const EXCLUDE = new Set(Object.keys(params._exclude ?? {}));
+/**
+ * Routes kept in routes.json that the scan below cannot find, each with its reason, under
+ * `_listed` in route-params.json: a React Router app whose routes are nested relative paths,
+ * path constants or route arrays outside a router file, or a page added for one measurement
+ * (`"/missing-page-sample": "the app's own not-found page, measured on purpose"`). The stale
+ * check skips them. The reason is required: a blank one fails --check, because an entry
+ * nobody can explain is the stale entry this check exists to catch.
+ */
+const LISTED = Object.fromEntries(Object.entries(params._listed ?? {}).filter(([k]) => !k.startsWith("_")));
 const skipped = [];
 const MISSING = "%%MISSING%%";
 const SKIP_FILE = /\.(test|spec|stories|d)\.[tj]sx?$/;
@@ -84,10 +101,17 @@ const looksLikeRoute = (v) =>
   !/\.(tsx?|jsx?|css|json|png|svg)$/.test(v);
 
 const routes = new Set();
+// Measured route -> the pattern it was filled from ("/orders/1" -> "/orders/[id]"), for the
+// help-route check, which names help files by pattern.
+const patternOf = new Map();
 const add = (r, src) => {
   if (!looksLikeRoute(r)) return;
-  const f = fill(r.startsWith("/") ? r : "/" + r, src);
-  if (f) routes.add(f);
+  const pattern = r.startsWith("/") ? r : "/" + r;
+  const f = fill(pattern, src);
+  if (f) {
+    routes.add(f);
+    if (!patternOf.has(f)) patternOf.set(f, pattern);
+  }
 };
 
 // Next app router: app/**/page.*; (groups), @slots and _private do not appear in the URL.
@@ -141,8 +165,28 @@ routes.delete("/*");
 
 const found = [...routes].filter((r) => !EXCLUDE.has(r)).sort();
 const existing = fs.existsSync(OUT) ? JSON.parse(fs.readFileSync(OUT, "utf8")) : [];
-const covered = (r) => existing.some((e) => e === r || e.startsWith(r + "?"));
+if (!Array.isArray(existing)) {
+  console.error("dod-routes: e2e/dod/routes.json must be a JSON array");
+  process.exit(1);
+}
+const routeOf = (e) => (typeof e === "string" ? e : e?.route);
+if (existing.some((e) => typeof routeOf(e) !== "string")) {
+  console.error('dod-routes: every routes.json entry must be a string or an object with a "route"');
+  process.exit(1);
+}
+const listed = existing.map(routeOf);
+const covered = (r) => listed.some((e) => e === r || e.startsWith(r + "?"));
 const missing = found.filter((r) => !covered(r));
+// A listed route whose path the app no longer has is measured as a 404 (or a redirect)
+// on every run, and a renamed page hides behind it. Query variants of a real route
+// ("/plans?state=empty") are not stale: their path is the route's.
+const stale = listed.filter((r) => !routes.has(r.split("?")[0]) && !(r in LISTED) && !(r.split("?")[0] in LISTED));
+const blankListed = Object.entries(LISTED).filter(([, why]) => typeof why !== "string" || !why.trim()).map(([r]) => r);
+// A _listed route the scan now finds needs no entry there any more; one missing from routes.json
+// is not measured at all, which is what _listed exists to prevent.
+for (const r of Object.keys(LISTED))
+  if (routes.has(r.split("?")[0])) console.log(`dod-routes: ${r} is under _listed but the scan finds it now; remove it from _listed.`);
+const listedMissing = Object.keys(LISTED).filter((r) => !listed.includes(r));
 
 if (process.argv.includes("--check")) {
   if (skipped.length) {
@@ -159,13 +203,79 @@ if (process.argv.includes("--check")) {
     console.error("Run `node e2e/dod/routes.mjs` to add them. The DoD score must cover every screen.");
     process.exit(1);
   }
+  if (blankListed.length) {
+    console.error(
+      `dod-routes: ${blankListed.length} route(s) under _listed in route-params.json have no reason:\n  ` + blankListed.join("\n  "),
+    );
+    console.error("Write why each one is kept although the route scan does not find it.");
+    process.exit(1);
+  }
+  if (listedMissing.length) {
+    console.error(
+      `dod-routes: ${listedMissing.length} route(s) under _listed are missing from e2e/dod/routes.json:\n  ` + listedMissing.join("\n  "),
+    );
+    console.error("Run `node e2e/dod/routes.mjs` to write them back: a route under _listed is measured on purpose.");
+    process.exit(1);
+  }
+  if (stale.length) {
+    console.error(
+      `dod-routes: ${stale.length} entr(ies) in e2e/dod/routes.json name a route the app no longer has:\n  ` +
+        stale.join("\n  "),
+    );
+    console.error(
+      "Remove them (or fix the sample value in route-params.json): a stale entry measures a 404, not a screen.\n" +
+        "If the route is real and the scan cannot see it, list it under _listed in route-params.json with the reason.",
+    );
+    process.exit(1);
+  }
   console.log(`dod-routes: ${found.length} app routes, all covered by routes.json (${existing.length} entries).`);
-  process.exit(0);
+
+  // In `report` mode the standard's findings are printed and the check still passes, so a
+  // project can adopt the standard before it meets it; in `enforce` mode they fail it.
+  const std = standardCheck({ root: ROOT, entries: existing, patternOf });
+  if (!std) {
+    console.log("dod-standard: no e2e/dod/standard.json, the experience standard's checks are skipped.");
+    process.exit(0);
+  }
+  for (const f of std.failures) console.error(`dod-standard: ${f.check}: ${f.message}`);
+  // A configuration error (standard.json itself, routes.json flags) fails in either mode: the
+  // checks cannot be trusted until it is fixed. Findings fail only in enforce mode.
+  const configError = std.failures.some((f) => f.check === "standard.json");
+  // A check id listed under "enforce" fails in report mode too.
+  // The static checks crashing as a whole ("standard-check") errs every one of them: a failure
+  // when any static check is enforced.
+  // (The ids come from standard-checks.json; when that file is what failed, any enforced id counts.)
+  let STATIC = null;
+  try {
+    STATIC = JSON.parse(fs.readFileSync(path.join(ROOT, "e2e", "dod", "standard-checks.json"), "utf8")).static;
+  } catch {
+    STATIC = null;
+  }
+  const failing = std.failures.filter(
+    (f) =>
+      std.mode === "enforce" ||
+      (std.enforce ?? []).includes(f.check) ||
+      (f.check === "standard-check" && (std.enforce ?? []).some((id) => !STATIC || STATIC.includes(id))),
+  );
+  console.log(
+    `dod-standard (${std.mode}): ${std.failures.length} finding(s) in the static checks` +
+      (std.failures.length > failing.length && !configError
+        ? ` (report mode: not failing${failing.length ? `, except ${failing.length} under "enforce"` : ""})`
+        : "") +
+      ".",
+  );
+  process.exit(configError || failing.length ? 1 : 0);
 }
 
-// Write every app route, keeping extra entries already there (state variants such as "?state=error").
-const merged = [...new Set([...found, ...existing])].filter((r) => !EXCLUDE.has(r)).sort();
+// Write every app route, keeping the entries already there (state variants such as
+// "?state=error", and object entries with their audience and static flag) as they are.
+// Stale entries are kept too, so a write never deletes a decision; --check reports them.
+// A route under _listed is written in even when routes.json lost it: it is measured on purpose.
+const merged = [...existing, ...[...found, ...Object.keys(LISTED)].filter((r, i, a) => !listed.includes(r) && a.indexOf(r) === i)]
+  .filter((e) => !EXCLUDE.has(routeOf(e)))
+  .sort((a, b) => (routeOf(a) < routeOf(b) ? -1 : routeOf(a) > routeOf(b) ? 1 : 0));
 fs.writeFileSync(OUT, JSON.stringify(merged, null, 2) + "\n");
+for (const r of stale) console.log(`stale ${r}  (the app has no such route; remove it)`);
 for (const s of skipped) console.log("skipped " + s);
 console.log(
   `dod-routes: wrote ${merged.length} entries to e2e/dod/routes.json (${found.length} app routes, ${merged.length - found.length} extra).`,

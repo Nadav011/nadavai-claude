@@ -1,0 +1,54 @@
+<!doctype html>
+<!-- Real markup: a data table in stock shadcn/Radix attributes (a search box, row actions, the
+     data-table pager and the Pagination component on page 1, a Calendar with its month buttons
+     (the previous month aria-disabled), a selected day and disabled days, a bottom bar with an active-item indicator, an avatar with title). No check
+     may fire. -->
+<html lang="he" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>real-table</title><link rel="stylesheet" href="/real.css"></head><body>
+<header><span>סטודיו מיכל</span><a data-help="door" data-slot="button" class="border" href="#help">עזרה</a></header>
+<main>
+  <div class="page-head"><h1>לקוחות</h1><a data-help="screen" href="#help">מה עושים כאן</a></div>
+  <div class="row">
+    <input data-slot="input" type="search" placeholder="חיפוש לפי שם או טלפון" aria-label="חיפוש לקוחות">
+    <button type="button" data-slot="button" class="bg-primary">הוספת לקוח</button>
+  </div>
+  <table data-slot="table">
+    <thead><tr><th>שם</th><th>טלפון</th><th><span class="sr-only" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">פעולות</span></th></tr></thead>
+    <tbody>
+      <tr class="tr"><td><span data-slot="avatar"><img title="מיכל ברק" alt="" width="32" height="32" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32'/%3E"></span> מיכל ברק</td><td dir="ltr">050-1234567</td>
+        <td><button type="button" data-slot="button" class="size-9" aria-label="פעולות על מיכל ברק" aria-haspopup="menu" aria-expanded="false" data-state="closed"><svg aria-hidden="true" width="16" height="16"><circle cx="8" cy="8" r="2"/></svg></button></td></tr>
+      <tr class="tr"><td>יוסי לוי</td><td dir="ltr">052-7654321</td>
+        <td><button type="button" data-slot="button" class="size-9" aria-label="פעולות על יוסי לוי" aria-haspopup="menu" aria-expanded="false" data-state="closed"><svg aria-hidden="true" width="16" height="16"><circle cx="8" cy="8" r="2"/></svg></button></td></tr>
+      <tr class="tr"><td>נועה כהן</td><td dir="ltr">054-1112233</td>
+        <td><button type="button" data-slot="button" class="size-9" aria-label="פעולות על נועה כהן" aria-haspopup="menu" aria-expanded="false" data-state="closed"><svg aria-hidden="true" width="16" height="16"><circle cx="8" cy="8" r="2"/></svg></button></td></tr>
+    </tbody>
+  </table>
+  <div class="row">
+    <span>עמוד 1 מתוך 4</span>
+    <button type="button" data-slot="button" class="border" disabled>הקודם</button>
+    <button type="button" data-slot="button" class="border">הבא</button>
+  </div>
+  <nav role="navigation" aria-label="pagination" data-slot="pagination">
+    <ul data-slot="pagination-content">
+      <li><a data-slot="pagination-link" aria-label="Go to previous page" aria-disabled="true" href="#p0">‹</a></li>
+      <li><a data-slot="pagination-link" aria-current="page" data-active="true" href="#p1">1</a></li>
+      <li><a data-slot="pagination-link" href="#p2">2</a></li>
+      <li><a data-slot="pagination-link" aria-label="Go to next page" href="#p2">›</a></li>
+    </ul>
+  </nav>
+  <h2>בחירת תאריך</h2>
+  <div data-slot="calendar">
+    <nav class="rdp-nav" aria-label="Navigation bar">
+      <button type="button" class="rdp-button_previous" tabindex="-1" aria-disabled="true" aria-label="Go to the Previous Month"><svg aria-hidden="true" width="16" height="16"></svg></button>
+      <button type="button" class="rdp-button_next" aria-label="Go to the Next Month"><svg aria-hidden="true" width="16" height="16"></svg></button>
+    </nav>
+    <table role="grid" aria-label="נובמבר 2026"><tbody><tr>
+      <td role="gridcell" data-disabled="true"><button type="button" disabled>3</button></td>
+      <td role="gridcell" data-disabled="true"><button type="button" disabled>4</button></td>
+      <td role="gridcell" aria-selected="true" data-selected="true"><button type="button" data-selected-single="true">5</button></td>
+      <td role="gridcell"><button type="button">6</button></td>
+    </tr></tbody></table>
+  </div>
+</main>
+<nav class="bottom" aria-label="ניווט ראשי"><a href="#a" aria-current="page">יומן<span class="indicator"></span></a><a href="#b">לקוחות</a><a href="#c">כסף</a><a href="#d">עוד</a></nav>
+</body></html>
