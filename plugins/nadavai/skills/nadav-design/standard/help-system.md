@@ -112,9 +112,13 @@ MediZen's spec has a practice mode (HL-12) in which every message lands in a "ה
 every payment is pretend, no provider is called and no document number is taken, so there the
 tour runs the payment and the receipt to the end and she issues a practice receipt herself. The
 chapter's card offers it ("לתרגל את זה עד הסוף"), her tap opens the mode's own entry dialog, and
-leaving the mode discards the copy. How the tour is carried into the mode and back is for
-MediZen's spec to draw; this file fixes only that she enters by her own tap and that outside the
-mode the step stops.
+leaving the mode discards the copy. Three things are still for MediZen's spec to settle before
+this chapter is built, as the review of this rule found on 11.11.2026: its practice copy does
+not say it holds the sample patient, and the sample may hold no money (S4-34, #391), so there is
+no record yet that the chapter can run on; the mode's own tests cover a card payment and a
+message but none issues a receipt, so the proof G-20 asks for is not there yet for the receipt,
+and until it is the receipt step stops in the mode too; and how the tour is carried into the
+mode and back (the entry dialog, the wait, the eight-hour expiry).
 
 Why break at results at all: the more steps in one sitting, the fewer people finish (Chameleon's
 2024 benchmark: tours of more than four steps complete below the average, five-step tours about
@@ -179,8 +183,14 @@ real books are every place in the live account where a document number is taken 
 provider is called; a separate "sample" numbering inside the live account is not outside them
 unless Nadav says so. The one exception is a practice mode in which no document number is taken
 and no provider can be reached, proven by that mode's own tests: there she does them herself, to
-the end (his pick of 11.11.2026 [A], in the example above). She enters the mode by her own tap;
-a tour that opened by itself never moves her into it.
+the end (his pick of 11.11.2026 for MediZen [A], in the example above; for another project whose
+mode gives the same proof [I]). The rest of this paragraph is this skill's own [I]. She enters
+the mode by her own tap from the tour's card, or is already in it; the tour never switches mode
+by itself. Inside the mode the tour still runs on the sample record's copy, never on the copy of
+a real person's record. The server refuses an action marked practice-only outside a practice
+session, so a press that arrives after the mode expired does nothing in the real clinic. Leaving
+the mode, or its expiry, discards the copy; that is the removal, and a resume starts the chapter
+again from its first step.
 
 What a step created is removed when she finishes the job's last chapter, or at the end of the
 day on which she left the tour and did not come back to it; a resume after that starts at the
