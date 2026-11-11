@@ -144,6 +144,14 @@ Chrome refuses passwords and can be blocked by a password manager's overlay.
   `https://play.google.com/store/apps/details?id=<pkg>` opens and the release is `completed`
   (`scripts/store-status.mjs` does both). The same rule on iOS: `READY_FOR_SALE` with no territories
   is off sale, so the matrix also reads Apple's public lookup.
+- **"PENDING: release completed, public page 404" can hide a rejection, or a release never sent.**
+  For Cash on 2026-11-11, store-status showed that line for two days. In the console, the Publishing
+  overview held a 9.11 rejection (the installed launcher icon was Capacitor's default, not the
+  listing's) and 11 changes under "השינויים עדיין לא נשלחו לבדיקה". So when a Play app stays at 404
+  for more than a day, read the console's Publishing overview and Inbox. Before the first upload,
+  check that the bundle's `base/res/mipmap-*/ic_launcher*.png` show the listing icon (`unzip` the AAB
+  and look at the images). Google may refuse a kept agent-browser profile's login ("This browser or
+  app may not be secure"); `--profile Default` (a copy of Nadav's signed-in Chrome) then gets in.
 - **A stale demo password fails the review.** The MediZen reviewer password had been rotated
   since it was entered, and Apple's reviewers would have been refused. Before each submission,
   sign in with the demo account against production and check two things: HTTP 200, and that the
