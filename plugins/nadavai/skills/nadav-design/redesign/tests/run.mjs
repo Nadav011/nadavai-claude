@@ -440,11 +440,11 @@ await test('GM6', 'a tab-bar item may point at a screen that does not exist yet 
   return r.status === 0 && /aria-disabled="true"[^>]*>|<span[^>]*aria-disabled="true"/.test(html) ? '' : `exit ${r.status}: ${r.stdout.slice(-200)}`;
 });
 // «An app is built once» (shared/rules.md): the page draws the main journey only; the rest is designed in the app's preview.
-await test('DI1', 'a direction-only demo (journey screens only) goes green: the words lens checks INVENTORY.md only for the screens it draws', async () => {
+await test('DI1', 'a direction-only demo (journey screens only): the words lens prompt checks INVENTORY.md only for the screens it draws (a prompt-contract test: the mock verifier follows its prompt)', async () => {
   // a verifier that follows its prompt: told to check INVENTORY.md for every screen, it reports the undrawn screens as
   // lost and keeps them open; told the scope, it reports nothing about them
   let unscoped = false;
-  const scoped = /INVENTORY\.md for the screens this demo draws[\s\S]*does not draw is designed later in the app.s preview and is never a finding/;
+  const scoped = /INVENTORY\.md for the screens this demo draws[\s\S]*does not draw is outside this round.s lens and is never a finding/;
   const over = {
     audit: c => { if (/verify:words/.test(c.label) && !scoped.test(c.prompt)) unscoped = true; return undefined; },
     confirm: c => { if (!unscoped) return undefined; const got = ids(c.prompt); return { inputs: got, confirmed: [], still_open: got.map(id => ({ ...finding('home', { lens: 'words', what: 'INVENTORY.md screen «profile» is lost' }), id })), regressions: [], summary: 'still open' }; },
@@ -466,6 +466,28 @@ await test('DI2', 'plan review: a unit for an undrawn screen cites its INVENTORY
   if (!/U-3 \| Settings, not drawn/.test(fs.readFileSync(p, 'utf8'))) why.push('the fixture plan did not take the undrawn-screen row');
   const r = sh('python3', [path.join(T, 'check-anchors.py'), '--config', 'redesign.json', '--plan', p]);
   if (r.status !== 0) why.push(`check-anchors on a plan with an undrawn-screen unit: exit ${r.status}: ${r.stdout.slice(-200)}`);
+  return why.join(' · ');
+});
+await test('DI3', 'mode redesign step 3 and the round workflow agree: a drawn screen gets a «מצב» phone for every state INVENTORY.md lists', async () => {
+  const why = [];
+  const step3 = (read('../modes/redesign.md').split('\n').find(l => l.startsWith('3. ')) || '');
+  if (!/«מצב» phone for every state INVENTORY\.md lists for that screen/.test(step3)) why.push('modes/redesign.md step 3 does not say every INVENTORY.md state');
+  if (/state the journey meets|[Ss]creens and states off the journey/.test(step3)) why.push('modes/redesign.md step 3 still limits states to the journey');
+  if (!/one «מצב · …» phone for EVERY state INVENTORY\.md lists for the screen/.test(read('workflows/demo-round.js'))) why.push('demo-round.js BUILD_TASK changed');
+  return why.join(' · ');
+});
+await test('DI4', 'nobody plays the preview before its check script passes: every file that defines it says so, and no file keeps a machine carve-out', async () => {
+  const why = [];
+  const root = path.join(SK, '..');
+  const defining = ['shared/rules.md', 'redesign/README.md', 'redesign/templates/build-plan.md', 'redesign/templates/START-BUILD.md', 'modes/setup.md', 'modes/redesign.md'];
+  for (const f of defining) if (!/[Nn]obody plays (the preview|it)[^.]*before/.test(fs.readFileSync(path.join(root, f), 'utf8').replace(/\s+/g, ' '))) why.push(`${f} lacks the no-play-before-checks sentence`);
+  const md = [];
+  const walk = d => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, e.name); if (e.isDirectory()) { if (e.name !== 'examples' && e.name !== 'node_modules') walk(p); } else if (e.name.endsWith('.md')) md.push(p); } };
+  walk(root);
+  const ws = path.join(root, '..', '..', '..', '..', 'rules', 'working-style.md');
+  if (fs.existsSync(ws)) md.push(ws);
+  const carve = /on the machine it runs on until|until both (checks )?pass, the preview is shown only|shown only on this machine|not shown outside (the|this) machine|on the machine it runs on \(localhost/;
+  for (const p of md) if (carve.test(fs.readFileSync(p, 'utf8').replace(/\s+/g, ' '))) why.push(`${path.relative(root, p)} keeps a play-before-checks carve-out`);
   return why.join(' · ');
 });
 await test('GM7', 'component variants may share «מצב» phones, mapped in INVENTORY.md and checked by the words lens', async () => {

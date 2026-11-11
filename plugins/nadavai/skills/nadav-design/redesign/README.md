@@ -207,9 +207,10 @@ Chat in plain Hebrew, short lines, the why before the what; code, files and comm
 
 ### 3. Direction demo
 - The page draws the main journey of STORY.md, not the whole app: one `sections/<id>.html` per screen the journey
-  passes through, from `templates/section.html`: «היום», «אחרי», a «מצב» phone per state of that screen, the approved
-  new features and proposals the journey meets. Every other screen and state is designed in the app's preview after
-  the tag (step 8), never added to this page. Build with `tools/build.py`, shoot dark, light and 320 in both themes
+  passes through, from `templates/section.html`: «היום», «אחרי», a «מצב» phone for every state INVENTORY.md lists for
+  that screen, the approved new features and proposals the journey meets. Every other screen is designed in the
+  app's preview after the plan is approved (step 8), never added to this page.
+  Build with `tools/build.py`, shoot dark, light and 320 in both themes
   with `tools/shoot.mjs`, Read every phone at every scroll position, iterate until every report is clean.
 - First the shared components BRIEF.md names go into `parts/00-head.html` (replacing the template's skeleton), proven
   with one test phone each; only then the screens, built from those components. STORY.md must exist before the
@@ -258,7 +259,7 @@ Chat in plain Hebrew, short lines, the why before the what; code, files and comm
   to another lane's file is a request, applied in two passes; the shared lane alone edits `parts/`.
 - Verify with FRESH Opus agents that made none of the fixes, read-only, by lenses: (a) craft, native feel, flows,
   states, accessibility; (b) words, RTL, data consistency, completeness against INVENTORY for the screens this page
-  draws (a screen INVENTORY.md lists that the page does not draw is designed in the app's preview and is never a
+  draws (a screen INVENTORY.md lists that the page does not draw is outside this round's lens and is never a
   finding here), answers, features and the plan; (c) STORY: the main journey across screens. Verifiers get the list of rejected findings so they do not
   re-report them without new evidence.
 - **The gate** (SporChat rounds 24–26: five full sweeps of a large demo found 7, 2, 4, 4, 8 P1 and never reached zero,
@@ -317,6 +318,8 @@ Chat in plain Hebrew, short lines, the why before the what; code, files and comm
 - Before a section is edited: `history/<id>/<round>-<nonce>-<tag>/pre/` gets `<id>.html` and `<id>.css` (only when that
   folder does not exist yet). After: the shots of
   the changed phones in `…/after/`. One dated line per change in `changelog/<id>.md` («r3 · 11.10 · …», plain Hebrew).
+- Round ids above 1 (r3) come from runs «An app is built once» does not cover (SportChat, MediZen); an app under
+  the rule has one round, so its lines read r1.
 - At the end of a round: `CHANGES-<date>.md` from the template, plain Hebrew, grouped by screen, before and after paths.
   Going back = copy `pre/` into `sections/` and `css/`, rebuild.
 
@@ -326,24 +329,34 @@ Chat in plain Hebrew, short lines, the why before the what; code, files and comm
   services). Every answer and every feature row lands somewhere. `tools/check-anchors.py`: 0 missing, 0 wrong. It
   checks the demo citations only; a citation of an INVENTORY.md row is checked by the reviewers, not by a tool.
 - **Unit 1 is the app's preview on invented data** (`shared/rules.md`, «An app is built once», points 4 and 5): the
-  app's own routes and real components on an invented data source kept in a folder of its own (shifts' `src/demo/`,
-  therapy-flow's `pnpm dev:salon`), its own start script, ask before any new dependency it needs, and isolation: no
-  production credential, key or address (a fixed preview env file, real hosts replaced by an `.invalid` host),
-  network fenced to its own origin, sends, charges, scheduled jobs, webhooks and analytics off, no real account
-  signing in. Its acceptance: two checks, both shown failing on a planted case and then passing clean. (a) No demo
-  code or invented data in the build real users get (shifts' `pnpm verify:no-demo`; for a Capacitor or Expo app also
-  the OTA bundle and each store build). (b) Nothing in the preview reaches production (a planted outbound call to a
-  live host comes back blocked). Then Nadav plays the main journey in it, on the machine it runs on until both checks
-  pass. It is marked `go` when it needs a new host, a DNS record or anything that costs money. Then tokens and shared
-  components, then the screens.
+  app's own routes and real components on an invented data source kept in a folder of its own (shifts' `src/demo/`
+  shows the folder and the no-demo check), its own start script, ask before any new dependency it needs, and
+  isolation as point 5 lists it, each item with its check (the example to follow is therapy-flow's
+  `scripts/salon-preview.ts`): no `.env*` file and no inherited variable read by the preview's build or server, only
+  the start script's own variables, real hosts replaced by an `.invalid` host, and the resolved server and
+  client-bundle environment checked against the preview's allowlist; network fenced to its own origin, checked by a
+  planted outbound call in browser code and one in server code, both blocked; sends, charges, scheduled jobs,
+  webhooks, analytics and real sign-in shown off per item by those two checks. Its acceptance: the preview's check
+  script (those checks plus (a) no demo code or invented data in the build real users get: shifts' `pnpm
+  verify:no-demo`; for a Capacitor or Expo app also the OTA bundle and each store build, run where point 4 says),
+  each check shown failing on its planted case and then passing clean, and the script added as a step of the app's
+  landing CI so it runs on every later unit. Nobody plays the preview, on any machine, localhost included, before
+  that script passes; until then only the build session runs it, to run the checks. After it passes, Nadav plays the
+  main journey in it. It is marked `go` when it needs a new host, a DNS record or anything that costs money. Then
+  tokens and shared components, then the screens.
 - **Every screen is designed in that preview.** A screen the tagged demo drew cites its column labels and is built
-  to those phones; a screen or state the demo did not draw cites its INVENTORY.md row and is designed there, from
+  to those phones (its acceptance: every control and state on them is in the preview, or a numbered answer removes
+  it; the `screen` step 8b verifier checks it against the phones at the tag, the weaker check while the parity tool
+  is not on main); a screen or state the demo did not draw cites its INVENTORY.md row and is designed there, from
   BRIEF.md and the shared components, through `screen`'s gates, and shown to Nadav playing. Such a unit's size
   includes its design time, and its acceptance is every control, state and role variant of its INVENTORY.md row, or
   the numbered answer that removes it (standard S-04; a reviewer checks it against the row, because the capability
-  diff tool is not in this skill on main yet). In an app with live users, the redesigned screens stay on a long
-  branch or behind a flag until a cut-over unit marked `go`, so nothing reaches customers unit by unit. No unit builds
-  a screen a second time.
+  diff tool is not in this skill on main yet). Each unit lands by its own PR into main, so the landing CI and the
+  preview's check script run on it; in an app with live users, the redesigned screens land behind a flag that is off
+  for users, or reachable only through the preview's route, until a cut-over unit marked `go`, so nothing reaches
+  customers unit by unit. A long branch instead is an exception the plan names with its reason, and then the plan
+  says which checks each unit runs locally and that the landing CI runs on the cut-over PR (`shared/rules.md`,
+  «An app is built once», point 2). No unit builds a screen a second time.
 - Review: a fresh Opus reviewer, read-only, until APPROVE; after an APPROVE, the fix round is checked by a DIFF-ONLY
   confirm against a snapshot (on 2.10.2026 full reviews after an APPROVE kept breeding new findings for 10 rounds).
   Fix by simplifying, never by adding machinery.
@@ -369,7 +382,8 @@ Chat in plain Hebrew, short lines, the why before the what; code, files and comm
 A partner prototype and a guide site for people outside the team. Not templated: it is a project of its own. The
 SporChat example is `~/sporchat-design-backup-2026-09-22/scratchpad/v4/partner/`, `partner-site/` and `guide/`
 (proposal phones never enter the prototype; a fact on a partner page is checked against the app's main branch;
-contact addresses masked until they work; published only on Nadav's own domain).
+contact addresses masked until they work; published only on Nadav's own domain). «An app is built once» does not
+cover a partner page: it presents the app to people outside the team and is never a source a screen is built from.
 
 ### 10. Ship
 - Commit the output repo. Publish the demo: `tools/publish-prep.py`, prove `pub/index.html` with `tools/shoot.mjs --in
@@ -409,6 +423,9 @@ re-check every item, so finished work is a no-op, and nothing the cut run never 
 resume.
 
 ## Operating lessons (each with its why)
+
+A lesson about several rounds comes from runs «An app is built once» does not cover; under the rule it applies to the
+runs of an app's one round.
 
 - **Every `agent()` passes `model: 'opus'`.** After a usage-limit resume on 29.9.2026 the agents silently ran on a
   smaller model; it was found only in their meta files. `journal-state.py` prints the models; the dry run enforces it.

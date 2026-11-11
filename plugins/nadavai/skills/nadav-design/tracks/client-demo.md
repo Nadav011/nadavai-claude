@@ -11,7 +11,9 @@ tempo is `flow`.
 
 When an app stands behind the demo (the client's app already exists in a repo of ours and its
 build was decided), the demo after the first direction round is built inside that app's code on
-invented data, not on a page of its own (`shared/rules.md`, «An app is built once»). With no app
+invented data, not on a page of its own, and only as unit 1 of a build plan Nadav approved
+(`shared/rules.md`, «An app is built once», point 2). Approving the direction never starts work
+in the client's app repo. With no app
 behind it, the page is the deliverable and that rule does not apply. A client demo at the
 prospect stage never starts building the client's app.
 

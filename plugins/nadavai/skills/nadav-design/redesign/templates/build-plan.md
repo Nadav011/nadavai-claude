@@ -29,13 +29,19 @@ any design change after it is made in the app's preview (`shared/rules.md` of na
 - The demo at the tag is the target for the screens it drew; every other screen and state is designed in the app's
   preview from BRIEF.md and the shared components. The app's existing behaviour, strings, routes and data code stay
   unless a unit changes them.
-- Unit 1 is the preview on invented data, isolated from everything real, with its two checks. No unit builds a
-  screen a second time.
+- Unit 1 is the preview on invented data, isolated from everything real, with its check script (nadav-design
+  `shared/rules.md`, «An app is built once», point 5), which every later unit runs too. Nobody plays the preview, on
+  any machine, localhost included, before that script passes. No unit builds a screen a second time.
+- A screen the demo drew keeps every control and state on its phones at the tag unless a numbered answer removes
+  it; the `screen` step 8b verifier checks it against those phones (the weaker check: the parity tool is not on
+  main), and a control or state missing without an answer stops the unit.
 - A screen the demo did not draw keeps every control, state and role variant of its INVENTORY.md row unless a
   numbered answer removes it; a control missing without one stops the unit and goes to Nadav. A reviewer checks this
   against the row (the capability diff tool is not in this skill on main yet).
-- In an app with live users, the redesigned screens stay on a long branch or behind a flag until the cut-over unit,
-  so nothing reaches customers unit by unit.
+- Each unit lands by its own PR into main, so the landing CI and the preview's check script run on it. In an app
+  with live users, the redesigned screens land behind a flag that is off for users, or reachable only through the
+  preview's route, until the cut-over unit, so nothing reaches customers unit by unit. A long branch instead is
+  named here with its reason, the checks each unit runs locally, and the landing CI on the cut-over PR.
 - One unit per branch and PR; the order below; shared components before screens.
 - What needs Nadav's go before it runs (migrations, auth, payments, store publishing, paid services) is marked `go`.
 
@@ -44,9 +50,9 @@ State is `todo` until the build session marks it `done <sha>`; the `next` gap sc
 
 | Unit | What | Files | Demo | Acceptance | Size | Depends | Go | State |
 |---|---|---|---|---|---|---|---|---|
-| U-1 | The app's preview on invented data: no production credential or address (fixed preview env, real hosts → `.invalid`), network fenced to its own origin, sends, charges, scheduled jobs, webhooks and analytics off, no real account signs in | `…` | — (the main journey of STORY.md plays in it) | (a) no demo code or invented data in the build users get (web; OTA bundle and each store build on Capacitor or Expo) and (b) a planted call to a live host comes back blocked: each check fails on its planted case, then passes clean; then Nadav plays the journey, on the machine it runs on until both pass | M | — | `go` when it needs a host, a DNS record or any cost | todo |
+| U-1 | The app's preview on invented data, isolated as point 5 lists: no `.env*` file or inherited variable read by its build or server, only the start script's variables, real hosts → `.invalid`; network fenced to its own origin in the browser and on the server; sends, charges, scheduled jobs, webhooks, analytics and real sign-in off | `…` | — (the main journey of STORY.md plays in it) | the preview's check script, a step of the landing CI: (a) no demo code or invented data in the build users get (web; OTA bundle and each store build on Capacitor or Expo, run where point 4 says), (b) the resolved server and client-bundle environment on the preview's allowlist, (c) a planted call to a live host from browser code and one from server code both blocked, (d) each provider's key absent and host blocked, listed per item; each check fails on its planted case, then passes clean. Nobody plays the preview, on any machine, localhost included, before the script passes; after it passes, Nadav plays the journey | M | — | `go` when it needs a host, a DNS record or any cost | todo |
 | U-2 | Tokens and shared components | `…` | `s-home` «אחרי · …» | | M | U-1 | no | todo |
-| U-3 | <screen the demo drew> | `…` | `s-<id>` «אחרי · …» and the N «מצב ·» labels | | S | U-2 | no | todo |
+| U-3 | <screen the demo drew> | `…` | `s-<id>` «אחרי · …» and the N «מצב ·» labels | every control and state on the cited phones at the tag is in the preview, or a numbered answer removes it (`screen` step 8b verifier, the phones at the tag beside the preview shots) | S | U-2 | no | todo |
 | U-4 | <screen the demo did not draw> | `…` | — (INVENTORY.md «<screen>»; designed in the preview) | every control, state and role variant of its INVENTORY.md row is in the preview, or has a numbered answer that removes it | S (with design time) | U-2 | no | todo |
 | U-5 | Cut-over (an app with live users): the long branch or the flag goes live | `…` | — | every unit before it `done`; Nadav's go | S | U-1…U-4 | `go` | todo |
 
