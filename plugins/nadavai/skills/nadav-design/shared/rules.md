@@ -48,6 +48,51 @@ When the request does not make the track obvious, ask in the same AskUserQuestio
 read `shared/reference.md` first. The first deliverable is `REFERENCE.md`, the first row is built and shown
 before anything else is built, and no alternative concept is offered unless he asks for one.
 
+## An app is built once
+
+The demo of an app becomes the app: its screens are never built a second time to look like a demo. Nadav named
+the double build as a problem that keeps coming back and asked for a rule against it in his rules and in this
+skill: «שזה יהיה בחוקים של שלנו גם של הסקיל שלא יהי את הפידחות האלה יותר» (11.11.2026) [N]. He left what the
+rule says to the session that wrote it, so the four points below are its choice [I].
+
+Why: every second build opens gaps. SportChat v4: 39 of 183 findings were visible differences between the demo and
+the built app, found by hand. MediZen: the standalone demo (`~/design-redesign/tf2-r12/proto/v2.html`, about 10,000
+lines) is in round 13 and still changing, its spec took 8+ commits in one day, and its build is planned at 27 to 54
+weeks, so the demo and the app drift apart. shifts: four look rounds on standalone pages of two or three isolated
+screens failed («לא יודע כבר»); the look is now applied to the whole demo that lives inside the app. And he
+understands a demo only when it plays like the real app (`standard/rejected.md`, "A catalog of screens and states as
+the demo").
+
+For an app (a product with screens people work in):
+1. **A standalone page for the direction only.** A page outside the app's code is allowed for one thing: the first
+   direction round (the look and the direction), and only one round. It is already the main journey as one playable
+   flow, never isolated screens. Why: the shifts rounds on isolated screens failed, and every later round on a page
+   of its own is work the app never gets.
+2. **After the direction, the demo lives in the app.** Once Nadav approved the direction, the demo is built in the
+   app's own code, from its real components, on invented data (a preview or demo mode of the app), and that is what
+   he is shown and plays with. Going live is replacing the invented data source with the real one, not a second
+   build of the screens. Why: what he approves is then the code that ships, so there is nothing to drift. Examples:
+   shifts' `src/demo/` (mock data, the app's own shadcn components); therapy-flow's `pnpm dev:salon`
+   (`scripts/salon-preview.ts`, the real app on a synthetic in-process backend).
+3. **Approved means a frozen, tagged commit.** The approved demo is a git tag in its repo, and the build plan names
+   the tag. Any design change after it is made in the app's preview, never in the standalone page; from then on that
+   page is read-only reference, and a parity check compares the app to the tag. Why: a page that keeps changing under
+   a plan built from it (MediZen) leaves the build aiming at a moving target; a tag is the one version both sides read.
+4. **The preview comes first.** The preview on invented data is the first unit of a build, not a later one. Demo code
+   and invented data never reach the build real users get, and a check proves it (shifts' `pnpm verify:no-demo` is
+   the example). Why: the screens are designed inside the preview, so it exists before them; and invented people in
+   the production build would be shown to real customers.
+
+Who builds the preview: in a new app, setup step 10b; in an app that is redesigned, the build session, as unit 1 of
+the plan (`redesign/README.md`, step 8), because mode `redesign` never writes into the app repo.
+
+Not covered by this rule:
+- Track `site`, and track `client-demo` when no app stands behind it: the page is the product, or no app exists.
+- An app in the middle of a build that started from a standalone demo (SportChat v4): it finishes as planned, with
+  its parity and capability checks. Its plan is not rewritten to this order.
+- An existing standalone demo that is not approved yet (MediZen's): it is finished on its own page and frozen
+  (tagged) at approval, not converted into the app; its build then starts with the preview (point 4).
+
 ## Looking at screenshots
 
 Measure first (DOM or ARIA snapshot, computed styles, console, a pixel-diff number) and look at images for the

@@ -1,26 +1,35 @@
 # nadav-design · mode `redesign` · the full procedure
 
-A whole-app redesign, demo first. The mode produces, in an output folder of its own: a design language Nadav
-approved, an inventory of every screen and state of today's app, a demo with «היום» and «אחרי» columns for every
-screen and every state, the decisions (asked, answered, numbered), the proposed features, a history Nadav can go back
-through, and a build plan whose citations of the demo are machine-checked, reviewed until approved, cross-checked by a
-second model, and handed to a build session with a START-BUILD prompt.
+A whole-app redesign. For an app, the standalone output of this mode is the direction, never the whole app
+(`shared/rules.md`, «An app is built once»: the why, and the runs it does not cover). It produces, in an output folder
+of its own: a design language Nadav approved, an inventory of every screen and state of today's app, the main journey
+as one playable flow with «היום» and «אחרי» columns for the screens it passes through, the shared components and
+design values, the decisions (asked, answered, numbered), the proposed features, a history Nadav can go back through,
+and a build plan whose citations of the demo are machine-checked, reviewed until approved, cross-checked by a second
+model, and handed to a build session with a START-BUILD prompt. The page gets one review round with Nadav; when he
+approves the direction its commit is tagged and the page is read-only from then on. The plan's first unit is the
+app's own preview on invented data, and every screen and state the page did not draw is designed there by the build
+session. A standalone demo that started before this rule and is not approved yet (MediZen's) finishes its rounds
+under step 6 and is tagged at approval; it is not converted into the app.
 
 **It never writes into the app repo**, not even `.omc/`: the app is read and its dev server is run, nothing more.
 Everything this mode produces lives in the output repo: the run log (`RUN-LOG.md`, the checklist with one evidence line
 per step), every debt (DECISIONS-OPEN.md, the plan, BRIEF.md) and the plan's state. The build happens later, in a
 separate session started from START-BUILD.md once Nadav approved the plan, and every screen it builds passes the
-`screen` mode's gates (DoD 100, the visual change gate) against the demo's phones.
+`screen` mode's gates (DoD 100, the visual change gate) inside the app's preview, against the tagged demo's phones
+where the demo drew that screen.
 
 **Owner decisions stop the work.** A choice only Nadav can make is asked when it comes up (AskUserQuestion, recommendation
 first) and nothing that depends on it is built before his answer is recorded. In a workflow, where an agent cannot
 ask, the lane leaves that part as it is and returns it as a `need` (`decision` or `visual`); the round's gate stays
 closed and the parent asks him as soon as the run returns. **The demo is the visual change gate of this mode:** the app
 does not change, and every round ends with CHANGES-<date>.md (before and after for every change) that Nadav goes over
-and answers keep, change or revert before the next round starts.
+and answers keep, change or revert before the next round starts, or before the page is tagged.
 
 Generalized from the SporChat v4 redesign (22.9–11.10.2026: 28 screens, about 1,000 phones, 60 answers, 214 plan
 units). The lessons of that run are written into the steps below with their reasons; «Operating lessons» collects them.
+That run drew every screen and state on the standalone page and then built the app again to match it; the visible
+differences its build found by hand (39 of 183 findings) are why the page now carries the direction only.
 
 ## What is in this folder
 
@@ -80,7 +89,7 @@ cite them and work/ is lost on a fresh clone)  work/ (scratch, state, shots: git
 |---|---|---|
 | `היום · <route>` | today's app, a screenshot | never edited |
 | `אחרי · <state>` | the new design | the main phones of a screen |
-| `מצב · <state>` | one state of the screen (empty, loading, error, offline, permission, the screen's own) | one phone per state INVENTORY.md lists; a component's variants may share phones, with INVENTORY.md «Component variants» naming the phone that shows each one (the words verifier checks it) |
+| `מצב · <state>` | one state of the screen (empty, loading, error, offline, permission, the screen's own) | on a screen the page draws, one phone per state of it that INVENTORY.md lists (the other screens' states are designed in the app's preview); a component's variants may share phones, with INVENTORY.md «Component variants» naming the phone that shows each one (the words verifier checks it) |
 | `חדש · מאושר · <title>` | a feature Nadav approved that does not exist today | as finished as any phone |
 | `מוצע · <DD.MM> · אחרי הליבה · <title>` | a proposal for after the core | dashed frame (`.col.proposal`), and under the phone `<p class="col-note">אחרי הליבה · נכנס לתוכנית ב־<date> · <unit></p>` |
 
@@ -97,7 +106,8 @@ Route text and Latin inside a label sit in `<bdi dir="ltr">`.
 - Shared components live once, in `parts/00-head.html`, and look identical everywhere; a screen's own CSS goes in
   `css/<id>.css` with a screen prefix (`.home-`, `.pf-`).
 - Nothing today's screen has disappears unless an answer removes it ("בלי למחוק דברים"): INVENTORY.md is the checklist.
-- Every state of every screen is designed. Icons are one set (`icons/`), the app's own, never emoji: lucide-react apps
+- Every state of every screen is designed: the states of the screens this page draws here, every other one in the
+  app's preview during the build (step 8). Icons are one set (`icons/`), the app's own, never emoji: lucide-react apps
   through `tools/icons-from-lucide.mjs`, lucide-static apps by copying its `icons/<name>.svg`, others from the app's
   own SVG sources.
 - The design language is BRIEF.md's, from the app's own character. Never another app's look, never the generic
@@ -107,13 +117,15 @@ Route text and Latin inside a label sit in `<bdi dir="ltr">`.
 
 | App | Fix lane | Verify group | First build | Rounds |
 |---|---|---|---|---|
-| up to 8 screens | 2 screens | 4 screens | subagents one by one | several; see «Observed» |
-| 9–20 screens | 3–4 | 6–7 | a workflow, or subagents in batches of 3 | see «Observed» |
-| over 20 | 4 | 7 | a workflow | see «Observed» |
+| up to 8 screens | 2 screens | 4 screens | subagents one by one | one review round |
+| 9–20 screens | 3–4 | 6–7 | a workflow, or subagents in batches of 3 | one review round |
+| over 20 | 4 | 7 | a workflow | one review round |
 
-Observed (what real runs took, not estimates): MediZen, 123 screens: 11 demo rounds and about 600 numbered
-decisions in 12 days, and the critics never reached APPROVE. SportChat v4: about 200 decisions, 26 plan rounds,
-241 units. cash: 10 review rounds, 257 decisions. A small app should still expect several rounds.
+The screen counts are the screens the page draws (the main journey), not the whole app. Observed under the old order,
+when the page carried every screen and state (what real runs took, not estimates): MediZen, 123 screens: 11 demo
+rounds and about 600 numbered decisions in 12 days, and the critics never reached APPROVE. SportChat v4: about 200
+decisions, 26 plan rounds, 241 units. cash: 10 review rounds, 257 decisions. Those many rounds on a page the app then
+rebuilt are what `shared/rules.md`, «An app is built once», ends.
 
 One browser at a time on this laptop, whatever the size (`shooters: 1`, the default; see «Operating lessons»). Raise
 it only on a machine with measured memory headroom.
@@ -146,7 +158,7 @@ Chat in plain Hebrew, short lines, the why before the what; code, files and comm
 - Show two or three phones of the main screen built in it (dark and light) so Nadav judges a look, not a document.
   Build path at this step (no `today/` yet): `sections/<main>.html` from the template with only «אחרי» columns,
   `screens` holding just that screen, and every other tab-bar item `"screen": null` (drawn, inert); the «היום»
-  column and the other screens come at step 3. `tools/build.py`, then `tools/shoot.mjs` (its `advisory.contrast`
+  column and the other screens of the main journey come at step 3. `tools/build.py`, then `tools/shoot.mjs` (its `advisory.contrast`
   checks the palette in place).
 - Fonts: the app's own, as local files (a font the app already uses is not a new font). With `next/font`, take the
   `.woff2` files from `.next/static/media/` of a build and read family and weight from the `@font-face` rules in
@@ -191,27 +203,30 @@ Chat in plain Hebrew, short lines, the why before the what; code, files and comm
   picture of the wrong screen. A shot is evidence only of the run that wrote it.
 - Evidence: the file, the counts, `ls today/`.
 
-### 3. Demo
-- One `sections/<id>.html` per screen from `templates/section.html`: «היום», «אחרי», a «מצב» phone per state,
-  approved new features, proposals. Build with `tools/build.py`, shoot dark, light and 320 in both themes with
-  `tools/shoot.mjs`, Read every phone at every scroll position, iterate until every report is clean.
+### 3. Direction demo
+- The page draws the main journey of STORY.md, not the whole app: one `sections/<id>.html` per screen the journey
+  passes through, from `templates/section.html`: «היום», «אחרי», a «מצב» phone per state of that screen, the approved
+  new features and proposals the journey meets. Every other screen and state is designed in the app's preview after
+  the tag (step 8), never added to this page. Build with `tools/build.py`, shoot dark, light and 320 in both themes
+  with `tools/shoot.mjs`, Read every phone at every scroll position, iterate until every report is clean.
 - First the shared components BRIEF.md names go into `parts/00-head.html` (replacing the template's skeleton), proven
   with one test phone each; only then the screens, built from those components. STORY.md must exist before the
   first verify: without it the journey is unchecked and the demo gate stays closed.
 - Large apps: `workflows/demo-round.js` with `mode: 'build'` (Workflow only when Nadav opted in; otherwise the same
   roles as subagents one at a time: the shared owner first, then the lanes).
-- **What Nadav opens first plays like the product; the catalog comes second.** Before the first look is
-  published, the output repo gets `proto/index.html`: the «אחרי» screens of STORY.md's main journey wired with the
-  app's real navigation, where every control on the journey does what it will do, on the demo's one set of facts.
-  Next to it, one walkthrough per new or changed feature: what the user does, step by step, one plain-Hebrew line
-  per step, today beside after, with no screen ids and no jargon. The today-and-after catalog above stays the
-  source for reviewers and for the plan (`check-anchors.py` reads it), and its link is given second. Why: after a
-  demo of 123 screens, 750 states and a 40-stop tour he said «עדיין לא הבנתי מזה כלום» and asked for «דמו מלא של
-  כל פיצר» (7.11.2026); a map of screens with state switchers is a spec viewer. There is no template for the
-  prototype yet: it is built per project from the demo's own sections and CSS.
+- **What Nadav opens plays like the product; the sections come second.** Before the first look is published, the
+  output repo gets `proto/index.html`: the «אחרי» screens of STORY.md's main journey wired with the app's real
+  navigation, where every control on the journey does what it will do, on the demo's one set of facts. This is the
+  direction he judges. Next to it, one walkthrough per new or changed feature the journey passes through: what the
+  user does, step by step, one plain-Hebrew line per step, today beside after, with no screen ids and no jargon. The
+  today-and-after sections above stay the source for reviewers and for the plan (`check-anchors.py` reads them), and
+  their link is given second. The features off the journey he plays later, in the app's preview. Why: after a demo of
+  123 screens, 750 states and a 40-stop tour he said «עדיין לא הבנתי מזה כלום» and asked for «דמו מלא של כל פיצר»
+  (7.11.2026); a map of screens with state switchers is a spec viewer. There is no template for the prototype yet:
+  it is built per project from the demo's own sections and CSS.
 - Publish a first look (step 10's rules) so Nadav can react early; check the link with `tools/early-show.sh`.
 - Evidence: the build line (`missing [] leftover []`), the clean report.json files, the prototype link first and
-  the catalog link second, the number of walkthroughs against the number of new or changed features.
+  the sections link second, the number of walkthroughs against the number of new or changed features on the journey.
 
 ### 4. Questions
 - Every open decision is a row in DECISIONS-OPEN.md (options, recommendation first, the source phone). Ask them in
@@ -226,11 +241,17 @@ Chat in plain Hebrew, short lines, the why before the what; code, files and comm
 ### 5. New features
 - A feature that does not exist today is never slipped into an unmarked «אחרי» phone, not even an approved one:
   approved, it gets its own «חדש · מאושר · …» phone (also when it extends an existing screen).
-  Proposed for after the core: «מוצע · <date> · אחרי הליבה · <title>» with the note under the phone. Both rows in
+  Proposed for after the core: «מוצע · <date> · אחרי הליבה · <title>» with the note under the phone. Phones only for
+  a feature on the main journey; a feature off it is a row only, designed later in the app's preview. Both rows in
   FEATURES-PROPOSED.md; what is decided against goes to its «לא נבנה» table so no session builds it by mistake.
 - Every row reaches the plan (a unit, an after-the-core unit, or «Not built»).
 
-### 6. Rounds
+### 6. The review round, then the tag
+- **One round on this page** (`shared/rules.md`, «An app is built once»): the first build of step 3 is verified,
+  Nadav reviews it, his answers are applied and confirmed, and he approves the direction. Everything below is the
+  machinery of that one round: its runs (a fix run, a cut run restarted, a continuation) are runs of the same round,
+  not new rounds. A demo the rule does not cover (MediZen's, started before it) keeps using this machinery round
+  after round until it is approved.
 - A round applies Nadav's new answers and fixes, then verifies. Fix lanes own their screens' files only; a change
   to another lane's file is a request, applied in two passes; the shared lane alone edits `parts/`.
 - Verify with FRESH Opus agents that made none of the fixes, read-only, by lenses: (a) craft, native feel, flows,
@@ -261,8 +282,8 @@ Chat in plain Hebrew, short lines, the why before the what; code, files and comm
   `ownerQueueEmpty` needs the close agent's count AND `tools/decisions-open.py`'s count (run by the round-close
   checkpoint; every row whose «מצב» is not exactly «הוכרע · תשובה N» is open, a row closed in any other words
   included) to be 0, in every run, never inherited. Answers are applied, never closed by hand: they go into
-  `args.spec` and the run starts at `spec` (or the next round opens with them). An answer that changes nothing (keep,
-  already settled) still becomes one spec item, «no change: <why>», so the run that records it closes its row.
+  `args.spec` and the run starts at `spec` (or, on a demo the rule does not cover, the next round opens with
+  them). An answer that changes nothing (keep, already settled) still becomes one spec item, «no change: <why>», so the run that records it closes its row.
 - **A continuation is never green by default:** a run that starts later (`startAt`: `rebuild`, `verify` or `confirm`)
   takes the gates of the phases it skips from the earlier run's `state/<round>/work-gates.json`, passed as
   `priorGates` with `continues: <its nonce>`; a file of another round or another run counts for nothing, and without
@@ -272,12 +293,20 @@ Chat in plain Hebrew, short lines, the why before the what; code, files and comm
   refused when that run left specApplied, answersApplied, lanesComplete or requestsHandled false. Every run has a
   fresh `nonce`.
 - **Then Nadav reviews the round:** CHANGES-<date>.md screen by screen, keep, change or revert, in AskUserQuestion
-  batches; his answers are numbered in DECISIONS-ANSWERED.md and feed the next round. Every change or revert answer
-  also gets a «פתוח» row in DECISIONS-OPEN.md (source: CHANGES-<date>.md), so the round cannot go green before a spec
-  start applies it.
+  batches; his answers are numbered in DECISIONS-ANSWERED.md and feed a fix run of the same round (a spec start).
+  Every change or revert answer also gets a «פתוח» row in DECISIONS-OPEN.md (source: CHANGES-<date>.md), so the round
+  cannot go green before a spec start applies it.
+- **Then Nadav approves the direction** (AskUserQuestion, recommendation first), once the round is green and
+  `tools/decisions-open.py` counts 0. His answer is numbered in DECISIONS-ANSWERED.md. Tag that commit of the output
+  repo: `git -C <out> tag -a demo-approved-<YYYY-MM-DD> -m "answer <N>"`, and write the tag in RUN-LOG.md. From then on
+  the page is read-only reference: nothing in `sections/`, `css/`, `parts/` or `proto/` changes, and a design change
+  he asks for later becomes a plan item, made in the app's preview. If he does not approve the direction, ask him how
+  to go on (a new direction on this page, or the direction made straight in the app's preview); a second round is
+  never started on its own.
 - With the Workflow tool (only when Nadav opted into multi-agent orchestration): `workflows/demo-round.js`, see
   «Running a round». Otherwise the same roles as subagents (`model: 'opus'`), one at a time.
-- Evidence: the round's `gates` and `confirms` (structured fields), the rebuild's clean reports.
+- Evidence: the round's `gates` and `confirms` (structured fields), the rebuild's clean reports, his numbered
+  approval and `git -C <out> show --no-patch demo-approved-<date>`.
 
 ### 7. History (so Nadav can go back to anything he liked)
 - Before a section is edited: `history/<id>/<round>-<nonce>-<tag>/pre/` gets `<id>.html` and `<id>.css` (only when that
@@ -287,9 +316,18 @@ Chat in plain Hebrew, short lines, the why before the what; code, files and comm
   Going back = copy `pre/` into `sections/` and `css/`, rebuild.
 
 ### 8. Build plan
-- `plan/build-plan.md` from the template: units in build order, each citing the demo states it builds by column
-  label, acceptance, size, dependencies, `go` where Nadav must approve (migrations, auth, payments, store publishing,
-  paid services). Every answer and every feature row lands somewhere. `tools/check-anchors.py`: 0 missing, 0 wrong.
+- `plan/build-plan.md` from the template: it names the approved tag, and its units come in build order, each with
+  acceptance, size, dependencies, `go` where Nadav must approve (migrations, auth, payments, store publishing, paid
+  services). Every answer and every feature row lands somewhere. `tools/check-anchors.py`: 0 missing, 0 wrong.
+- **Unit 1 is the app's preview on invented data** (`shared/rules.md`, «An app is built once», point 4): the app's
+  own routes and real components on an invented data source kept in a folder of its own (shifts' `src/demo/`,
+  therapy-flow's `pnpm dev:salon`), its own start script, and a check that fails when demo code or invented data is
+  in the build real users get (shifts' `pnpm verify:no-demo`). Its acceptance: Nadav plays the main journey in it,
+  and the check fails on a planted demo import and passes clean. Then tokens and shared components, then the screens.
+- **Every screen is designed in that preview.** A screen the tagged demo drew cites its column labels and is built
+  to those phones; a screen or state the demo did not draw cites its INVENTORY.md row and is designed there, from
+  BRIEF.md and the shared components, through `screen`'s gates, and shown to Nadav playing. Going live means the same
+  screens run on the real data source in the build users get; no unit builds a screen a second time.
 - Review: a fresh Opus reviewer, read-only, until APPROVE; after an APPROVE, the fix round is checked by a DIFF-ONLY
   confirm against a snapshot (on 2.10.2026 full reviews after an APPROVE kept breeding new findings for 10 rounds).
   Fix by simplifying, never by adding machinery.
@@ -339,8 +377,8 @@ contact addresses masked until they work; published only on Nadav's own domain).
 4. Read the result's `gates` (step 6 «Green means all of it» lists them): `demoNoBlocking` is the bar for showing
    the demo as done; `demoClean` also has no P2. The full open list (with ids), the rejections, the plan items and
    the owner needs are in `state/<round>/` (committed; the close agent appends to it, never truncates).
-5. The round's `needs` go to Nadav at once (step 4), then CHANGES-<date>.md for keep/change/revert, before the next
-   round; `state/<round>/plan.json` feeds `workflows/plan-review.js` as `planItems`.
+5. The round's `needs` go to Nadav at once (step 4), then CHANGES-<date>.md for keep/change/revert, before the fix
+   run and the tag (step 6); `state/<round>/plan.json` feeds `workflows/plan-review.js` as `planItems`.
 
 **When a run is cut** (usage limit, reboot, login expiry): run `tools/journal-state.py <run-dir>`. If it says resume
 is safe, resume with the same script and args. If it says do NOT resume: a run cut before «Changes» wrote no

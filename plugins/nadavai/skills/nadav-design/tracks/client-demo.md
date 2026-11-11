@@ -9,6 +9,11 @@ A demo of a product he is building for himself (a redesign demo, a store demo) i
 track; that is `redesign` or `site`. This track is declared in the first step of the mode. Its
 tempo is `flow`.
 
+When an app stands behind the demo (the client is shown the app that will be built for them),
+the demo after the first direction round is built inside that app's code on invented data, not
+on a page of its own (`shared/rules.md`, «An app is built once»). With no app behind it, the
+page is the deliverable and that rule does not apply.
+
 ## Rules
 
 1. **Keep the design he approved.** A request to change content is not a request to redesign:

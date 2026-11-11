@@ -9,7 +9,8 @@ A run is on this track when the thing being built presents rather than operates.
 declared in the first step of the mode and written in the run log. The moment a site has a shop,
 a checkout or an account, those screens are product screens: they follow the app rules and the
 experience standard (`standard/profiles.md`, consumer app), and only the presenting pages stay
-here.
+here. «An app is built once» (`shared/rules.md`) does not cover the presenting pages, because the
+page is the product; it covers those product screens.
 
 ## What changes from the app rules
 
