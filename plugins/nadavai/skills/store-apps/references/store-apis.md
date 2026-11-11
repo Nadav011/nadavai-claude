@@ -99,6 +99,8 @@ https://github.com/safaiyeh/app-store-review-skill.
 | Age rating | `PATCH /v1/ageRatingDeclarations/<id>`. |
 | Availability | `GET /v2/appAvailabilities/<appId>` and its `territoryAvailabilities`; `PATCH /v1/territoryAvailabilities/<id>` with `available`; `POST /v2/appAvailabilities` when none exists. |
 | Submit for review | `POST /v1/reviewSubmissions` (`platform: IOS`, `app`), then `POST /v1/reviewSubmissionItems` (`appStoreVersion`), then `PATCH /v1/reviewSubmissions/<id>` with `submitted: true`. Read back `WAITING_FOR_REVIEW`. |
+| Resubmit after a rejection | A submission left in `UNRESOLVED_ISSUES` does not take `submitted: true` again (409 "Version is not ready to be submitted yet", for 30 minutes and more), and its rejected item can neither be deleted nor joined by a new one. `PATCH /v1/reviewSubmissions/<id>` with `canceled: true`, wait for `COMPLETE`, then open a new submission as above (found 2026-11-12, Cash). |
+| Review attachment (a screen recording for App Review) | `POST /v1/appStoreReviewAttachments` (`fileName`, `fileSize`, `appStoreReviewDetail`), `PUT` the bytes to each `uploadOperations` URL with its headers, then `PATCH` it with `uploaded: true` and `sourceFileChecksum` (MD5); read `assetDeliveryState` `COMPLETE`. A simulator recording is accepted as a file but say in the notes that it is one: Apple's 2.1 request asks for a physical device. |
 | Release a MANUAL version | `POST /v1/appStoreVersionReleaseRequests` once `appStoreState` is `PENDING_DEVELOPER_RELEASE`. |
 
 ## Google Play
