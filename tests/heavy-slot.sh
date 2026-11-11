@@ -224,10 +224,54 @@ for _ in $(seq 1 30); do [ "$(wc -l <"$t/f.ran")" = 3 ] && break; sleep 0.2; don
 wait 2>/dev/null
 unset HEAVY_SLOT_TEST_PROC
 mv "$t/config/nadavai/capacity" "$t/capacity.off"
-[ "$(OMP_NUM_THREADS=1 "$hs" --status | sed -n 3p)" = "$("$hs" --status | sed -n 3p)" ] && OMP_NUM_THREADS=1 "$hs" --status | grep -q "ceiling: $(nproc --all)\$" && ok "OMP_NUM_THREADS does not change the pool" || bad "pool under OMP_NUM_THREADS=1: $(OMP_NUM_THREADS=1 "$hs" --status | sed -n 3p)"
+[ "$(OMP_NUM_THREADS=1 "$hs" --status | sed -n 3p)" = "$("$hs" --status | sed -n 3p)" ] && OMP_NUM_THREADS=1 "$hs" --status | grep -q "ceiling: $(($(nproc --all) * 4))\$" && ok "OMP_NUM_THREADS does not change the pool" || bad "pool under OMP_NUM_THREADS=1: $(OMP_NUM_THREADS=1 "$hs" --status | sed -n 3p)"
 mv "$t/capacity.off" "$t/config/nadavai/capacity"
 printf 'heavy_slots=2\nheavy_floor=5\n' >"$t/config/nadavai/capacity"
 "$hs" --status | grep -q '^always admitted: 2; ceiling: 2$' && ok "a floor above the ceiling is cut to the ceiling" || bad "floor above ceiling: $("$hs" --status | sed -n 3p)"
+printf 'heavy_slots=1\n' >"$t/config/nadavai/capacity"
+
+# A waiting job reads the capacity file again: raising the ceiling lets it in without a restart.
+export HEAVY_SLOT_TEST_PROC=$t/proc
+calm; echo 1 >"$t/proc/gap"
+printf 'heavy_slots=1\nheavy_floor=1\n' >"$t/config/nadavai/capacity"
+"$hs" -- bash -c "echo \$\$ >'$t/c0'; exec sleep 60" & holder=$!; pids+=("$holder")
+wait_taken
+rm -f "$t/c1"
+"$hs" -- bash -c "echo ran >'$t/c1'" 2>/dev/null & waiter=$!; pids+=("$waiter")
+sleep 3
+[ ! -e "$t/c1" ] || bad "the waiter ran under a ceiling of 1"
+printf 'heavy_slots=4\nheavy_floor=1\n' >"$t/config/nadavai/capacity"
+for _ in $(seq 1 40); do [ -e "$t/c1" ] && break; sleep 0.2; done
+[ -e "$t/c1" ] && ok "a waiting job picks up a raised ceiling from the capacity file" || bad "the waiter did not see the raised ceiling"
+wait "$waiter" 2>/dev/null
+# A bad value written while a job waits does not end it.
+rm -f "$t/c2"
+printf 'heavy_slots=1\nheavy_floor=1\n' >"$t/config/nadavai/capacity"
+"$hs" -- bash -c "echo ran >'$t/c2'" 2>/dev/null & waiter=$!; pids+=("$waiter")
+sleep 1.5
+printf 'heavy_slots=abc\nheavy_floor=1\n' >"$t/config/nadavai/capacity"
+sleep 3
+kill -0 "$waiter" 2>/dev/null && ok "a bad value in the file does not end a waiting job" || bad "the waiter exited on a bad capacity value"
+printf 'heavy_slots=1\nheavy_floor=1\n' >"$t/config/nadavai/capacity"
+kill "$(cat "$t/c0")"; wait "$holder" "$waiter" 2>/dev/null
+[ -e "$t/c2" ] && ok "and it runs when its turn comes" || bad "the waiter never ran after the bad value was fixed"
+
+# The gap between two starts beyond the floor is short only while the CPU has a lot of room.
+printf 'heavy_slots=4\nheavy_floor=1\nheavy_cpu_max=85\n' >"$t/config/nadavai/capacity"
+calm; echo 8 >"$t/proc/gap"; echo 1 >"$t/proc/gap_short"
+"$hs" -- bash -c "echo \$\$ >'$t/s0'; exec sleep 120" & holder=$!; pids+=("$holder")
+wait_taken
+started() { local n=$1; rm -f "$t/gp.$n"; "$hs" -- bash -c "echo ran >'$t/gp.$n'; exec sleep 30" 2>/dev/null & pids+=("$!"); }
+started a; for _ in $(seq 1 30); do [ -e "$t/gp.a" ] && break; sleep 0.2; done
+started b; sleep 4
+[ -e "$t/gp.b" ] && ok "with the CPU at 10% the next job starts after the short gap" || bad "the short gap did not apply at 10% busy"
+echo 70 >"$t/proc/busy"
+started c; sleep 4
+[ ! -e "$t/gp.c" ] && ok "with the CPU at 70% it waits for the full gap" || bad "the full gap did not apply at 70% busy"
+for _ in $(seq 1 40); do [ -e "$t/gp.c" ] && break; sleep 0.2; done
+[ -e "$t/gp.c" ] && ok "and starts when the full gap has passed" || bad "the job never started after the full gap"
+kill "$(cat "$t/s0")" 2>/dev/null
+unset HEAVY_SLOT_TEST_PROC
 printf 'heavy_slots=1\n' >"$t/config/nadavai/capacity"
 
 "$hs" --slots 0 -- true 2>/dev/null; [ $? = 64 ] && ok "--slots 0 is refused" || bad "--slots 0 accepted"

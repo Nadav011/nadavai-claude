@@ -9,19 +9,22 @@
 # without looking at the CPU or the disk (the first two whatever the machine measures, the
 # others while memory and swap have room). A job beyond the floor starts when all of these
 # hold, and otherwise says which one does not, once a minute:
-#   - 10 s have passed since the last such start, so the job before it shows in the numbers;
+#   - 10 s have passed since the last such start, so the job before it shows in the numbers
+#     (4 s when the CPU is 30 points under its limit and nothing waits for it);
 #   - at least heavy_mem_min_gb GB of memory is available, swap is under heavy_swap_max percent
 #     used (systemd-oomd kills a terminal at 90), and memory pressure is under 10%;
 #   - disk pressure is under 40% (iowait looks like an idle CPU, so it is asked separately);
 #   - CPU pressure is under 40% and the CPU is under heavy_cpu_max percent busy over one second.
-# Pressure is the kernel's own "some avg10" in /proc/pressure. heavy_slots is only the ceiling.
+# Pressure is the kernel's own "some avg10" in /proc/pressure. heavy_slots is only a ceiling
+# on the number of slot files, set far above what the checks would admit. A waiting job reads
+# the settings again on every pass, so a change to the file reaches the queue at once.
 # Waiting jobs start in arrival order. Why not a count: on 2026-11-10 six jobs that used a
 # third of the CPU held all six slots for over an hour while fifteen waited; started together,
 # the same jobs took the CPU to 100% busy, so no fixed number is right.
 #
 # Settings, one per line as key=value (# for comments), in
 # ${XDG_CONFIG_HOME:-~/.config}/nadavai/capacity, one file per host:
-#   heavy_slots=24         # ceiling (default: the number of CPUs)
+#   heavy_slots=96         # ceiling (default: four per CPU)
 #   heavy_floor=8          # always admitted (default: a third of the CPUs, at least 2)
 #   heavy_cpu_max=85       # percent busy at which jobs beyond the floor wait (default 85)
 #   heavy_mem_min_gb=8     # GB available under which they wait (default 8)
@@ -78,37 +81,56 @@ fi
 
 # --all: plain nproc follows OMP_NUM_THREADS and the CPU affinity, and every caller must see one pool.
 cores=$(nproc --all 2>/dev/null || echo 4)
-floor="" cpu_max="" mem_min="" swap_max=""
 conf=${XDG_CONFIG_HOME:-$HOME/.config}/nadavai/capacity
-if [ -r "$conf" ]; then
-  while IFS='=' read -r k v; do
-    k=${k//[[:space:]]/}; v=${v%%#*}; v=${v//[[:space:]]/}
-    case $k in
-      heavy_slots) [ "$strict" = 0 ] && slots=$v ;;
-      heavy_floor) floor=$v ;;
-      heavy_cpu_max) cpu_max=$v ;;
-      heavy_mem_min_gb) mem_min=$v ;;
-      heavy_swap_max) swap_max=$v ;;
-    esac
-  done <"$conf"
-fi
-slots=${slots:-$cores}
-if [ -z "$floor" ]; then floor=$((cores / 3)); [ "$floor" -lt 2 ] && floor=2; fi
-cpu_max=${cpu_max:-85} mem_min=${mem_min:-8} swap_max=${swap_max:-80}
-[[ $slots =~ ^[1-9][0-9]*$ ]] || { echo "heavy-slot: slots must be a positive whole number, got '$slots'" >&2; exit 64; }
-[[ $floor =~ ^[1-9][0-9]*$ ]] || { echo "heavy-slot: heavy_floor must be a positive whole number, got '$floor'" >&2; exit 64; }
-[[ $cpu_max =~ ^[1-9][0-9]*$ ]] && [ "$cpu_max" -le 100 ] || { echo "heavy-slot: heavy_cpu_max must be 1-100, got '$cpu_max'" >&2; exit 64; }
-[[ $mem_min =~ ^[0-9]+$ ]] || { echo "heavy-slot: heavy_mem_min_gb must be a whole number, got '$mem_min'" >&2; exit 64; }
-[[ $swap_max =~ ^[1-9][0-9]*$ ]] && [ "$swap_max" -le 100 ] || { echo "heavy-slot: heavy_swap_max must be 1-100, got '$swap_max'" >&2; exit 64; }
-# A strict count, or a ceiling under the floor, leaves no job to the load check.
-{ [ "$strict" = 1 ] || [ "$floor" -gt "$slots" ]; } && floor=$slots
-gap=10 cpu_psi_max=40 io_psi_max=40 mem_psi_max=10
+cli_slots=$slots
+slots="" floor="" cpu_max="" mem_min="" swap_max=""
+# Reads the capacity file into the settings. With "keep", a bad value leaves the settings as
+# they were: a job that is already waiting re-reads the file on every pass, so a change to it
+# reaches the queue at once, and a typo there must not end the job.
+load_conf() {
+  local k v s=$cli_slots f="" c="" m="" w="" bad=""
+  if [ -r "$conf" ]; then
+    while IFS='=' read -r k v; do
+      k=${k//[[:space:]]/}; v=${v%%#*}; v=${v//[[:space:]]/}
+      case $k in
+        heavy_slots) [ "$strict" = 0 ] && s=$v ;;
+        heavy_floor) f=$v ;;
+        heavy_cpu_max) c=$v ;;
+        heavy_mem_min_gb) m=$v ;;
+        heavy_swap_max) w=$v ;;
+      esac
+    done <"$conf"
+  fi
+  # Four per CPU: a job is often a fraction of one (on 2026-11-11 24 jobs of 0.3-0.6 CPU each
+  # held a ceiling of one per CPU while 40 waited and half the CPU was idle). The load checks
+  # decide; the ceiling only bounds the number of slot files.
+  s=${s:-$((cores * 4))}
+  if [ -z "$f" ]; then f=$((cores / 3)); [ "$f" -lt 2 ] && f=2; fi
+  c=${c:-85} m=${m:-8} w=${w:-80}
+  [[ $s =~ ^[1-9][0-9]*$ ]] || bad="slots must be a positive whole number, got '$s'"
+  [[ $f =~ ^[1-9][0-9]*$ ]] || bad="heavy_floor must be a positive whole number, got '$f'"
+  { [[ $c =~ ^[1-9][0-9]*$ ]] && [ "$c" -le 100 ]; } || bad="heavy_cpu_max must be 1-100, got '$c'"
+  [[ $m =~ ^[0-9]+$ ]] || bad="heavy_mem_min_gb must be a whole number, got '$m'"
+  { [[ $w =~ ^[1-9][0-9]*$ ]] && [ "$w" -le 100 ]; } || bad="heavy_swap_max must be 1-100, got '$w'"
+  if [ -n "$bad" ]; then
+    [ "${1:-}" = keep ] && return 1
+    echo "heavy-slot: $bad" >&2; exit 64
+  fi
+  # A strict count, or a ceiling under the floor, leaves no job to the load check.
+  { [ "$strict" = 1 ] || [ "$f" -gt "$s" ]; } && f=$s
+  slots=$s floor=$f cpu_max=$c mem_min=$m swap_max=$w
+}
+load_conf
+# Between two starts beyond the floor: gap seconds, or gap_short when the CPU is far under its
+# limit and nothing waits for it, so a long queue of light jobs drains in minutes.
+gap=10 gap_short=4 cpu_psi_max=40 io_psi_max=40 mem_psi_max=10
 # The tests point this at a directory with meminfo, pressure/{cpu,memory,io}, busy (a number)
 # and, to run faster, gap and stale (seconds).
 proc=${HEAVY_SLOT_TEST_PROC:-/proc}
 stale=20   # a waiting job that gave no sign of life for this long keeps its ticket but not its turn
 if [ "$proc" != /proc ]; then
   [ -r "$proc/gap" ] && read -r gap <"$proc/gap"
+  [ -r "$proc/gap_short" ] && read -r gap_short <"$proc/gap_short"
   [ -r "$proc/stale" ] && read -r stale <"$proc/stale"
 fi
 
@@ -147,15 +169,20 @@ mem_ok() { # is there memory for one more job? Sets $why when not. Two cheap rea
   return 0
 }
 load_ok() { # may a job beyond the floor start now? Sets $why when not.
-  local now last age v
+  local now last age v p
   printf -v now '%(%s)T' -1; last=$(stat -c %Y "$dir/last-admit" 2>/dev/null || echo 0)
   age=$((now - last))   # negative after a clock step back: treated as long ago
-  if [ "$age" -ge 0 ] && [ "$age" -lt "$gap" ]; then why="another job started $age s ago"; return 1; fi
+  [ "$gap_short" -gt "$gap" ] && gap_short=$gap
+  if [ "$age" -ge 0 ] && [ "$age" -lt "$gap_short" ]; then why="another job started $age s ago"; return 1; fi
   mem_ok || return 1
   v=$(psi memory); if [ "$v" -ge "$mem_psi_max" ]; then why="memory pressure $v%, the limit is $mem_psi_max%"; return 1; fi
   v=$(psi io); if [ "$v" -ge "$io_psi_max" ]; then why="disk pressure $v%, the limit is $io_psi_max%"; return 1; fi
-  v=$(psi cpu); if [ "$v" -ge "$cpu_psi_max" ]; then why="CPU pressure $v%, the limit is $cpu_psi_max%"; return 1; fi
+  p=$(psi cpu); if [ "$p" -ge "$cpu_psi_max" ]; then why="CPU pressure $p%, the limit is $cpu_psi_max%"; return 1; fi
   v=$(cpu_busy); if [ "$v" -ge "$cpu_max" ]; then why="CPU $v% busy, the limit is $cpu_max%"; return 1; fi
+  # The full gap, unless the CPU has a lot of room (30 points under its limit, pressure under 10%).
+  if [ "$age" -ge 0 ] && [ "$age" -lt "$gap" ] && { [ "$v" -ge $((cpu_max - 30)) ] || [ "$p" -ge 10 ]; }; then
+    why="another job started $age s ago"; return 1
+  fi
   return 0
 }
 
@@ -291,6 +318,7 @@ say() { # the reason, at most once a minute; the short gap between two starts is
 [ -n "$ticket" ] && take_ticket
 round=0
 while :; do
+  load_conf keep
   if am_head; then
     # The first two slots take a job whatever the machine measures, so heavy work never stops
     # altogether; the rest of the floor still waits for memory, because memory and swap are
