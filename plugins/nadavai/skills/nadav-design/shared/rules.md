@@ -52,16 +52,17 @@ before anything else is built, and no alternative concept is offered unless he a
 
 The demo of an app becomes the app. The page is not code: the app's build of a screen is its only build, and nothing
 is rebuilt after it to match the page. Nadav named the double build as a problem that keeps coming back and asked
-for a rule against it in his rules and in this skill: «שזה יהיה בחוקים של שלנו גם של הסקיל שלא יהי את הפידחות האלה יותר» (11.11.2026) [N]. He left what the
-rule says to the session that wrote it, so points 1 to 4 below are its choice [I]; point 5 applies his global
-gates to the preview (`floor`).
+for a rule against it in his rules and in this skill: «שזה יהיה בחוקים של שלנו גם של הסקיל שלא יהי את הפידחות האלה יותר» (11.11.2026) [N]. He did not
+decide what the rule says: points 1 to 4 and 6 are the choice of the session that wrote it [I]; point 5 holds his
+global gates (`floor`), and the properties and proofs it holds them with are that session's choice [I].
 
 Why: every second build opens gaps. SportChat v4: 39 of 183 findings were visible differences between the demo and
 the built app, found by hand. MediZen: the standalone demo (`~/design-redesign/tf2-r12/proto/v2.html`, about 10,000
-lines) is still in review rounds, its spec took 8+ commits in one day, and its build is planned at 27 to 54 weeks, so
-the demo and the app drift apart. shifts: four look rounds on standalone pages of two or three isolated screens
-failed («לא יודע כבר»); the look is now applied to the whole demo that lives inside the app. And he understands a
-demo only when it plays like the real app (`standard/rejected.md`, "A catalog of screens and states as the demo").
+lines) went through many review rounds as a page of its own, its spec took 8+ commits in one day, and its build is
+planned at 27 to 54 weeks, so a page and an app built from it drift apart. shifts: four look rounds on standalone
+pages of two or three isolated screens failed («לא יודע כבר»); the look is now applied to the whole demo that lives
+inside the app. And he understands a demo only when it plays like the real app (`standard/rejected.md`, "A catalog
+of screens and states as the demo").
 
 For an app (a product with screens people work in):
 1. **A standalone page for the direction only.** A page outside the app's code is allowed for one thing: the first
@@ -77,20 +78,19 @@ For an app (a product with screens people work in):
    landing CI and the preview's check script (point 5) run on it. In an app with live users, the redesigned screens
    land behind a flag that is off for users, or reachable only through the preview's route (which point 4 keeps out
    of the build users get), until the plan's cut-over unit (a `go` item), so nothing reaches customers unit by unit.
-   A long branch instead is an exception the plan names with its reason; then each unit runs its scoped checks and
-   the preview's check script locally before it merges into that branch, and the landing CI runs on the cut-over PR
-   into main. Why: what he approves is then the code that ships, so there is nothing to drift. Examples: shifts' `src/demo/` (mock data, the
-   app's own shadcn components); therapy-flow's `pnpm dev:salon` (`scripts/salon-preview.ts`, the real app on a
-   synthetic in-process backend).
+   A long branch instead is an exception the plan names with its reason; then each unit runs the checks «What runs
+   when» below lists before it merges into that branch, and the landing CI runs on the cut-over PR into main. Why:
+   what he approves is then the code that ships, so there is nothing to drift. Examples: shifts' `src/demo/` (mock
+   data, the app's own shadcn components); therapy-flow's `pnpm dev:salon` (`scripts/salon-preview.ts`, the real app
+   on a synthetic in-process backend).
 3. **Approved means a frozen, tagged commit.** The approved demo is a git tag in its repo, and the build plan names
    the tag. Any design change after it is made in the app's preview, never in the standalone page; from then on that
    page is read-only reference. A screen the tagged demo drew is compared to its phones at the tag, control by
    control and state by state, by the verifier of `screen` step 8b; a control or state on those phones that is
    missing in the preview with no numbered answer removing it stops the screen. That is the weaker check: a scripted
    parity tool is not in this skill on main (it is on an unmerged branch), and no text here calls it available until
-   it lands. Why: a page that keeps
-   changing under a plan built from it (MediZen) leaves the build aiming at a moving target; a tag is the one version
-   both sides read.
+   it lands. Why: a page that keeps changing under a plan built from it (MediZen) leaves the build aiming at a moving
+   target; a tag is the one version both sides read.
 4. **The preview comes first.** The preview on invented data is the first unit of a build, not a later one. Demo code
    and invented data never reach the build real users get, and the no-demo check proves it (shifts' `pnpm
    verify:no-demo` is the example). It runs on the web build inside the preview's check script (point 5), so the
@@ -101,62 +101,108 @@ For an app (a product with screens people work in):
    is asked first, the money gate). Why: the screens are designed inside the preview, so it exists before them; and
    invented people in the production build would be shown to real customers.
 5. **The preview cannot reach anything real** (`floor`: `action-safety.md`; `working-style.md`, Approval gates: no
-   message to a real person, no charge, nothing that cannot be undone). It runs on invented data only. Each property
-   below has a check, and the checks, with the no-demo check of point 4, are one script in the app repo (the
-   preview's check script). Unit 1 adds it as a step of the app's landing CI, so it runs on every unit that lands
-   (an app with no landing CI yet: the plan says so, and the script runs locally on every unit until it has one),
-   and the build session runs it with each unit's scoped checks before the unit's PR. Unit 1 shows each check
-   failing on its planted case, then passing clean. The example to follow is `scripts/salon-preview.ts` in
-   therapy-flow (shifts' `src/demo/` shows points 2 and 4, not this point).
-   - **No env file, no inherited production variable.** The preview's build and its server read no `.env*` file and
-     no variable inherited from the shell that started them; they get only the variables the preview's start script
-     sets, and every real backend host is replaced by an `.invalid` host. How depends on the framework; examples:
-     Vite started from a script with `envFile: false` and every variable defined by that script, as
-     `salon-preview.ts` does (`--mode preview` alone is not enough: Vite still loads `.env` and `.env.local` under
-     it); a Next server, which reads `.env*` files from its project folder by itself, started from a script with an
-     emptied environment plus the preview's variables, from a folder with no `.env*` file (the script refuses to
-     start while one is there).
-     Check: the script reads the resolved environment of the running server process and the variables compiled into
-     the client bundle, and fails on any variable that is not on the preview's own allowlist, and on any value that
-     is not `.invalid`, localhost or a fake the allowlist names.
-   - **Network fenced to its own origin, in the browser and on the server.** In the browser, CSP `connect-src
-     'self'` or a request fence. On the server, every outbound call of any process the start script starts (a route
-     handler, a server action, a function, a dev-server proxy) is answered by the fake backend or refused, as
-     `salon-preview.ts` answers from its in-process handlers and refuses the rest. Check: the script plants an
-     outbound call to a live host twice, once in browser code and once in server code (a same-origin server route
-     passes a browser CSP and can still send), using test-only code that the no-demo check keeps out of the build
-     users get; each must come back blocked, and any answer from the live host fails the script. An app whose
-     preview runs no server code says so in the plan, and the server half is `n/a` with that reason.
-   - **Sends, charges, scheduled jobs, webhooks and analytics are off.** Covered by the two checks above, stated per
-     item in the script's output: the key and the host of each provider the app's production uses (its messaging,
-     payment, job, webhook and analytics providers, read from the app's env example or deploy config) are named,
-     and the environment check shows each key absent and the network check shows each host blocked. The start script
-     starts no scheduler, queue worker or cron runner of the app; any process it does start is fenced as above.
-   - **No real account signs in.** Covered by the same two checks, stated in the output: the real auth host is
-     absent from the environment and blocked on the network, so sign-in reaches only the fake backend, which accepts
-     only invented accounts.
+   message to a real person, no charge, nothing that cannot be undone). It runs on invented data only, from a fake
+   backend in the app repo (a staging or test backend is not invented data), and four properties hold. Each is proven
+   by the preview's check script, which also holds point 4's no-demo check; a property with no passing proof is not
+   held, and unit 1 shows each proof failing on its planted case, then passing clean. therapy-flow's
+   `scripts/salon-preview.ts` is the example for (b)'s browser policy, own port and 404 worker path, not for (a).
+   a. **Environment.** The server process and the client bundle see only the variables on the preview's allowlist, a
+      file in the app repo naming each variable and its preview value (a backend host is `.invalid`, the preview's
+      origin or the fake backend's local address). The start script starts from an empty environment, sets only
+      those variables, and turns off every other source: the framework's `.env*` loading, and any reading of env
+      files by the app's own config in the preview's mode. Proof: the script reads the resolved environment of the
+      running server and every environment value compiled into the client bundle, and fails on a name not on the
+      allowlist or a value that differs from it. The start script runs this proof at every start and refuses to
+      serve when it fails, because the landing CI holds no secrets and passes anyway: the proof must hold in the shell
+      the preview is started from. Framework notes, examples only:
+      - Vite: a variable already in the environment wins over the `.env` files, and every `process.env` variable with
+        the env prefix (`VITE_` unless `envPrefix` names another) goes into `import.meta.env`, `.env` loading on or
+        off. So the environment is emptied before Vite starts (spawned with the allowlist only, or `process.env`
+        reduced to it before Vite's server is created); `envDir: false` turns the files off (`envFile: false` is its
+        deprecated name); and the app's `vite.config` calls no `loadEnv` in the preview's mode, since `loadEnv` reads
+        the files of the folder it is given whatever `envDir` says.
+      - Next: it loads `.env`, `.env.local`, `.env.<NODE_ENV>` and `.env.<NODE_ENV>.local` from the folder it is
+        started on (the one given to `next`, otherwise the working directory), `process.env` wins over them, and
+        `NEXT_PUBLIC_*` values are inlined into the client bundle. So Next starts with the emptied environment, and the
+        start script refuses to start while one of those files there holds a value; a file Next does not load, such as
+        a committed `.env.example`, does not stop it.
+   b. **Network.** Nothing the preview loads or sends leaves its own origin. Browser: a content security policy of
+      `default-src 'self'` plus `form-action 'self'` (form posts do not fall back to `default-src`), with no other
+      origin in any directive (only the dev server's own `ws://` address, and `data:` or `blob:` where needed), so
+      fetch, WebSockets, images, scripts, frames, forms, fonts and workers are fenced, not only `connect-src`. It is a
+      response header, or a meta tag first in `<head>` (a meta policy does not cover what precedes it). The preview
+      has an origin of its own (a port no other build of the app uses, so no worker or stored data of the real app is
+      there) and registers no service worker (the app's worker path answers 404). Server, and any build step the start
+      script runs: a connection from server code to anything but the preview's origin and the fake backend's local
+      address is refused on every transport (fetch, `node:http(s)`, a database driver, a WebSocket client); the rule
+      requires the proof, the mechanism is the app's (a fence per transport, or a network namespace or container with
+      only loopback). Proof: planted calls to a harmless live host (example.com, never a send endpoint), from browser
+      code as a fetch, an image and a script, and from server code one request per transport it uses (one if the
+      fence is at process level), each come back blocked, and any answer fails the script; no service worker is
+      registered; and the browser's recorded requests during a scripted play of the main journey include no other
+      origin. The planted calls are test-only code the no-demo check keeps out of the build users get. A preview that
+      runs no server code says so in the plan, and the server half is `n/a` with that reason.
+   c. **Effects.** Sends, charges, scheduled jobs, webhooks, analytics and real sign-in are covered by (a) and (b), and
+      the script's output says so item by item: for every provider the production app uses (messaging, payment, jobs,
+      webhooks, analytics, auth; read from the env example, the deploy config and the HTML, where a pixel or tag id
+      often sits), its key is absent from the resolved environment and its host is blocked, shown by one planted
+      browser fetch and one server request to it, with no credentials and never to a send endpoint. The start script
+      starts no scheduler, queue worker or cron runner, and fences any process it starts as (b) says. Sign-in reaches
+      only the fake backend, with invented accounts.
+   d. **Where it runs.** The proofs run where the preview runs. On localhost: at every start, as (a) says, plus the
+      planted calls. Anywhere else (one of his own domains, or a published claude.ai artifact, after his yes; a new
+      host, a DNS record or any cost is asked at that moment, and unit 1 is marked `go` when it needs one): only as a
+      static build that carries the same policy in its own response headers or meta tag, or as a server on a host or
+      project of its own (never the app's production hosting) that holds only the allowlisted variables; and before
+      the link is shared, the environment proof and the planted calls run against the deployed URL and pass.
+      `redesign/tools/early-show.sh` checks the host, https, the answer and the commit, and is not that proof.
 
-Who plays the preview, and where [I]: nobody plays the preview, on any machine, localhost included, before the
-preview's check script passes (the no-demo check and every isolation check). Until then only the build session runs
-it, and only to run the checks. After it passes: on localhost when Nadav is at that machine; anywhere else only on one
-of his own domains or as a published claude.ai artifact, after his yes, the link checked with
-`redesign/tools/early-show.sh`. A new host, a DNS record or anything that costs money is asked at that moment (the
-money gate), and unit 1 is marked `go` when it needs any of those.
+   Nobody plays the preview, on any machine, before its check script passes there; until then only the build
+   session runs it, and only to run the checks. Then Nadav plays it on localhost at that machine, elsewhere as (d) says.
+6. **Behaviour logic is written once** [I] (source: the session building mexicani-shifts, 11.11.2026). Logic the
+   preview needs (state that several people or devices change, the order offline changes arrive in, undo, alerts,
+   money arithmetic) is plain functions with no browser, framework or demo import, in a folder both the preview and
+   the production code import, never under the demo folder. Only the data source is demo-only: invented in the
+   preview, the server in production. Before Nadav plays a preview that simulates such behaviour, its logic has a
+   test that runs the cases exhaustively, or over a bounded set the test states, with at least one mutant (a
+   deliberate break of the logic) per assertion shown to fail it. Where production must run that logic elsewhere (the
+   server, SQL) and cannot import the function, the same cases run against that implementation too. The shared
+   functions are not demo code: point 4 is about the demo folder and the invented data, and the no-demo check still
+   covers that folder. Why: there the demo's task logic (marks from several offline phones, undo, alerts) took 11
+   review rounds, 8 finding a new bug, while each fix patched one path of an incremental merge; it closed when one
+   pure function derived all state from an append-only list of marks, outgoing messages became a diff of that state
+   applied by one step the app and the test both call, and the test ran every arrival order (237k orderings) with
+   mutants proving each assertion can fail. That function lived under the demo folder, so the plan would have
+   written the same logic again for production.
 
-Who builds the preview: in a new app, setup step 10b, and only inside a task Nadav gave to build that app; in an
-existing app with no preview, setup step 10b also when Nadav asks for it from `plan` step 5; in an app that is
-redesigned, the build session that START-BUILD opens after he approved the build plan, as unit 1 of the plan
-(`redesign/README.md`, step 8), because mode `redesign` never writes into the app repo. Where this section says
-unit 1, in a new app read setup step 10b.
+What runs when [I] (`rules/ci-policy.md` rule 1 decides where checks run): locally, each unit's scoped checks include
+the start-time environment proof and the planted calls against the running preview; the no-demo check needs a
+production build, so it runs in the landing CI, except that unit 1, which builds the script, runs all of it locally
+to show each proof failing, then passing. The CI step uses the `code` path filter of `~/nadavai`'s
+`templates/ci/woodpecker-landing.yml`, or none. With no landing CI yet the plan says so and the whole script runs
+locally on every unit; on a long branch (point 2) the landing CI runs it on the cut-over PR.
 
-Not covered by this rule:
-- Track `site`, and track `client-demo` when no app stands behind it: the page is the product, or no app exists.
-- An app in the middle of a build that started from a standalone demo (SportChat v4): its running build keeps its
-  own plan.
-- MediZen's standalone demo is not converted, and this rule changes nothing in its work. How its build is ordered
-  (when the preview is built, when the demo freezes, where its remaining screens are drawn) is decided in its own
-  build plan, which is Nadav's to approve, and his decision of 10.11.2026 that its build starts only after everything
-  is closed stands. The round machinery of `redesign/README.md` stays documented because that run still uses it.
+Who builds the preview: in a new app, setup step 10b, only inside a task Nadav gave to build that app; in an existing
+app with no preview, setup step 10b also when he asks for it from `plan` step 5; in a redesigned app, the build
+session START-BUILD opens after he approved the build plan, as its unit 1 (`redesign/README.md`, step 8), because
+mode `redesign` never writes into the app repo. Where this section says unit 1, in a new app read setup step 10b.
+
+Where a fault goes [I]: a session that meets something in this rule or its tools that does not fit, is missing or is
+wrong stops that step and reports it to the session that maintains this skill (with none live, to Nadav in its
+closing report); the fix lands here through review. A build session re-reads this section in the installed skill
+before each unit, because it changes as projects report faults.
+
+MediZen and SHIFTS. Asked which goes first (SHIFTS first then MediZen, MediZen first, both together), Nadav typed his
+own answer on 11.11.2026: «שניהם ביחד בצורה חכמה שלא נעשדה טעות פעמיים כי זהם לא יפעו בואתו הזמן» [N]. The session's
+reading [I]: both are built by this rule; they do not run the same step at the same time, and a fault one finds in
+this rule or its tools is fixed here before the other reaches that step. MediZen's standalone demo predates the
+rule, is finished and approved as it is, and is not converted; from its approval on the rule applies (the tag, a
+build plan Nadav approves, the preview as unit 1, the screens the demo did not draw designed in the preview). His
+decision of 10.11.2026 that its build starts only after everything is closed stands.
+
+Not covered: track `site`, and track `client-demo` with no app behind it (the page is the product, or no app
+exists); SportChat v4, an app in the middle of a build that started from a standalone demo: its running build keeps
+its own plan.
 
 ## Looking at screenshots
 

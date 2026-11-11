@@ -20,7 +20,7 @@ Each row is written `- [ ] <ID> <what> · evidence: <path or commit>`. A row is 
 - [ ] S4 Every self-made change has been reported to the owner (#422 lines)
 
 ## Demo
-- [ ] D1 Every round: the critics approve, and the owner has marked the CHANGES files
+- [ ] D1 The direction demo's review round (one, unless Nadav asked for another): the critics approve, and the owner has marked the CHANGES files
 - [ ] D2 Verify matrix green: widths, themes, axe, browsers, zoom, small laptop
 - [ ] D3 Published after the critics, real-name check passed
 

@@ -133,7 +133,7 @@ Follow `references/decisions.md`.
 
 ### 5. Design and demo (nadav-design redesign)
 - Before the brief, read Nadav's own earlier demos as the taste reference (what recurs, what not to copy).
-- Run `nadav-design` redesign steps 1-8 as that README orders them: BRIEF, inventory, the direction demo of the main journey ("today" against "after" for the screens it draws), one review round with CHANGES files that have an empty column for Nadav's mark, the tag, the plan. The other screens and states are designed in the app's preview during the build (`nadav-design/shared/rules.md`, «An app is built once», which also says what it does not cover: MediZen's demo keeps its own plan).
+- Run `nadav-design` redesign steps 1-8 as that README orders them: BRIEF, inventory, the direction demo of the main journey ("today" against "after" for the screens it draws), one review round with CHANGES files that have an empty column for Nadav's mark, the tag, the plan. The other screens and states are designed in the app's preview during the build (`nadav-design/shared/rules.md`, «An app is built once», which also says how MediZen and SHIFTS are built under it).
 - The round adds a completeness critic and a look critic. Every finding is fixed, or listed as `need` with the reason.
 - The verify matrix adds:
   - 4 widths, light and dark, axe

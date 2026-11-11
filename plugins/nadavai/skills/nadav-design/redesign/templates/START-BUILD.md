@@ -17,17 +17,11 @@ FEATURES-PROPOSED.md, INVENTORY.md. The demo at that tag is read-only: a design 
 
 1. Check that this file's status line reads `Status: OWNER-APPROVED answer <N> commit <sha>`. Then run every item of
    <out>/plan/START-BUILD-CHECKLIST.md and show its result. Start nothing while an item fails.
-2. Build the units in plan order, one branch and PR into main per unit, so the landing CI runs on each (in an app
-   with live users, the redesigned screens behind the plan's flag, off for users, or reachable only through the
-   preview's route, until the cut-over unit; only where the plan names a long branch and its reason, the PRs go
-   into that branch, each unit runs the checks the plan names locally, and the landing CI runs on the cut-over PR).
-   Unit 1 is the app's preview on invented data, isolated from everything real as point 5 of the nadav-design
-   `shared/rules.md`, «An app is built once», lists, with its check script (nothing of the demo in a build users get;
-   no `.env*` file or inherited variable, the resolved environment of server and client bundle on the preview's
-   allowlist; a planted call to a live host from browser code and one from server code both blocked), added as a
-   step of the landing CI and run with every unit's scoped checks. Nobody plays the preview, on any machine,
-   localhost included, before that script passes; until then only you run it, to run the checks. Every later screen
-   is designed and shown to Nadav in that preview, and no screen is built a second time. Each screen goes through
+2. Build the units in plan order; before each, re-read nadav-design's «An app is built once» in the installed skill,
+   and land it as point 2 there says. Unit 1 is the app's preview on invented data, isolated and checked as
+   `shared/rules.md`, «An app is built once», point 5, says. Nobody plays the preview, on any machine, before its
+   check script passes there; until then only you run it, to run the checks. Every later screen is designed and
+   shown to Nadav in that preview, and no screen is built a second time. Each screen goes through
    the nadav-design `screen` mode gates: DoD 100 on every route the change touches, the visual change gate with the
    demo's phone for that label (or, for a screen the demo did not draw, today's screen) next to the screen in the
    preview at 375 and 1440, dark and light.
@@ -36,9 +30,7 @@ FEATURES-PROPOSED.md, INVENTORY.md. The demo at that tag is read-only: a design 
 4. Anything marked `go` (migrations, auth, payments, store publishing, paid services) waits for Nadav's explicit go.
 5. Every unit ends with a reviewer that is not its author (a fresh Opus, or Codex via `omc ask codex` on the config
    default for auth, data or money) and a dated line in the app's STATUS.md. For a screen the tagged demo drew, that
-   reviewer is the `screen` step 8b verifier, given that screen's phones at the tag, and checks them control by
-   control and state by state against the preview; a control or state on them that is missing in the preview with no
-   numbered answer removing it stops the screen. This is the weaker check: the scripted parity tool is not on main.
+   reviewer is the `screen` step 8b verifier, given that screen's phones at the tag, as that step says.
 ```
 
 ## The checklist (plan/START-BUILD-CHECKLIST.md)

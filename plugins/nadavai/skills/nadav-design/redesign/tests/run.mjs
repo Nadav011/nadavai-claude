@@ -476,18 +476,27 @@ await test('DI3', 'mode redesign step 3 and the round workflow agree: a drawn sc
   if (!/one «מצב · …» phone for EVERY state INVENTORY\.md lists for the screen/.test(read('workflows/demo-round.js'))) why.push('demo-round.js BUILD_TASK changed');
   return why.join(' · ');
 });
-await test('DI4', 'nobody plays the preview before its check script passes: every file that defines it says so, and no file keeps a machine carve-out', async () => {
-  const why = [];
-  const root = path.join(SK, '..');
-  const defining = ['shared/rules.md', 'redesign/README.md', 'redesign/templates/build-plan.md', 'redesign/templates/START-BUILD.md', 'modes/setup.md', 'modes/redesign.md'];
-  for (const f of defining) if (!/[Nn]obody plays (the preview|it)[^.]*before/.test(fs.readFileSync(path.join(root, f), 'utf8').replace(/\s+/g, ' '))) why.push(`${f} lacks the no-play-before-checks sentence`);
-  const md = [];
-  const walk = d => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, e.name); if (e.isDirectory()) { if (e.name !== 'examples' && e.name !== 'node_modules') walk(p); } else if (e.name.endsWith('.md')) md.push(p); } };
-  walk(root);
+await test('DI4', 'the isolation floor has one home: each file that applies it points to point 5 and carries the no-play line, the four property names appear only in shared/rules.md, and no file keeps a known carve-out (a text lint of exact sentences and a blacklist, not a check of meaning)', async () => {
+  const why = [], root = path.join(SK, '..'), home = path.join(root, 'shared', 'rules.md'), files = [];
+  const flat = p => fs.readFileSync(p, 'utf8').replace(/\s+/g, ' ');
+  const noPlay = /[Nn]obody plays the preview, on any machine, before its check script passes there/;
+  const pointer = /shared\/rules\.md`?,? «An app is built once», point 5, says/;
+  for (const f of ['SKILL.md', 'modes/setup.md', 'modes/redesign.md', 'redesign/README.md', 'redesign/templates/build-plan.md', 'redesign/templates/START-BUILD.md', 'redesign/workflows/plan-review.js']) {
+    const t = flat(path.join(root, f));
+    if (!pointer.test(t)) why.push(`${f} lacks the pointer to point 5`);
+    if (!noPlay.test(t)) why.push(`${f} lacks the no-play line`);
+  }
+  if (!noPlay.test(flat(home))) why.push('shared/rules.md lacks the no-play line');
+  const walk = d => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, e.name); if (e.isDirectory()) { if (e.name !== 'examples' && e.name !== 'node_modules') walk(p); } else if (/\.(md|js|mjs)$/.test(e.name) && p !== fileURLToPath(import.meta.url)) files.push(p); } };
+  walk(path.join(root, '..'));
   const ws = path.join(root, '..', '..', '..', '..', 'rules', 'working-style.md');
-  if (fs.existsSync(ws)) md.push(ws);
+  if (fs.existsSync(ws)) files.push(ws);
+  for (const tag of ['**Environment.**', '**Network.**', '**Effects.**', '**Where it runs.**']) {
+    const where = files.filter(p => fs.readFileSync(p, 'utf8').includes(tag));
+    if (where.length !== 1 || where[0] !== home) why.push(`${tag} is in ${where.map(p => path.relative(root, p)).join(', ') || 'no file'}, not only in shared/rules.md`);
+  }
   const carve = /on the machine it runs on until|until both (checks )?pass, the preview is shown only|shown only on this machine|not shown outside (the|this) machine|on the machine it runs on \(localhost/;
-  for (const p of md) if (carve.test(fs.readFileSync(p, 'utf8').replace(/\s+/g, ' '))) why.push(`${path.relative(root, p)} keeps a play-before-checks carve-out`);
+  for (const p of files.filter(p => p.endsWith('.md'))) if (carve.test(flat(p))) why.push(`${path.relative(root, p)} keeps a play-before-checks carve-out`);
   return why.join(' · ');
 });
 await test('GM7', 'component variants may share «מצב» phones, mapped in INVENTORY.md and checked by the words lens', async () => {
