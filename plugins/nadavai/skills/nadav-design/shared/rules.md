@@ -142,65 +142,99 @@ For an app (a product with screens people work in):
       transport (fetch, `node:http(s)`, a database driver, a WebSocket client); the rule requires the proof, the
       mechanism is the app's (a preload that refuses `net.Socket.prototype.connect` to anything but the preview's own
       port and the fake backend's port, which every TCP client the notes file lists reached; it does not cover UDP
-      (`node:dgram`), a native addon that opens its own socket, or a process the preload is not loaded into: a child
-      that is not Node, and a Node child started without it, so it is loaded through `NODE_OPTIONS=--require=…`, which
-      the allowlist names; those are fenced by a network namespace or container with only loopback, with the preview's
-      port forwarded in for the browser, or not used and not started). Proof: planted calls to a harmless live host
-      (example.com, never a send endpoint), from browser code as a fetch, an image and a script (and one fetch from
-      inside a worker when the app starts one), and from server code one request per transport it uses, plus one to a
-      loopback port that is neither the preview's nor the fake backend's (one request only when the fence is a
-      namespace or container), each come back blocked, and any answer fails the script; no service worker is
-      registered; and the browser's recorded requests during a scripted play of the main journey include no other
+      (`node:dgram`), a native addon that opens its own socket, or a process the preload is not loaded into: a Node
+      child started without it, so it is loaded through `NODE_OPTIONS=--require=…`, which the allowlist names, and a
+      child that is not Node, other than a compiler the plan names that opens no connection (esbuild, SWC, Turbopack's
+      compiler, a CSS engine); those are fenced by a network namespace or container with only loopback, with the
+      preview's port forwarded in for the browser, or not used and not started). Proof: planted calls to a harmless
+      live host (example.com, never a send endpoint), from browser code as a fetch, an image and a script (and one
+      fetch from inside a worker when the app starts one), and from server code one request per transport it uses,
+      plus one to a loopback port that is neither the preview's nor the fake backend's (one request only when the
+      fence is a namespace or container), each come back blocked, and any answer fails the script; no service worker
+      is registered; and the browser's recorded requests during a scripted play of the main journey include no other
       origin. The planted browser calls are made by the check script from the test browser (`page.evaluate`), so
       nothing planted ships; the planted server requests are made inside the running server process, and inside each
       process it or the start script starts, through a test-only route or a start-up hook of the preview's mode that
-      the no-demo check keeps out of the build users get; a separate script proves only itself. A preview that runs no
-      server code says so in the plan, and the server half is `n/a` with that reason.
+      the no-demo check keeps out of the build users get; a separate script proves only itself. The check script lists
+      every process under the start script after the scripted journey (`/proc`) and fails on a Node process with no
+      planted-request result, and on any other process the plan does not name with its fence or its reason. A preview
+      that runs no server code says so in the plan, and the server half is `n/a` with that reason.
    c. **Effects.** Sends, charges, scheduled jobs, webhooks, analytics and real sign-in made by a request are covered
       by (a) and (b), and the script's output says so item by item: for every provider the production app uses
       (messaging, payment, jobs, webhooks, analytics, auth; read from the env example, the deploy config and the HTML,
       where a pixel or tag id often sits), its key is absent from the resolved environment and its host is blocked,
       shown by one planted browser fetch and one server request to it, with no credentials and never to a send
-      endpoint. A send, a call or a payment made by opening a link or another app (wa.me, api.whatsapp.com,
-      `whatsapp:`, `tel:`, `sms:`, `mailto:`, a payment link) is a navigation, which no content security policy on the
-      app's own page fences, and a list of the controls that open one is never complete (links come from data, from
-      rich text, from a dependency, from a scheme built out of parts). So the browser refuses them itself: in the
-      preview's mode the app runs inside a shell page served from a second port of the preview's own, in an `<iframe
-      sandbox="allow-scripts allow-same-origin allow-forms allow-modals">` with no `allow-popups`, no
-      `allow-top-navigation*` and no `allow` attribute, and the shell's policy sets `frame-src` to the app's origin
-      only. Every popup, top navigation, navigation of the frame to another origin and form post out is then refused,
-      whatever code or data built it (measured in Chromium, WebKit and Firefox; notes file). The script and Nadav open
-      the shell, never the app's port; opened outside the frame, the app in the preview's mode shows only a notice
-      that points to the shell. Two more layers hold for a hand-off to another app (`tel:`, `sms:`, `mailto:`,
-      `whatsapp:`), which a test browser cannot observe outside Chromium, and for `navigator.share`: each link builder
-      a search of the app's source finds is switched in the preview's mode to a local page that shows what would have
-      been sent or dialled, and a contact the app itself hard-codes (a support number) is replaced; and the data
-      reaches nobody: invented addresses are `.invalid` or `example.com`, URLs in the fake data are on the preview's
-      origin, and invented phone numbers are in a range the country's regulator reserves for fiction where one exists,
-      otherwise invalid by length (one digit short), never a real-format number marked as invented. Proof: from inside
-      the frame, a planted `location.href = 'tel:…'`, a `location.assign` and a `window.open` to another origin, an
-      `<a target="_blank">` whose `href` comes from fake data, a form post out, a write to `top.location` and a
-      `navigator.share` call each leave nothing outside the preview's two origins (no request, page, popup or
-      navigation), in Chromium and in WebKit (the Playwright image, as `working-style.md` routes it), and Chromium's
-      console names the refusal of the `tel:` case; the scripted journey leaves nothing outside them either; unit 1
-      shows this proof failing with the `sandbox` attribute removed; and the script fails on an invented phone number
-      that is valid outside a reserved range. The start script starts no scheduler, queue worker or cron runner, and
-      fences any process it starts as (b) says. Sign-in reaches only the fake backend, with invented accounts.
+      endpoint. The start script starts no scheduler, queue worker or cron runner, and fences any process it starts as
+      (b) says. Sign-in reaches only the fake backend, with invented accounts. A send, a call or a payment made by
+      opening a link or another app (wa.me, api.whatsapp.com, `whatsapp:`, `tel:`, `sms:`, `mailto:`, a payment link)
+      is a navigation, which no content security policy on the app's own page fences, and a list of the controls that
+      open one is never complete (links come from data, from rich text, from a dependency, from a scheme built out of
+      parts). So four things hold together:
+      - The frame. In the preview's mode the app runs inside a shell page served from a second port of the preview's
+        own, in an `<iframe sandbox="allow-scripts allow-same-origin allow-forms allow-modals">` with no
+        `allow-popups*`, no `allow-top-navigation*`, and nothing in `allow` beyond what this bullet names. The shell's
+        policy sets `frame-src` to the app's origin only, and the shell holds the frame and nothing else: no script
+        that navigates, opens a window or posts a form on a message from the frame. Every popup, top navigation,
+        navigation of the frame to another origin and form post out that the page starts is then refused, whatever
+        code or data built it (measured in Chromium, WebKit and Firefox; notes file). The script and Nadav open the
+        shell, never the app's port; opened at top level, the app in the preview's mode renders only a notice that
+        points to the shell. The shell passes its own path and query to the frame's `src`, so a deep link or a refresh
+        opens that screen. What the frame turns off is stubbed in the preview's mode or allowed by name: downloads by
+        `allow-downloads` (then the planted cases add a cross-origin `<a download>`, which must leave nothing), a
+        same-origin window such as a print view opened in the frame's place, and clipboard, fullscreen, camera,
+        microphone or location by name in `allow`; `payment`, `web-share` and `publickey-credentials-*` are never
+        added. On a phone the frame changes the page around the app: the shell carries the app's viewport meta (a
+        frame's own is ignored), and safe-area insets, the hiding of the browser's bars, the keyboard's resize and
+        autofocus do not reach a cross-origin frame. Unit 1 lists what the app relies on of these; the build session
+        checks those screens at top level in a test browser that aborts every request outside the preview's origins,
+        never sends Nadav to the app's port, and does not fix in the app a layout difference that only the frame
+        causes.
+      - The guard. A link the person opens himself is not a navigation the page starts: a middle click, or a click
+        with Ctrl, Cmd or Shift, on a link to another origin inside the frame opened a new page to it (Chromium and
+        Firefox; notes file), and the browser's own "open in new tab" and a long press on a phone are the same kind of
+        action. So in the preview's mode a guard that the app loads before anything else rewrites the `href` of every
+        `<a>` and `<area>` that points outside the preview's two origins (another origin, or a scheme other than http
+        and https) to a local page that shows where it would have gone, and keeps watching the document for new or
+        changed links (a `MutationObserver` on `href`).
+      - The builders and the data, for a hand-off to another app, which no headless test browser shows as a hand-off,
+        and for `navigator.share`. Each link builder a search of the app's source finds is switched in the preview's
+        mode to the local page that shows what would have been sent or dialled, and a contact the app itself
+        hard-codes (a support number) is replaced. And the data reaches nobody: invented addresses are `.invalid` or
+        `example.com`, URLs in the fake data are on the preview's origin, and invented phone numbers are in a range
+        the country's regulator reserves for fiction where one exists, otherwise invalid by length (one digit short),
+        never a real-format number marked as invented.
+      - Proof. From inside the frame, a planted `location.href = 'tel:…'`, a `location.assign` and a `window.open` to
+        another origin, an `<a target="_blank">` whose `href` comes from fake data, a form post out, a write to
+        `top.location`, a middle click and a Ctrl+click on a planted `<a>` to another origin and on one to `wa.me`,
+        and a `navigator.share` call (where the test browser has one; where it has none the script prints the case as
+        not testable there) each leave nothing outside the preview's two origins (no request, page, popup or
+        navigation), in Chromium and in WebKit (the Playwright image, as `working-style.md` routes it), and the
+        console reports the shell's `frame-src` refusal of the `tel:` case (WebKit names the `tel:` URL; Chromium logs
+        `Framing ''` and its frame ends on `chrome-error://chromewebdata/`). The scripted journey leaves nothing
+        outside them either; the app's port opened at top level renders only the notice; and the script fails on an
+        invented phone number that is valid outside a reserved range. Unit 1 shows this proof failing with the
+        `sandbox` attribute removed, again with the shell's `frame-src` removed, and again with the guard removed; and
+        on the phones Nadav uses it shows by hand a `tel:` tap, a `wa.me` tap and a long press on a link, each ending
+        on the local page.
    d. **Where it runs.** The proofs run where the preview runs. On localhost: the environment proof at every start, as
       (a) says, and the rest before anyone plays, as «What runs when» says. Anywhere else (one of his own domains,
-      after his yes; a new host, a DNS record or any cost is asked at that moment, and unit 1 is marked `go` when it
-      needs one): only as a static build on a host or project of its own (never the app's production hosting project;
-      the host serves the built files only, with no functions, proxies, or rewrites to another host or a function; a
-      fallback to its own `index.html` for client routes is allowed) that carries the same policy as (b) says, with
-      the shell and the app on two origins as (c) says, or as a server on a host or project of its own (never the
-      app's production hosting) that holds only the allowlisted variables; never on the production domain, a subdomain
-      of it, or a host inside a production cookie's `Domain=` scope. Before the link is shared, the whole check script
-      except the no-demo check runs against the deployed URL and passes (the environment proof on its served or
-      published files; the planted calls, the frame's planted cases and the recorded journey from a browser that
-      opened it), and one request to each same-origin server path the app's code calls (`/api/*` and the like) is
-      answered by the fake backend or with 404. `redesign/tools/early-show.sh` checks the host, https, the answer and
-      the commit, and is not that proof. The fake backend answers no redirect to another origin, and the script fails
-      on a `Location` header outside the origin; until the check script passes, the preview listens on loopback only.
+      never a claude.ai artifact, which cannot serve the two origins and their policy headers, and after his yes; a
+      new host, a DNS record or any cost is asked at that moment, and unit 1 is marked `go` when it needs one): only
+      as a static build on a host or project of its own (never the app's production hosting project; the host serves
+      the built files only, with no functions, proxies, or rewrites to another host or a function; a fallback to its
+      own `index.html` for client routes is allowed) that carries the same policy as (b) says, with the shell and the
+      app on two origins as (c) says (two hosts of the same site, for example two subdomains of one of his own
+      domains, because a cross-site frame loses its `SameSite` cookies in every browser and its storage in Safari), or
+      as a server on a host or project of its own (never the app's production hosting) that holds only the allowlisted
+      variables; never on the production domain, a subdomain of it, or a host inside a production cookie's `Domain=`
+      scope. Before the link is shared, the whole check script except the no-demo check runs against the deployed URL
+      and passes (the environment proof on its served or published files; the planted calls, the frame's planted cases
+      and the recorded journey from a browser that opened it), and one request to each same-origin server path the
+      app's code calls (`/api/*` and the like) is answered by the fake backend or with 404.
+      `redesign/tools/early-show.sh` checks the host, https, the answer and the commit, and is not that proof. The
+      fake backend answers no redirect to another origin, and the script fails on a `Location` header outside the
+      origin; until the check script passes, the preview listens on loopback only, and a preview played from a phone
+      over the LAN or Tailscale passes its check script with that origin in the policy before he opens it.
 
    Nobody plays the preview, on any machine, before its check script passes there (on a local tree: all of it except
    the no-demo check, as «What runs when» says); until then only the build session runs it, and only to run the
