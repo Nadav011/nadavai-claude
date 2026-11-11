@@ -41,47 +41,58 @@ a loopback address the fence does not allow, so nothing leaves the host and an u
 
 ## The shell frame and the guard (run on 11.11.2026 with Playwright 1.65)
 
-`dev/probes/frame-sandbox/probe.cjs` runs eighteen ways out of an app page in three set-ups: in a sandboxed frame
+`dev/probes/frame-sandbox/probe.cjs` runs twenty-one ways out of an app page in three set-ups: in a sandboxed frame
 (`sandbox="allow-scripts allow-same-origin allow-forms allow-modals"`, the shell on a second port with `frame-src`
 set to the app's origin only) with a guard in the app; in the same frame with no guard; and at top level with
-neither (the control). The guard points every `<a>` and `<area>` that leaves the app's origin at a local page, and
-cancels a click with a modifier key or another button, the context menu and a drag. The test browser aborts and
-records every request that is not to 127.0.0.1. Cases that attempted a request outside:
+neither (the control). The guard points every `<a>` and `<area>` that leaves the app's origin at a local page;
+cancels the browser's default, never the app's handlers, for a click with a modifier key or another button, the
+context menu and a drag, where the event's path holds a link or a submit control; and cancels every form
+submission whose destination is outside the two origins. The app page in the probe sets no policy of its own. The
+test browser aborts and records every request that is not to 127.0.0.1. Cases that attempted a request outside:
 
 | Browser | frame + guard | frame only | top level (control) |
 |---|---|---|---|
-| Chromium 158 | 0 of 18 | 5 of 18 | 12 of 18 |
-| WebKit 27.2 | 0 of 18 | 0 of 18 | 9 of 18 |
-| Firefox 159 | 0 of 18 | 3 of 18 | 12 of 18 |
+| Chromium 158 | 0 of 21 | 7 of 21 | 14 of 21 |
+| WebKit 27.2 | 0 of 21 | 0 of 21 | 11 of 21 |
+| Firefox 159 | 0 of 21 | 3 of 21 | 14 of 21 |
 
-- Frame only, what went out. Chromium: a middle click, a Ctrl+click and a Shift+click on a link to another origin,
-  and a Ctrl+click and a Shift+click on a form's submit button (the form's post went to the other origin in a new
-  page). Firefox: the three clicks on the link. WebKit: none.
+- Frame only, what went out. Chromium: a middle click, a Ctrl+click and a Shift+click on a link to another origin;
+  a Ctrl+click and a Shift+click on a form's submit button; Shift+Enter in a form with one field and no button; and
+  a Shift+click on a button whose `formaction` is another origin. Each form went to the other origin in a new page.
+  A middle click on a submit button sent nothing. Firefox: the three clicks on the link. WebKit: none.
 - Frame only, what did not go out in any of the three: `location.assign` and `location.replace` to another origin,
   a plain click on a link to another origin, `window.open`, an `<a target="_blank">`, a write to `top.location` (it
   throws `SecurityError`), a plain form post to another origin, and plain clicks on `tel:`, `mailto:` and `sms:`
   links and `location.href = 'tel:…'`.
-- With the guard, none of the eighteen went out in any of the three, and none opened a new page.
-- At top level with neither: every navigation, popup and post to another origin went out in all three, and the
-  modifier and middle clicks on a link did in Chromium and Firefox. In WebKit those clicks on a link opened a new
-  empty page and made no request; its Ctrl+click and Shift+click on a submit button did go out.
+- With the guard, none of the twenty-one went out in any of the three.
+- The app's own controls under the guard, in all three browsers and all three set-ups: a Shift+click on a checkbox
+  ran the app's handler and checked it, and a right click on a cell ran the app's context-menu handler. A drag
+  between cells was not run: a test browser did not start a native drag inside the cross-origin frame even with no
+  guard (the ninth review's attempt).
+- At top level with neither: every navigation, popup and post to another origin went out in all three, and so did
+  every form case sent with a modifier key; the modifier and middle clicks on a link went out in Chromium and
+  Firefox, and in WebKit opened a new empty page with no request.
+- Not stopped by `form-action 'self'` either (the eighth and ninth reviews' runs in Chromium 158, with the app's own
+  policy on; not part of this probe): a Ctrl or Shift click on the submit button of a form to another origin, and a
+  Shift+Enter in a form with one field and no button, each sent the form in a new page, in the frame and at top
+  level. A plain click and Enter were refused by `form-action`. The guard's cancelling of a submission by its
+  destination stopped all of them.
 - How a refused hand-off to another app shows. At top level a `tel:`, `sms:` or `mailto:` link makes no request and
   no page in any of the three (Chromium and WebKit print nothing; Firefox prints "Prevented navigation to … due to
-  an unknown protocol"), so the control cannot show a hand-off. In the frame: WebKit prints "Refused to load tel:…
-  because it does not appear in the frame-src directive"; Firefox reports a `frame-src` block that names the `tel:`
-  URL, and refuses `mailto:` by the sandbox ("Blocked navigation to custom protocol … from a sandboxed context");
-  Chromium prints "Framing '' violates … frame-src", which does not name the URL, and its frame then shows
-  `chrome-error://chromewebdata/`. In the frame with no guard, a Ctrl+click on a `tel:` link opened a new empty page
-  in Firefox, which printed the unknown-protocol line there; in Chromium and WebKit it opened nothing.
+  an unknown protocol" for `tel:` and `sms:`, and nothing for `mailto:`), so the control cannot show a hand-off. In
+  the frame: WebKit prints "Refused to load tel:… because it does not appear in the frame-src directive"; Firefox
+  reports a `frame-src` block that names the `tel:` URL, and refuses `mailto:` by the sandbox ("Blocked navigation
+  to custom protocol … from a sandboxed context"); Chromium prints "Framing '' violates … frame-src", which does
+  not name the URL, and its frame then shows `chrome-error://chromewebdata/`.
 - `navigator.share` did not exist in any of the three, so that case is not testable in them.
-- Not run: the Cmd key, the browser's context menu, a long press, a drag to the tab bar, and real phones. A
-  project's unit 1 shows those by hand on the devices he uses.
-- Not covered by this guard, from the eighth review's run in Chromium (not part of this probe): a link inside a
-  shadow root, an SVG `<a xlink:href>`, a link resolved through a `<base>` on another origin, a link in a `srcdoc`
-  frame, and a server-rendered link clicked before the guard has run. The guard's event layer stopped the person
-  opening any of them in a new page except in the `srcdoc` frame, which needs the guard installed in that document
-  too. The rule therefore asks for `base-uri 'none'`, for the guard in every same-origin document of the frame, and
-  for a scan of every link and form after each screen of the journey.
+- Not run: the Cmd key, the browser's context menu on a link, a long press, a drag to the tab bar, and real phones.
+  A project's unit 1 shows those by hand on the devices he uses.
+- Not covered by the guard's rewrite of links, from the eighth review's run in Chromium (not part of this probe): a
+  link inside a shadow root, an SVG `<a xlink:href>`, a link resolved through a `<base>` on another origin, a link
+  in a `srcdoc` frame, and a server-rendered link clicked before the guard has run. Cancelling by the event's path
+  stopped the person opening any of them in a new page except in the `srcdoc` frame, which needs the guard
+  installed in that document too. The rule therefore asks for `base-uri 'none'`, for the guard in every same-origin
+  document of the frame, and for a scan of every link and form after each screen of the journey.
 - The app must allow being framed by the shell (no `X-Frame-Options: DENY`, and a `frame-ancestors` that names the
-  shell's origin when it sets one). In the allowlist example for Next, `NEXT_TELEMETRY_DISABLED=1` belongs with the
-  variables the start script sets.
+  shell's origin when it sets one). On Next the allowlist also sets `NEXT_TELEMETRY_DISABLED=1`, so Next does not
+  try its telemetry host, which the fence would refuse.

@@ -127,34 +127,35 @@ For an app (a product with screens people work in):
       `'unsafe-inline'` for the dev client's injected styles and preamble, or a nonce; `'strict-dynamic'` is not one
       of them, since it lets a trusted script load scripts from any origin), so what the page itself starts is fenced,
       not only `connect-src`: fetch, WebSockets, images, scripts, frames, form posts, fonts and workers. A form the
-      person submits himself with a modifier key into a new page is not (Chromium; notes file); the guard of (c) stops
-      that. It is a response header on every response the preview serves, worker scripts included, because a worker
-      follows the policy of its own script's response, not the page's; a meta tag first in `<head>` (a meta policy
-      does not cover what precedes it) is enough only for a page that starts no dedicated or shared worker from a URL.
-      An app that opens WebRTC peer connections gets them from the fake data source in the preview, since no directive
-      the proofs use fences them. Fonts and other public files the app loads from a CDN (Google Fonts in a `<link>`,
-      `next/font/google`) are served from the preview's own origin, self-hosted in the app or copied into the repo
-      before the fence; the policy never names the CDN. The preview has origins of its own (the app's port and the
-      shell's port of (c), which no other build of the app uses: storage, caches and workers are per origin, so none
-      of the real app's are there; cookies are per host and shared across ports, so the preview's fake sign-in uses
-      cookie names of its own and ignores every other cookie, and a hosted preview never runs on the production
-      domain, a subdomain of it, or a host inside a production cookie's `Domain=` scope) and registers no service
-      worker (the app's worker path answers 404). Server, and any build step the start script runs: a connection from
-      server code to anything but the preview's origin and the fake backend's local address is refused on every
-      transport (fetch, `node:http(s)`, a database driver, a WebSocket client); the rule requires the proof, the
-      mechanism is the app's (a preload that refuses `net.Socket.prototype.connect` to anything but the preview's own
-      port and the fake backend's port, which every TCP client the notes file lists reached; it does not cover UDP
-      (`node:dgram`), a native addon that opens its own socket, or a process the preload is not loaded into: a Node
-      child started without it, so it is loaded through `NODE_OPTIONS=--require=…`, which the allowlist names, and a
-      child that is not Node, other than a compiler the plan names that opens no connection (esbuild, SWC, Turbopack's
-      compiler, a CSS engine); those are fenced by a network namespace or container with only loopback, with the
-      preview's port forwarded in for the browser, or not used and not started). Proof: planted calls to a harmless
-      live host (example.com, never a send endpoint), from browser code as a fetch, an image and a script (and one
-      fetch from inside a worker when the app starts one), and from server code one request per transport it uses,
-      plus one to a loopback port that is neither the preview's nor the fake backend's (one request only when the
-      fence is a namespace or container), each come back blocked, and any answer fails the script; no service worker
-      is registered; and the browser's recorded requests during a scripted play of the main journey include no other
-      origin. The planted browser calls are made by the check script from the test browser (`page.evaluate`), so
+      person sends himself into a new page, with a modifier key on its submit button or with Shift+Enter in a form
+      that has one field and no button, is not fenced by `form-action` (Chromium; notes file); the guard of (c)
+      cancels a form by where it goes. It is a response header on every response the preview serves, worker scripts
+      included, because a worker follows the policy of its own script's response, not the page's; a meta tag first in
+      `<head>` (a meta policy does not cover what precedes it) is enough only for a page that starts no dedicated or
+      shared worker from a URL. An app that opens WebRTC peer connections gets them from the fake data source in the
+      preview, since no directive the proofs use fences them. Fonts and other public files the app loads from a CDN
+      (Google Fonts in a `<link>`, `next/font/google`) are served from the preview's own origin, self-hosted in the
+      app or copied into the repo before the fence; the policy never names the CDN. The preview has origins of its own
+      (the app's port and the shell's port of (c), which no other build of the app uses: storage, caches and workers
+      are per origin, so none of the real app's are there; cookies are per host and shared across ports, so the
+      preview's fake sign-in uses cookie names of its own and ignores every other cookie, and a hosted preview never
+      runs on the production domain, a subdomain of it, or a host inside a production cookie's `Domain=` scope) and
+      registers no service worker (the app's worker path answers 404). Server, and any build step the start script
+      runs: a connection from server code to anything but the preview's origin and the fake backend's local address is
+      refused on every transport (fetch, `node:http(s)`, a database driver, a WebSocket client); the rule requires the
+      proof, the mechanism is the app's (a preload that refuses `net.Socket.prototype.connect` to anything but the
+      preview's own port and the fake backend's port, which every TCP client the notes file lists reached; it does not
+      cover UDP (`node:dgram`), a native addon that opens its own socket, or a process the preload is not loaded into:
+      a Node child started without it, so it is loaded through `NODE_OPTIONS=--require=…`, which the allowlist names,
+      and a child that is not Node, other than a compiler the plan names that opens no connection (esbuild, SWC,
+      Turbopack's compiler, a CSS engine); those are fenced by a network namespace or container with only loopback,
+      with the preview's port forwarded in for the browser, or not used and not started). Proof: planted calls to a
+      harmless live host (example.com, never a send endpoint), from browser code as a fetch, an image and a script
+      (and one fetch from inside a worker when the app starts one), and from server code one request per transport it
+      uses, plus one to a loopback port that is neither the preview's nor the fake backend's (one request only when
+      the fence is a namespace or container), each come back blocked, and any answer fails the script; no service
+      worker is registered; and the browser's recorded requests during a scripted play of the main journey include no
+      other origin. The planted browser calls are made by the check script from the test browser (`page.evaluate`), so
       nothing planted ships; the planted server requests are made inside the running server process, and inside each
       process it or the start script starts, through a test-only route or a start-up hook of the preview's mode that
       the no-demo check keeps out of the build users get; a separate script proves only itself. The check script lists
@@ -185,30 +186,39 @@ For an app (a product with screens people work in):
         `allow-downloads` (then the planted cases add a cross-origin `<a download>`, which must leave nothing), a
         same-origin window such as a print view opened in the frame's place, and clipboard, fullscreen, camera,
         microphone or location by name in `allow`; `payment`, `web-share` and `publickey-credentials-*` are never
-        added. On a phone the frame changes the page around the app (from the platforms' documented behaviour, not
-        measured here): the shell carries the app's viewport meta (a frame's own is ignored), and safe-area insets,
-        the hiding of the browser's bars, the keyboard's resize and autofocus do not reach a cross-origin frame. Unit
-        1 lists what the app relies on of these; the build session checks those screens at top level through a flag of
+        added. On a phone the frame changes the page around the app (autofocus by the HTML spec; the rest is the
+        platforms' behaviour as the reviewers know it, not measured and not cited, and unit 1 checks it on his
+        phones): the shell carries the app's viewport meta (a frame's own is ignored), and safe-area insets, the
+        hiding of the browser's bars, the keyboard's resize and autofocus do not reach a cross-origin frame. Unit 1
+        lists what the app relies on of these; the build session checks those screens at top level through a flag of
         the start script that only the check script's own run sets: it lets the app render at top level, still in the
         preview's mode behind every other fence, in a test browser that aborts every request outside the preview's
         origins. The flag is never set for a preview anyone plays, and the proof that the app's port shows only the
         notice runs without it. The build session never sends Nadav to the app's port, and does not fix in the app a
         layout difference that only the frame causes.
       - The guard. A link or a form the person opens himself is not a navigation the page starts: a middle click, or a
-        click with Ctrl or Shift, on a link to another origin inside the frame opened a new page to it, and the same
-        click on a form's submit button sent the form there (Chromium and Firefox for the link, Chromium for the form;
-        notes file). The browser's own "open in new tab", the Cmd key, a drag to the tab bar and a long press on a
-        phone are the same kind of action and were not measured. So in the preview's mode a guard loads before
-        anything else in every same-origin document of the frame (on Next, the first script in the root layout's
-        `<head>`, before hydration; a `srcdoc` or other child frame gets it too) and does two things. It rewrites the
-        `href` of every `<a>` and `<area>` that points outside the preview's two origins (another origin, or a scheme
-        other than http and https) to a local page that shows where it would have gone, and keeps watching the
-        document for new or changed links (a `MutationObserver` on `href`). And it cancels what the person opens
-        himself, at the event level, whatever the element: `auxclick`, any click with a modifier key or a button other
-        than the main one, `contextmenu` and `dragstart`, with `-webkit-touch-callout: none` for the long press on an
-        iPhone. The local page shows the address as text, never as a link, because a guarded link that does open in a
-        new tab shows that page at top level, outside the frame; and the app's pages carry `<meta
-        name="format-detection" content="telephone=no">`, so iOS does not turn a number in the text into a link.
+        click with Ctrl or Shift, on a link to another origin inside the frame opened a new page to it (Chromium and
+        Firefox), and a Ctrl or Shift click on a form's submit button, or Shift+Enter in a form with one field and no
+        button, sent the form there (Chromium; notes file). The browser's own "open in new tab", the Cmd key, a drag
+        to the tab bar and a long press on a phone are the same kind of action and were not measured. So in the
+        preview's mode a guard loads before anything else in every same-origin document of the frame (on Next, the
+        first script in the root layout's `<head>`, before hydration, where the rewrite makes React log one
+        attribute-mismatch line per rewritten link, expected in the preview's mode only; a `srcdoc` or other child
+        frame gets the guard too) and does three things. It rewrites the `href` of every `<a>` and `<area>` that
+        points outside the preview's two origins (another origin, or a scheme other than http and https) to a local
+        page that shows where it would have gone, and keeps watching the document for new or changed links (a
+        `MutationObserver` on `href`). It cancels every `submit` whose destination (the form's `action`, or the
+        submitter's `formaction`) is outside the two origins, whatever key or click sent it. And it cancels the
+        browser's default, never the app's handlers (`preventDefault` only, no `stopPropagation`), for what the person
+        opens himself: `auxclick` and any click with a modifier key or a button other than the main one whose event
+        path (`composedPath()`, so shadow roots count) holds a link (`<a>`, `<area>`, an SVG `<a>`) or a submit
+        control; and `contextmenu` and `dragstart` whose path holds a link or an image. Links and images get
+        `-webkit-touch-callout: none` for the long press on an iPhone. The app's own modifier clicks, context menus
+        and drags keep working (measured for a checkbox and a context menu; notes file), and the scripted journey
+        plays one of each the app has. The local page shows the address as text, never as a link, because a guarded
+        link that does open in a new tab shows that page at top level, outside the frame; and the app's pages carry
+        `<meta name="format-detection" content="telephone=no, email=no, address=no">`, so iOS does not turn a number
+        or an address in the text into a link.
       - The builders and the data, for a hand-off to another app, which no headless test browser shows as a hand-off,
         and for `navigator.share`. Each link builder a search of the app's source finds is switched in the preview's
         mode to the local page that shows what would have been sent or dialled, and a contact the app itself
@@ -219,18 +229,21 @@ For an app (a product with screens people work in):
       - Proof. From inside the frame, a planted `location.href = 'tel:…'`, a `location.assign` and a `window.open` to
         another origin, an `<a target="_blank">` whose `href` comes from fake data, a form post out, a write to
         `top.location`, a middle click and a Ctrl+click on a planted `<a>` to another origin and on one to `wa.me`, a
-        Ctrl+click and a Shift+click on the submit button of a planted form whose action is another origin, and a
-        `navigator.share` call (where the test browser has one; where it has none the script prints the case as not
-        testable there) each leave nothing outside the preview's two origins (no request, page, popup or navigation),
-        in Chromium and in WebKit (the Playwright image, as `working-style.md` routes it), and the console reports the
-        shell's `frame-src` refusal of the `tel:` case (WebKit names the `tel:` URL; Chromium logs `Framing ''` and
-        its frame ends on `chrome-error://chromewebdata/`). The scripted journey leaves nothing outside them either,
-        and after each of its screens the script scans every link and form in every document of the frame and fails on
-        an `href` or an `action` outside the preview's two origins; the app's port opened at top level renders only
-        the notice; and the script fails on an invented phone number that is valid outside a reserved range. Unit 1
-        shows this proof failing with the `sandbox` attribute removed, again with the shell's `frame-src` removed, and
-        again with the guard removed; and on the phones Nadav uses it shows by hand a `tel:` tap, a `wa.me` tap and a
-        long press on a link, each ending on the local page.
+        Ctrl+click and a Shift+click on the submit button of a planted form whose action is another origin, a
+        Shift+Enter in a planted form with one field and no button, a middle click on a link in the served HTML of the
+        first screen and on one inside a planted shadow root, and a `navigator.share` call (where the test browser has
+        one; where it has none the script prints the case as not testable there) each leave nothing outside the
+        preview's two origins (no request, page, popup or navigation), in Chromium and in WebKit (the Playwright
+        image, as `working-style.md` routes it), and the console reports the shell's `frame-src` refusal of the `tel:`
+        case (WebKit names the `tel:` URL; Chromium logs `Framing ''` and its frame ends on
+        `chrome-error://chromewebdata/`). The scripted journey leaves nothing outside them either, and after each of
+        its screens the script scans every `<a>`, `<area>` and SVG `<a>` (`href` and `xlink:href`), every form's
+        `action` and every `formaction`, in every document of the frame and in every open shadow root, and fails on
+        one that points outside the preview's two origins; the app's port opened at top level renders only the notice;
+        and the script fails on an invented phone number that is valid outside a reserved range. Unit 1 shows this
+        proof failing with the `sandbox` attribute removed, again with the shell's `frame-src` removed, and again with
+        the guard removed; and on the phones Nadav uses it shows by hand a `tel:` tap, a `wa.me` tap and a long press
+        on a link, each ending on the local page.
    d. **Where it runs.** The proofs run where the preview runs. On localhost: the environment proof at every start, as
       (a) says, and the rest before anyone plays, as «What runs when» says. Anywhere else (one of his own domains,
       never a claude.ai artifact, which cannot serve the two origins and their policy headers, and after his yes; a

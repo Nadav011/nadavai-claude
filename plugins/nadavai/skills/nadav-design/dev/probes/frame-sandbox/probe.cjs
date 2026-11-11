@@ -2,8 +2,9 @@
 // The app page runs in three set-ups, each with the same cases:
 //   1. frame + guard   in a sandboxed frame (no allow-popups, no allow-top-navigation*), the shell's policy has
 //                      frame-src set to the app's origin only, and a guard in the app rewrites every link that
-//                      points outside it to a local page and cancels what the person opens himself (a click
-//                      with a modifier key or another button, the context menu, a drag);
+//                      points outside it to a local page, cancels the browser's default for what the person
+//                      opens himself on a link or a submit control (a click with a modifier key or another
+//                      button, the context menu, a drag), and cancels every form submission that leaves;
 //   2. frame only      the same frame with no guard;
 //   3. top level       no frame and no guard (the control).
 // Nothing leaves the machine: the test browser aborts every request that is not to 127.0.0.1 and records it, and
@@ -23,6 +24,7 @@ const pw = require(path.join(process.argv[3] || '/pw', 'playwright'));
 const SHELL = 18290; // below the ephemeral range, so no outgoing connection can hold it
 const APP = 18291;
 const APP_ORIGIN = `http://127.0.0.1:${APP}`;
+const SHELL_ORIGIN = `http://127.0.0.1:${SHELL}`;
 const SANDBOX = 'allow-scripts allow-same-origin allow-forms allow-modals';
 
 // The guard: loaded first, it points every <a> and <area> that leaves the app's origin at a local page.
@@ -40,21 +42,37 @@ const GUARD = `<script>(() => {
     if (m.type === 'attributes') fix(m.target); else m.addedNodes.forEach((n) => { if (n.nodeType === 1) { if (n.matches('a[href],area[href]')) fix(n); sweep(n); } });
   })).observe(document, { subtree: true, childList: true, attributes: true, attributeFilter: ['href'] });
   document.addEventListener('DOMContentLoaded', () => sweep(document));
-  // The event layer: what the person opens himself (a new tab or window, the context menu, a drag) never starts.
-  const stop = (e) => { e.preventDefault(); e.stopImmediatePropagation(); };
-  const own = (e) => (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) && stop(e);
-  addEventListener('click', own, true);
-  addEventListener('auxclick', stop, true);
-  addEventListener('contextmenu', stop, true);
-  addEventListener('dragstart', stop, true);
-})();</script><style>*{-webkit-touch-callout:none}</style>`;
+  // What the person opens himself (a new tab or window, the context menu, a drag): only the browser's default
+  // is cancelled, never the app's own handlers, and only where the event's path holds a link or a submit control.
+  const OK = new Set([location.origin, '${SHELL_ORIGIN}']);
+  const has = (e, sel) => e.composedPath().some((n) => n instanceof Element && n.matches(sel));
+  const OPENER = 'a[href],area[href],button:not([type=button]):not([type=reset]),input[type=submit],input[type=image]';
+  const cancel = (e) => e.preventDefault();
+  addEventListener('click', (e) => (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) && has(e, OPENER) && cancel(e), true);
+  addEventListener('auxclick', (e) => has(e, OPENER) && cancel(e), true);
+  addEventListener('contextmenu', (e) => has(e, 'a[href],area[href],img') && cancel(e), true);
+  addEventListener('dragstart', (e) => has(e, 'a[href],area[href],img') && cancel(e), true);
+  // A form is fenced by where it goes, whatever key or click sent it.
+  addEventListener('submit', (e) => {
+    const b = e.submitter;
+    const raw = (b && b.hasAttribute('formaction') ? b.getAttribute('formaction') : e.target.getAttribute('action')) || location.href;
+    let u; try { u = new URL(raw, document.baseURI); } catch { return cancel(e); }
+    if (!OK.has(u.origin)) cancel(e);
+  }, true);
+})();</script><style>a,area,img{-webkit-touch-callout:none}</style>`;
 const appHtml = (guard) => `<!doctype html><meta charset="utf-8"><title>app</title>${guard ? GUARD : ''}
 <a id="tel" href="tel:+12025550123">call</a>
 <a id="mailto" href="mailto:someone@example.com">mail</a>
 <a id="sms" href="sms:+12025550123">sms</a>
 <a id="blank" target="_blank" href="https://example.com/blank">new tab</a>
 <a id="ext" href="https://example.com/same-frame">leave in this frame</a>
-<form id="f" action="https://example.com/post" method="post"><button id="post">post</button></form>`;
+<form id="f" action="https://example.com/post" method="post"><button id="post">post</button></form>
+<form id="one" action="https://example.com/one" method="post"><input id="q" name="q"></form>
+<form id="fa" action="/would-open" method="post"><button id="fab" formaction="https://example.com/formaction">other</button></form>
+<input type="checkbox" id="cb"><div id="cell" style="width:80px;height:30px">cell</div>
+<script>window.__cb = 0; window.__menu = 0;
+document.getElementById('cb').addEventListener('click', () => { window.__cb += 1; });
+document.getElementById('cell').addEventListener('contextmenu', (e) => { window.__menu += 1; e.preventDefault(); });</script>`;
 const shellHtml = (guard) => `<!doctype html><meta charset="utf-8"><title>shell</title>
 <iframe id="app" sandbox="${SANDBOX}" src="${APP_ORIGIN}/app${guard ? '?guard=1' : ''}"></iframe>`;
 
@@ -80,7 +98,16 @@ const CASES = [
   ['Ctrl+click on <a href="tel:">', click('#tel', { modifiers: ['Control'] })],
   ['Ctrl+click on a form\'s submit (post to https://example.com)', click('#post', { modifiers: ['Control'] })],
   ['Shift+click on a form\'s submit (post to https://example.com)', click('#post', { modifiers: ['Shift'] })],
+  ['middle click on a form\'s submit', click('#post', { button: 'middle' })],
+  ['Shift+Enter in a one-field form with no button', (f) => f.locator('#q').press('Shift+Enter', { timeout: 3000 })],
+  ['Shift+click on a button whose formaction is another origin', click('#fab', { modifiers: ['Shift'] })],
 ];
+// The app's own controls must keep working under the guard.
+const APP_CONTROLS = async (f) => {
+  await f.click('#cb', { modifiers: ['Shift'], timeout: 3000 });
+  await f.click('#cell', { button: 'right', timeout: 3000 });
+  return f.evaluate(() => ({ handler: window.__cb, checked: document.getElementById('cb').checked, menu: window.__menu }));
+};
 const MODES = [
   ['frame + guard', true, true],
   ['frame only', true, false],
@@ -141,6 +168,19 @@ const MODES = [
       await ctx.close();
     }
     totals[mode] = out;
+    {
+      const ctx = await browser.newContext();
+      await ctx.route('**/*', (route) => (route.request().url().startsWith('http://127.0.0.1:') ? route.continue() : route.abort()));
+      const page = await ctx.newPage();
+      let frame;
+      if (framed) {
+        await page.goto(`http://127.0.0.1:${SHELL}/${guard ? '?guard=1' : ''}`);
+        for (let i = 0; i < 20 && !frame; i += 1) { frame = page.frames().find((f) => f.url().startsWith(`${APP_ORIGIN}/app`)); if (!frame) await page.waitForTimeout(100); }
+      } else { await page.goto(`${APP_ORIGIN}/app`); frame = page.mainFrame(); }
+      let r; try { r = await APP_CONTROLS(frame); } catch (e) { r = { error: String(e.message).split('\n')[0].slice(0, 80) }; }
+      console.log(`-- the app's own controls in this set-up: Shift+click on its checkbox ran its handler ${r.handler} time(s), checked ${r.checked}; right click ran its context-menu handler ${r.menu} time(s)${r.error ? ' | ' + r.error : ''}`);
+      await ctx.close();
+    }
     console.log(`-- ${mode}: ${out} of ${CASES.length} cases attempted a request outside`);
   }
   await browser.close();
