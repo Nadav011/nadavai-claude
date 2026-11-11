@@ -16,15 +16,16 @@ export default {
   anchors: {
     // the first free 45 minutes from now, in work hours
     'cal.free-slot': x => x.$(`[data-tour="cal.slot"][data-tour-arg="${x.app.calendar.firstFree(45)}"]`),
-    // an appointment that ended and is not closed yet, never the sample's
+    // the sample record's appointment that ended and is not closed yet: practice data that comes with the sample
+    // record (G-08), never a real person's appointment
     'cal.ended-appointment': x => {
-      const a = x.app.calendar.endedNotClosed();
+      const a = x.app.calendar.sampleEndedNotClosed();
       return a ? x.$(`[data-tour="cal.appointment"][data-tour-arg="${a.id}"]`) : null;
     },
   },
   // recordOpen: the record behind an anchor, so the result can ask whether its window shows that record
   records: {
-    'cal.ended-appointment': x => (x.app.calendar.endedNotClosed() || {}).id,
+    'cal.ended-appointment': x => (x.app.calendar.sampleEndedNotClosed() || {}).id,
   },
   // custom result id -> predicate
   results: {

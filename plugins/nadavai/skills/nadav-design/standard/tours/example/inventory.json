@@ -12,6 +12,7 @@
     },
     "cal-day": {
       "title": "יומן · יום",
+      "viewOf": "cal-week",
       "menu": true,
       "tasks": [
         { "text": "לקבוע תור", "tour": "book" },

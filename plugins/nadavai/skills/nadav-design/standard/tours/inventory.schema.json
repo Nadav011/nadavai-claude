@@ -17,6 +17,7 @@
         "required": ["menu", "tasks"],
         "properties": {
           "title": { "type": "string", "minLength": 1 },
+          "viewOf": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$", "description": "This key is a view of that screen (the calendar's day view of its week): a core entry may group a screen's views, and they count as one core screen." },
           "menu": { "type": "boolean", "description": "The screen is reachable from the menu." },
           "tasks": {
             "type": "array",

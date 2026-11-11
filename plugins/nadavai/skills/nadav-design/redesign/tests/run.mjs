@@ -1330,7 +1330,7 @@ const TOUR_FIXTURES = [
   ['schema-inventory', 'manifest', null, 'an inventory screen says menu "yes"', (m, i) => { i.screens['cal-day'].menu = 'yes'; }],
   ['duplicate-id', 'manifest', null, 'two tours share an id', m => { m.tours.push(clone(tourOf(m, 'reminder'))); }],
   ['auto-screen', 'manifest', null, 'a tour opens by itself on a screen it does not list', m => { tourOf(m, 'book').auto.push('patients'); }],
-  ['practice-kind', 'manifest', null, 'practiceOnly on a stop step', m => { tourOf(m, 'close-1').steps[1].practiceOnly = { modeTest: 'a', stopTest: 'b' }; }],
+  ['practice-kind', 'manifest', null, 'practiceOnly on a stop step', m => { Object.assign(tourOf(m, 'close-1').steps[1], { on: 'sample', practiceOnly: { modeTest: 'a', stopTest: 'b' } }); }],
   ['chapter-set', 'manifest', null, 'a chapter says 2 of 4 while the others say of 3', m => { tourOf(m, 'close-2').chapter = [2, 4]; }],
   ['words', 'tour-shape', 'G-07', 'a step of fourteen words', m => { tourOf(m, 'reminder').steps[2].text = 'משנים כמה שעות לפני התור יוצאת התזכורת, ואפשר לבחור גם יום שלם לפני התור.'; }],
   ['no-skip', 'tour-shape', 'G-07', 'a step that cannot be skipped', m => { tourOf(m, 'book').steps[0].skip = false; }],
@@ -1344,6 +1344,14 @@ const TOUR_FIXTURES = [
   ['need-action', 'tour-no-commit', 'G-08', 'a resume that presses a control', m => { tourOf(m, 'book').steps[3].need.push({ do: 'press', window: 'appt.create' }); }],
   ['start-key', 'tour-no-commit', 'G-08', 'a start that asks to press a control', m => { tourOf(m, 'book').start.press = 'appt.save'; }],
   ['core-count', 'tour-shape', 'G-21', 'six core screens', m => { m.core.push(...['leads', 'chats', 'money', 'forms'].map(id => ({ id, screens: [id] }))); }],
+  ['core-count', 'tour-shape', 'G-21', 'one core entry holding six screens that are not views of one screen', m => { m.core = [{ id: 'all', screens: ['cal-week', 'cal-day', 'patients', 'settings-msgs', 'import', 'appt-new', 'reports'] }]; }],
+  ['practice-not-sample', 'tour-no-commit', 'G-20', 'a practice-only step that does not run on the sample record', m => { delete tourOf(m, 'close-3').steps[1].on; }],
+  ['record-not-sample', 'tour-no-commit', 'G-08', 'a do step that opens a record that is not the sample record', m => { delete tourOf(m, 'close-1').steps[0].on; }],
+  ['do-class', 'tour-no-commit', 'G-20', 'a practice-only step with no class and no tests', m => { const s = tourOf(m, 'close-3').steps[1]; delete s.class; s.practiceOnly = {}; s.safeTest = 'e2e/x.spec.ts: y'; }],
+  ['start-screen', 'manifest', null, 'a start on a screen the tour does not list', m => { tourOf(m, 'book').start.screen = 'settings-msgs'; }],
+  ['chapter-end', 'tour-shape', 'G-07', 'a chapter whose phone run ends at a showing step', m => { const t = tourOf(m, 'close-1'); t.steps.push({ kind: 'next', when: 'phone', anchor: 'appt.note', text: 'בטלפון: כאן עוד משהו.' }, { kind: 'stop', class: 'S', when: 'desktop', anchor: 'appt.note', text: 'במחשב: "סיכום" פותח את הרשומה.' }); }],
+  ['article-anchor', 'help-refs', 'G-02, G-19', 'an article on one screen names a control of another screen', (m, i) => { i.screens.patients.tasks[0].anchors.push('cal.print'); }],
+  ['article-anchor', 'help-refs', 'G-02, G-19', 'an article names a known control with an arg nothing on its screen uses', (m, i) => { i.screens.patients.tasks[0].anchors[0] = { anchor: 'patients.filter', arg: 'אין כזה' }; }],
   ['task-no-tour', 'tour-inventory', 'G-19', 'an article task with no tour and no reason', (m, i) => { i.screens['cal-day'].tasks.push({ text: 'לבטל תור' }); }],
   ['task-no-tour', 'tour-inventory', 'G-19', 'an extra task with no tour and no reason', m => { m.extraTasks.push({ screen: 'patients', task: 'למחוק מטופל' }); }],
   ['screen-no-tour', 'tour-inventory', 'G-19', 'a menu screen with no tour and no reason', (m, i) => { i.screens.reports = { menu: true, tasks: [] }; }],
@@ -1407,6 +1415,12 @@ await test('TOUR-schema', 'tour-check holds the manifest and the inventory to th
     ['an article anchor object with no arg', (m, i) => { i.screens.patients.tasks[0].anchors[0] = { anchor: 'patients.filter' }; }, 'inventory/screens/patients/tasks/0/anchors/0'],
     ['no stage', m => { delete m.stage; }, '/'],
     ['a stage that is neither demo nor app', m => { m.stage = 'beta'; }, '/stage'],
+    ['a safeTest that is only a space', m => { tourOf(m, 'book').steps[1].safeTest = ' '; }, '/tours/0/steps/1/safeTest'],
+    ['practice tests that are only spaces', m => { tourOf(m, 'close-3').steps[1].practiceOnly = { modeTest: ' ', stopTest: ' ' }; }, '/tours/3/steps/1/practiceOnly/modeTest'],
+    ['an anchors entry without its screens', m => { m.anchors['cal.print'] = 'כפתור ההדפסה'; }, '/anchors/cal.print'],
+    ['a start on a record that is not the sample', m => { tourOf(m, 'book').start.record = 'shiran'; }, '/tours/0/start/record'],
+    ['a start view per device with one device only', m => { tourOf(m, 'book').start.view = { phone: 'day' }; }, '/tours/0/start/view'],
+    ['a start date that is not today', m => { tourOf(m, 'book').start.date = '2026-11-11'; }, '/tours/0/start/date'],
   ];
   for (const [what, change, at] of cases) {
     const m = clone(TOUR_EX);
@@ -1418,7 +1432,56 @@ await test('TOUR-schema', 'tour-check holds the manifest and the inventory to th
   }
   return why.join(' · ');
 });
-await test('TOUR-demo', 'at stage demo, do steps that name no G-20 test are one note with their count, not findings; without the stage line they are findings', async () => {
+await test('TOUR-paths', 'a chapter whose every run, phone and computer, ends at a stop step passes, though its last unconditional step is a showing one', async () => {
+  const m = clone(TOUR_EX);
+  const t = tourOf(m, 'close-1');
+  const stop = t.steps.pop();
+  t.steps.push({ kind: 'next', anchor: 'appt.note', text: 'כאן הסיכום.' }, { ...stop, when: 'phone' }, { ...stop, when: 'desktop' });
+  const r = tourCheck(m, INV_EX);
+  return r.status === 0 && r.out && !r.out.findings.length ? '' : `exit ${r.status} ${JSON.stringify(r.out && r.out.findings.map(f => [f.code, f.step]))}`;
+});
+await test('TOUR-words', 'a step of exactly twelve words passes and one of thirteen fails', async () => {
+  const twelve = 'אחת שתיים שלוש ארבע חמש שש שבע שמונה תשע עשר אחת-עשרה שתים-עשרה';
+  const why = [];
+  for (const [text, want] of [[twelve, 0], [`${twelve} שלוש-עשרה`, 1]]) {
+    const m = clone(TOUR_EX);
+    tourOf(m, 'reminder').steps[2].text = text;
+    const r = tourCheck(m, INV_EX);
+    const got = r.out ? r.out.findings.map(f => f.code) : [];
+    if (r.status !== want || got.join(',') !== (want ? 'words' : '')) why.push(`${text.split(' ').length} words: exit ${r.status} ${JSON.stringify(got)}`);
+  }
+  return why.join(' · ');
+});
+await test('TOUR-views', 'core screens count once per screen: six keys of which one is marked viewOf pass, the same without the mark or without the inventory fail', async () => {
+  const why = [];
+  const m = clone(TOUR_EX);
+  m.core = [{ id: 'calendar', screens: ['cal-week', 'cal-day'] }, ...['patients', 'settings-msgs', 'import', 'appt-new'].map(id => ({ id, screens: [id] }))];
+  const ok = tourCheck(m, INV_EX);
+  if (ok.status !== 0 || !ok.out || ok.out.findings.length) why.push(`with viewOf: exit ${ok.status} ${JSON.stringify(ok.out && ok.out.findings.map(f => f.code))}`);
+  const inv = clone(INV_EX);
+  delete inv.screens['cal-day'].viewOf;
+  for (const [what, r] of [['without viewOf', tourCheck(m, inv)], ['without the inventory', tourCheck(m, null)]]) {
+    const got = r.out ? r.out.findings.map(f => f.code) : [];
+    if (r.status !== 1 || got.join(',') !== 'core-count') why.push(`${what}: exit ${r.status} ${JSON.stringify(got)}`);
+  }
+  return why.join(' · ');
+});
+await test('TOUR-malformed', 'a tour or a step that is not an object, or a manifest that is not an object, exits 2 with the reason, as JSON under --json', async () => {
+  const why = [];
+  const cases = [['a null tour', m => { m.tours.push(null); }], ['a null step', m => { tourOf(m, 'book').steps.push(null); }], ['steps that are not a list', m => { tourOf(m, 'book').steps = 'x'; }], ['a manifest that is a list', () => []]];
+  for (const [what, change] of cases) {
+    const m = clone(TOUR_EX);
+    const out = change(m) || m;
+    const r = tourCheck(out, INV_EX);
+    if (r.status !== 2 || !r.out || r.out.ok !== false || !r.out.error) why.push(`${what}: exit ${r.status} ${r.raw}`);
+  }
+  const dir = fs.mkdtempSync(path.join(TMP, 'tours-null-'));
+  fs.writeFileSync(path.join(dir, 'tours.json'), JSON.stringify({ ...TOUR_EX, tours: [null] }));
+  const t = sh('node', [path.join(TOURS, 'tour-check.mjs'), path.join(dir, 'tours.json')]);
+  if (t.status !== 2 || !/tour 1 is not an object/.test(t.stderr) || /at file:/.test(t.stderr)) why.push(`text mode: exit ${t.status} ${t.stderr.trim()}`);
+  return why.join(' · ');
+});
+await test('TOUR-demo','at stage demo, do steps that name no G-20 test are one note with their count, not findings; without the stage line they are findings', async () => {
   const m = clone(TOUR_EX);
   m.stage = 'demo';
   delete tourOf(m, 'book').steps[1].safeTest;

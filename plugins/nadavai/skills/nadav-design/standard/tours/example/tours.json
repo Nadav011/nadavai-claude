@@ -8,7 +8,7 @@
     { "id": "patients", "screens": ["patients"] }
   ],
   "anchors": {
-    "cal.print": "כפתור ההדפסה בראש היומן"
+    "cal.print": { "screens": ["cal-week", "cal-day"], "what": "כפתור ההדפסה בראש היומן" }
   },
   "tours": [
     {
@@ -18,7 +18,7 @@
       "area": "יומן",
       "where": "יומן · שבוע",
       "auto": ["cal-week", "cal-day"],
-      "start": { "screen": "cal-week", "view": "week", "close": true },
+      "start": { "screen": "cal-week", "view": { "phone": "day", "desktop": "week" }, "date": "today", "close": true },
       "tasks": ["לקבוע תור"],
       "steps": [
         { "kind": "next", "anchor": "cal.new-appointment", "text": "קובעים תור מ\"תור חדש\", או מלחיצה על שעה פנויה ביומן." },
@@ -53,7 +53,7 @@
       "where": "יומן · חלון התור",
       "tasks": ["לסגור טיפול שהסתיים"],
       "steps": [
-        { "kind": "do", "act": "open", "anchor": "cal.ended-appointment", "result": { "kind": "recordOpen", "arg": "cal.ended-appointment" },
+        { "kind": "do", "act": "open", "on": "sample", "anchor": "cal.ended-appointment", "result": { "kind": "recordOpen", "arg": "cal.ended-appointment" },
           "safeTest": "e2e/tours/sample-safe.spec.ts: opening an appointment sends nothing",
           "text": "לוחצים על תור שהסתיים. חלון התור נפתח ליד היומן." },
         { "kind": "stop", "class": "S", "anchor": "appt.happened", "need": [{ "do": "reopen", "window": "appt.drawer" }],
@@ -72,7 +72,7 @@
       "where": "יומן · חלון התור",
       "tasks": [],
       "steps": [
-        { "kind": "do", "act": "open", "anchor": "cal.ended-appointment", "result": { "kind": "recordOpen", "arg": "cal.ended-appointment" },
+        { "kind": "do", "act": "open", "on": "sample", "anchor": "cal.ended-appointment", "result": { "kind": "recordOpen", "arg": "cal.ended-appointment" },
           "need": [{ "do": "reopen", "window": "appt.drawer" }],
           "safeTest": "e2e/tours/sample-safe.spec.ts: opening an appointment sends nothing",
           "text": "פותחים שוב את התור שהסתיים." },
@@ -92,22 +92,22 @@
       "where": "יומן · חלון התור · מצב תרגול",
       "tasks": [],
       "steps": [
-        { "kind": "do", "act": "open", "anchor": "cal.ended-appointment", "result": { "kind": "recordOpen", "arg": "cal.ended-appointment" },
+        { "kind": "do", "act": "open", "on": "sample", "anchor": "cal.ended-appointment", "result": { "kind": "recordOpen", "arg": "cal.ended-appointment" },
           "need": [{ "do": "reopen", "window": "appt.drawer" }],
           "safeTest": "e2e/tours/sample-safe.spec.ts: opening an appointment sends nothing",
           "text": "פותחים את התור שהסתיים." },
-        { "kind": "do", "act": "open", "class": "P", "anchor": "appt.paid", "result": { "kind": "open", "arg": "pay.sheet" },
+        { "kind": "do", "act": "open", "class": "P", "on": "sample", "anchor": "appt.paid", "result": { "kind": "open", "arg": "pay.sheet" },
           "need": [{ "do": "reopen", "window": "appt.drawer" }],
           "practiceOnly": {
             "modeTest": "e2e/practice/pay.spec.ts: opening a payment in practice mode takes no number and reaches no provider",
             "stopTest": "e2e/tours/stop-steps.spec.ts: outside practice mode \"שולם\" is a stop step and the server refuses it"
           },
           "text": "במצב תרגול לוחצים \"שולם\". נפתח חלון התשלום." },
-        { "kind": "do", "act": "pick", "anchor": "pay.method", "arg": "מזומן", "result": { "kind": "stateEquals", "arg": { "key": "pay.method", "value": "cash" } },
+        { "kind": "do", "act": "pick", "on": "sample", "anchor": "pay.method", "arg": "מזומן", "result": { "kind": "stateEquals", "arg": { "key": "pay.method", "value": "cash" } },
           "need": [{ "do": "reopen", "window": "pay.sheet" }],
           "safeTest": "e2e/practice/pay.spec.ts: choosing how she paid records nothing",
           "text": "בוחרים \"מזומן\". שום דבר לא נרשם עדיין." },
-        { "kind": "do", "act": "open", "class": "P", "anchor": "pay.confirm", "result": { "kind": "present", "arg": "pay.practice-receipt" }, "outcome": true,
+        { "kind": "do", "act": "open", "class": "P", "on": "sample", "anchor": "pay.confirm", "result": { "kind": "present", "arg": "pay.practice-receipt" }, "outcome": true,
           "practiceOnly": {
             "modeTest": "e2e/practice/pay.spec.ts: a practice receipt takes no number and reaches no provider",
             "stopTest": "e2e/tours/stop-steps.spec.ts: outside practice mode \"רישום התשלום\" is a stop step and the server refuses it"

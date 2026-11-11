@@ -3,28 +3,35 @@
 // automated checks"; the format is in `standard/help-system.md`, "The tour manifest").
 //
 //   manifest        the file has the shape of tours.schema.json (and inventory.schema.json), tour ids
-//                   are unique, a job's chapters run 1..n, a tour opens by itself only on its own screens
+//                   are unique, a job's chapters run 1..n, a tour opens by itself and starts only on its
+//                   own screens
 //   tour-shape      a step over twelve words, a step with no skip, a do step with no result, a chapter
-//                   that ends neither at a result nor at a stop step, a tour that opens by itself on a
-//                   screen that is not a core screen, more than five core screens; it notes every tour of
-//                   more than six steps with no chapter break, which is never a finding
-//   tour-no-commit  the part read from data: a do step classed T or P that is not practice-only with
-//                   both its tests named, a do step with no G-20 test named (at stage "demo" one note
-//                   with the count instead), a resume action other than reopening a window or selecting
-//                   the sample record again, a `start` that asks for more than screen, view and close
+//                   that can end (on the phone or the computer) neither at a result nor at a stop step, a
+//                   tour that opens by itself on a screen that is not core, more than five core screens
+//                   (views count as one screen where inventory.json marks them viewOf it); it notes every
+//                   tour of more than six steps with no chapter break, which is never a finding
+//   tour-no-commit  the part read from data: a do step classed T or P that is not practice-only, a
+//                   practice-only step without both tests or without on: "sample", a do step that opens a
+//                   record (result recordOpen) without on: "sample", a do step with no G-20 test named (at
+//                   stage "demo" one note with the count instead), a resume action other than reopening a
+//                   window or selecting the sample record again, a `start` key other than screen, record,
+//                   view, date and close
 //   tour-inventory  with --inventory: a screen the menu reaches, or a numbered task of an article, with
 //                   no tour and no written reason (an extra task of the manifest too)
-//   help-refs       with --inventory: an article task naming an anchor no tour step and no `anchors`
-//                   entry knows, or naming a tour that does not exist or does not list that task there
+//   help-refs       with --inventory: an article task naming an anchor (with its arg) that no tour on that
+//                   screen points at and no `anchors` entry for that screen lists, or naming a tour that
+//                   does not exist or does not list that task there
 //
 // Not covered here, because it needs the running app or the project's suite: that the engine itself
-// never dispatches a click, a submit or a key on a step target; that every anchor, result, condition,
-// window and state id resolves on its screen (`tour-anchors`); that a step's class is right; a stop
-// step followed by a step that depends on that control having been pressed; that the named tests
-// exist and pass; and whether a chapter break sits at a real result (the reviewer).
+// never dispatches a click, a submit or a key on a step target; that every anchor (the `anchors`
+// entries and the articles' too), result, condition, window and state id resolves on its screen
+// (`tour-anchors`); that a step's class is right; whether a do step that acts on a record in another
+// way runs on the sample; a stop step followed by a step that depends on that control having been
+// pressed; that the named tests exist and pass; and whether a chapter break sits at a real result.
 //
 // usage: node tour-check.mjs <tours.json> [--inventory <inventory.json>] [--json]
-// exit: 0 no findings, 1 findings, 2 usage or an input that cannot be read. Steps count from 1.
+// exit: 0 no findings, 1 findings, 2 usage, an input that cannot be read, or one whose shape the checks
+// cannot walk (a tour or a step that is not an object). Steps count from 1.
 // Each condition is one line ending in `// M:<code>`, the code its findings carry: the skill's tests
 // (redesign/tests/run.mjs, TOUR-*) delete that line and show that the finding's fixture then passes.
 import fs from 'node:fs';
@@ -39,7 +46,8 @@ const NOT_COVERED = [
   'tour-no-commit: whether a step\'s class is right (a numbered document, a payment and a close for good are always T or P); the manifest\'s class is taken as written',
   'tour-no-commit: a stop step followed by a step that depends on that control having been pressed (the manifest does not record what a control opens)',
   'tour-no-commit: that the named tests exist and pass (the project\'s own suite)',
-  'tour-anchors: every anchor, result, condition, window and state id resolving on its screen (the running app)',
+  'tour-no-commit: whether a do step that acts on a record other than by opening it (result recordOpen) runs on the sample record',
+  'tour-anchors: every anchor (the anchors entries and the articles\' too), result, condition, window and state id resolving on its screen (the running app)',
   'tour-shape: whether a chapter break sits at a real result (the reviewer)',
 ];
 
@@ -115,8 +123,24 @@ const TOURS_SCHEMA = readJson(path.join(HERE, 'tours.schema.json'), 'schema');
 const INV_SCHEMA = readJson(path.join(HERE, 'inventory.schema.json'), 'schema');
 
 const arr = x => (Array.isArray(x) ? x : []);
-const obj = x => (x && typeof x === 'object' && !Array.isArray(x) ? x : {});
-const tours = arr(M && M.tours);
+const plain = x => !!x && typeof x === 'object' && !Array.isArray(x);
+const obj = x => (plain(x) ? x : {});
+// an input whose shape the checks cannot walk: exit 2 with the reason (as JSON under --json), never a stack trace
+function malformed(msg) {
+  if (asJson) console.log(JSON.stringify({ ok: false, error: msg, manifest: manifestFile, inventory: inventoryFile, findings: [], notes: [] }, null, 2));
+  else console.error(`tour-check: ${msg}`);
+  process.exit(2);
+}
+if (!plain(M)) malformed(`the manifest ${manifestFile} is not a JSON object`);
+if ('tours' in M && !Array.isArray(M.tours)) malformed('"tours" is not a list');
+arr(M.tours).forEach((t, i) => {
+  if (!plain(t)) malformed(`tour ${i + 1} is not an object`);
+  if ('steps' in t && !Array.isArray(t.steps)) malformed(`tour ${i + 1} ("${t.id}"): "steps" is not a list`);
+  arr(t.steps).forEach((s, j) => { if (!plain(s)) malformed(`tour ${i + 1} ("${t.id}") step ${j + 1} is not an object`); });
+});
+if (INV && !plain(INV)) malformed(`the inventory ${inventoryFile} is not a JSON object`);
+process.on('uncaughtException', e => malformed(`the input's shape stopped the checks (${e.message}); fix what the schema names first`));
+const tours = arr(M.tours);
 const findings = [];
 const notes = [];
 // where: { tour, step } for a tour or a step (step counts from 1), { screen, task } for the inventory
@@ -132,11 +156,14 @@ const atPath = p => {
 for (const e of validate(TOURS_SCHEMA, M)) add('manifest', null, 'schema', atPath(e.path), `${e.path || '/'}: ${e.message}`); // M:schema
 if (INV) for (const e of validate(INV_SCHEMA, INV)) add('manifest', null, 'schema-inventory', { path: `inventory${e.path}` }, `inventory ${e.path || '/'}: ${e.message}`); // M:schema-inventory
 
+// a tour's screens; a chapter also stands on the screens of its job's other chapters
+const screensOf = t => [...new Set([...arr(t.screens), ...(t.job ? tours.filter(x => x.job === t.job).flatMap(x => arr(x.screens)) : [])])];
 const byId = new Map();
 tours.forEach((t, ti) => {
   if (byId.has(t.id)) add('manifest', null, 'duplicate-id', { tour: t.id, path: `/tours/${ti}` }, `tour id "${t.id}" is used twice; a start by id reaches only the first`); // M:duplicate-id
   if (!byId.has(t.id)) byId.set(t.id, t);
   for (const k of arr(t.auto)) if (!arr(t.screens).includes(k)) add('manifest', null, 'auto-screen', { tour: t.id, path: `/tours/${ti}/auto` }, `opens by itself on "${k}", which is not one of its screens`); // M:auto-screen
+  if (plain(t.start) && t.start.screen && !screensOf(t).includes(t.start.screen)) add('manifest', null, 'start-screen', { tour: t.id, path: `/tours/${ti}/start` }, `starts on "${t.start.screen}", which is not one of its screens`); // M:start-screen
   arr(t.steps).forEach((s, si) => {
     if (s && s.practiceOnly && s.kind !== 'do') add('manifest', null, 'practice-kind', { tour: t.id, step: si + 1, path: `/tours/${ti}/steps/${si}` }, `practiceOnly is for a do step (this one is "${s.kind}")`); // M:practice-kind
   });
@@ -166,8 +193,11 @@ for (const [job, list] of jobs) {
 const words = s => String(s || '').trim().split(/\s+/).filter(Boolean).length;
 const coreKeys = new Set(arr(M && M.core).flatMap(c => arr(c && c.screens)));
 const noTest = []; // do steps that name no G-20 test: findings at stage app, one note at stage demo
-const START_KEYS = ['screen', 'view', 'close'];
-if (arr(M && M.core).length > 5) add('tour-shape', 'G-21', 'core-count', { path: '/core' }, `${M.core.length} core screens, at most five`); // M:core-count
+const START_KEYS = ['screen', 'record', 'view', 'date', 'close'];
+// keys that inventory.json marks as a view of another screen count as that screen; every other key is a screen
+const viewOf = k => { const sc = INV && obj(INV.screens)[k]; return plain(sc) && typeof sc.viewOf === 'string' ? sc.viewOf : k; };
+const coreScreens = new Set([...coreKeys].map(viewOf));
+if (coreScreens.size > 5) add('tour-shape', 'G-21', 'core-count', { path: '/core' }, `${coreScreens.size} core screens (${[...coreScreens].join(', ')}), at most five; keys of one core entry count as one screen only where inventory.json marks them viewOf it`); // M:core-count
 const okEnd = s => !!s && (s.kind === 'stop' || (s.kind === 'do' && !!s.result));
 tours.forEach((t, ti) => {
   const steps = arr(t.steps);
@@ -180,16 +210,29 @@ tours.forEach((t, ti) => {
     if (s.kind === 'do' && !s.result) add('tour-shape', 'G-16', 'do-no-result', at, 'a do step with no result condition: it moves on only when the screen shows the result it names'); // M:do-no-result
     const po = obj(s.practiceOnly);
     const missing = ['modeTest', 'stopTest'].filter(k => !po[k]);
-    if (s.kind === 'do' && (s.class === 'T' || s.class === 'P') && (!s.practiceOnly || missing.length)) add('tour-no-commit', 'G-20', 'do-class', at, `a do step classed ${s.class} ${s.practiceOnly ? `is practice-only without ${missing.join(' and ')}` : 'is not practice-only'}: it is a stop step`); // M:do-class
+    const tp = s.class === 'T' || s.class === 'P';
+    if (s.kind === 'do' && ((tp && !s.practiceOnly) || (s.practiceOnly && missing.length))) add('tour-no-commit', 'G-20', 'do-class', at, s.practiceOnly ? `a practice-only do step without ${missing.join(' and ')}: it is a stop step in the mode too` : `a do step classed ${s.class} is not practice-only: it is a stop step`); // M:do-class
+    if (s.practiceOnly && s.on !== 'sample') add('tour-no-commit', 'G-20', 'practice-not-sample', at, 'a practice-only step without on: "sample": inside the mode the tour runs on the sample record\'s copy, never on a real person\'s'); // M:practice-not-sample
+    if (s.kind === 'do' && plain(s.result) && s.result.kind === 'recordOpen' && s.on !== 'sample') add('tour-no-commit', 'G-08', 'record-not-sample', at, 'a do step opens a record and does not carry on: "sample": tours run on the sample record, never on real data'); // M:record-not-sample
     if (s.kind === 'do' && !s.safeTest && !po.modeTest) noTest.push(at);
     for (const n of arr(s.need)) if (n && n.do !== 'reopen' && n.do !== 'selectSample') add('tour-no-commit', 'G-08', 'need-action', at, `the resume action "${n.do}" is not one of the two a tour does by itself (reopen a window, select the sample record again)`); // M:need-action
   });
   if (t.chapter) {
-    const last = steps[steps.length - 1];
-    const lastAlways = [...steps].reverse().find(s => s && !s.when);
-    for (const s of new Set([last, lastAlways])) if (s && !okEnd(s)) add('tour-shape', 'G-07', 'chapter-end', { tour: t.id, step: steps.indexOf(s) + 1, path: `/tours/${ti}/steps/${steps.indexOf(s)}` }, `chapter ${arr(t.chapter).join(' of ')} ends at a "${s.kind}" step${s.kind === 'do' ? ' with no result' : ''}, neither at a result nor at a stop step`); // M:chapter-end
+    // every run of the chapter, on the phone and on the computer, ends at a result or a stop step: walk back from
+    // the end over the steps of that device; a step under a condition may be the last, so the walk goes on to the
+    // first step that certainly runs there
+    const bad = new Set();
+    for (const d of ['phone', 'desktop']) {
+      for (let i = steps.length - 1; i >= 0; i--) {
+        const s = steps[i];
+        if (s.when === (d === 'phone' ? 'desktop' : 'phone')) continue;
+        if (!okEnd(s)) bad.add(i);
+        if (!s.when || s.when === d) break;
+      }
+    }
+    for (const i of [...bad].sort((a, b) => a - b)) add('tour-shape', 'G-07', 'chapter-end', { tour: t.id, step: i + 1, path: `/tours/${ti}/steps/${i}` }, `chapter ${arr(t.chapter).join(' of ')} can end at this "${steps[i].kind}" step${steps[i].kind === 'do' ? ' with no result' : ''}, neither at a result nor at a stop step`); // M:chapter-end
   }
-  for (const k of Object.keys(obj(t.start))) if (!START_KEYS.includes(k)) add('tour-no-commit', 'G-08', 'start-key', { tour: t.id, path: `/tours/${ti}/start` }, `start asks for "${k}"; a tour that starts only goes to its screen, sets the view and closes a window that holds no unsaved input`); // M:start-key
+  for (const k of Object.keys(obj(t.start))) if (!START_KEYS.includes(k)) add('tour-no-commit', 'G-08', 'start-key', { tour: t.id, path: `/tours/${ti}/start` }, `start asks for "${k}"; a tour that starts only goes to its screen and the sample record, sets the view and the date, and closes a window that holds no unsaved input`); // M:start-key
   for (const k of arr(t.auto)) if (!coreKeys.has(k)) add('tour-shape', 'G-21', 'auto-not-core', { tour: t.id, path: `/tours/${ti}/auto` }, `opens by itself on "${k}", which is not a core screen`); // M:auto-not-core
   if (steps.length > 6 && !t.chapter) notes.push({ check: 'tour-shape', tour: t.id, message: `${steps.length} steps and no chapter break; the reviewer checks only that a chapter break, if there is one, sits at a real result, and length alone is never a finding` });
 });
@@ -201,13 +244,32 @@ if (INV) {
   const noTour = obj(M && M.noTour);
   const screenWhy = obj(noTour.screens);
   const taskWhy = arr(noTour.tasks);
-  const known = new Set(Object.keys(obj(M && M.anchors)));
+  // the anchors known on each screen: those the steps of a tour on that screen point at (with the args they use), and
+  // the manifest's anchors entries for that screen (any arg, unless the entry lists its args)
   const refId = a => (typeof a === 'string' ? a : a && a.anchor);
-  for (const t of tours) for (const s of arr(t.steps)) {
-    if (s && s.anchor) known.add(s.anchor);
-    const r = s && s.result;
-    if (r && ['present', 'fieldChanged', 'recordOpen'].includes(r.kind)) known.add(refId(r.arg));
+  const ANY = Symbol('any arg');
+  const knownOn = new Map();
+  const know = (k, id, arg) => {
+    if (!knownOn.has(k)) knownOn.set(k, new Map());
+    const m = knownOn.get(k);
+    if (!m.has(id)) m.set(id, new Set());
+    if (arg !== undefined) m.get(id).add(arg);
+  };
+  for (const t of tours) for (const k of screensOf(t)) for (const s of arr(t.steps)) {
+    if (s.anchor) know(k, s.anchor, s.arg);
+    const r = s.result;
+    if (plain(r) && ['present', 'fieldChanged', 'recordOpen'].includes(r.kind) && refId(r.arg)) know(k, refId(r.arg), plain(r.arg) ? r.arg.arg : undefined);
   }
+  for (const [id, e] of Object.entries(obj(M.anchors))) for (const k of arr(obj(e).screens)) {
+    know(k, id);
+    for (const a of Array.isArray(obj(e).args) ? e.args : [ANY]) know(k, id, a);
+  }
+  const known = (k, a) => {
+    const args = knownOn.has(k) && knownOn.get(k).get(refId(a));
+    if (!args) return false;
+    return !plain(a) || a.arg === undefined || args.has(ANY) || args.has(a.arg);
+  };
+  const named = a => `"${refId(a)}"${plain(a) && a.arg !== undefined ? ` with arg "${a.arg}"` : ''}`;
   const toursOn = key => tours.filter(t => arr(t.screens).includes(key));
   const covered = (key, task) => toursOn(key).some(t => arr(t.tasks).includes(task)) || !!screenWhy[key] || taskWhy.some(x => x && x.screen === key && x.task === task);
   const needTour = (key, task, where) => {
@@ -219,9 +281,9 @@ if (INV) {
       if (!task || typeof task.text !== 'string') return;
       const where = { screen: key, task: i + 1, path: `inventory/screens/${key}/tasks/${i}` };
       needTour(key, task.text, where);
-      for (const a of arr(task.anchors)) if (!known.has(refId(a))) add('help-refs', 'G-02, G-19', 'article-anchor', where, `the article names the control "${refId(a)}", which no tour step and no anchors entry knows`); // M:article-anchor
-      const named = task.tour && byId.get(task.tour);
-      if (task.tour && (!named || !arr(named.screens).includes(key) || !arr(named.tasks).includes(task.text))) add('help-refs', 'G-02, G-19', 'article-tour', where, named ? `the article names tour "${task.tour}", which does not list "${task.text}" on ${key}` : `the article names tour "${task.tour}", which does not exist`); // M:article-tour
+      for (const a of arr(task.anchors)) if (!known(key, a)) add('help-refs', 'G-02, G-19', 'article-anchor', where, `the article on ${key} names the control ${named(a)}, which no tour on ${key} points at and no anchors entry for ${key} lists`); // M:article-anchor
+      const tour = task.tour && byId.get(task.tour);
+      if (task.tour && (!tour || !arr(tour.screens).includes(key) || !arr(tour.tasks).includes(task.text))) add('help-refs', 'G-02, G-19', 'article-tour', where, tour ? `the article names tour "${task.tour}", which does not list "${task.text}" on ${key}` : `the article names tour "${task.tour}", which does not exist`); // M:article-tour
     });
   }
   arr(M && M.extraTasks).forEach((x, i) => { if (x && x.screen && x.task) needTour(x.screen, x.task, { screen: x.screen, path: `/extraTasks/${i}` }); });

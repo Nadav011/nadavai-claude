@@ -21,9 +21,18 @@
     },
     "anchors": {
       "type": "object",
-      "description": "Anchor ids the screens carry that no tour step points at, for example a control a help article mentions; the value says, for the author, which control it is. Together with the anchors of the tour steps this is the list of known anchors.",
+      "description": "Anchor ids the screens carry that no tour step points at, for example a control a help article mentions, each with the screens that carry it and, for a family of controls, the args it takes. On a screen, the known anchors are these and the anchors of the steps of the tours that list that screen (help-refs). That they resolve on screen is judged only in the running app (tour-anchors).",
       "propertyNames": { "$ref": "#/$defs/id" },
-      "additionalProperties": { "type": "string", "minLength": 1 }
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["screens", "what"],
+        "properties": {
+          "screens": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/screen" } },
+          "args": { "type": "array", "minItems": 1, "items": { "type": ["string", "number"] } },
+          "what": { "type": "string", "minLength": 1, "description": "Which control it is, for the author." }
+        }
+      }
     },
     "tours": { "type": "array", "items": { "$ref": "#/$defs/tour" } },
     "noTour": {
@@ -127,10 +136,22 @@
         "steps": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/step" } },
         "start": {
           "type": "object",
-          "description": "The start state the tour brings her to when it starts (G-08, this skill's reading): go to its screen, set the view, close a window that holds no unsaved input (with unsaved input it asks her first). It never saves, sends or discards anything. Any other key fails tour-no-commit.",
+          "description": "The start state the tour brings her to when it starts (G-08, this skill's reading): its screen (one of its screens) and the sample record, the view and the date; close a window that holds no unsaved input (with unsaved input it asks her first). It never saves, sends or discards anything, and opens no window: a tour that needs one begins with a step that opens it on the sample's record. Any other key fails tour-no-commit.",
           "properties": {
             "screen": { "$ref": "#/$defs/screen" },
-            "view": { "type": "string", "minLength": 1 },
+            "record": { "const": "sample" },
+            "view": {
+              "anyOf": [
+                { "type": "string", "minLength": 1 },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["phone", "desktop"],
+                  "properties": { "phone": { "type": "string", "minLength": 1 }, "desktop": { "type": "string", "minLength": 1 } }
+                }
+              ]
+            },
+            "date": { "const": "today" },
             "close": { "type": "boolean" }
           }
         },
@@ -174,15 +195,15 @@
           },
           "description": "How a resumed run is put back at this step: reopen a window ({\"do\": \"reopen\", \"window\": ...}) or select the sample record again ({\"do\": \"selectSample\"}), the only two G-08 allows."
         },
-        "safeTest": { "type": "string", "minLength": 1, "description": "The test of G-20 that performs this action on the sample record and shows that nothing leaves." },
+        "safeTest": { "type": "string", "minLength": 1, "pattern": "\\S", "description": "The test of G-20 that performs this action on the sample record and shows that nothing leaves." },
         "practiceOnly": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "modeTest": { "type": "string", "minLength": 1, "description": "The practice mode's test for this action: no number is taken and no provider reached." },
-            "stopTest": { "type": "string", "minLength": 1, "description": "The test that the step is a stop step outside the mode." }
+            "modeTest": { "type": "string", "minLength": 1, "pattern": "\\S", "description": "The practice mode's test for this action: no number is taken and no provider reached." },
+            "stopTest": { "type": "string", "minLength": 1, "pattern": "\\S", "description": "The test that the step is a stop step outside the mode." }
           },
-          "description": "A do step done to the end only inside practice mode (G-20); outside the mode it is a stop step."
+          "description": "A do step done to the end only inside practice mode (G-20); outside the mode it is a stop step. It names both tests and carries on: sample (the sample record's copy, never a real person's); tour-no-commit fails it otherwise."
         },
         "skip": { "type": "boolean", "description": "false only where a step cannot be skipped, which tour-shape reports." }
       },
