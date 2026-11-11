@@ -219,7 +219,10 @@ the light does not pulse; with no sample record a tour only shows where to press
 target degrades to a centred card with "הבא", never to a broken overlay. Added by the reviews
 of this rule ([P]): a resume never puts her back over something she chose or typed since, it
 asks; and the tour offers to bring the sample back only where the project allows one at that
-moment (a clinic that imported its data has none).
+moment (a clinic that imported its data has none). When a tour starts it may bring her to its
+start state: go to its screen, set the view, close a window that holds no unsaved input. It
+never saves, sends or discards anything, and when a window holds unsaved input it asks her
+before closing it (this skill's reading of G-08 [I]).
 
 **The tour manifest (G-19, and the `tour-*` checks).** This paragraph and the next four are this
 skill's own [I]. A tour is designed in the demo and built again in the app, so its content is
@@ -227,16 +230,17 @@ written once, as data, and both read the same file; only the way a step finds it
 written for each of them. Two layers:
 - `tours.json`, the content, which carries no selector and no code. Per tour: its id and title,
   an optional job, job title and chapter `[n, of]`, the screen keys whose articles it serves, its
-  area and where, the screens on which it opens by itself (`auto`), the article tasks it shows,
-  its steps and its closing sentence. Per step: `do`, `next` or `stop`; a stop step's class (`S`
+  area and where, the screens on which it opens by itself (`auto`), its start state (`start`:
+  `screen`, `view`, `close`, and nothing else), the article tasks it shows, its steps and its
+  closing sentence. Per step: `do`, `next` or `stop`; a stop step's class (`S`
   saves, `T` tells a real person, `P` is permanent or charges); `on: "sample"`; the anchor of its
   control; what she reads, and the text when it only shows; a do step's action (open, pick,
   select, type), its result, the G-20 test it names (`safeTest`) and, for a practice-only step,
   `practiceOnly` with the mode's test for that action and the test that it is a stop step outside
   the mode; and `need`, how a resumed run puts her back, which is only one of the two G-08 allows
-  (reopen a window, select the sample record again). The core screens, the written reason for a
-  screen or a task with no tour, and the important actions beyond an article's tasks are in the
-  same file.
+  (reopen a window, select the sample record again). The file's `stage` (`demo` or `app`), the
+  core screens, the written reason for a screen or a task with no tour, and the important actions
+  beyond an article's tasks are in the same file.
 - A bindings file for each environment, which is not portable: anchor id to element, a `custom`
   result to a predicate, and each window, condition and state value named in the manifest to
   that environment's way of reading it.
@@ -255,8 +259,10 @@ counts as covering it, a target clipped by an ancestor's overflow is not on scre
 inside an inner scroll box is scrolled into that box's view before the step shows.
 
 The manifest freezes with the approved demo's tag (its `tag` field), and the app reads that same
-file; a later change to a tour is a change to the file, made once. For an app built under «An app
-is built once», the tours are authored once, in the app's preview, against this format.
+file; a later change to a tour is a change to the file, made once. The app's manifest is the
+same file with `stage` changed from `demo` to `app` and every do step's test named. In an app
+whose demo lives in the app's own preview, tours are authored once, in the app, against this
+format.
 
 A help article is data keyed by the screen key. Each numbered task names the tour that shows it
 and the anchor ids of the controls its text mentions, in `inventory.json` beside the manifest,
@@ -271,10 +277,10 @@ the part of `tour-no-commit` that data can show, with no browser (`node tour-che
 --inventory inventory.json`, exit 1 on a finding). Whether each anchor and result resolves on its
 screen needs the running app (`tour-anchors`). Seventeen of MediZen's demo tours were converted
 into the format on 11.11.2026 to test it. What did not carry over as content: the demo's code
-that, when a tour starts, closes what is open and sets the calendar's view has no field, and it
-is not one of the two things G-08 lets a tour do by itself, so whether it may stay is open; a
-result that stays reached once seen is the engine's default; and how the demo's own checks drive
-a do step (its `try`) stays in each environment's tests.
+that runs when a tour starts became `start`, except the parts that reset the calendar to this
+week and today, and that close windows without asking about unsaved input; a result that stays
+reached once seen is the engine's default; and how the demo's own checks drive a do step (its
+`try`) stays in each environment's tests.
 
 **The tour list (G-17, G-18).** The help panel lists every tour like the levels of a game: how
 many were learned out of how many, what is left, and a tap starts one. It is built from the

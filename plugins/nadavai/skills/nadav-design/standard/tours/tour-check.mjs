@@ -6,11 +6,12 @@
 //                   are unique, a job's chapters run 1..n, a tour opens by itself only on its own screens
 //   tour-shape      a step over twelve words, a step with no skip, a do step with no result, a chapter
 //                   that ends neither at a result nor at a stop step, a tour that opens by itself on a
-//                   screen that is not a core screen; it notes every tour of more than six steps with no
-//                   chapter break, which is never a finding
+//                   screen that is not a core screen, more than five core screens; it notes every tour of
+//                   more than six steps with no chapter break, which is never a finding
 //   tour-no-commit  the part read from data: a do step classed T or P that is not practice-only with
-//                   both its tests named, a do step with no G-20 test named, a resume action other than
-//                   reopening a window or selecting the sample record again
+//                   both its tests named, a do step with no G-20 test named (at stage "demo" one note
+//                   with the count instead), a resume action other than reopening a window or selecting
+//                   the sample record again, a `start` that asks for more than screen, view and close
 //   tour-inventory  with --inventory: a screen the menu reaches, or a numbered task of an article, with
 //                   no tour and no written reason (an extra task of the manifest too)
 //   help-refs       with --inventory: an article task naming an anchor no tour step and no `anchors`
@@ -34,6 +35,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const USAGE = 'usage: node tour-check.mjs <tours.json> [--inventory <inventory.json>] [--json]';
 const NOT_COVERED = [
   'tour-no-commit: the engine itself dispatching a click, a submit or a key on a step target (the running app)',
+  'tour-no-commit: that a tour\'s start does only what its `start` says, and asks before closing a window that holds unsaved input (the running app)',
   'tour-no-commit: whether a step\'s class is right (a numbered document, a payment and a close for good are always T or P); the manifest\'s class is taken as written',
   'tour-no-commit: a stop step followed by a step that depends on that control having been pressed (the manifest does not record what a control opens)',
   'tour-no-commit: that the named tests exist and pass (the project\'s own suite)',
@@ -163,6 +165,9 @@ for (const [job, list] of jobs) {
 // ---------- tour-shape and tour-no-commit ----------
 const words = s => String(s || '').trim().split(/\s+/).filter(Boolean).length;
 const coreKeys = new Set(arr(M && M.core).flatMap(c => arr(c && c.screens)));
+const noTest = []; // do steps that name no G-20 test: findings at stage app, one note at stage demo
+const START_KEYS = ['screen', 'view', 'close'];
+if (arr(M && M.core).length > 5) add('tour-shape', 'G-21', 'core-count', { path: '/core' }, `${M.core.length} core screens, at most five`); // M:core-count
 const okEnd = s => !!s && (s.kind === 'stop' || (s.kind === 'do' && !!s.result));
 tours.forEach((t, ti) => {
   const steps = arr(t.steps);
@@ -176,7 +181,7 @@ tours.forEach((t, ti) => {
     const po = obj(s.practiceOnly);
     const missing = ['modeTest', 'stopTest'].filter(k => !po[k]);
     if (s.kind === 'do' && (s.class === 'T' || s.class === 'P') && (!s.practiceOnly || missing.length)) add('tour-no-commit', 'G-20', 'do-class', at, `a do step classed ${s.class} ${s.practiceOnly ? `is practice-only without ${missing.join(' and ')}` : 'is not practice-only'}: it is a stop step`); // M:do-class
-    if (s.kind === 'do' && !s.safeTest && !po.modeTest) add('tour-no-commit', 'G-20', 'do-no-safe-test', at, 'a do step names no test of G-20 (safeTest, or the practice mode\'s modeTest): it is a stop step'); // M:do-no-safe-test
+    if (s.kind === 'do' && !s.safeTest && !po.modeTest) noTest.push(at);
     for (const n of arr(s.need)) if (n && n.do !== 'reopen' && n.do !== 'selectSample') add('tour-no-commit', 'G-08', 'need-action', at, `the resume action "${n.do}" is not one of the two a tour does by itself (reopen a window, select the sample record again)`); // M:need-action
   });
   if (t.chapter) {
@@ -184,9 +189,12 @@ tours.forEach((t, ti) => {
     const lastAlways = [...steps].reverse().find(s => s && !s.when);
     for (const s of new Set([last, lastAlways])) if (s && !okEnd(s)) add('tour-shape', 'G-07', 'chapter-end', { tour: t.id, step: steps.indexOf(s) + 1, path: `/tours/${ti}/steps/${steps.indexOf(s)}` }, `chapter ${arr(t.chapter).join(' of ')} ends at a "${s.kind}" step${s.kind === 'do' ? ' with no result' : ''}, neither at a result nor at a stop step`); // M:chapter-end
   }
+  for (const k of Object.keys(obj(t.start))) if (!START_KEYS.includes(k)) add('tour-no-commit', 'G-08', 'start-key', { tour: t.id, path: `/tours/${ti}/start` }, `start asks for "${k}"; a tour that starts only goes to its screen, sets the view and closes a window that holds no unsaved input`); // M:start-key
   for (const k of arr(t.auto)) if (!coreKeys.has(k)) add('tour-shape', 'G-21', 'auto-not-core', { tour: t.id, path: `/tours/${ti}/auto` }, `opens by itself on "${k}", which is not a core screen`); // M:auto-not-core
   if (steps.length > 6 && !t.chapter) notes.push({ check: 'tour-shape', tour: t.id, message: `${steps.length} steps and no chapter break; the reviewer checks only that a chapter break, if there is one, sits at a real result, and length alone is never a finding` });
 });
+if (M && M.stage === 'demo' && noTest.length) { notes.push({ check: 'tour-no-commit', message: `${noTest.length} do steps name no G-20 test; each needs one before the app runs this tour` }); noTest.length = 0; } // M:demo-stage
+for (const at of noTest) add('tour-no-commit', 'G-20', 'do-no-safe-test', at, 'a do step names no test of G-20 (safeTest, or the practice mode\'s modeTest): it is a stop step'); // M:do-no-safe-test
 
 // ---------- tour-inventory and help-refs ----------
 if (INV) {
@@ -228,7 +236,7 @@ if (asJson) {
 } else {
   const loc = f => (f.tour ? `${f.tour}${f.step ? ` step ${f.step}` : ''}` : f.screen ? `screen ${f.screen}${f.task ? ` task ${f.task}` : ''}` : f.path);
   for (const f of findings) console.log(`FAIL ${f.check} ${f.rule || '-'} ${loc(f)}: ${f.message}`);
-  for (const n of notes) console.log(`NOTE ${n.check} ${n.tour}: ${n.message}`);
+  for (const n of notes) console.log(`NOTE ${n.check}${n.tour ? ` ${n.tour}` : ''}: ${n.message}`);
   if (!INV) console.log('NOTE tour-inventory and help-refs did not run: no --inventory');
   console.log(`tour-check: ${tours.length} tours, ${stepCount} steps, ${findings.length} finding(s) (${checks.map(c => `${c} ${counts[c]}`).join(', ')})`);
   console.log(`not covered here:\n${NOT_COVERED.map(x => `  - ${x}`).join('\n')}`);

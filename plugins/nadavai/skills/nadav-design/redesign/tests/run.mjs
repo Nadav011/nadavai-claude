@@ -1339,8 +1339,11 @@ const TOUR_FIXTURES = [
   ['auto-not-core', 'tour-shape', 'G-21', 'a tour opens by itself on a screen that is not core', m => { tourOf(m, 'reminder').auto = ['settings-msgs']; }],
   ['do-class', 'tour-no-commit', 'G-20', 'a do step classed T that is not practice-only', m => { tourOf(m, 'pat-debt').steps[0].class = 'T'; }],
   ['do-class', 'tour-no-commit', 'G-20', 'a practice-only P step that names no stop test', m => { delete tourOf(m, 'close-3').steps[1].practiceOnly.stopTest; }],
-  ['do-no-safe-test', 'tour-no-commit', 'G-20', 'a do step that names no G-20 test', m => { delete tourOf(m, 'book').steps[1].safeTest; }],
+  ['do-no-safe-test', 'tour-no-commit', 'G-20', 'at stage app, a do step that names no G-20 test', m => { delete tourOf(m, 'book').steps[1].safeTest; }],
+  ['do-class', 'tour-no-commit', 'G-20', 'at stage demo, a do step classed P that is not practice-only', m => { m.stage = 'demo'; tourOf(m, 'pat-debt').steps[0].class = 'P'; }],
   ['need-action', 'tour-no-commit', 'G-08', 'a resume that presses a control', m => { tourOf(m, 'book').steps[3].need.push({ do: 'press', window: 'appt.create' }); }],
+  ['start-key', 'tour-no-commit', 'G-08', 'a start that asks to press a control', m => { tourOf(m, 'book').start.press = 'appt.save'; }],
+  ['core-count', 'tour-shape', 'G-21', 'six core screens', m => { m.core.push(...['leads', 'chats', 'money', 'forms'].map(id => ({ id, screens: [id] }))); }],
   ['task-no-tour', 'tour-inventory', 'G-19', 'an article task with no tour and no reason', (m, i) => { i.screens['cal-day'].tasks.push({ text: 'לבטל תור' }); }],
   ['task-no-tour', 'tour-inventory', 'G-19', 'an extra task with no tour and no reason', m => { m.extraTasks.push({ screen: 'patients', task: 'למחוק מטופל' }); }],
   ['screen-no-tour', 'tour-inventory', 'G-19', 'a menu screen with no tour and no reason', (m, i) => { i.screens.reports = { menu: true, tasks: [] }; }],
@@ -1402,6 +1405,8 @@ await test('TOUR-schema', 'tour-check holds the manifest and the inventory to th
     ['a reopen with no window', m => { delete tourOf(m, 'book').steps[2].need[0].window; }, '/tours/0/steps/2/need/0'],
     ['an arg with no anchor', m => { delete tourOf(m, 'pat-debt').steps[0].anchor; }, '/tours/4/steps/0'],
     ['an article anchor object with no arg', (m, i) => { i.screens.patients.tasks[0].anchors[0] = { anchor: 'patients.filter' }; }, 'inventory/screens/patients/tasks/0/anchors/0'],
+    ['no stage', m => { delete m.stage; }, '/'],
+    ['a stage that is neither demo nor app', m => { m.stage = 'beta'; }, '/stage'],
   ];
   for (const [what, change, at] of cases) {
     const m = clone(TOUR_EX);
@@ -1412,6 +1417,19 @@ await test('TOUR-schema', 'tour-check holds the manifest and the inventory to th
     if (r.status !== 1 || !hit) why.push(`${what}: exit ${r.status} ${JSON.stringify(r.out && r.out.findings.map(f => [f.code, f.path, f.message]))}`);
   }
   return why.join(' · ');
+});
+await test('TOUR-demo', 'at stage demo, do steps that name no G-20 test are one note with their count, not findings; without the stage line they are findings', async () => {
+  const m = clone(TOUR_EX);
+  m.stage = 'demo';
+  delete tourOf(m, 'book').steps[1].safeTest;
+  delete tourOf(m, 'reminder').steps[2].safeTest;
+  const r = tourCheck(m, INV_EX);
+  const note = '2 do steps name no G-20 test; each needs one before the app runs this tour';
+  if (r.status !== 0 || !r.out || r.out.findings.length || !r.out.notes.some(n => n.check === 'tour-no-commit' && n.message === note)) return `fixture: exit ${r.status} ${JSON.stringify(r.out && { f: r.out.findings.map(f => f.code), n: r.out.notes })}`;
+  const mu = tourCheck(m, INV_EX, mutant('demo-stage'));
+  const got = mu.out ? mu.out.findings.map(f => f.code) : [];
+  if (mu.status !== 1 || got.join(',') !== 'do-no-safe-test,do-no-safe-test') return `mutant without M:demo-stage: exit ${mu.status} ${JSON.stringify(got)}`;
+  return '';
 });
 for (const [n, [code, check, rule, what, change]] of TOUR_FIXTURES.entries()) {
   await test(`TOUR-${n + 1}`, `tour-check: ${what} fails ${check} (${code}) and nothing else; without its line the checker passes it`, async () => {
