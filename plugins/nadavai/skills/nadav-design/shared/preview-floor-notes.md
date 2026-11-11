@@ -39,18 +39,19 @@ a loopback address the fence does not allow, so nothing leaves the host and an u
 - A container or a network namespace fences every process and protocol at once. Docker's `--network none` cannot
   publish a port, and a bridge network has egress, so the planted requests show which one a setup really is.
 
-## The shell frame and the guard (run on 11.11.2026 with Playwright 1.65)
+## The shell frame and the guard (run on 11.11.2026 with Playwright 1.65 and React 19.3.1)
 
 `dev/probes/frame-sandbox/probe.cjs` runs twenty-four ways out of an app page in three set-ups: in a sandboxed
 frame (`sandbox="allow-scripts allow-same-origin allow-forms allow-modals"`, the shell on a second port with
 `frame-src` set to the app's origin only) with a guard in the app; in the same frame with no guard; and at top level
-with neither (the control). The guard points every `<a>` and `<area>` that leaves the app's origin at a local page;
-cancels the browser's default, never the app's handlers, for a click with a modifier key or another button where
-the event's path holds a link or a submit control, for the context menu where it holds a link or an image, and for
-a drag of a link the app did not make draggable; cancels every form submission whose destination is outside the two
-origins; and registers all of that on the window and, through a wrapped `attachShadow`, on every shadow root. The
-app page in the probe sets no policy of its own. The test browser aborts and records every request that is not to
-127.0.0.1. Cases that attempted a request outside:
+with neither (the control). The guard does four things. It points every `<a href>` and `<area href>` that leaves the
+two origins at a local page. It cancels the browser's default, never the app's handlers, for a click with a modifier
+key or another button where the event's path holds a link or a submit control, for the context menu where it holds a
+link or an image, and for a drag of a link the app did not make draggable. It cancels every form submission whose
+destination is outside the two origins, except the placeholder React writes for a function action. And through a
+wrapped `attachShadow` it registers those listeners, and runs the same rewrite with its observer, on every shadow
+root. The app page in the probe sets no policy of its own. The test browser aborts and records every request that
+is not to 127.0.0.1. Cases that attempted a request outside:
 
 | Browser | frame + guard | frame only | top level (control) |
 |---|---|---|---|
@@ -70,12 +71,23 @@ app page in the probe sets no policy of its own. The test browser aborts and rec
   links and `location.href = 'tel:…'`.
 - With the guard, none of the twenty-four went out in any of the three.
 - The app's own controls, in all three browsers and in each set-up (with the guard and without): a Shift+click on a
-  checkbox ran the app's handler and checked it, and a right click on a cell ran the app's context-menu handler.
-- A native drag was not run by this probe. In the tenth review's run (Chromium 158, Playwright's `dragAndDrop`, not
-  part of this probe) a draggable element with no link or image in its path started and dropped inside the
-  cross-origin frame with the guard and without it; one that started on an image inside the app's draggable card,
-  or inside a link, was cancelled by an earlier guard that also cancelled a drag on an image and on any link. The
-  guard here cancels a drag only on a link the app did not make draggable; that narrower rule was not run.
+  checkbox ran the app's handler and checked it; a right click on a cell ran the app's context-menu handler; a drag
+  that starts on an image inside the app's draggable card dropped on its drop zone (Playwright's `dragAndDrop`);
+  and, with React 19.3.1 rendering on the client, a form whose `action` is a function and a button whose
+  `formAction` is a function each ran it once. A draggable card that is itself a link was not run here (in the
+  eleventh review's run it did not drop with the guard or without it, so that harness shows nothing either way).
+- React's form actions (the eleventh review's run in Chromium 158, React 19.3.1, with the app's own policy on, then
+  this probe). For a function `action` or `formAction` React writes `javascript:throw new Error('A React form was
+  unexpectedly submitted…` into the attribute, and its submit listener runs the function only when the submission
+  is not already cancelled. A guard that cancelled every submission whose destination is not one of the two
+  origins cancelled that placeholder too, and the function ran 0 times; with the placeholder left alone it ran
+  once, as it does with no guard. The guard here matches the start of React's own text, so a hand-written
+  `javascript:` action is still cancelled. A form React rendered on the server, and Next's server actions, were not
+  run by anyone.
+- Links inside shadow roots. With the guard, in all three browsers, after load the `href` of a link in an open
+  root, of one in a closed root, and of one added to the closed root later each pointed at the local page; without
+  it each kept its outside address. (A guard that swept and observed the document only left all of them as they
+  were: the eleventh review's run.)
 - At top level with neither: every navigation, popup and post to another origin went out in all three, and so did
   every form case sent with a modifier key, in the page and in the closed shadow root; the modifier and middle clicks
   on a link (the SVG link and the link in the closed root included) went out in Chromium and Firefox, and made no
@@ -85,12 +97,17 @@ app page in the probe sets no policy of its own. The test browser aborts and rec
   Shift+Enter at top level in the tenth's): a Ctrl or Shift click on the submit button of a form to another origin,
   and a Shift+Enter in a form with one field and no button, each sent the form in a new page. A plain click and
   Enter were refused by `form-action`.
-- Shadow roots (the tenth review's run in Chromium 158, with the app's own policy on; this probe repeats the closed
-  root cases with no policy): `submit` does not leave its shadow root, and a closed root hides its inner path from a
-  listener on the window, so a guard that listens on the window only let the form and the link in a closed root
-  through. The same listeners registered on every shadow root through a wrapped `attachShadow` stopped them. A root
-  the wrapper cannot see (a declarative `<template shadowrootmode>` in served HTML, or one parsed by `setHTMLUnsafe`
-  or `parseHTMLUnsafe`) was not run by anyone.
+- Shadow roots and events (the tenth review's run in Chromium 158, with the app's own policy on; this probe repeats
+  the closed root cases with no policy): `submit` does not leave its shadow root, and a closed root hides its inner
+  path from a listener on the window, so a guard that listens on the window only let the form and the link in a
+  closed root through. The same listeners registered on every shadow root through a wrapped `attachShadow` stopped
+  them.
+- A root the wrapper cannot see. A closed declarative root written by `document.write` from a script file, so that
+  no served HTML held `shadowrootmode`, sent its one-field form out on Shift+Enter under the guard (the eleventh
+  review's run in Chromium 158, not part of this probe). A declarative `<template shadowrootmode>` in served HTML,
+  and a root parsed by `setHTMLUnsafe` or `parseHTMLUnsafe`, were not run by anyone. The rule makes all of them a
+  fault of the check script; a root a dependency assembles at run time from parts is not caught by that static
+  check, and what catches a real destination inside it is the destination scan.
 - How a refused hand-off to another app shows. At top level a `tel:`, `sms:` or `mailto:` link makes no request and
   no page in any of the three (Chromium and WebKit print nothing; Firefox prints "Prevented navigation to … due to
   an unknown protocol" for `tel:` and `sms:`, and nothing for `mailto:`), so the control cannot show a hand-off. In
@@ -99,16 +116,50 @@ app page in the probe sets no policy of its own. The test browser aborts and rec
   to custom protocol … from a sandboxed context"); Chromium prints "Framing '' violates … frame-src", which does
   not name the URL, and its frame then shows `chrome-error://chromewebdata/`.
 - `navigator.share` did not exist in any of the three, so that case is not testable in them.
-- Not run by anyone: the Cmd key, the browser's context menu on a link, a long press, a drag to the tab bar, and
-  real phones. A project's unit 1 shows those by hand on the devices he uses.
-- What the guard's rewrite of links does not reach (the eighth review's run in Chromium, not part of this probe): a
-  link inside a shadow root, an SVG `<a xlink:href>`, a link resolved through a `<base>` on another origin, a link
-  in a `srcdoc` frame, and a server-rendered link clicked before the guard has run. For those the guard relies on
-  cancelling the click by the event's path, which this probe shows for the SVG link and the closed root; the
-  `srcdoc` frame needs the guard installed in that document too. The rule therefore asks for `base-uri 'none'`, for
-  the guard in every same-origin document of the frame, and for the scans of (c).
-- That React logs an attribute-mismatch line for a link the guard rewrote before hydration is expected, and was
-  neither measured nor cited.
+- What the guard's rewrite of links does not reach (the eighth review's run in Chromium, not part of this probe): an
+  SVG `<a xlink:href>`, a link resolved through a `<base>` on another origin, a link in a `srcdoc` frame, and a
+  server-rendered link clicked before the guard has run. For those the guard relies on cancelling the click by the
+  event's path, which this probe shows for the SVG link; the `srcdoc` frame needs the guard installed in that
+  document too. The rule therefore asks for `base-uri 'none'`, for the guard in every same-origin document of the
+  frame, and for the scans of (c).
+- The shell's own policy (`default-src 'self'`) refuses an inline `style` attribute on the frame, so the probe sizes
+  the frame with `width` and `height` attributes; at the browser's default frame size (300 by 150) the test
+  browser's drag did not start, with the guard or without it.
 - The app must allow being framed by the shell (no `X-Frame-Options: DENY`, and a `frame-ancestors` that names the
   shell's origin when it sets one). On Next the allowlist also sets `NEXT_TELEMETRY_DISABLED=1`, so Next does not
   try its telemetry host, which the fence would refuse.
+
+## What a real app's client code holds (the eleventh review's read of the clinic app, 11.11.2026)
+
+Read-only, on therapy-flow-v2's source and a client build of it from September (353 script files). It is why the
+ledger of (c) is kept per occurrence and not per host.
+
+- The build held 58 distinct hosts: specification namespaces (`www.w3.org`, `schemas.openxmlformats.org`),
+  documentation and error links (`react.dev`, `reactrouter.com`, `developer.mozilla.org`, `github.com`), services
+  (`app.posthog.com`, `sentry.io`, `api.qrserver.com`), social and map links (`facebook.com`, `instagram.com`,
+  `youtube.com`, `waze.com`, `g.page`), the app's own hosts, and `wa.me` nine times.
+- A host tells too little: `github.com` can receive a sign-in and is also where a documentation link points, and
+  `wa.me` is one host for every builder and every hard-coded number.
+- Contacts sit in the source as bare constants that are not URLs: a sales number as a digit string, a support
+  address as a plain email that a template turns into `mailto:`, and a support WhatsApp link with the number in it.
+- Minified code holds text that looks like a scheme and is not one (a key such as `whatsapp:!1`), so a scan matches
+  a scheme only when an address follows it.
+
+## Unproven until a real unit 1
+
+Nobody has run these. A project's unit 1 shows each one it can on the devices Nadav uses, and lists the rest in its
+report as not shown.
+
+- iPhone: whether a long press on a link fires `contextmenu`; whether `-webkit-touch-callout: none` set on the root
+  element reaches a link inside a shadow root (by its definition the property inherits, which would carry it into a
+  shadow tree; a component library that sets a root's `adoptedStyleSheets` itself replaces the sheet the wrapper
+  adopted); and "open in new tab" from the long-press menu.
+- Android: whether a cancelled `contextmenu` suppresses the long-press menu on a link, and whether selecting a
+  number shown as text offers to call it.
+- Desktop: the Cmd key, the browser's own context-menu items on a link, and a drag of a link to the tab bar.
+- Next: that the guard runs before every chunk on a cold and a warm load; how React treats an `href` the guard
+  rewrote, at hydration and on a later render (a mismatch line in the console is expected and was neither measured
+  nor cited); a form React rendered on the server, and a server action, after hydration.
+- The dev server: whether it connects to itself on a port the connection fence refuses.
+- The ledger: how many lines a real build needs, and whether its false matches leave it readable.
+- A draggable card that is itself a link, and a link the app's router handles on a modified click.
