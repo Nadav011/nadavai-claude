@@ -1,0 +1,50 @@
+{
+  "$schema": "../inventory.schema.json",
+  "screens": {
+    "cal-week": {
+      "title": "יומן · שבוע",
+      "menu": true,
+      "tasks": [
+        { "text": "לקבוע תור", "tour": "book", "anchors": ["cal.new-appointment", "appt.save"] },
+        { "text": "לסגור טיפול שהסתיים", "tour": "close-1", "anchors": ["appt.happened", "appt.note", "appt.paid"] },
+        { "text": "להדפיס את היומן", "anchors": ["cal.print"] }
+      ]
+    },
+    "cal-day": {
+      "title": "יומן · יום",
+      "menu": true,
+      "tasks": [
+        { "text": "לקבוע תור", "tour": "book" },
+        { "text": "לסגור טיפול שהסתיים", "tour": "close-1" }
+      ]
+    },
+    "appt-new": {
+      "title": "תור חדש",
+      "menu": false,
+      "tasks": [
+        { "text": "לקבוע תור", "tour": "book", "anchors": ["appt.patient-picker", "appt.service", "appt.save"] }
+      ]
+    },
+    "patients": {
+      "title": "מטופלים",
+      "menu": true,
+      "tasks": [
+        { "text": "לגבות ממי שלא שילם", "tour": "pat-debt", "anchors": [{ "anchor": "patients.filter", "arg": "לא שולם" }, "patients.charge"] }
+      ]
+    },
+    "settings-msgs": {
+      "title": "הגדרות · הודעות",
+      "menu": true,
+      "tasks": [
+        { "text": "לשנות תזכורת", "tour": "reminder", "anchors": [{ "anchor": "settings.row-edit", "arg": "תזכורת לפני תור" }, "settings.save"] }
+      ]
+    },
+    "import": {
+      "title": "ייבוא מטופלים",
+      "menu": true,
+      "tasks": [
+        { "text": "לייבא קובץ מטופלים" }
+      ]
+    }
+  }
+}

@@ -1297,6 +1297,136 @@ await test('PL', 'legit: a spec start without spec after a clean run; build mode
   return why.join('; ');
 });
 
+// ---------------- the tour manifest checker (standard/tours/tour-check.mjs) ----------------
+// Each fixture is the example manifest with one change, and must fail with that one finding and no other. Its mutant is
+// a copy of the checker without the line marked `// M:<code>`: on the same fixture it must pass, so the test shows the
+// finding comes from that line.
+const TOURS = path.join(SK, '..', 'standard', 'tours');
+const TOUR_EX = JSON.parse(fs.readFileSync(path.join(TOURS, 'example', 'tours.json'), 'utf8'));
+const INV_EX = JSON.parse(fs.readFileSync(path.join(TOURS, 'example', 'inventory.json'), 'utf8'));
+const clone = x => JSON.parse(JSON.stringify(x));
+const tourOf = (m, id) => m.tours.find(t => t.id === id);
+function tourCheck(man, inv, checker = path.join(TOURS, 'tour-check.mjs')) {
+  const dir = fs.mkdtempSync(path.join(TMP, 'tours-'));
+  fs.writeFileSync(path.join(dir, 'tours.json'), JSON.stringify(man));
+  const args = [checker, path.join(dir, 'tours.json'), '--json'];
+  if (inv) { fs.writeFileSync(path.join(dir, 'inventory.json'), JSON.stringify(inv)); args.push('--inventory', path.join(dir, 'inventory.json')); }
+  const r = sh('node', args);
+  let out = null; try { out = JSON.parse(r.stdout); } catch { /* reported by the caller */ }
+  return { status: r.status, out, raw: (r.stdout + r.stderr).slice(-400) };
+}
+function mutant(code) {
+  const src = fs.readFileSync(path.join(TOURS, 'tour-check.mjs'), 'utf8').split('\n');
+  const keep = src.filter(l => !l.trimEnd().endsWith(`// M:${code}`));
+  if (src.length - keep.length !== 1) throw new Error(`the checker has ${src.length - keep.length} lines marked M:${code}, not one`);
+  const dir = fs.mkdtempSync(path.join(TMP, `mutant-${code}-`));
+  for (const f of ['tours.schema.json', 'inventory.schema.json']) fs.copyFileSync(path.join(TOURS, f), path.join(dir, f));
+  fs.writeFileSync(path.join(dir, 'tour-check.mjs'), keep.join('\n'));
+  return path.join(dir, 'tour-check.mjs');
+}
+// [code, check, rule, what the fixture changes, (manifest, inventory) => void]
+const TOUR_FIXTURES = [
+  ['schema', 'manifest', null, 'a step carries a field the format does not have', m => { tourOf(m, 'book').steps[0].autoClick = true; }],
+  ['schema-inventory', 'manifest', null, 'an inventory screen says menu "yes"', (m, i) => { i.screens['cal-day'].menu = 'yes'; }],
+  ['duplicate-id', 'manifest', null, 'two tours share an id', m => { m.tours.push(clone(tourOf(m, 'reminder'))); }],
+  ['auto-screen', 'manifest', null, 'a tour opens by itself on a screen it does not list', m => { tourOf(m, 'book').auto.push('patients'); }],
+  ['practice-kind', 'manifest', null, 'practiceOnly on a stop step', m => { tourOf(m, 'close-1').steps[1].practiceOnly = { modeTest: 'a', stopTest: 'b' }; }],
+  ['chapter-set', 'manifest', null, 'a chapter says 2 of 4 while the others say of 3', m => { tourOf(m, 'close-2').chapter = [2, 4]; }],
+  ['words', 'tour-shape', 'G-07', 'a step of fourteen words', m => { tourOf(m, 'reminder').steps[2].text = 'משנים כמה שעות לפני התור יוצאת התזכורת, ואפשר לבחור גם יום שלם לפני התור.'; }],
+  ['no-skip', 'tour-shape', 'G-07', 'a step that cannot be skipped', m => { tourOf(m, 'book').steps[0].skip = false; }],
+  ['do-no-result', 'tour-shape', 'G-16', 'a do step with no result', m => { delete tourOf(m, 'reminder').steps[1].result; }],
+  ['chapter-end', 'tour-shape', 'G-07', 'a chapter that ends at a showing step', m => { tourOf(m, 'close-1').steps[1].kind = 'next'; }],
+  ['auto-not-core', 'tour-shape', 'G-21', 'a tour opens by itself on a screen that is not core', m => { tourOf(m, 'reminder').auto = ['settings-msgs']; }],
+  ['do-class', 'tour-no-commit', 'G-20', 'a do step classed T that is not practice-only', m => { tourOf(m, 'pat-debt').steps[0].class = 'T'; }],
+  ['do-class', 'tour-no-commit', 'G-20', 'a practice-only P step that names no stop test', m => { delete tourOf(m, 'close-3').steps[1].practiceOnly.stopTest; }],
+  ['do-no-safe-test', 'tour-no-commit', 'G-20', 'a do step that names no G-20 test', m => { delete tourOf(m, 'book').steps[1].safeTest; }],
+  ['need-action', 'tour-no-commit', 'G-08', 'a resume that presses a control', m => { tourOf(m, 'book').steps[3].need.push({ do: 'press', window: 'appt.create' }); }],
+  ['task-no-tour', 'tour-inventory', 'G-19', 'an article task with no tour and no reason', (m, i) => { i.screens['cal-day'].tasks.push({ text: 'לבטל תור' }); }],
+  ['task-no-tour', 'tour-inventory', 'G-19', 'an extra task with no tour and no reason', m => { m.extraTasks.push({ screen: 'patients', task: 'למחוק מטופל' }); }],
+  ['screen-no-tour', 'tour-inventory', 'G-19', 'a menu screen with no tour and no reason', (m, i) => { i.screens.reports = { menu: true, tasks: [] }; }],
+  ['article-anchor', 'help-refs', 'G-02, G-19', 'an article names a control nothing knows', (m, i) => { i.screens['cal-day'].tasks[0].anchors = ['cal.no-such-button']; }],
+  ['article-tour', 'help-refs', 'G-02, G-19', 'an article names a tour that does not list its task', (m, i) => { i.screens['cal-day'].tasks[0].tour = 'close-1'; }],
+  ['article-tour', 'help-refs', 'G-02, G-19', 'an article names a tour that does not exist', (m, i) => { i.screens['cal-day'].tasks[0].tour = 'no-such-tour'; }],
+];
+await test('TOUR-0', 'tour-check passes the example manifest clean, with and without the inventory, and its bindings cover every id that is not a data-tour anchor', async () => {
+  const why = [];
+  const full = tourCheck(TOUR_EX, INV_EX);
+  if (full.status !== 0 || !full.out || full.out.findings.length || full.out.tours !== 6) why.push(`with inventory: exit ${full.status} ${full.raw}`);
+  const bare = tourCheck(TOUR_EX, null);
+  if (bare.status !== 0 || !bare.out || bare.out.findings.length || 'tour-inventory' in bare.out.counts) why.push(`without inventory: exit ${bare.status} ${bare.raw}`);
+  const b = (await import(path.join(TOURS, 'example', 'bindings.web.mjs'))).default;
+  const steps = TOUR_EX.tours.flatMap(t => t.steps);
+  const anchors = new Set(steps.map(s => s.anchor).filter(Boolean));
+  const need = [
+    ...steps.filter(s => s.result && s.result.kind === 'custom').map(s => ['results', s.result.arg]),
+    ...steps.filter(s => s.result && s.result.kind === 'stateEquals').map(s => ['state', s.result.arg.key]),
+    ...steps.filter(s => s.result && s.result.kind === 'recordOpen').map(s => ['records', s.result.arg]),
+    ...steps.filter(s => s.result && ['open', 'step'].includes(s.result.kind)).map(s => ['windows', s.result.kind === 'open' ? s.result.arg : s.result.arg.window]),
+    ...steps.flatMap(s => (s.need || []).filter(n => n.do === 'reopen').map(n => ['windows', n.window])),
+    ...steps.flatMap(s => [s.when, ...(s.variants || []).map(v => v.when)]).filter(w => w && w !== 'phone' && w !== 'desktop').map(w => ['conditions', w]),
+  ];
+  for (const [kind, id] of need) if (!b[kind] || !b[kind][id]) why.push(`bindings.web.mjs has no ${kind} "${id}"`);
+  for (const id of Object.keys(b.anchors)) if (!anchors.has(id)) why.push(`bindings.web.mjs resolves "${id}", which no step points at`);
+  for (const k of ['route', 'view', 'selectSample']) if (typeof b[k] !== 'function') why.push(`bindings.web.mjs has no ${k}`);
+  return why.join(' · ');
+});
+await test('TOUR-usage', 'tour-check exits 2 with no manifest, a missing file, a file that is not JSON and an unknown option', async () => {
+  const why = [];
+  const bad = path.join(TMP, 'tours-bad.json');
+  fs.writeFileSync(bad, '{ not json');
+  const cases = [[[], 'no manifest'], [[path.join(TMP, 'tours-missing.json')], 'cannot read'], [[bad], 'not JSON'], [[path.join(TOURS, 'example', 'tours.json'), '--strict'], 'unknown option'], [[path.join(TOURS, 'example', 'tours.json'), '--inventory'], 'needs a file']];
+  for (const [args, re] of cases) {
+    const r = sh('node', [path.join(TOURS, 'tour-check.mjs'), ...args]);
+    if (r.status !== 2 || !r.stderr.includes(re)) why.push(`${args.join(' ') || '(none)'}: exit ${r.status} ${r.stderr.trim()}`);
+  }
+  return why.join(' · ');
+});
+await test('TOUR-text', 'tour-check prints one line per finding with the check, the rule, the tour and the step, and exits 1', async () => {
+  const m = clone(TOUR_EX);
+  tourOf(m, 'book').steps[0].skip = false;
+  const dir = fs.mkdtempSync(path.join(TMP, 'tours-text-'));
+  fs.writeFileSync(path.join(dir, 'tours.json'), JSON.stringify(m));
+  const r = sh('node', [path.join(TOURS, 'tour-check.mjs'), path.join(dir, 'tours.json')]);
+  const fails = r.stdout.split('\n').filter(l => l.startsWith('FAIL '));
+  return r.status === 1 && fails.length === 1 && /^FAIL tour-shape G-07 book step 1: /.test(fails[0]) && /not covered here:/.test(r.stdout) ? '' : `exit ${r.status}: ${r.stdout.slice(0, 400)}`;
+});
+await test('TOUR-schema', 'tour-check holds the manifest and the inventory to their schema files: kind, class, id form, result arg, chapter, reopen, anchor with arg', async () => {
+  const why = [];
+  const cases = [
+    ['a kind the format does not have', m => { tourOf(m, 'book').steps[0].kind = 'maybe'; }, '/tours/0/steps/0/kind'],
+    ['a stop step with no class', m => { delete tourOf(m, 'book').steps[4].class; }, '/tours/0/steps/4'],
+    ['an anchor id with no dot', m => { tourOf(m, 'book').steps[0].anchor = 'newbutton'; }, '/tours/0/steps/0/anchor'],
+    ['an open result whose arg is not a window id', m => { tourOf(m, 'book').steps[1].result.arg = { window: 'appt.create' }; }, '/tours/0/steps/1/result/arg'],
+    ['a route result with neither is nor changed', m => { tourOf(m, 'pat-debt').steps[2].result.arg = { was: 'x' }; }, '/tours/4/steps/2/result/arg'],
+    ['chapter 0', m => { tourOf(m, 'close-1').chapter = [0, 3]; }, '/tours/1/chapter/0'],
+    ['a reopen with no window', m => { delete tourOf(m, 'book').steps[2].need[0].window; }, '/tours/0/steps/2/need/0'],
+    ['an arg with no anchor', m => { delete tourOf(m, 'pat-debt').steps[0].anchor; }, '/tours/4/steps/0'],
+    ['an article anchor object with no arg', (m, i) => { i.screens.patients.tasks[0].anchors[0] = { anchor: 'patients.filter' }; }, 'inventory/screens/patients/tasks/0/anchors/0'],
+  ];
+  for (const [what, change, at] of cases) {
+    const m = clone(TOUR_EX);
+    const inv = clone(INV_EX);
+    change(m, inv);
+    const r = tourCheck(m, inv);
+    const hit = r.out && r.out.findings.some(f => f.check === 'manifest' && /^schema/.test(f.code) && f.path === at);
+    if (r.status !== 1 || !hit) why.push(`${what}: exit ${r.status} ${JSON.stringify(r.out && r.out.findings.map(f => [f.code, f.path, f.message]))}`);
+  }
+  return why.join(' · ');
+});
+for (const [n, [code, check, rule, what, change]] of TOUR_FIXTURES.entries()) {
+  await test(`TOUR-${n + 1}`, `tour-check: ${what} fails ${check} (${code}) and nothing else; without its line the checker passes it`, async () => {
+    const m = clone(TOUR_EX);
+    const inv = clone(INV_EX);
+    change(m, inv);
+    const r = tourCheck(m, inv);
+    const got = r.out ? r.out.findings.map(f => `${f.check}/${f.code}/${f.rule}`) : [];
+    if (r.status !== 1 || got.length !== 1 || got[0] !== `${check}/${code}/${rule}`) return `fixture: exit ${r.status}, findings ${JSON.stringify(got)} ${r.out ? '' : r.raw}`;
+    const mu = tourCheck(m, inv, mutant(code));
+    if (mu.status !== 0 || !mu.out || mu.out.findings.length) return `mutant without M:${code}: exit ${mu.status}, findings ${JSON.stringify(mu.out && mu.out.findings.map(f => f.code))} ${mu.out ? '' : mu.raw}`;
+    return '';
+  });
+}
+
 // ---------------- browser tests (one at a time) ----------------
 if (!noBrowser && pw) {
   await test('H9a+M22', 'shoot blocks remote requests, finds text cut by a clipping ancestor, and shoots every screenful', async () => {

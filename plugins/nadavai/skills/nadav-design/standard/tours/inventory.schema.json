@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "nadav-design/standard/tours/inventory.schema.json",
+  "title": "Screens and help articles (inventory.json)",
+  "description": "The input of tour-inventory and help-refs (standard/help-system.md, \"The tour manifest\"): every screen by its key, whether the menu reaches it, and its help article's numbered tasks in order, each naming the tour that shows it and the anchor ids of the controls it mentions. A project writes it, or generates it from its help content folder and its menu.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["screens"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "screens": {
+      "type": "object",
+      "propertyNames": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$" },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["menu", "tasks"],
+        "properties": {
+          "title": { "type": "string", "minLength": 1 },
+          "menu": { "type": "boolean", "description": "The screen is reachable from the menu." },
+          "tasks": {
+            "type": "array",
+            "description": "The article's numbered tasks, in their order.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["text"],
+              "properties": {
+                "text": { "type": "string", "minLength": 1, "description": "The task's name, as the tours list it in tasks." },
+                "tour": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$", "description": "The tour that shows this task (its first chapter for a job)." },
+                "anchors": {
+                  "type": "array",
+                  "items": {
+                    "anyOf": [
+                      { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*(\\.[a-z0-9]+(-[a-z0-9]+)*)+$" },
+                      {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": ["anchor", "arg"],
+                        "properties": {
+                          "anchor": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*(\\.[a-z0-9]+(-[a-z0-9]+)*)+$" },
+                          "arg": { "type": ["string", "number"] }
+                        }
+                      }
+                    ]
+                  },
+                  "description": "The anchor ids of the controls the task's text mentions."
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
