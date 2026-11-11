@@ -196,7 +196,8 @@ MediZen and SHIFTS. Asked which goes first (SHIFTS first then MediZen, MediZen f
 own answer on 11.11.2026: «שניהם ביחד בצורה חכמה שלא נעשדה טעות פעמיים כי זהם לא יפעו בואתו הזמן» [N]. The session's
 reading [I]: both are built by this rule; they do not run the same step at the same time, and a fault one finds in
 this rule or its tools is fixed here before the other reaches that step. MediZen's standalone demo predates the
-rule, is finished and approved as it is, and is not converted; from its approval on the rule applies (the tag, a
+rule and is not approved yet: it goes on to his approval as the page it is, and is not converted; from that
+approval on the rule applies (the tag, a
 build plan Nadav approves, the preview as unit 1, the screens the demo did not draw designed in the preview). His
 decision of 10.11.2026 that its build starts only after everything is closed stands.
 
