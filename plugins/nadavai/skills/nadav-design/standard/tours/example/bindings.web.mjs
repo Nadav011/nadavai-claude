@@ -29,19 +29,22 @@ export default {
   },
   // custom result id -> predicate
   results: {
-    'appt.service-chosen': x => x.app.booking.open && x.app.booking.serviceTouched,
+    // the booking's patient is the sample record: picking anyone else does not move the step on
+    'appt.sample-picked': x => x.app.booking.open && !!x.app.booking.patient && !!x.app.booking.patient.sample,
   },
   // condition id (a step's `when`, a variant's `when`) -> predicate; phone and desktop are the engine's
   conditions: {
     'appt.other-picked': x => x.app.booking.open && !!x.app.booking.patient && !x.app.booking.patient.sample,
     'settings.msgs-closed': x => x.app.route.key !== 'settings-msgs',
   },
-  // window id -> whether it is open (results open and step) and how a resume reopens it (need: reopen)
+  // window id -> whether it is open (results open and step) and how a resume reopens it (need: reopen). A reopen
+  // puts back the tour's own record, the sample's, never the last one open: she may have opened a real person's since
   windows: {
     'appt.create': { isOpen: x => x.app.booking.open, reopen: x => x.app.booking.reopenAtTourSlot(), step: x => x.app.booking.step },
-    'appt.drawer': { isOpen: x => x.app.drawer.open, reopen: x => x.app.drawer.reopenLast() },
-    'pay.sheet': { isOpen: x => x.app.pay.open, reopen: x => x.app.pay.reopenLast() },
-    'settings.edit-sheet': { isOpen: x => x.app.sheet.open, reopen: x => x.app.sheet.reopenLast() },
+    'appt.drawer': { isOpen: x => x.app.drawer.open, reopen: x => x.app.drawer.openFor(x.app.calendar.sampleEndedNotClosed()) },
+    'pay.sheet': { isOpen: x => x.app.pay.open, reopen: x => x.app.pay.openFor(x.app.calendar.sampleEndedNotClosed()) },
+    // a settings rule is nobody's record, but the reopen is still the tour's own row, not the last sheet opened
+    'settings.edit-sheet': { isOpen: x => x.app.sheet.open, reopen: x => x.app.sheet.openFor('reminder-before') },
   },
   // state id (result stateEquals) -> its current value
   state: {

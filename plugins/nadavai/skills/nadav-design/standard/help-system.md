@@ -244,8 +244,10 @@ written for each of them. Two layers:
   control; what she reads, and the text when it only shows; a do step's action (open, pick,
   select, type), its result, the G-20 test it names (`safeTest`) and, for a practice-only step,
   `practiceOnly` with the mode's test for that action and the test that it is a stop step outside
-  the mode; and `need`, how a resumed run puts her back, which is only one of the two G-08 allows
-  (reopen a window, select the sample record again). The file's `stage` (`demo` or `app`), the
+  the mode, named at both stages; and `need`, how a resumed run puts her back, which is only one
+  of the two G-08 allows (reopen a window, select the sample record again). A reopen puts back the
+  tour's own record, the sample's, never the last one open, since she may have opened a real
+  person's since; the bindings do it, and only the running app shows it (`tour-anchors`). The file's `stage` (`demo` or `app`), the
   core screens, the anchors that no step points at (each with its screens), the written reason
   for a screen or a task with no tour, and the important actions beyond an article's tasks are
   in the same file.
@@ -277,11 +279,14 @@ format.
 A help article is data keyed by the screen key. Each numbered task names the tour that shows it
 and the anchor ids of the controls its text mentions, in `inventory.json` beside the manifest,
 which also says whether the menu reaches the screen and which keys are views of one screen
-(`viewOf`, so a core screen's views count once; a `viewOf` names another screen of the inventory
-that is not a view, in the same core entry, and whether it really is a view is the reviewer's).
+(`viewOf`, so a core screen's views count once: a core key's `viewOf` names another screen of
+the inventory that is not a view, in the same core entry; any `viewOf` that names itself, a
+screen the inventory lacks or a view is a finding; whether a key really is a view is the
+reviewer's).
 `help-refs` judges an article task that names a tour that does not exist or does not list that
 task, and an anchor the manifest does not know on that screen: one that no tour on that screen
-points at (with the same arg, where it has one; a chapter stands on the screens of its whole job)
+points at or names as a result (with the same arg, where it has one; a chapter stands on the
+screens of its whole job)
 and no `anchors` entry for that screen lists. Whether the control is really on the screen, for an
 `anchors` entry and for an article's anchor alike, is judged only in the running app
 (`tour-anchors`, not built).
@@ -298,8 +303,8 @@ puts it on this week and today, sets the view by device and closes windows witho
 unsaved input; the closing window's start opens it on an ended appointment that is not the
 sample's; and the patient card's start goes to one named patient, as 19 tours of the demo do
 (and 7 go to one named message rule). With `record`, a view per device and `date` added, 15 of
-the 17 fit, the patient card's tour only by moving it to the sample record, and the closing
-window's start is left out of the data by design. Separately, at the level of steps, the
+the 17 fit as written, the patient card's tour fits once moved to the sample record, and the
+closing window's start is left out of the data by design. Separately, at the level of steps, the
 conversion dropped the demo's computed light around the free hour (`box`) and its per-step and
 per-tour starting values. A result that stays reached once seen is the engine's default, and
 how the demo's own checks drive a do step (its `try`) stays in each environment's tests.

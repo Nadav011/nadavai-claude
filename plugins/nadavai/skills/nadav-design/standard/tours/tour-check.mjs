@@ -9,9 +9,9 @@
 //                   that can end (on the phone or the computer) neither at a result nor at a stop step, a
 //                   tour that opens by itself on a screen that is not core, more than five core screens
 //                   (views count as one screen where inventory.json marks them viewOf it; without the
-//                   inventory, more than five entries), a viewOf that names no other plain screen of the
-//                   inventory in the same core entry; it notes every tour of more than six steps with no
-//                   chapter break, which is never a finding
+//                   inventory, more than five entries), a viewOf that names itself, a screen the inventory
+//                   lacks or a view, and a core key's viewOf that names a screen outside its core entry; it
+//                   notes every tour of more than six steps with no chapter break, which is never a finding
 //   tour-no-commit  the part read from data: a do step classed T or P that is not practice-only, a
 //                   practice-only step without both tests or without on: "sample", a do step that opens a
 //                   record (result recordOpen) without on: "sample", a do step with no G-20 test named (at
@@ -21,8 +21,8 @@
 //   tour-inventory  with --inventory: a screen the menu reaches, or a numbered task of an article, with
 //                   no tour and no written reason (an extra task of the manifest too)
 //   help-refs       with --inventory: an article task naming an anchor (with its arg) that no tour on that
-//                   screen points at and no `anchors` entry for that screen lists, or naming a tour that
-//                   does not exist or does not list that task there
+//                   screen points at or names as a result and no `anchors` entry for that screen lists, or
+//                   naming a tour that does not exist or does not list that task there
 //
 // Not covered here, because it needs the running app or the project's suite: that the engine itself
 // never dispatches a click, a submit or a key on a step target; that every anchor (the `anchors`
@@ -51,6 +51,7 @@ const NOT_COVERED = [
   'tour-no-commit: whether a do step that acts on a person\'s record other than by opening it (result recordOpen) runs on the sample record',
   'tour-no-commit: that a step marked on: "sample" really reaches the sample\'s record and no other (the bindings, in the running app); only the flag is read',
   'tour-shape: that a key marked viewOf really is a view of that screen (the reviewer)',
+  'tour-no-commit: that a need of reopen puts back the tour\'s own record, the sample\'s, and not the last one open (the bindings, in the running app)',
   'tour-anchors: every anchor (the anchors entries and the articles\' too), result, condition, window and state id resolving on its screen, and a step marked on: "sample" resolving to the sample\'s record and no other (the running app)',
   'tour-shape: whether a chapter break sits at a real result (the reviewer)',
 ];
@@ -219,14 +220,16 @@ const viewOfKey = k => obj(invScreens[k]).viewOf;
 const badView = k => {
   const v = viewOfKey(k);
   if (v === k) return 'names the key itself';
-  if (!plain(invScreens[v])) return `names "${v}", which the inventory does not have`;
+  if (!plain(invScreens[v])) return `names "${v}", which the inventory does not have`; // M:view-phantom
   if (typeof viewOfKey(v) === 'string') return `names "${v}", which is itself a view of "${viewOfKey(v)}"`;
   if (coreKeys.has(k) && !coreList.some(c => arr(c.screens).includes(k) && arr(c.screens).includes(v))) return `names "${v}", which is not in the same core entry as "${k}"`;
   return null;
 };
 const views = Object.keys(invScreens).filter(k => typeof viewOfKey(k) === 'string');
 for (const k of views) if (badView(k)) add('tour-shape', 'G-21', 'view-of', { screen: k, path: `inventory/screens/${k}/viewOf` }, `viewOf ${badView(k)}; a key is a view only of another screen of the inventory that is not a view, in the same core entry`); // M:view-of
-const fold = k => (views.includes(k) && !badView(k) ? viewOfKey(k) : k);
+const folds = new Set(views);
+for (const k of views) if (badView(k)) folds.delete(k); // M:view-own
+const fold = k => (folds.has(k) ? viewOfKey(k) : k);
 const coreScreens = new Set([...coreKeys].map(fold));
 // without the inventory no view can be folded: more than five entries is still more than five screens, while more
 // than five keys in at most five entries is a note
@@ -316,7 +319,7 @@ if (INV) {
       if (!task || typeof task.text !== 'string') return;
       const where = { screen: key, task: i + 1, path: `inventory/screens/${key}/tasks/${i}` };
       needTour(key, task.text, where);
-      for (const a of arr(task.anchors)) if (!known(key, a)) add('help-refs', 'G-02, G-19', 'article-anchor', where, `the article on ${key} names the control ${named(a)}, which no tour on ${key} points at and no anchors entry for ${key} lists`); // M:article-anchor
+      for (const a of arr(task.anchors)) if (!known(key, a)) add('help-refs', 'G-02, G-19', 'article-anchor', where, `the article on ${key} names the control ${named(a)}, which no tour on ${key} points at or names as a result and no anchors entry for ${key} lists`); // M:article-anchor
       const tour = task.tour && byId.get(task.tour);
       if (task.tour && (!tour || !arr(tour.screens).includes(key) || !arr(tour.tasks).includes(task.text))) add('help-refs', 'G-02, G-19', 'article-tour', where, tour ? `the article names tour "${task.tour}", which does not list "${task.text}" on ${key}` : `the article names tour "${task.tour}", which does not exist`); // M:article-tour
     });

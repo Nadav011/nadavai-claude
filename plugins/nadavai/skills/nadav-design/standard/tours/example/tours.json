@@ -25,20 +25,19 @@
         { "kind": "do", "act": "open", "anchor": "cal.free-slot", "result": { "kind": "open", "arg": "appt.create" },
           "safeTest": "e2e/tours/sample-safe.spec.ts: opening the booking window sends nothing",
           "text": "לוחצים על השעה המסומנת. נפתח חלון לתור חדש." },
-        { "kind": "do", "act": "pick", "on": "sample", "anchor": "appt.patient-picker", "result": { "kind": "step", "arg": { "window": "appt.create", "n": 2 } },
+        { "kind": "do", "act": "pick", "on": "sample", "anchor": "appt.patient-picker", "result": { "kind": "custom", "arg": "appt.sample-picked" },
           "need": [{ "do": "reopen", "window": "appt.create" }],
           "safeTest": "e2e/tours/sample-safe.spec.ts: picking the sample patient sends nothing",
           "text": "בוחרים את נועה לדוגמה, מטופלת לתרגול שלא מקבלת הודעות.",
           "showText": "כאן בוחרים מטופל מהרשימה, או כותבים שם או טלפון.",
           "variants": [{ "when": "appt.other-picked", "text": "לתרגול בוחרים את נועה לדוגמה. לוחצים \"החלפה\"." }] },
-        { "kind": "do", "act": "select", "on": "sample", "anchor": "appt.service", "result": { "kind": "custom", "arg": "appt.service-chosen" },
+        { "kind": "do", "act": "select", "on": "sample", "anchor": "appt.service", "result": { "kind": "step", "arg": { "window": "appt.create", "n": 3 } },
           "need": [{ "do": "reopen", "window": "appt.create" }, { "do": "selectSample" }],
           "safeTest": "e2e/tours/sample-safe.spec.ts: choosing a service sends nothing",
           "text": "בוחרים טיפול מהרשימה." },
         { "kind": "stop", "class": "T", "anchor": "appt.save",
           "need": [{ "do": "reopen", "window": "appt.create" }, { "do": "selectSample" }],
-          "text": "\"קביעת התור\" שומר ביומן. למטופלת לדוגמה לא יוצאת הודעה.",
-          "variants": [{ "when": "appt.other-picked", "text": "\"קביעת התור\" שומר ביומן, והמטופל מקבל אישור." }] }
+          "text": "\"קביעת התור\" שומר ביומן. למטופלת לדוגמה לא יוצאת הודעה." }
       ],
       "finish": "עכשיו ידוע איך קובעים תור. התור נשמר רק בלחיצה על \"קביעת התור\"."
     },
@@ -108,6 +107,7 @@
           "safeTest": "e2e/practice/pay.spec.ts: choosing how she paid records nothing",
           "text": "בוחרים \"מזומן\". שום דבר לא נרשם עדיין." },
         { "kind": "do", "act": "open", "class": "P", "on": "sample", "anchor": "pay.confirm", "result": { "kind": "present", "arg": "pay.practice-receipt" }, "outcome": true,
+          "need": [{ "do": "reopen", "window": "pay.sheet" }],
           "practiceOnly": {
             "modeTest": "e2e/practice/pay.spec.ts: a practice receipt takes no number and reaches no provider",
             "stopTest": "e2e/tours/stop-steps.spec.ts: outside practice mode \"רישום התשלום\" is a stop step and the server refuses it"
@@ -129,7 +129,7 @@
           "safeTest": "e2e/tours/sample-safe.spec.ts: a filter changes nothing",
           "text": "לוחצים \"לא שולם\". נשארים רק מי שחייבים כסף." },
         { "kind": "next", "anchor": "patients.row", "text": "בכל שורה רואים כמה המטופל חייב, ומאז מתי." },
-        { "kind": "next", "when": "phone", "anchor": "patients.row", "text": "בטלפון לוחצים על השורה, והחיוב נמצא בכרטיס שנפתח." },
+        { "kind": "next", "when": "phone", "anchor": "patients.row", "text": "בטלפון החיוב נמצא בכרטיס של כל שורה." },
         { "kind": "stop", "class": "P", "when": "desktop", "anchor": "patients.charge", "text": "\"חיוב\" גובה מהכרטיס השמור. אי אפשר לבטל אותו." }
       ],
       "finish": "עכשיו ידוע איך מוצאים ממי לגבות, ואיפה גובים."

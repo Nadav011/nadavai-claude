@@ -193,7 +193,7 @@
             "properties": { "do": { "type": "string", "minLength": 1 }, "window": { "$ref": "#/$defs/id" } },
             "allOf": [{ "if": { "required": ["do"], "properties": { "do": { "const": "reopen" } } }, "then": { "required": ["window"] } }]
           },
-          "description": "How a resumed run is put back at this step: reopen a window ({\"do\": \"reopen\", \"window\": ...}) or select the sample record again ({\"do\": \"selectSample\"}), the only two G-08 allows."
+          "description": "How a resumed run is put back at this step: reopen a window ({\"do\": \"reopen\", \"window\": ...}) or select the sample record again ({\"do\": \"selectSample\"}), the only two G-08 allows. A reopen puts back the tour's own record, the sample's, never the last one open; the bindings implement it, and the running app judges it (tour-anchors)."
         },
         "safeTest": { "type": "string", "minLength": 1, "pattern": "\\S", "description": "The test of G-20 that performs this action on the sample record and shows that nothing leaves." },
         "practiceOnly": {
