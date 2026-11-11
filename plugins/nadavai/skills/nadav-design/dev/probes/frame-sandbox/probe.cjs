@@ -3,13 +3,15 @@
 //   1. frame + guard   in a sandboxed frame (no allow-popups, no allow-top-navigation*), the shell's policy has
 //                      frame-src set to the app's origin only, and a guard in the app that
 //                      - rewrites every <a href> and <area href> that points outside the two origins to a local
-//                        page, in the document and in every shadow root made with attachShadow;
+//                        page (a javascript: href is left alone), in the document and in every shadow root made
+//                        with attachShadow;
 //                      - cancels the browser's default, never the app's handlers, for a click with a modifier key
 //                        or another button where the event's path holds a link or a submit control, for the
 //                        context menu on a link or an image, and for a drag of a link the app did not make
 //                        draggable;
-//                      - cancels every form submission that leaves, except React's own placeholder for a
-//                        function action, which React cancels itself;
+//                      - cancels every form submission that leaves, except the two placeholders React writes
+//                        for a function action (one on the client, one on the server), which React cancels
+//                        itself;
 //                      - registers those listeners on the window and on every shadow root made with attachShadow;
 //   2. frame only      the same frame with no guard;
 //   3. top level       no frame and no guard (the control).
@@ -39,8 +41,13 @@ const SHELL_ORIGIN = `http://127.0.0.1:${SHELL}`;
 const SANDBOX = 'allow-scripts allow-same-origin allow-forms allow-modals';
 
 // React 19's production builds as one script, when they can be found: the app's forms with a function action.
+// The same component is rendered on the server and hydrated in the browser.
+const SSR_COMPONENT = `(React) => function Ssr() { const h = React.createElement; return h('div', null,
+  h('form', { id: 'sa', action: async () => { window.__react.ssrAction += 1; } }, h('input', { name: 'q', defaultValue: 'x' }), h('button', { id: 'sab' }, 'send (server-rendered, action fn)')),
+  h('form', { id: 'sf' }, h('button', { id: 'sfb', formAction: async () => { window.__react.ssrFormAction += 1; } }, 'send (server-rendered, formAction fn)'))); }`;
 let reactBundle = null;
 let reactVersion = null;
+let ssrHtml = '';
 try {
   const from = [process.argv[4], PW_DIR].filter(Boolean);
   const reactDir = path.dirname(require.resolve('react/package.json', { paths: from }));
@@ -56,9 +63,14 @@ try {
   for (const [n, f] of Object.entries(mods)) b += `__d[${JSON.stringify(n)}]=function(module,exports,require){${fs.readFileSync(f, 'utf8')}\n};\n`;
   reactBundle = b + "window.React=__r('react');window.ReactDOMClient=__r('react-dom/client');\n";
   reactVersion = JSON.parse(fs.readFileSync(path.join(reactDir, 'package.json'), 'utf8')).version;
+  const React = require(reactDir);
+  const Server = require(require.resolve('react-dom/server', { paths: from }));
+  // eslint-disable-next-line no-new-func
+  ssrHtml = Server.renderToString(React.createElement(new Function('React', `return (${SSR_COMPONENT})(React);`)(React)));
 } catch { /* no React here: its cases are printed as not run */ }
 const REACT_APP = `const h = React.createElement;
-window.__react = { action: 0, formAction: 0 };
+window.__react = { action: 0, formAction: 0, ssrAction: 0, ssrFormAction: 0, recover: null };
+ReactDOMClient.hydrateRoot(document.getElementById('ssr'), h((${SSR_COMPONENT})(React)), { onRecoverableError: (e) => { window.__react.recover = String(e && e.message).slice(0, 100); } });
 ReactDOMClient.createRoot(document.getElementById('root')).render(h('div', null,
   h('form', { id: 'ra', action: async () => { window.__react.action += 1; } }, h('input', { name: 'q', defaultValue: 'x' }), h('button', { id: 'rab' }, 'send (action fn)')),
   h('form', { id: 'rf' }, h('button', { id: 'rfb', formAction: async () => { window.__react.formAction += 1; } }, 'send (formAction fn)'))));`;
@@ -73,6 +85,7 @@ const GUARD = `<script>(() => {
     if (!raw) return;
     let u; try { u = new URL(raw, location.href); } catch { return; }
     if (OK.has(u.origin) && (u.protocol === 'http:' || u.protocol === 'https:')) return;
+    if (u.protocol === 'javascript:') return; // runs in place; its modified clicks are cancelled below
     a.setAttribute('href', '/would-open?u=' + encodeURIComponent(raw));
     a.removeAttribute('target');
   };
@@ -94,9 +107,11 @@ const GUARD = `<script>(() => {
   const cancel = (e) => e.preventDefault();
   // a drag that the app itself made draggable is the app's own, also inside a link
   const ownDrag = (e) => { for (const n of path(e)) { if (n.getAttribute('draggable') === 'true') return true; if (n.matches(LINK)) return false; } return false; };
-  // React writes this as the action of a form whose action is a function, cancels the submission itself and
-  // runs the function; when the submission is already cancelled it does not run it.
-  const REACT_FN = "javascript:throw new Error('A React form was unexpectedly submitted";
+  // React writes one of these as the action of a form whose action is a function (the first on the client, the
+  // second on the server, which hydration keeps), cancels the submission itself and runs the function; when the
+  // submission is already cancelled it does not run it.
+  const REACT_CLIENT = "javascript:throw new Error('A React form was unexpectedly submitted";
+  const REACT_SERVER = "javascript:throw new Error('React form unexpectedly submitted.')";
   const fence = (root) => {
     root.addEventListener('click', (e) => (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) && has(e, OPENER) && cancel(e), true);
     root.addEventListener('auxclick', (e) => has(e, OPENER) && cancel(e), true);
@@ -106,7 +121,7 @@ const GUARD = `<script>(() => {
     root.addEventListener('submit', (e) => {
       const b = e.submitter;
       const raw = (b && b.hasAttribute('formaction') ? b.getAttribute('formaction') : e.target.getAttribute('action')) || location.href;
-      if (raw.startsWith(REACT_FN)) return;
+      if (raw.startsWith(REACT_CLIENT) || raw === REACT_SERVER) return;
       let u; try { u = new URL(raw, document.baseURI); } catch { return cancel(e); }
       if (!OK.has(u.origin)) cancel(e);
     }, true);
@@ -116,12 +131,14 @@ const GUARD = `<script>(() => {
   // from the window. The list is for the check script, which cannot reach a closed root by itself.
   const CALLOUT = 'a,area,img{-webkit-touch-callout:none}';
   let sheet = null; try { sheet = new CSSStyleSheet(); sheet.replaceSync(CALLOUT); } catch { /* no constructed sheets */ }
-  const roots = []; window.__guardRoots = roots;
+  const roots = [];
+  window.__guardRoots = () => roots.map((w) => w.deref()).filter((r) => r && r.host.isConnected);
   const attach = Element.prototype.attachShadow;
   Element.prototype.attachShadow = function attachShadowFenced(init) {
     const r = attach.call(this, init);
-    fence(r); watch(r); roots.push(r);
-    if (sheet) r.adoptedStyleSheets = [...r.adoptedStyleSheets, sheet];
+    fence(r); watch(r); roots.push(new WeakRef(r));
+    // a root in another document (a template's content, createHTMLDocument) refuses a sheet made in this one
+    if (sheet) { try { r.adoptedStyleSheets = [...r.adoptedStyleSheets, sheet]; } catch { /* that document */ } }
     return r;
   };
 })();</script><style>:root,a,area,img{-webkit-touch-callout:none}</style>`;
@@ -135,9 +152,11 @@ const appHtml = (guard) => `<!doctype html><meta charset="utf-8"><title>app</tit
 <form id="one" action="https://example.com/one" method="post"><input id="q" name="q"></form>
 <form id="fa" action="/would-open" method="post"><button id="fab" formaction="https://example.com/formaction">other</button></form>
 <input type="checkbox" id="cb"><div id="cell" style="width:80px;height:30px">cell</div>
+<a id="jslink" href="javascript:void(0)">a link the app handles itself</a>
 <div id="card" draggable="true" style="width:120px"><img id="cardimg" src="/px.svg" width="40" height="40"> card</div>
 <div id="drop" style="width:160px;height:60px;background:#eee">drop zone</div>
-<script>window.__cb = 0; window.__menu = 0; window.__drop = 0;
+<script>window.__cb = 0; window.__menu = 0; window.__drop = 0; window.__js = 0;
+document.getElementById('jslink').addEventListener('click', () => { window.__js += 1; });
 document.getElementById('cb').addEventListener('click', () => { window.__cb += 1; });
 document.getElementById('cell').addEventListener('contextmenu', (e) => { window.__menu += 1; e.preventDefault(); });
 document.getElementById('card').addEventListener('dragstart', (e) => e.dataTransfer.setData('text/plain', 'card'));
@@ -155,7 +174,7 @@ document.getElementById('drop').addEventListener('drop', (e) => { e.preventDefau
   o.innerHTML = '<a href="https://example.com/open">open link</a>';
   window.__openA = o.querySelector('a');
   setTimeout(() => { const late = document.createElement('a'); late.href = 'https://example.com/closed-late'; late.textContent = 'late'; r.appendChild(late); window.__lateA = late; }, 50); }</script>
-${reactBundle ? '<div id="root"></div><script src="/react.js"></script><script src="/react-app.js"></script>' : ''}`;
+${reactBundle ? `<div id="ssr">${ssrHtml}</div><div id="root"></div><script src="/react.js"></script><script src="/react-app.js"></script>` : ''}`;
 const shellHtml = (guard) => `<!doctype html><meta charset="utf-8"><title>shell</title>
 <iframe id="app" width="700" height="500" sandbox="${SANDBOX}" src="${APP_ORIGIN}/app${guard ? '?guard=1' : ''}"></iframe>`;
 
@@ -199,12 +218,19 @@ const APP_CONTROLS = async (f) => {
   if (reactBundle) {
     await step('react action', async () => { await f.waitForSelector('#rab', { timeout: 5000 }); await f.click('#rab', { timeout: 3000 }); });
     await step('react formAction', () => f.click('#rfb', { timeout: 3000 }));
+    await f.page().waitForTimeout(500); // hydration of the server-rendered forms
+    await step('react server-rendered action', () => f.click('#sab', { timeout: 3000 }));
+    await step('react server-rendered formAction', () => f.click('#sfb', { timeout: 3000 }));
   }
+  await step('javascript: link', () => f.click('#jslink', { timeout: 3000 }));
   await f.page().waitForTimeout(400);
   const r = await f.evaluate(() => ({
     handler: window.__cb, checked: document.getElementById('cb').checked, menu: window.__menu, drop: window.__drop,
     react: window.__react || null,
     reactAttr: document.getElementById('ra') ? document.getElementById('ra').getAttribute('action').slice(0, 44) : null,
+    ssrAttr: document.getElementById('sa') ? document.getElementById('sa').getAttribute('action') : null,
+    js: window.__js, at: location.pathname,
+    listed: window.__guardRoots ? window.__guardRoots().map((r) => [...r.querySelectorAll('a[href]')].map((a) => a.getAttribute('href'))) : null,
     roots: [window.__openA.getAttribute('href'), window.__closedA.getAttribute('href'), window.__lateA ? window.__lateA.getAttribute('href') : '(not added yet)'],
   }));
   return { ...r, errors };
@@ -285,8 +311,11 @@ const MODES = [
       } else { await page.goto(`${APP_ORIGIN}/app`); frame = page.mainFrame(); }
       let r; try { r = await APP_CONTROLS(frame); } catch (e) { r = { errors: [String(e.message).split('\n')[0].slice(0, 80)] }; }
       console.log(`-- the app's own controls in this set-up: Shift+click on its checkbox ran its handler ${r.handler} time(s), checked ${r.checked}; right click ran its context-menu handler ${r.menu} time(s); a drag that starts on the image in its draggable card dropped ${r.drop} time(s)`);
-      console.log(`-- React ${reactVersion || '(not found)'}: ${r.react ? `a form whose action is a function ran it ${r.react.action} time(s), a button whose formAction is a function ran it ${r.react.formAction} time(s); the action attribute React wrote starts "${r.reactAttr}"` : 'not run'}`);
+      console.log(`-- React ${reactVersion || '(not found)'}, rendered in the browser: ${r.react ? `a form whose action is a function ran it ${r.react.action} time(s), a button whose formAction is a function ran it ${r.react.formAction} time(s); the action attribute React wrote starts "${r.reactAttr}"` : 'not run'}`);
+      console.log(`-- React ${reactVersion || '(not found)'}, rendered on the server and hydrated: ${r.react ? `a form whose action is a function ran it ${r.react.ssrAction} time(s), a button whose formAction is a function ran it ${r.react.ssrFormAction} time(s); the action attribute after hydration is "${r.ssrAttr}"; recoverable hydration error: ${r.react.recover || 'none'}` : 'not run'}`);
+      console.log(`-- a plain click on <a href="javascript:void(0)"> ran the app's handler ${r.js} time(s); the frame is at ${r.at}`);
       console.log(`-- href of the links inside shadow roots after load: open root ${r.roots && r.roots[0]} | closed root ${r.roots && r.roots[1]} | added later to the closed root ${r.roots && r.roots[2]}`);
+      console.log(`-- read through the guard's own list of roots: ${r.listed ? `${r.listed.length} root(s), hrefs ${JSON.stringify(r.listed)}` : 'no guard, no list'}`);
       if (external.length) console.log(`-- outside requests during the controls: ${external.join(', ')}`);
       if (r.errors && r.errors.length) console.log(`-- steps that did not play: ${r.errors.join(' || ')}`);
       await ctx.close();

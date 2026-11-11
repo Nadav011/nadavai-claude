@@ -204,43 +204,49 @@ For an app (a product with screens people work in):
         preview's mode a guard loads before anything else in every same-origin document of the frame (on Next, the
         first script in the root layout's `<head>`, before hydration; a `srcdoc` or other child frame gets the guard
         too) and does three things. It rewrites the `href` of every `<a href>` and `<area href>` that points outside
-        the preview's two origins (another origin, or a scheme other than http and https) to a local page that shows
-        where it would have gone, and keeps watching for new or changed links (a `MutationObserver` on `href`); an SVG
-        `<a xlink:href>` is not rewritten, and the click layer below is what stops it. It cancels every `submit` whose
+        the preview's two origins (another origin, or a scheme other than http, https and `javascript`, whose link
+        runs in place and whose modified clicks the click layer cancels) to a local page that shows where it would
+        have gone, and keeps watching for new or changed links (a `MutationObserver` on `href`); an SVG `<a
+        xlink:href>` is not rewritten, and the click layer below is what stops it. It cancels every `submit` whose
         destination (the form's `action`, or the submitter's `formaction`) is outside the two origins, whatever key or
         click sent it, with one exception: the placeholder React writes for a form whose action is a function (an
         `action` or `formaction` that starts with `javascript:throw new Error('A React form was unexpectedly
-        submitted`) is left to React, which cancels that submission itself and runs the function; cancelled by the
-        guard, React 19 did not run it (the eleventh review's run; notes file). Every other `javascript:` destination
-        is cancelled. And it cancels the browser's default, never the app's handlers (`preventDefault` only, no
-        `stopPropagation`), for what the person opens himself: `auxclick` and any click with a modifier key or a
-        button other than the main one whose event path holds a link (`<a>`, `<area>`, an SVG `<a>`, matched as
-        `a[*|href]`) or a submit control; `contextmenu` whose path holds a link or an image; and `dragstart` whose
-        path holds a link, unless the drag's source or an element between it and that link carries `draggable="true"`
-        (the app's own drag). Because a `submit` event does not leave its shadow root and a closed root hides its
-        inner path and its links from the window, the guard also wraps `Element.prototype.attachShadow` before any
-        other script runs, and on every shadow root, open or closed, registers the same listeners and runs the same
-        rewrite with its observer (notes file); it keeps the roots it wrapped in a list the check script reads. A
-        shadow root the wrapper cannot see (a declarative `<template shadowrootmode>`, or one parsed by
-        `setHTMLUnsafe` or `parseHTMLUnsafe`) is a fault: the check script fails on `shadowrootmode` in any file the
-        preview serves, HTML or script, on those two calls in the client code, and on `document.write` and
-        `document.writeln` in the app's own code. `-webkit-touch-callout: none`, for the long press on an iPhone, is
-        set on the root element and on links and images, and adopted as a stylesheet into every shadow root the
-        wrapper sees; whether it reaches a link inside a shadow root on a device is unproven (notes file). The app's
-        own handlers still run for every event and its form actions run; what the preview loses is the browser's
-        default on a link or a submit control: a modified or middle click on a link opens nothing, and a modified
-        click on a submit button sends no form, the app's own forms included (expected in the preview's mode, and not
-        fixed in the app). The app's other modifier clicks, its context menus, its drags and its forms keep working
-        (measured in three browsers for a checkbox, a context menu, a drag that starts on an image inside a draggable
-        card, and React 19 forms whose action is a function; notes file), and the scripted journey plays one of each
-        the app has, a drag through the test browser's own drag and a form whose action is a function included, and
-        fails when its effect does not happen. The local page shows the address as text, never as a link, because a
-        guarded link that does open in a new tab shows that page at top level, outside the frame; and the app's pages
-        carry `<meta name="format-detection" content="telephone=no, email=no, address=no">`, so iOS does not turn a
-        number or an address in the text into a link. The guard is a layer and not the proof: the notes file says what
-        it was measured to stop, what it was not, and what stays unproven until a real unit 1; unit 1 shows each
-        unproven item it can on the devices Nadav uses and lists the rest in its report as not shown. That nothing
-        real can be reached rests on the next part.
+        submitted`, which React writes in the browser, or equals `javascript:throw new Error('React form unexpectedly
+        submitted.')`, which its server renderer writes and hydration keeps) is left to React, which cancels that
+        submission itself and runs the function; cancelled by the guard, React 19 did not run it (the eleventh and
+        twelfth reviews' runs; notes file). The two texts are React's own, and unit 1 reads them from the React the
+        app installs. Every other `javascript:` destination is cancelled. And it cancels the browser's default, never
+        the app's handlers (`preventDefault` only, no `stopPropagation`), for what the person opens himself:
+        `auxclick` and any click with a modifier key or a button other than the main one whose event path holds a link
+        (`<a>`, `<area>`, an SVG `<a>`, matched as `a[*|href]`) or a submit control; `contextmenu` whose path holds a
+        link or an image; and `dragstart` whose path holds a link, unless the drag's source or an element between it
+        and that link carries `draggable="true"` (the app's own drag). Because a `submit` event does not leave its
+        shadow root and a closed root hides its inner path and its links from the window, the guard also wraps
+        `Element.prototype.attachShadow` before any other script runs, and on every shadow root, open or closed,
+        registers the same listeners and runs the same rewrite with its observer (notes file); it keeps the roots it
+        wrapped that are still in the page in a list the check script reads. A shadow root the wrapper cannot see (a
+        declarative `<template shadowrootmode>`, or one parsed by `setHTMLUnsafe` or `parseHTMLUnsafe`) is a fault:
+        the check script fails on `shadowrootmode` in any file the preview serves, HTML or script, on those two calls
+        in the client code, and on `document.write` and `document.writeln` in the app's own code.
+        `-webkit-touch-callout: none`, for the long press on an iPhone, is set on the root element and on links and
+        images, and adopted as a stylesheet into every shadow root the wrapper sees whose document allows it; whether
+        it reaches a link inside a shadow root on a device is unproven (notes file). The app's own handlers still run
+        for every event and its form actions run; what the preview loses is the browser's default on a link or a
+        submit control: a modified or middle click on a link opens nothing, and a modified click on a submit button,
+        or Shift+Enter (measured) or Enter with another modifier key in a form that has a submit button, sends no form
+        and runs no form action, the app's own forms included (expected in the preview's mode, and not fixed in the
+        app). The app's other modifier clicks, its context menus, its drags and its forms keep working (measured in
+        three browsers for a checkbox, a context menu, a drag that starts on an image inside a draggable card, a link
+        whose `href` is `javascript:`, and React 19 forms whose action is a function, rendered in the browser and
+        rendered on the server then hydrated; notes file), and the scripted journey plays one of each the app has, a
+        drag through the test browser's own drag and a form whose action is a function included, and fails when its
+        effect does not happen. The local page shows the address as text, never as a link, because a guarded link that
+        does open in a new tab shows that page at top level, outside the frame; and the app's pages carry `<meta
+        name="format-detection" content="telephone=no, email=no, address=no">`, so iOS does not turn a number or an
+        address in the text into a link. The guard is a layer and not the proof: the notes file says what it was
+        measured to stop, what it was not, and what stays unproven until a real unit 1; unit 1 shows each unproven
+        item it can on the devices Nadav uses and lists the rest in its report as not shown. That nothing real can be
+        reached rests on the next part.
       - Nothing real to go to. Every way out named above needs a real destination: an address, a number or a service
         that the preview still holds. So the preview holds none. Each link builder a search of the app's source finds
         is switched in the preview's mode to the local page that shows what would have been sent or dialled (this is
@@ -256,22 +262,29 @@ For an app (a product with screens people work in):
         `javascript` followed by an address (`mailto:`, `tel:`, `sms:`, `smsto:`, `mms:`, `whatsapp:`, `intent:`,
         `facetime:`, `sip:`, `callto:`, `tg:`, `viber:`, `geo:` and the like); and, in the app's own source that
         reaches the browser, its HTML, its public files and the fake data, an email address that is not `.invalid` or
-        `example.com` and a digit string that a phone-number library parses as a valid number of the app's country
-        outside the reserved range. Text escaped as `\/`, `\u002F`, `%2F` or an HTML entity is read unescaped, and a
-        served source map is read like any other file. Every occurrence it finds is on a ledger in the app repo, by
-        the destination as written (a full URL or address, or the fixed part a builder starts with) and, in the app's
-        own files, by the file it is in, with one of two marks. Inert: that exact URL, opened, shows a public page and
-        sends nothing of ours (a specification namespace, a documentation, licence or error-decoder page); the host's
-        other pages do not matter. A URL whose path or query carries a number, an address, an id, an account or a
-        token of ours, or whose path takes input (send, share, subscribe, checkout or pay, upload, collect, login), is
-        never inert, and neither is a scheme other than http and https, an email address or a phone number.
-        Neutralized, with how: a destination the app reaches only by a request it starts, by its key absent and its
-        host blocked as (b) proves; a destination that is opened or shown (a link, a form, `window.open`, `location`,
-        a QR code, a share, a copy, a contact shown as text), only by its builder switched in the preview's mode (for
-        one inside a dependency, the app's use of that part of the dependency switched) or its contact replaced,
-        naming the file and the switch. The script fails on an occurrence that is not on the ledger, so a real contact
-        or service the source search missed, or a new occurrence in the app's files of a host already on the ledger,
-        stops the check. Which files the scan reads before a play and which in the landing CI is in «What runs when».
+        `example.com` and a number that a phone-number library finds in the text, separators included, and parses as
+        valid for the app's country outside the reserved range. Text escaped as `\/`, `\u002F`, `%2F` or an HTML
+        entity is read unescaped, and a served source map is read like any other file. Every occurrence it finds is on
+        a ledger in the app repo, by the destination as written (a full URL or address, or the fixed part a builder
+        starts with) and, in the app's own files, by the file it is in (served and built code is matched by
+        destination alone, since its file names change with every build), with one of two marks. Inert: that exact
+        URL, opened, shows a public page and sends nothing of ours (a specification namespace, a documentation,
+        licence or error-decoder page), or its host is a reserved name that reaches nothing (`.invalid`, `.test`,
+        `.example`, `example.com` and its subdomains); the host's other pages do not matter. A URL whose path or query
+        carries a number, an address, an id, an account or a token of ours, or whose path takes input (send, share,
+        subscribe, checkout or pay, upload, collect, login), is never inert, and neither is a scheme other than http
+        and https, an email address or a phone number. Neutralized, with how: a destination the app reaches only by a
+        request it starts, by its key absent and its host blocked as (b) proves; a destination that is opened or shown
+        (a link, a form, `window.open`, `location`, a QR code, a share, a copy, a contact shown as text), only by its
+        builder switched in the preview's mode (for one inside a dependency, the app's use of that part of the
+        dependency switched) or its contact replaced, naming the file and the switch. A fixed contact, or a URL that
+        carries one (a number, an address, a chat or payment link with an id of ours, wherever it is written), is
+        neutralized only by its contact replaced, so that every use of it gets the invented one; a builder switch
+        neutralizes only the fixed part a builder starts with (`https://wa.me/` before the number it is given), and a
+        hard-coded `href` to a page that is not public counts as a builder of one. The script fails on an occurrence
+        that is not on the ledger, so a real contact or service the source search missed, or a new occurrence in the
+        app's files of a host already on the ledger, stops the check. Which files the scan reads before a play and
+        which in the landing CI is in «What runs when».
       - Proof. From inside the frame, a planted `location.href = 'tel:…'`, a `location.assign` and a `window.open` to
         another origin, an `<a target="_blank">` whose `href` comes from fake data, a form post out, a write to
         `top.location`, a middle click and a Ctrl+click on a planted `<a>` to another origin and on one to `wa.me`, a
@@ -321,12 +334,13 @@ For an app (a product with screens people work in):
       origin in the policy before he opens it.
 
    Nobody plays the preview, on any machine, before its check script passes there (on a local tree: all of it except
-   the no-demo check and, while the lockfile is unchanged, the scan of the built client code, as «What runs when»
-   says); until then only the build session runs it, and only to run the checks. Then Nadav plays it on localhost at
-   that machine (his phone or another device that reaches the same running process over the LAN or Tailscale counts,
-   and the policy then names that origin; always in a browser, never inside a native shell, whether a store, OTA or
-   live-reload dev build, because native HTTP and plugin hand-offs are outside the browser policy the proofs test),
-   elsewhere as (d) says.
+   the no-demo check and, while the dependency code is main's, the scan of the built client code, as «What runs when»
+   says); until then only the build session runs it, and only to run the checks. While he plays, the served tree does
+   not change: an edit is a new tree, and the server is restarted on it after its check passes. Then Nadav plays it on
+   localhost at that machine (his phone or another device that reaches the same running process over the LAN or
+   Tailscale counts, and the policy then names that origin; always in a browser, never inside a native shell, whether
+   a store, OTA or live-reload dev build, because native HTTP and plugin hand-offs are outside the browser policy the
+   proofs test), elsewhere as (d) says.
 6. **Behaviour logic is written once** [I] (source: the session building mexicani-shifts, 11.11.2026). Logic the
    preview computes from what the person does while playing (state that several people or devices change, the order
    offline changes arrive in, undo, alerts, money arithmetic) is plain functions with no browser, framework or demo
@@ -354,11 +368,14 @@ environment proof, the planted calls, the frame's planted cases, the recorded re
 (through `heavy-slot`), and the destination scan of the app's own source, HTML and public files and of every response
 body the test browser received during that journey (a dev server serves the dependency code the screens use, so those
 bodies include it). The no-demo check and the scan of the built client code need a build, so they run in the landing
-CI, with two exceptions: when the lockfile differs from the one of the last landing that passed, the scan of the built
-client code also runs locally before the play (one build of the preview's mode, through `heavy-slot`); and unit 1,
-which builds the script, runs all of it locally to show each proof failing, then passing. The CI step uses the `code`
-path filter of `~/nadavai`'s `templates/ci/woodpecker-landing.yml`, or none. With no landing CI yet the plan says so
-and the whole script runs locally on every unit; on a long branch (point 2) the landing CI runs it on the cut-over PR.
+CI, with two exceptions: when the dependency code may differ from main's, the scan of the built client code also runs
+locally before the play (one build of the preview's mode, through `heavy-slot`), that is, when `git fetch origin` then
+`git diff --quiet origin/main --` over every lockfile, the `patches/` folder and the file that holds the package
+manager's overrides reports a difference, or the packages the app's source imports differ from main's (a search of the
+import statements on both trees); and unit 1, which builds the script, runs all of it locally to show each proof
+failing, then passing. The CI step uses the `code` path filter of `~/nadavai`'s `templates/ci/woodpecker-landing.yml`,
+or none. With no landing CI yet the plan says so and the whole script runs locally on every unit; on a long branch
+(point 2) the landing CI runs it on the cut-over PR.
 
 Who builds the preview: in a new app, setup step 10b, only inside a task Nadav gave to build that app; in an existing
 app with no preview, setup step 10b also when he asks for it from `plan` step 5; in a redesigned app, the build
