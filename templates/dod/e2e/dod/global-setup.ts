@@ -2,7 +2,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { chromium, type FullConfig } from "@playwright/test";
 import {
+  CHECKS_DEADLINE_FILE,
   NOT_FOUND_PRINT,
+  PHASE,
   REPORTS_DIR,
   RESULTS_DIR,
   SCREENS_DIR,
@@ -126,22 +128,30 @@ export default async function globalSetup(config: FullConfig) {
   // package means someone wanted visual diffs and would otherwise get none.
   if (process.env.ARGOS_TOKEN) await loadArgos();
 
-  fs.rmSync(RESULTS_DIR, { recursive: true, force: true });
-  fs.rmSync(SCREENS_DIR, { recursive: true, force: true });
-  fs.mkdirSync(RESULTS_DIR, { recursive: true });
-  fs.mkdirSync(SCREENS_DIR, { recursive: true });
-  fs.mkdirSync(REPORTS_DIR, { recursive: true });
+  if (PHASE === "checks") {
+    // The checks phase keeps everything the scored phase wrote and starts its own files afresh.
+    fs.mkdirSync(RESULTS_DIR, { recursive: true });
+    for (const f of fs.readdirSync(RESULTS_DIR))
+      if (f.endsWith(".standard.json") || f === "standard-timeouts.txt") fs.rmSync(path.join(RESULTS_DIR, f), { force: true });
+    fs.rmSync(CHECKS_DEADLINE_FILE, { force: true });
+  } else {
+    fs.rmSync(RESULTS_DIR, { recursive: true, force: true });
+    fs.rmSync(SCREENS_DIR, { recursive: true, force: true });
+    fs.mkdirSync(RESULTS_DIR, { recursive: true });
+    fs.mkdirSync(SCREENS_DIR, { recursive: true });
+    fs.mkdirSync(REPORTS_DIR, { recursive: true });
+    fs.rmSync(NOT_FOUND_PRINT, { force: true });
+  }
   fs.rmSync(STORAGE_STATE, { force: true });
   // An older kit kept the QA session in reports/, which CI uploads: a leftover copy goes.
   fs.rmSync(path.join(REPORTS_DIR, "qa-storage-state.json"), { force: true });
-  fs.rmSync(NOT_FOUND_PRINT, { force: true });
 
   const user = process.env.DOD_USER;
   const password = process.env.DOD_PASSWORD;
   const baseURL = config.projects[0]?.use?.baseURL ?? `http://localhost:${process.env.PORT ?? "3000"}`;
   if (!user || !password) {
     console.log("[dod] no DOD_USER/DOD_PASSWORD: running anonymously, every gated page will report as unreachable.");
-    await printNotFound(baseURL);
+    if (PHASE === "scored") await printNotFound(baseURL);
     return;
   }
 
@@ -172,5 +182,6 @@ export default async function globalSetup(config: FullConfig) {
   } finally {
     await browser.close();
   }
-  await printNotFound(baseURL);
+  // The not-found print is the scored phase's; the checks phase reads none of it.
+  if (PHASE === "scored") await printNotFound(baseURL);
 }

@@ -210,8 +210,11 @@ export interface StandardConfig {
    *  Ids from standard-checks.json; the static ones are enforced by routes.mjs --check. */
   enforce?: string[];
   /** After this many entries of a run ran out of time in the standard's checks, the rest of the
-   *  run skips them (default 5). */
+   *  run skips them (default 5). With several workers the run can end with up to
+   *  maxTimeouts + workers - 1 timed-out entries: the others were already being checked. */
   maxTimeouts: number;
+  /** The checks phase as a whole stops after this many minutes (default 60); run-dod.mjs ends it. */
+  checksMinutes: number;
   /** Smallest text the probe accepts, in px. */
   textFloorPx: number;
   helpDir?: string;
@@ -262,8 +265,40 @@ export function loadStandard(): StandardConfig | null {
     bad(`"enforce" must be a list of check ids (${known.join(", ")})`);
   const maxTimeouts = raw.maxTimeouts ?? 5;
   if (!Number.isInteger(maxTimeouts) || maxTimeouts < 1) bad('"maxTimeouts" must be a whole number of entries, 1 or more');
-  return { ...raw, profile, mode, textFloorPx, forbiddenWords, maxTimeouts } as StandardConfig;
+  const checksMinutes = raw.checksMinutes ?? 60;
+  if (typeof checksMinutes !== "number" || !(checksMinutes > 0)) bad('"checksMinutes" must be a positive number of minutes');
+  return { ...raw, profile, mode, textFloorPx, forbiddenWords, maxTimeouts, checksMinutes } as StandardConfig;
 }
+
+/** What a `?state=` variant must render: one of these `data-state` values, or null. */
+export function expectedState(route: string): string[] | null {
+  const state = new URLSearchParams(route.split("?")[1] ?? "").get("state");
+  if (state === "empty") return ["empty", "clear", "filtered-empty"];
+  if (state === "error") return ["error"];
+  return null;
+}
+
+/** Which of the standard's checks an entry runs, so a check that never ran can say so. */
+export function plannedChecks(cfg: StandardConfig, route: string, viewport: { width: number }, scheme: string): string[] {
+  const ids: string[] = [...DOM_CHECK_IDS];
+  if (expectedState(route)) ids.push("state-coverage");
+  const cu = cfg.coreUnit;
+  if (cu && cu.route === route && scheme === "light" && viewport.width === (cu.viewport[0] <= 768 ? 375 : 1440)) ids.push("core-unit");
+  if (scheme === "light") ids.push("probe");
+  return ids;
+}
+
+/** Every planned check, unmeasured for one reason. */
+export function notFinished(ids: string[], why: string): Record<string, CheckResult> {
+  return Object.fromEntries(ids.map((id) => [id, { count: 0, samples: [], error: why }]));
+}
+
+/** Which phase of `pnpm dod` this process is (run-dod.mjs sets DOD_PHASE). */
+export const PHASE: "scored" | "checks" = process.env.DOD_PHASE === "checks" ? "checks" : "scored";
+/** Written by run-dod.mjs when the checks phase reached its deadline (`checksMinutes`). */
+export const CHECKS_DEADLINE_FILE = path.join(RESULTS_DIR, "checks-deadline.json");
+/** The checks phase's own file for an entry, next to the scored one. */
+export const standardFile = (name: string) => path.join(RESULTS_DIR, `${name}.standard.json`);
 
 /**
  * The standard's check ids, one list for both sides (e2e/dod/standard-checks.json): `page` for
@@ -363,6 +398,11 @@ export interface EntryResult {
   /** Set when the standard's checks did not run on this entry because the run reached its
    *  `maxTimeouts`: every planned check carries the same error. */
   standard_skipped?: string;
+  /** Set by the aggregation when the checks phase left no result for this entry (it has not
+   *  run, it reached its deadline, or its test ended first): every planned check is errored. */
+  standard_unchecked?: string;
+  /** The URL the scored phase measured (after a declared alias); the checks phase loads it. */
+  measured_url?: string;
   /** The mechanical probe, by size ("320x700"); light scheme only. */
   probe?: Record<string, ProbeAt>;
 }

@@ -1,4 +1,4 @@
-// Definition-of-Done audit. Never fails on findings: everything is recorded to
+// Definition-of-Done audit, the scored phase. Never fails on findings: everything is recorded to
 // reports/results/*.json and merged into reports/dod.json by global-teardown.
 import fs from "node:fs";
 import path from "node:path";
@@ -14,103 +14,26 @@ import {
   loadParams,
   loadRoutes,
   loadScoring,
-  loadStandard,
   NOT_FOUND_PRINT,
   normalizeRegionText,
   routeSlug,
   type EntryResult,
   type NotFoundPrint,
   type RouteEntry,
-  type StandardConfig,
 } from "./dod-shared";
-import {
-  BUILT_IN_FORBIDDEN,
-  coreUnitVisible,
-  DOM_CHECK_IDS,
-  domChecks,
-  forbiddenWordSource,
-  probeAt,
-  watchRemovedErrors,
-  type CheckResult,
-} from "./standard-dom";
+import { reachRoute, settle, touchTargets } from "./dod-page";
 
-const SETTLE_MS = 1200;
+// The scored phase. It never reads standard.json: the experience standard's checks are another
+// phase (standard.spec.ts), run by run-dod.mjs after every entry of this one has finished.
 const routes = loadRoutes();
 const params = loadParams();
-const standard = loadStandard();
 const scoring = loadScoring();
 // The app's own not-found page, printed once by global-setup (absent: no comparison).
 const notFoundPrint: NotFoundPrint | null = fs.existsSync(NOT_FOUND_PRINT)
   ? (JSON.parse(fs.readFileSync(NOT_FOUND_PRINT, "utf8")) as NotFoundPrint)
   : null;
-const FORBIDDEN = [...BUILT_IN_FORBIDDEN, ...(standard?.forbiddenWords ?? []).map(forbiddenWordSource)];
 
-/**
- * The mechanical probe's sizes: the smallest phone, a common phone, a tablet both ways, and the
- * short reception desktop. Touch targets are held to 44px at the first three only.
- */
-const PROBE_SIZES = [
-  { width: 320, height: 700 },
-  { width: 390, height: 844 },
-  { width: 768, height: 1024 },
-  { width: 1024, height: 768 },
-  { width: 1280, height: 648 },
-] as const;
-// The phone and tablet sizes, measured by the 375 entry, which has a touch pointer (hasTouch), so
-// a project that sizes its controls by pointer type (S-12) is measured the way a finger meets it.
-const PROBE_TOUCH_MAX_WIDTH = 768;
-// After a resize: media queries apply at once, a resize listener may need a frame or two.
-const RESIZE_MS = 250;
 
-async function settle(page: Page) {
-  await page.waitForLoadState("networkidle").catch(() => {});
-  await page.waitForTimeout(SETTLE_MS);
-}
-
-/**
- * Did the app paint this route, or is the probe about to measure a loading screen?
- * Returns null when the page is really there, otherwise the reason it is not.
- *
- * Every other probe here looks for a defect, and a page that never rendered has none:
- * no contrast failures, no small targets, no console errors. So it scores 100, and the
- * report says the screen passed when what it means is that nobody looked at it. The
- * thresholds are deliberately loose — a short screen is still a screen, and a page that
- * documents a loading state is not stuck in one — because a blunt version of this check
- * fails real screens, which is worse than the hole it closes.
- */
-async function reachRoute(page: Page): Promise<string | null> {
-  const painted = () =>
-    page.evaluate(() => {
-      // Read the ROUTE'S OWN region, never the whole body. Any app with a shell —
-      // a skip link, a nav, a footer — puts several hundred characters on screen
-      // before the route contributes a single one, so a body-length test can never
-      // fail there no matter what the page did.
-      const region = document.querySelector("main, #main-content, #root, #__next");
-      const text = (() => {
-        if (region) return (region as HTMLElement).innerText ?? "";
-        const clone = document.body.cloneNode(true) as HTMLElement;
-        for (const el of clone.querySelectorAll(
-          'nav, footer, header, [role="navigation"], [role="banner"], [role="contentinfo"], script, style, [aria-hidden="true"]',
-        ))
-          el.remove();
-        return clone.innerText ?? "";
-      })();
-      const clean = text.replace(/\s+/g, " ").trim();
-      if (clean.length < 10) return `content region has ${clean.length} characters`;
-      const busy = [...document.querySelectorAll('[role="status"], [aria-busy="true"]')].some((el) =>
-        /loading|טוענים|טוען|רגע/i.test((el as HTMLElement).textContent ?? ""),
-      );
-      return busy && clean.length < 200 ? "still showing a loading state" : null;
-    });
-
-  const deadline = Date.now() + 15_000;
-  let reason = await painted();
-  while (reason !== null && Date.now() < deadline) {
-    await page.waitForTimeout(500);
-    reason = await painted();
-  }
-  return reason;
-}
 
 /** The route's own region text, the same region reachRoute reads. */
 function regionText(page: Page): Promise<string> {
@@ -149,80 +72,6 @@ async function overflow(page: Page) {
   });
 }
 
-async function touchTargets(page: Page) {
-  return page.evaluate(() => {
-    const els = Array.from(document.querySelectorAll<HTMLElement>('button, a[href], [role="button"]'));
-    const samples: string[] = [];
-    let failures = 0;
-
-    /**
-     * WCAG 2.2 SC 2.5.8 exempts a target that "is in a sentence, or its size is
-     * otherwise constrained by the line-height of non-target text". A link inside a
-     * paragraph cannot be 44px tall without tearing the paragraph apart, and axe —
-     * which implements the exemption — agrees: on the run that produced this rule it
-     * reported target-size on two routes while the naive measurement below flagged
-     * eighteen links sitting in Hebrew sentences. A standalone control is still held
-     * to 44px; only prose is let through, and only when there is prose beside it.
-     */
-    const inSentence = (el: HTMLElement, display: string): boolean => {
-      if (display !== "inline") return false;
-      const parent = el.parentElement;
-      if (!parent) return false;
-      // The prose beside the link is not always a bare text node. A component that
-      // splits a sentence and wraps each phrase — this app's consent text does
-      // exactly that — leaves the link surrounded by <span>s, and a text-node-only
-      // test declares a link that plainly sits mid-sentence to be standalone. What
-      // has to be there is non-target text: anything readable next to it that is
-      // not itself a control, so a row of nothing but links is still measured.
-      return Array.from(parent.childNodes).some((n) => {
-        if (n === el) return false;
-        if (n.nodeType === Node.TEXT_NODE) return (n.textContent ?? "").trim().length > 0;
-        if (n.nodeType !== Node.ELEMENT_NODE) return false;
-        const e = n as HTMLElement;
-        if (e.matches("a[href], button, [role=\"button\"]")) return false;
-        return (e.textContent ?? "").trim().length > 0;
-      });
-    };
-
-    /**
-     * A compact control often reaches 44px through an invisible absolutely-positioned
-     * ::before that spills outside its box — the standard way to give a 24px-tall
-     * switch a thumb-sized hit area without drawing a 44px switch. The element's own
-     * rect says 48x26 and the finger gets 48x44, so measuring the rect alone reports
-     * a control that is already correct. Hit-testing with elementFromPoint would be
-     * the direct measurement, but it only works above the fold; the pseudo-element's
-     * own geometry works wherever the element is.
-     */
-    const hitAreaOf = (el: HTMLElement, r: DOMRect) => {
-      let extraW = 0;
-      let extraH = 0;
-      for (const pseudo of ["::before", "::after"]) {
-        const ps = getComputedStyle(el, pseudo);
-        if (ps.content === "none" || ps.position !== "absolute") continue;
-        const out = (v: string) => Math.max(0, -(Number.parseFloat(v) || 0));
-        extraH = Math.max(extraH, out(ps.top) + out(ps.bottom));
-        extraW = Math.max(extraW, out(ps.left) + out(ps.right));
-      }
-      return { w: Math.max(el.clientWidth, r.width) + extraW, h: Math.max(el.clientHeight, r.height) + extraH };
-    };
-
-    for (const el of els) {
-      const r = el.getBoundingClientRect();
-      const cs = getComputedStyle(el);
-      if (r.width === 0 || r.height === 0 || cs.visibility === "hidden" || cs.display === "none") continue;
-      if (inSentence(el, cs.display)) continue;
-      const { w, h } = hitAreaOf(el, r);
-      if (h < 44 || w < 44) {
-        failures++;
-        if (samples.length < 8) {
-          const label = (el.getAttribute("aria-label") || el.textContent || "").trim().slice(0, 30);
-          samples.push(`${el.tagName.toLowerCase()}${el.id ? "#" + el.id : ""} "${label}" ${Math.round(w)}x${Math.round(h)}`);
-        }
-      }
-    }
-    return { checked: true, failures, samples };
-  });
-}
 
 async function reducedMotionViolations(page: Page) {
   return page.evaluate(() => {
@@ -258,308 +107,14 @@ async function reducedMotionViolations(page: Page) {
   });
 }
 
-/** What a `?state=` variant must render: one of these `data-state` values, or null. */
-function expectedState(route: string): string[] | null {
-  const state = new URLSearchParams(route.split("?")[1] ?? "").get("state");
-  if (state === "empty") return ["empty", "clear", "filtered-empty"];
-  if (state === "error") return ["error"];
-  return null;
-}
 
-/**
- * The standard's checks run after every scored measurement of the entry (measureEntry), inside
- * their own budget: one try ends at this deadline, whatever is still running, and records an
- * error on every unfinished check instead of failing the entry.
- */
-const STANDARD_BUDGET_MS = 30_000;
-/** Each wait between tries (putting the viewport back, asking the page to answer). */
-const AFTER_STANDARD_MS = 5_000;
-/** Added to the test's timeout when standard.json exists: two tries and the waits between them. */
-const STANDARD_TIMEOUT_MS = 2 * STANDARD_BUDGET_MS + 3 * AFTER_STANDARD_MS;
-const OUT_OF_TIME = `out of time (the standard's ${STANDARD_BUDGET_MS / 1000}s budget)`;
 
-/** Stops the standard's steps when the budget is spent or when a resize moved the page. */
-interface Guard {
-  deadline: number;
-  url: string;
-  stopped: string | null;
-  /** A new document started loading in the main frame (a navigation or a reload). */
-  newDocument: boolean;
-}
-
-/** What a resize did to the page, if it moved it: a new document, or only a new URL. */
-function moved(g: Guard, page: Page): string | null {
-  const url = page.url();
-  if (g.newDocument)
-    return url !== g.url
-      ? `the page navigated to ${url} when resized, so later measurements were not taken`
-      : "the page reloaded itself when resized, so later measurements were not taken";
-  if (url !== g.url) return `the URL changed on resize (to ${url}, without a new page), so later measurements were not taken`;
-  return null;
-}
-
-async function step<T>(g: Guard, page: Page, fn: () => Promise<T>): Promise<T> {
-  if (!g.stopped && Date.now() > g.deadline) g.stopped = OUT_OF_TIME;
-  if (g.stopped) throw new Error(g.stopped);
-  let r: T;
-  try {
-    r = await fn();
-  } catch (err) {
-    // "Execution context was destroyed" is the page reloading under the step: said as that.
-    const m = moved(g, page);
-    if (m) throw new Error((g.stopped ??= m));
-    throw err;
-  }
-  // A page that navigates when resized (a phone-only screen sending wide windows home) would
-  // have every later number taken on another page.
-  const m = moved(g, page);
-  if (m) throw new Error((g.stopped ??= m));
-  return r;
-}
-
-/** Resolves true when `p` settles well within `ms`, false on a timeout or an error. */
-function bounded(p: Promise<unknown>, ms = AFTER_STANDARD_MS): Promise<boolean> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  return Promise.race([
-    p.then(
-      () => true,
-      () => false,
-    ),
-    new Promise<boolean>((resolve) => (timer = setTimeout(() => resolve(false), ms))),
-  ]).finally(() => clearTimeout(timer));
-}
-
-/** One try's results, kept apart from the entry until the try ends, so a step still running
- *  after the deadline cannot write into the entry. */
-interface StandardOut {
-  standard?: Record<string, CheckResult>;
-  probe?: NonNullable<EntryResult["probe"]>;
-}
-
-async function runStandard(
-  cfg: StandardConfig,
-  page: Page,
-  entry: RouteEntry,
-  viewport: { width: number; height: number },
-  scheme: string,
-  result: StandardOut,
-  g: Guard,
-) {
-  const { route } = entry;
-  const failed = (err: unknown) => ({ count: 0, samples: [], error: err instanceof Error ? err.message.slice(0, 300) : String(err) });
-  // The page loaded again, as the checks expect it: the reduced-motion copy the scored part left
-  // is not the page people see. Its own navigation is not a move.
-  await step(g, page, async () => {
-    try {
-      await page.goto(g.url, { waitUntil: "domcontentloaded" });
-      await settle(page);
-      await reachRoute(page);
-    } finally {
-      g.newDocument = false;
-    }
-  });
-  const checks = await step(g, page, () =>
-    page.evaluate(domChecks, {
-      noHelp: entry.noHelp,
-      navCount: viewport.width === 375,
-      phone: viewport.width <= 480,
-      forbidden: FORBIDDEN,
-      expectState: expectedState(route),
-    }),
-  );
-  result.standard = checks;
-
-  // core-unit: on its own route, at the BRIEF's real small screen, measured from the light
-  // entry nearest that size (a resize, not a reload, so the page keeps its state).
-  const cu = cfg.coreUnit;
-  if (cu && cu.route === route && scheme === "light" && viewport.width === (cu.viewport[0] <= 768 ? 375 : 1440)) {
-    try {
-      const [width, height] = cu.viewport;
-      await step(g, page, () => page.setViewportSize({ width, height }));
-      await step(g, page, () => page.waitForTimeout(RESIZE_MS));
-      const visible = await step(g, page, () => page.evaluate(coreUnitVisible, cu.selector));
-      checks["core-unit"] =
-        visible < cu.min
-          ? { count: 1, samples: [`${visible} of ${cu.min} "${cu.selector}" fully visible at ${width}x${height}`] }
-          : { count: 0, samples: [] };
-    } catch (err) {
-      checks["core-unit"] = failed(err);
-    }
-  }
-
-  // probe: the mechanical floor, each size measured once per route by the light entry whose
-  // pointer fits it. The 375 entry has a touch pointer (hasTouch) and takes 320, 390 and 768,
-  // with touch targets; the 1440 entry has a mouse and takes 1024x768 and 1280x648. Both resize
-  // their own page, so the probe adds no page load.
-  if (scheme !== "light") return;
-  const touch = viewport.width < 768;
-  const sizes = PROBE_SIZES.filter((s) => (s.width <= PROBE_TOUCH_MAX_WIDTH) === touch);
-  const probe: NonNullable<EntryResult["probe"]> = {};
-  const samples: string[] = [];
-  let count = 0;
-  let error: string | undefined;
-  for (const size of sizes) {
-    const key = `${size.width}x${size.height}`;
-    try {
-      await step(g, page, () => page.setViewportSize(size));
-      await step(g, page, () => page.waitForTimeout(RESIZE_MS));
-      const at = await step(g, page, () => page.evaluate(probeAt, cfg.textFloorPx));
-      const t = touch ? await step(g, page, () => touchTargets(page)) : null;
-      probe[key] = { ...at, touch: t && { failures: t.failures, samples: t.samples } };
-      if (at.overflow) {
-        count++;
-        samples.push(`${key}: sideways scroll ${at.overflow.scrollWidth}>${at.overflow.clientWidth}`);
-      }
-      count += at.small_text.count + at.broken_words.count + (t?.failures ?? 0);
-      samples.push(
-        ...at.small_text.samples.map((x) => `${key}: text under ${cfg.textFloorPx}px ${x}`),
-        ...at.broken_words.samples.map((x) => `${key}: word broken across lines ${x}`),
-        ...(t?.samples ?? []).map((x) => `${key}: touch target under 44px ${x}`),
-      );
-    } catch (err) {
-      error = `${key}: ${err instanceof Error ? err.message.slice(0, 200) : String(err)}`;
-      break;
-    }
-  }
-  result.probe = probe;
-  checks.probe = { count, samples: samples.slice(0, 8), ...(error ? { error } : {}) };
-}
-
-/** One try of the standard's checks, ended at the deadline whatever is still running. */
-async function tryStandard(
-  cfg: StandardConfig,
-  page: Page,
-  entry: RouteEntry,
-  viewport: { width: number; height: number },
-  scheme: string,
-  g: Guard,
-): Promise<{ standard: Record<string, CheckResult>; probe?: EntryResult["probe"]; error?: string }> {
-  const out: StandardOut = {};
-  let error: string | undefined;
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    await Promise.race([
-      runStandard(cfg, page, entry, viewport, scheme, out, g),
-      new Promise<void>((resolve) => {
-        timer = setTimeout(() => {
-          g.stopped ??= OUT_OF_TIME;
-          resolve();
-        }, Math.max(0, g.deadline - Date.now()));
-      }),
-    ]);
-  } catch (err) {
-    error = err instanceof Error ? err.message.slice(0, 500) : String(err);
-  } finally {
-    clearTimeout(timer);
-  }
-  // Copied now: what the steps still running write later stays in `out`.
-  const standard: Record<string, CheckResult> = { ...(out.standard ?? {}) };
-  const probe = out.probe && { ...out.probe };
-  // Every check that did not finish says so, also when the whole DOM-check call threw (a page
-  // that broke checkVisibility, a renderer crash); nothing is counted for it.
-  const why = g.stopped ?? error;
-  if (why)
-    for (const id of plannedChecks(cfg, entry.route, viewport, scheme))
-      if (!standard[id]) standard[id] = { count: 0, samples: [], error: why };
-  return { standard, probe, error };
-}
-
-/** Every planned check, unmeasured for one reason. */
-function notFinished(ids: string[], why: string): Record<string, CheckResult> {
-  return Object.fromEntries(ids.map((id) => [id, { count: 0, samples: [], error: why }]));
-}
-
-/** What the standard's checks may add to an entry: their own fields, never a scored one. */
-type StandardPart = Pick<EntryResult, "standard" | "probe" | "standard_error" | "standard_retried" | "standard_skipped">;
-
-/** Entries whose checks ran out of time in this run, across workers (one line each). */
-const TIMEOUTS_FILE = path.join(RESULTS_DIR, "standard-timeouts.txt");
-const timeoutsSoFar = () => {
-  try {
-    return fs.readFileSync(TIMEOUTS_FILE, "utf8").split("\n").filter(Boolean).length;
-  } catch {
-    return 0;
-  }
-};
-
-/**
- * The standard's checks for one entry, after its scored measurements are frozen. One try, and a
- * second when the first ran out of time, when the whole DOM-check call threw, or on any error
- * under CI, on a page that still answers; after `maxTimeouts` entries of the run ran out of time,
- * no more retries and no more checks.
- */
-async function checkStandard(
-  cfg: StandardConfig,
-  page: Page,
-  entry: RouteEntry,
-  viewport: { width: number; height: number },
-  scheme: string,
-  name: string,
-  measuredUrl: string,
-): Promise<StandardPart> {
-  const planned = plannedChecks(cfg, entry.route, viewport, scheme);
-  if (timeoutsSoFar() >= cfg.maxTimeouts) {
-    const why = `not checked: ${cfg.maxTimeouts} entries of this run ran out of time, so the standard's checks stopped for the rest of it`;
-    return { standard: notFinished(planned, why), standard_skipped: why };
-  }
-  // As the checks expect the page: motion not reduced, the removed-errors watcher in place before
-  // the page's first byte (error-toast).
-  await page.emulateMedia({ reducedMotion: null }).catch(() => {});
-  await page.addInitScript(watchRemovedErrors).catch(() => {});
-  const nav: { g: Guard | null } = { g: null };
-  page.on("request", (r) => {
-    if (nav.g && r.isNavigationRequest() && r.frame() === page.mainFrame()) nav.g.newDocument = true;
-  });
-  const attempt = async () => {
-    const g: Guard = { deadline: Date.now() + STANDARD_BUDGET_MS, url: measuredUrl, stopped: null, newDocument: false };
-    nav.g = g;
-    const r = await tryStandard(cfg, page, entry, viewport, scheme, g);
-    nav.g = null;
-    if (g.stopped === OUT_OF_TIME) fs.appendFileSync(TIMEOUTS_FILE, `${name}\n`);
-    return { ...r, g };
-  };
-  const first = await attempt();
-  let t = first;
-  let retried: string | undefined;
-  const errored = Object.entries(first.standard).find(([, c]) => c.error);
-  const ci = process.env.CI === "true" || process.env.CI === "1";
-  if (errored && !moved(first.g, page) && (first.g.stopped === OUT_OF_TIME || first.error || ci) && timeoutsSoFar() < cfg.maxTimeouts) {
-    // Only on a page that answers: the viewport back, then a trivial evaluate, each bounded.
-    const answers =
-      (await bounded(page.setViewportSize({ width: viewport.width, height: viewport.height }))) &&
-      (await bounded(page.evaluate(() => true)));
-    if (answers) {
-      retried = `${errored[0]}: ${errored[1].error}`.slice(0, 300);
-      t = await attempt();
-      // The first try's result stands for every check that did not error in it.
-      for (const [id, c] of Object.entries(first.standard)) if (!c.error) t.standard[id] = c;
-      if (first.probe && !first.standard.probe?.error) t.probe = first.probe;
-    }
-  }
-  return {
-    standard: t.standard,
-    ...(t.probe ? { probe: t.probe } : {}),
-    ...(t.error ? { standard_error: t.error } : {}),
-    ...(retried ? { standard_retried: retried } : {}),
-  };
-}
-
-/** Which of the standard's checks this entry runs, so a run cut short can say which did not finish. */
-function plannedChecks(cfg: StandardConfig, route: string, viewport: { width: number }, scheme: string): string[] {
-  const ids: string[] = [...DOM_CHECK_IDS];
-  if (expectedState(route)) ids.push("state-coverage");
-  const cu = cfg.coreUnit;
-  if (cu && cu.route === route && scheme === "light" && viewport.width === (cu.viewport[0] <= 768 ? 375 : 1440)) ids.push("core-unit");
-  if (scheme === "light") ids.push("probe");
-  return ids;
-}
 
 /**
  * Everything that is scored, for one entry, in one sequence: the load, the access checks, the
  * screenshot, overflow, axe, fonts, touch targets, the reduced-motion reload and the console count
- * over all of it. The same function runs with or without standard.json (it does not read it), and
- * it returns with the console count frozen. The standard's checks run only after it returns, so
- * nothing they do can reach a scored number.
+ * over all of it. It returns with the console count frozen. The experience standard's checks are
+ * not in this run at all: run-dod.mjs runs them as a second Playwright run after this one.
  */
 async function measureEntry(
   page: Page,
@@ -568,7 +123,7 @@ async function measureEntry(
   scheme: (typeof SCHEMES)[number],
   slug: string,
   name: string,
-): Promise<{ result: EntryResult; measuredUrl: string }> {
+): Promise<EntryResult> {
   const { route } = entry;
   const consoleErrors: string[] = [];
   let frozen = false;
@@ -778,7 +333,8 @@ async function measureEntry(
     result.unreachable_reason = result.load_error;
   }
   frozen = true;
-  return { result, measuredUrl: measuredUrl || page.url() };
+  result.measured_url = measuredUrl || page.url();
+  return result;
 }
 
 for (const entry of routes) {
@@ -802,36 +358,12 @@ for (const entry of routes) {
         });
 
         test(`dod ${name}`, async ({ page }) => {
-          // The standard's checks have their own budget on top of the page's.
-          if (standard) test.setTimeout(test.info().timeout + STANDARD_TIMEOUT_MS);
-          // 1. Everything that is scored, in the one sequence a run without standard.json uses.
-          const { result, measuredUrl } = await measureEntry(page, entry, viewport, scheme, slug, name);
-          // Frozen from here: the file is written now, so a run that ends during the standard's
-          // checks keeps every scored number, and an enforced check that never finished is errored.
-          const write = () => {
-            fs.mkdirSync(RESULTS_DIR, { recursive: true });
-            fs.writeFileSync(path.join(RESULTS_DIR, `${name}.json`), JSON.stringify(result, null, 2));
-          };
-          const checkable = !!standard && result.reached && !result.unreachable;
-          if (standard && checkable)
-            result.standard = notFinished(plannedChecks(standard, route, viewport, scheme), "the standard's checks did not finish (the test ended first)");
-          write();
-          // 2. The standard's checks, after the freeze. What they return can hold only their own
-          // fields (StandardPart), so no scored number is written after this point.
-          if (standard && checkable) {
-            Object.assign(result, await checkStandard(standard, page, entry, viewport, scheme, name, measuredUrl));
-            write();
-          }
+          const result = await measureEntry(page, entry, viewport, scheme, slug, name);
+          fs.mkdirSync(RESULTS_DIR, { recursive: true });
+          fs.writeFileSync(path.join(RESULTS_DIR, `${name}.json`), JSON.stringify(result, null, 2));
           test.info().annotations.push({
             type: "dod",
-            description: `status=${result.status} unreachable=${result.unreachable} reached=${result.reached} overflow=${result.overflow.failed} axe=${result.axe.counted} console=${result.console_errors.length} fonts=${result.fonts.count} touch=${result.touch_targets.failures} rm=${result.reduced_motion.violations}${
-              result.standard
-                ? ` standard=${Object.entries(result.standard)
-                    .filter(([, c]) => c.count)
-                    .map(([id, c]) => `${id}:${c.count}`)
-                    .join(",") || "clean"}`
-                : ""
-            }`,
+            description: `status=${result.status} unreachable=${result.unreachable} reached=${result.reached} overflow=${result.overflow.failed} axe=${result.axe.counted} console=${result.console_errors.length} fonts=${result.fonts.count} touch=${result.touch_targets.failures} rm=${result.reduced_motion.violations}`,
           });
         });
       });

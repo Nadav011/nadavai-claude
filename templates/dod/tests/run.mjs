@@ -41,6 +41,7 @@ const SLOW_MS = Number(process.env.DOD_TEST_SLOW_MS ?? 40_000);
 const SLOW_HTML_MS = 1_500;
 const BUSY_ONCE_MS = 32_000;
 const BUSY_MS = 70_000;
+const SLOWFIRST_MS = 125_000;
 const SUITES = new Set((args.includes("--suite") ? args[args.indexOf("--suite") + 1] : "static,dom,browser,small").split(","));
 // The DOM lane can run an older standard-dom.ts, to show which of its checks fail real markup.
 const DOM_SRC = args.includes("--dom-src") ? path.resolve(args[args.indexOf("--dom-src") + 1]) : path.join(TEMPLATE, "e2e", "dod", "standard-dom.ts");
@@ -105,6 +106,11 @@ ${body}</main></body></html>`;
 }
 
 function startServer() {
+  // Round 5 (the reviewer's B1 and B3): /srv answers 429 from its 9th load since the last sign-in
+  // (a per-session rate limit); /slowfirst holds every request until SLOWFIRST_MS after its first
+  // one (a dev server's first compile), longer than a test's timeout.
+  let srvLoads = 0;
+  let slowStart = 0;
   const server = http.createServer((req, res) => {
     req.resume();
     const url = new URL(req.url ?? "/", "http://fixture");
@@ -118,8 +124,13 @@ function startServer() {
       return res.end(fs.readFileSync(path.join(FIXTURES, url.pathname.slice(1))));
     }
     if (url.pathname === "/login") {
-      // The QA login global-setup performs: a cookie stands in for a real session.
-      if (req.method === "POST") return res.writeHead(303, { "set-cookie": "qa=1; Path=/; HttpOnly", location: "/" }).end();
+      // The QA login global-setup performs: a cookie stands in for a real session. Each run (and
+      // each phase of `pnpm dod`) signs in once, so it also starts /srv's and /slowfirst's state.
+      if (req.method === "POST") {
+        srvLoads = 0;
+        slowStart = 0;
+        return res.writeHead(303, { "set-cookie": "qa=1; Path=/; HttpOnly", location: "/" }).end();
+      }
       return html(
         "login",
         '<form method="post" action="/login"><label for="u">אימייל</label><input id="u" name="u" type="email" autocomplete="username">' +
@@ -195,6 +206,18 @@ function startServer() {
         '<script>const o=Element.prototype.checkVisibility;Element.prototype.checkVisibility=function(a){if(this.getAttribute("role")==="dialog")throw new Error("tampered");return o.call(this,a)}</script>',
     };
     if (R4[url.pathname]) return html(url.pathname.slice(1), R4[url.pathname]);
+    if (url.pathname === "/srv" && ++srvLoads >= 9) return res.writeHead(429, { "content-type": "text/html; charset=utf-8" }).end("rate limited");
+    if (url.pathname === "/srv") return html("srv", P);
+    if (url.pathname === "/slowfirst") {
+      slowStart ||= Date.now();
+      const wait = slowStart + SLOWFIRST_MS - Date.now();
+      return void setTimeout(() => html("slowfirst", P), Math.max(0, wait));
+    }
+    // B2: a 200 s task when reduced motion goes back to normal (the old checks did exactly that).
+    if (url.pathname === "/mq")
+      return html("mq", P + '<script>matchMedia("(prefers-reduced-motion: reduce)").addEventListener("change",e=>{if(!e.matches){const end=Date.now()+200000;while(Date.now()<end){}}})</script>');
+    // A page that hangs for good on resize: the checks phase can only give up on it.
+    if (url.pathname === "/hang-resize") return html("hang-resize", P + '<script>addEventListener("resize",()=>{for(;;){}})</script>');
     if (url.pathname === "/sw.js") {
       res.writeHead(200, { "content-type": "text/javascript" });
       return res.end('self.addEventListener("install",()=>self.skipWaiting());self.addEventListener("activate",e=>e.waitUntil(self.clients.claim()));self.addEventListener("fetch",e=>e.respondWith(fetch(e.request)))');
@@ -242,17 +265,18 @@ function playwright(cwd, port, extraEnv = {}) {
   const cli = path.join(WORK, "node_modules", "@playwright", "test", "cli.js");
   const log = path.join(cwd, "run.log");
   const fd = fs.openSync(log, "w");
+  // The way `pnpm dod` runs the kit: run-dod.mjs (both phases). An older kit given with
+  // --template has no run-dod.mjs and is run as it was, Playwright alone.
+  const wrapper = path.join(cwd, "e2e", "dod", "run-dod.mjs");
+  const argv = fs.existsSync(wrapper) ? [wrapper, "--reporter=dot,json"] : [cli, "test", "-c", "playwright.dod.config.ts", "--reporter=dot,json"];
+  const t0 = Date.now();
   return new Promise((resolve) => {
-    // dot on the log, json in pw.json (each test's duration).
+    // dot on the log, json in pw.json (each test's duration; the checks phase in pw.checks.json).
     env.PLAYWRIGHT_JSON_OUTPUT_NAME = path.join(cwd, "pw.json");
-    const child = spawn(process.execPath, [cli, "test", "-c", "playwright.dod.config.ts", "--reporter=dot,json"], {
-      cwd,
-      env,
-      stdio: ["ignore", fd, fd],
-    });
+    const child = spawn(process.execPath, argv, { cwd, env, stdio: ["ignore", fd, fd] });
     child.on("exit", (code, signal) => {
       fs.closeSync(fd);
-      resolve({ code, signal, log: fs.readFileSync(log, "utf8") });
+      resolve({ code, signal, secs: Math.round((Date.now() - t0) / 1000), log: fs.readFileSync(log, "utf8") });
     });
   });
 }
@@ -264,14 +288,57 @@ const ranClean = (run, what) => {
 };
 const report = (dir) => JSON.parse(fs.readFileSync(path.join(dir, "reports", "dod", "dod.json"), "utf8"));
 // Seconds per test ("dod /busy-resize__375__light"), from the json reporter.
-const durations = (dir) => {
+const durations = (dir, file = "pw.json") => {
   const out = {};
   const walk = (suite) => {
     for (const x of suite.suites ?? []) walk(x);
     for (const sp of suite.specs ?? []) for (const t of sp.tests) for (const r of t.results) out[sp.title] = r.duration / 1000;
   };
-  for (const x of JSON.parse(fs.readFileSync(path.join(dir, "pw.json"), "utf8")).suites) walk(x);
+  const f = path.join(dir, file);
+  if (fs.existsSync(f)) for (const x of JSON.parse(fs.readFileSync(f, "utf8")).suites) walk(x);
   return out;
+};
+// The invariant (rounds 4 and 5): every route's score and console count, and every scored field of
+// every entry, the same in two runs. Returns the differences.
+const SCORED = (e) => ({
+  status: e.status,
+  load_error: e.load_error,
+  unreachable: e.unreachable,
+  unreachable_reason: e.unreachable_reason,
+  reached: e.reached,
+  not_reached_reason: e.not_reached_reason,
+  overflow: e.overflow,
+  axe: { counted: e.axe.counted, scored: e.axe.scored, by_impact: e.axe.by_impact },
+  console_errors: e.console_errors,
+  fonts: e.fonts.count,
+  touch_targets: e.touch_targets.failures,
+  reduced_motion: e.reduced_motion.violations,
+});
+const invariantDiffs = (p, r, routes) => {
+  const diffs = [];
+  for (const x of routes) {
+    const a = p.routes[x];
+    const b = r.routes[x];
+    if (a?.score !== b?.score || a?.console_errors !== b?.console_errors) diffs.push(`${x}: score ${a?.score}/${b?.score}, console ${a?.console_errors}/${b?.console_errors}`);
+    for (const ea of a?.entries ?? []) {
+      const eb = b?.entries.find((e) => e.viewport.width === ea.viewport.width && e.scheme === ea.scheme);
+      // A page cut off by its test's timeout fails in whichever call was in flight at that moment
+      // (goto aborted, a wait, a closed page), which is a race between the workers in either run,
+      // not something standard.json changes: the message is compared as that one fact.
+      const CUT = /Test timeout|has been closed|ERR_ABORTED|frame was detached/;
+      const norm = (e) => {
+        if (!e) return "missing";
+        const x = SCORED(e);
+        // (Whether the response had already arrived, so whether `status` was set, is part of that race.)
+        if (CUT.test(x.load_error ?? "")) x.status = "cut off";
+        for (const k of ["load_error", "unreachable_reason"]) if (CUT.test(x[k] ?? "")) x[k] = "cut off by the test's timeout";
+        return JSON.stringify(x);
+      };
+      if (norm(ea) !== norm(eb)) diffs.push(`${x} ${ea.viewport.width}/${ea.scheme}: ${norm(ea)} vs ${norm(eb)}`.slice(0, 400));
+    }
+  }
+  if (p.totals.score !== r.totals.score) diffs.push(`total ${p.totals.score} vs ${r.totals.score}`);
+  return diffs;
 };
 const fired = (route) =>
   Object.entries(route?.standard ?? {})
@@ -491,29 +558,7 @@ async function smallRuns(kind, port) {
     // The invariant itself (round 4): for every route, the score, the console count and every
     // scored field of every entry are the same with and without standard.json (report mode, no
     // "enforce" list), and so is the exit code (above).
-    const SCORED = (e) => ({
-      status: e.status,
-      unreachable: e.unreachable,
-      unreachable_reason: e.unreachable_reason,
-      reached: e.reached,
-      not_reached_reason: e.not_reached_reason,
-      overflow: e.overflow,
-      axe: { counted: e.axe.counted, scored: e.axe.scored, by_impact: e.axe.by_impact },
-      console_errors: e.console_errors,
-      fonts: e.fonts.count,
-      touch_targets: e.touch_targets.failures,
-      reduced_motion: e.reduced_motion.violations,
-    });
-    const diffs = [];
-    for (const x of ROUTES) {
-      const a = p.routes[x];
-      const b = r.routes[x];
-      if (a?.score !== b?.score || a?.console_errors !== b?.console_errors) diffs.push(`${x}: score ${a?.score}/${b?.score}, console ${a?.console_errors}/${b?.console_errors}`);
-      for (const ea of a?.entries ?? []) {
-        const eb = b?.entries.find((e) => e.viewport.width === ea.viewport.width && e.scheme === ea.scheme);
-        if (JSON.stringify(SCORED(ea)) !== JSON.stringify(eb && SCORED(eb))) diffs.push(`${x} ${ea.viewport.width}/${ea.scheme}: ${JSON.stringify(SCORED(ea))} vs ${JSON.stringify(eb && SCORED(eb))}`.slice(0, 400));
-      }
-    }
+    const diffs = invariantDiffs(p, r, ROUTES);
     ok(diffs.length === 0 && r.totals.score === p.totals.score, `${kind}: invariant: every route's score, console count and scored entry fields are the same with and without standard.json (${ROUTES.length} routes, total ${r.totals.score} vs ${p.totals.score})`);
     for (const d of diffs.slice(0, 10)) console.log(`      ${d}`);
     ok(Object.values(r.routes).every((x) => x.entries.every((e) => !e.unreachable)), `${kind}: a check that throws never makes a page unreachable`);
@@ -543,13 +588,25 @@ async function smallRuns(kind, port) {
     ok(busy.length === 2 && busy.every((e) => String(e.standard?.probe?.error).includes("out of time") && !e.unreachable), `${kind}: /busy-resize records the probe out of time and stays measured`);
     const dp = durations(plainDir);
     const dr = durations(dir);
-    const added = ["375__light", "1440__light"].map((v) => dr[`dod busy-resize__${v}`] - dp[`dod busy-resize__${v}`]);
-    // Two tries (30 s each) and three 5 s waits at most; this page is not retried (it does not answer).
-    ok(added.every((x) => x > 25 && x < 75), `${kind}: /busy-resize adds ${added.map((x) => x.toFixed(1)).join(" s and ")} s to its light entries (bounded by 75 s)`);
+    const dc = durations(dir, "pw.checks.json");
+    // The scored phase does the same work with or without standard.json; the checks phase's test
+    // for a page that blocks on every resize ends at its budget (two tries and the waits at most).
+    const scoredSame = ["375__light", "1440__light"].every((v) => Math.abs(dr[`dod busy-resize__${v}`] - dp[`dod busy-resize__${v}`]) < 10);
+    const checkSecs = ["375__light", "1440__light"].map((v) => dc[`standard busy-resize__${v}`]);
+    ok(scoredSame && checkSecs.every((x) => x > 25 && x < 135), `${kind}: /busy-resize: the scored test takes as long as without standard.json, its checks test ${checkSecs.map((x) => x?.toFixed(1)).join(" s and ")} s (bounded by 135 s)`);
+    console.log(`     ${kind} wall time: ${plain.secs} s without standard.json, ${run.secs} s in report mode (both phases)`);
+    // CF3: what dod.json says about an entry's checks is what its checks file holds.
+    const files = fs.readdirSync(path.join(dir, "reports", "dod", "results")).filter((f) => f.endsWith(".standard.json"));
+    const mismatch = files.filter((f) => {
+      const [slug, w, sch] = f.replace(".standard.json", "").split("__");
+      const e = Object.values(r.routes).flatMap((x) => x.entries).find((x) => x.slug === slug && String(x.viewport.width) === w && x.scheme === sch);
+      return JSON.stringify(e?.standard) !== JSON.stringify(JSON.parse(fs.readFileSync(path.join(dir, "reports", "dod", "results", f), "utf8")).standard);
+    });
+    ok(files.length > 0 && mismatch.length === 0, `${kind}: every checks file is what dod.json shows (${files.length} files, ${mismatch.length} differ)`);
     // Time per light entry, without standard.json and in report mode.
     for (const x of ["slow", "resize-log-slow", "reload-on-resize", "busy-once", "busy-resize", "ss-busy"])
       for (const v of ["375__light", "1440__light"])
-        console.log(`     ${kind} ${x}__${v}: ${dp[`dod ${x}__${v}`]?.toFixed(1)} s plain, ${dr[`dod ${x}__${v}`]?.toFixed(1)} s report`);
+        console.log(`     ${kind} ${x}__${v}: ${dp[`dod ${x}__${v}`]?.toFixed(1)} s plain, ${dr[`dod ${x}__${v}`]?.toFixed(1)} s report (scored), ${dc[`standard ${x}__${v}`]?.toFixed(1)} s checks`);
     ok(r.routes["/clean"]?.standard?.["core-unit"]?.verdict === "errored" && !r.routes["/clean"]?.entries.some((e) => e.standard_retried), `${kind}: report mode: the broken selector is "errored", costs nothing and is not retried outside CI`);
     ok(
       r.routes["/one-primary"]?.standard?.["one-primary"]?.count > 0 && r.totals.standard_findings > 0,
@@ -628,6 +685,45 @@ async function smallRuns(kind, port) {
       `${kind}: maxTimeouts 1 skips the rest of the run, says so, and enforce counts it (${JSON.stringify(sk)}, /clean ${c.routes["/clean"]?.score})`,
     );
   }
+  // Round 5: the reviewer's three reproductions, and a page that hangs the checks for good. A
+  // route that takes longer than a test's timeout (/slowfirst) makes both runs exit 1 with total 0;
+  // /srv rate-limits from its 9th load; /mq blocks when reduced motion goes back to normal. The
+  // invariant holds over all of it, the exit code included.
+  const R5 = ["/clean", "/slowfirst", "/mq", "/srv", "/hang-resize"];
+  const r5p = project(path.join(WORK, `${kind}-r5-plain`), kind, { "e2e/dod/routes.json": R5 });
+  const r5pRun = await playwright(r5p, port);
+  const r5r = project(path.join(WORK, `${kind}-r5-report`), kind, { "e2e/dod/routes.json": R5, "e2e/dod/standard.json": { ...STANDARD, mode: "report", coreUnit: undefined } });
+  const r5rRun = await playwright(r5r, port);
+  {
+    const a = report(r5p);
+    const b = report(r5r);
+    const diffs = invariantDiffs(a, b, R5);
+    ok(
+      r5pRun.code === r5rRun.code && diffs.length === 0,
+      `${kind}: invariant with a route over the test timeout, a rate limit, a motion-change hang and a checks hang: exit ${r5pRun.code} vs ${r5rRun.code}, total ${a.totals.score} vs ${b.totals.score}, /slowfirst ${a.routes["/slowfirst"]?.score}/${b.routes["/slowfirst"]?.score}, /srv ${a.routes["/srv"]?.score}/${b.routes["/srv"]?.score}, /mq ${a.routes["/mq"]?.score}/${b.routes["/mq"]?.score}`,
+    );
+    for (const d of diffs.slice(0, 10)) console.log(`      ${d}`);
+    ok(r5pRun.code === 1 && a.routes["/srv"]?.score === 100 && a.routes["/slowfirst"]?.entries.some((e) => e.unreachable), `${kind}: the plain run itself: /slowfirst times out (exit 1), /srv stays under its limit`);
+    const hang = b.routes["/hang-resize"]?.entries.filter((e) => e.scheme === "light") ?? [];
+    ok(hang.length === 2 && hang.every((e) => e.standard?.probe?.error), `${kind}: the checks give up on the hanging page and say so (${hang.map((e) => e.standard?.probe?.error).join(" / ").slice(0, 160)})`);
+    console.log(`     ${kind} round-5 wall time: ${r5pRun.secs} s without standard.json, ${r5rRun.secs} s in report mode`);
+  }
+  // Point 4: the checks phase's own deadline. One worker, the busy page first: at 0.5 min the
+  // phase is stopped, /clean is never checked, dod.json and the summary say so, enforce counts it,
+  // and the exit code is the scored phase's.
+  const dlDir = project(path.join(WORK, `${kind}-deadline`), kind, {
+    "e2e/dod/routes.json": ["/busy-resize", "/clean"],
+    "e2e/dod/standard.json": { ...STANDARD, coreUnit: undefined, checksMinutes: 0.5 },
+  });
+  const dl = await playwright(dlDir, port, { DOD_WORKERS: "1" });
+  if (ranClean(dl, `${kind}: a run whose checks phase reaches its deadline exits 0 (the scored phase's code)`)) {
+    const d = report(dlDir);
+    const nc = d.standard?.not_checked;
+    ok(
+      Object.keys(nc?.reasons ?? {}).some((k) => k.includes("deadline")) && dl.log.includes("reached its deadline") && d.routes["/clean"]?.standard?.["help-door"]?.verdict === "errored" && d.routes["/clean"]?.score < 100,
+      `${kind}: the checks deadline stops the phase, says which entries were not checked (${JSON.stringify(nc)}), and enforce counts them (/clean ${d.routes["/clean"]?.score})`,
+    );
+  }
   // Argos is optional: a token without the package stops the run with words.
   const dir2 = project(path.join(WORK, `${kind}-argos`), kind, { "e2e/dod/routes.json": ["/clean"] });
   let run2 = await playwright(dir2, port, { ARGOS_TOKEN: "fixture-token" });
@@ -691,6 +787,9 @@ function staticSuite(kind) {
     { name: "enforce-static-id", drop: ["src/help/orders-id.md"], files: { "e2e/dod/routes.json": full, "e2e/dod/standard.json": { ...std, mode: "report", enforce: ["help-route"] } }, exit: 1, out: /help-route: \/orders\/1 has no help file/ },
     { name: "enforce-page-id", files: { "e2e/dod/routes.json": full.filter((r) => r !== "/orders/1?state=error"), "e2e/dod/standard.json": { ...std, mode: "report", enforce: ["one-primary"] } }, exit: 0, out: /report mode: not failing/ },
     { name: "enforce-unknown", files: { "e2e/dod/routes.json": full, "e2e/dod/standard.json": { ...std, mode: "report", enforce: ["help-rout"] } }, exit: 1, out: /"enforce" must be a list of check ids/ },
+    // Round 5 (CF2): the static checks crashing is a failure when they are enforced, a reported
+    // error in report mode (the next scenario, standard-check-error).
+    { name: "standard-check-error-enforce", files: { "e2e/dod/routes.json": full, "e2e/dod/standard.json": { ...std, helpDir: "PRODUCT.md" } }, exit: 1, out: /standard-check: could not run/ },
     { name: "help-route", check: "help-route", drop: ["src/help/orders-id.md"], files: { "e2e/dod/routes.json": full, "e2e/dod/standard.json": std }, exit: 1, out: /help-route: \/orders\/1 has no help file src\/help\/orders-id/ },
     { name: "brand-assets", check: "brand-assets", files: { "PRODUCT.md": "# Product\n\n## Brand\n\nLogo: `public/missing.svg`.\n", "e2e/dod/routes.json": full, "e2e/dod/standard.json": std }, exit: 1, out: /brand-assets: .*public\/missing\.svg/ },
     // H1: a real route the scan cannot see is kept with its reason, never reported stale; a

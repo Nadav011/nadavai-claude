@@ -17,9 +17,10 @@ concurrency:
 jobs:
   ui:
     runs-on: ubuntu-latest
-    # A backstop: the DoD stops the standard's checks after `maxTimeouts` entries of the run ran
-    # out of time (standard.json, default 5), so a page that hangs on resize ends in the report,
-    # not here. Raise it for a project whose plain walk itself takes longer.
+    # A backstop. `pnpm dod` (e2e/dod/run-dod.mjs) runs the scored phase, then the standard's
+    # checks with their own deadline (standard.json `checksMinutes`, default 60) and `maxTimeouts`,
+    # and exits with the scored phase's code. Raise it for a project whose scored walk alone takes
+    # longer than an hour.
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4

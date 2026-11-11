@@ -69,9 +69,19 @@ export function standardCheck(o) {
   try {
     return check(o);
   } catch (err) {
-    // A file the checks could not read is a finding to fix, not a crash: in report mode it is
-    // printed and the check still passes.
-    return { mode: "report", failures: [{ check: "standard-check", message: `could not run: ${err.message}` }] };
+    // A file the checks could not read is an errored check, said as one, under the project's own
+    // mode: printed in report mode, a failure where the static checks are enforced.
+    let cfg = {};
+    try {
+      cfg = JSON.parse(fs.readFileSync(path.join(o.root, "e2e", "dod", "standard.json"), "utf8"));
+    } catch {
+      // standard.json itself unreadable: reported as report mode, the default.
+    }
+    return {
+      mode: cfg.mode === "enforce" ? "enforce" : "report",
+      enforce: Array.isArray(cfg.enforce) ? cfg.enforce : [],
+      failures: [{ check: "standard-check", message: `could not run: ${err.message}` }],
+    };
   }
 }
 

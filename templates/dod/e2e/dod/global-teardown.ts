@@ -2,7 +2,12 @@ import fs from "node:fs";
 import path from "node:path";
 import {
   aggregate,
+  CHECKS_DEADLINE_FILE,
   loadScoring,
+  notFinished,
+  PHASE,
+  plannedChecks,
+  standardFile,
   AXE_TAGS,
   excludedRoutes,
   loadParams,
@@ -38,13 +43,43 @@ export default async function globalTeardown() {
     configErrors.push(
       `deprecated: "static": true without "noHelp" also exempts the help door (${legacy.slice(0, 5).join(", ")}${legacy.length > 5 ? ", …" : ""}); add "noHelp": "<reason>" or "noHelp": false`,
     );
+  // The scored phase's files only: an entry's checks live in <name>.standard.json, written by the
+  // checks phase, and are merged below field by field, never over a scored field.
   const entries: EntryResult[] = fs.existsSync(RESULTS_DIR)
     ? fs
         .readdirSync(RESULTS_DIR)
-        .filter((f) => f.endsWith(".json"))
+        .filter((f) => f.endsWith(".json") && !f.endsWith(".standard.json") && path.join(RESULTS_DIR, f) !== CHECKS_DEADLINE_FILE)
         .sort()
         .map((f) => JSON.parse(fs.readFileSync(path.join(RESULTS_DIR, f), "utf8")) as EntryResult)
     : [];
+  // The checks phase's results, per entry. An entry it left nothing for (the phase has not run,
+  // reached its deadline, or its test ended first) has every planned check errored: never a pass
+  // where enforced, nothing at all in report mode.
+  const notChecked: Record<string, number> = {};
+  if (standard)
+    for (const e of entries) {
+      if (!e.reached || e.unreachable) continue;
+      const name = `${e.slug}__${e.viewport.width}__${e.scheme}`;
+      const file = standardFile(name);
+      if (fs.existsSync(file)) {
+        const part = JSON.parse(fs.readFileSync(file, "utf8")) as Partial<EntryResult>;
+        e.standard = part.standard;
+        if (part.probe) e.probe = part.probe;
+        if (part.standard_error) e.standard_error = part.standard_error;
+        if (part.standard_retried) e.standard_retried = part.standard_retried;
+        if (part.standard_skipped) e.standard_skipped = part.standard_skipped;
+        continue;
+      }
+      const why =
+        PHASE === "scored"
+          ? "not checked: the checks phase has not run (pnpm dod runs it after the scored phase)"
+          : fs.existsSync(CHECKS_DEADLINE_FILE)
+            ? `not checked: the checks phase reached its deadline (checksMinutes ${standard.checksMinutes})`
+            : "not checked: its checks test left no result (it failed or was cut short)";
+      e.standard = notFinished(plannedChecks(standard, e.route, e.viewport, e.scheme), why);
+      e.standard_unchecked = why;
+      notChecked[why] = (notChecked[why] ?? 0) + 1;
+    }
 
   // A route is measured in every viewport × scheme, or it is not measured.
   //
@@ -121,6 +156,10 @@ export default async function globalTeardown() {
           skipped_after_timeouts: entries.some((e) => e.standard_skipped)
             ? { max_timeouts: standard.maxTimeouts, entries_not_checked: entries.filter((e) => e.standard_skipped).length }
             : null,
+          // Entries the checks phase left no result for, by reason (each "errored" where enforced).
+          not_checked: Object.keys(notChecked).length
+            ? { entries: Object.values(notChecked).reduce((a, b) => a + b, 0), reasons: notChecked }
+            : null,
           not_built: STANDARD_NOT_BUILT,
         };
       })()
@@ -193,6 +232,14 @@ export default async function globalTeardown() {
     for (const e of [...standardSummary.config_errors, ...standardSummary.errors].slice(0, 20)) console.log(`[dod]   ${e}`);
   }
 
+  if (typeof standardSummary === "object" && standardSummary.not_checked) {
+    if (PHASE === "scored" && process.env.DOD_CHECKS_NEXT === "1")
+      console.log(`\n[dod] scored phase done; the experience standard's checks run next (${standardSummary.not_checked.entries} entries).`);
+    else {
+      console.log(`\n[dod] ${standardSummary.not_checked.entries} entr(ies) have no result from the standard's checks (errored where enforced):`);
+      for (const [why, n] of Object.entries(standardSummary.not_checked.reasons)) console.log(`[dod]   ${n} × ${why}`);
+    }
+  }
   if (typeof standardSummary === "object" && standardSummary.skipped_after_timeouts)
     console.log(
       `\n[dod] the standard's checks stopped after ${standardSummary.skipped_after_timeouts.max_timeouts} entries ran out of time: ` +

@@ -9,8 +9,9 @@ What it measures per route, at 375 and 1440 px, light and dark: HTTP status, whe
 really painted, horizontal overflow, axe violations of every impact (tags `wcag2a`, `wcag2aa`,
 `wcag21a`, `wcag21aa`, `wcag22aa`), console errors, loaded font families, touch targets under 44 px
 (375 only), animations that keep moving under `prefers-reduced-motion`. With `e2e/dod/standard.json`
-it also runs the experience standard's checks (below). It never fails on findings; it writes
-`reports/dod/dod.json` and screenshots under `reports/dod/screens/`.
+it also runs the experience standard's checks (below), in a second phase after every scored entry.
+It never fails on findings; it writes `reports/dod/dod.json` and screenshots under
+`reports/dod/screens/`.
 
 ## The score
 
@@ -129,8 +130,12 @@ Then, in the project:
 
 2. `playwright.dod.config.ts`: the dev port and `webServer.command` (`pnpm dev -p`, `vite --port`, ...).
    Chromium starts without `--disable-dev-shm-usage` (`use.launchOptions`); keep that.
-3. `package.json` scripts: `"dod": "node e2e/dod/routes.mjs --check && playwright test -c playwright.dod.config.ts"`
-   (one route while building a screen: `pnpm dod -- --grep "<slug>__"`). Parallelism: `DOD_WORKERS=8 pnpm dod`.
+3. `package.json` scripts: `"dod": "node e2e/dod/routes.mjs --check && node e2e/dod/run-dod.mjs"`
+   (one route while building a screen: `pnpm dod -- --grep "<slug>__"`; the arguments go to both
+   phases). Parallelism: `DOD_WORKERS=8 pnpm dod`. `run-dod.mjs` runs Playwright twice, the scored
+   phase then the checks phase, and exits with the scored phase's code. A plain
+   `playwright test -c playwright.dod.config.ts` runs the scored phase alone; its `dod.json` then
+   says the standard's checks have not run.
 4. Dev dependencies when missing, at exact versions: `pnpm add -D -E @playwright/test @axe-core/playwright`.
    Visual diffs are optional: with `ARGOS_TOKEN` set each screenshot also goes to Argos, which needs
    `@argos-ci/playwright`; without the token the package is never loaded, and with the token but no
@@ -181,17 +186,28 @@ the project has `e2e/dod/standard.json`. Without it nothing changes and `dod.jso
   check in `report` until a full run on its own routes shows no false alarm for that check, moves
   checks to `enforce` one at a time, and reports a false alarm to the design-skill session with the
   markup that caused it, so the kit's real-markup pages (`tests/fixtures/real-*.html`) grow.
-- Report mode never moves a number, by order: an entry first takes every scored measurement
-  (`measureEntry` in `dod.spec.ts`: the load, screenshot, overflow, axe, fonts, touch targets, the
-  reduced-motion reload and the console count over all of it), the same function with or without
-  `standard.json`, and writes its result. Only then do the standard's checks run, on the route loaded
-  again with motion back to normal, and what they return can hold only their own fields
-  (`standard`, `probe`, `standard_error`, `standard_retried`, `standard_skipped`). One try ends at
-  its 30 s deadline, whatever is still running; a try that ran out of time, a check call that failed
-  as a whole, or any error under `CI` (`true` or `1`) gets one more try on a page that still answers
-  (the viewport back and a trivial call, 5 s each), keeping the first try's result for every check
-  that did not error in it (`standard_retried` says why). The test's timeout grows by 75 s (two tries
-  and three waits). A resize that loads a new document (a navigation or a same-URL reload) or
+- Report mode never moves a number or the exit code, by order, at the level of the run: `pnpm dod`
+  (`run-dod.mjs`) first runs the scored phase, every entry of every route (`dod.spec.ts`, which
+  never reads `standard.json`: the same tests and the same timeouts with or without it), and its
+  teardown writes the scored `dod.json`. Only after that Playwright run has exited does the checks
+  phase start (`DOD_PHASE=checks`: `standard.spec.ts`, and any other spec in `e2e/dod`). Each of its
+  tests loads its route again in a fresh context and writes only `results/<name>.standard.json`,
+  which the second teardown merges into the entries field by field (`standard`, `probe`,
+  `standard_error`, `standard_retried`, `standard_skipped`), never over a scored field. The run's
+  exit code is the scored phase's: a hang, a crash or a red test in the checks phase cannot change
+  it, and with no check enforced it cannot change a number either. In enforce mode the enforced
+  checks' deductions are applied in the aggregation, so the CI score step sees them.
+- What the checks phase still does, and the guarantee does not cover: it signs in again and loads
+  every checked route once more (twice when a try is retried) with the QA session, after the scored
+  phase. It cannot change this run's scores, but an app that rate-limits by session or by account
+  sees those loads, and the next run starts after them; a session that does not outlive the scored
+  phase alone was already a problem.
+- In the checks phase, one try ends at its 30 s deadline, whatever is still running; a try that ran
+  out of time, a check call that failed as a whole, or any error under `CI` (`true` or `1`) gets one
+  more try on a page that still answers (the viewport back and a trivial call, 5 s each), keeping
+  the first try's result for every check that did not error in it (`standard_retried` says why).
+  Each checks test ends its checks 10 s before its own timeout (135 s) and writes its file itself,
+  once, so nothing is written after the phase's teardown has read it. A resize that loads a new document (a navigation or a same-URL reload) or
   changes the URL (`history.replaceState`) stops the measuring with an error that says which; a
   reload too early to see is recorded as the raw "Execution context was destroyed". A check that
   fails or runs out of time (a bad `coreUnit.selector`, a hung page) writes an `error` on that check
@@ -199,7 +215,13 @@ the project has `e2e/dod/standard.json`. Without it nothing changes and `dod.jso
 - `maxTimeouts` (default 5): once that many entries of a run ran out of time in the standard's
   checks (a loaded machine, a page that blocks on resize), the rest of the run neither retries nor
   runs them: `standard.skipped_after_timeouts` in `dod.json` gives the count of entries not
-  checked, the summary prints it, and in enforce each of them is "errored".
+  checked, the summary prints it, and in enforce each of them is "errored". The count is shared by
+  the workers, and the entries already being checked when it is reached still finish, so a run can
+  end with up to `maxTimeouts + DOD_WORKERS - 1` timed-out entries.
+- `checksMinutes` (default 60): the checks phase as a whole stops then (`run-dod.mjs` interrupts it;
+  its teardown still writes `dod.json`, and a minute later it is killed). Every entry it left no
+  result for is listed in `standard.not_checked` (count and reason) and in the summary, and is
+  "errored" where enforced; so is every entry when the checks phase has not run at all.
 - `textFloorPx`: the smallest text the probe accepts (default 12).
 - `helpDir` (optional): turns on `help-route`.
 - `coreUnit` (optional): turns on `core-unit` for that one route.
@@ -243,8 +265,10 @@ What each check reads (the markers are the standard's: `data-help`, `data-state`
 In `dod.json` each route has `standard: { <check-id>: { count, samples, skipped?, error?, verdict,
 enforced } }` (its highest entry; `verdict` is `"errored"`, `"found N"`, `"skipped"` or `"clean"`),
 each entry its own `standard`, `standard_retried` when it took a second try, `standard_skipped` when
-the run had stopped the checks and, on the light entries, `probe` by size; the top level has `standard` (mode, the enforced ids, profile, per check id the routes,
-findings, errors and skips, and what is not built) and `totals.standard_findings` (all findings),
+the run had stopped the checks, `standard_unchecked` when the checks phase left it no result, its
+`measured_url` and, on the light entries, `probe` by size; the top level has `standard` (mode, the
+enforced ids, profile, per check id the routes, findings, errors and skips, `not_checked` by
+reason, and what is not built) and `totals.standard_findings` (all findings),
 `totals.standard_failures` (check ids with findings), `totals.standard_errored` (check ids that
 errored) and `totals.standard_scored` (the enforced ones among both, which cost points).
 
@@ -290,6 +314,10 @@ Five projects run an older copy. What changes for each, in the order it bites:
   measures reduced motion, an entry whose path differs from the first load's (a session that expired
   mid-run and sent it to sign-in) is now `unreachable`, and the score is 0 until the session lasts
   the run. Before, that sign-in screen's motion was counted as the page's.
+- **`pnpm dod` runs `run-dod.mjs`.** Change the `dod` script (Install, step 3). The standard's
+  checks are a second Playwright run after the scored one; a project that calls `playwright test`
+  directly gets the scored phase only. A test of the project's own in `e2e/dod` runs in the checks
+  phase, not between scored entries.
 - **Run from the root.** The template finds its files from the working directory (or `DOD_ROOT`),
   not from `__dirname`; an ESM project drops its `import.meta` and JSON-attribute patch.
 - **Heavily customised copies port by hand**, check by check, instead of copying the files over:
@@ -306,7 +334,7 @@ scores 100 in `enforce` mode, and the A3 repairs have their own (an anonymous en
 `routes.mjs --check` and the static checks run against small fake apps.
 
 ```bash
-heavy-slot -- node ~/nadavai/templates/dod/tests/run.mjs            # both runs, about 30 minutes
+heavy-slot -- node ~/nadavai/templates/dod/tests/run.mjs            # both runs, about 45 minutes
 heavy-slot -- node ~/nadavai/templates/dod/tests/run.mjs --only esm
 node ~/nadavai/templates/dod/tests/run.mjs --skip-browser          # tsc and the static checks
 ```

@@ -2,8 +2,10 @@ import fs from "node:fs";
 import { defineConfig } from "@playwright/test";
 import { STORAGE_STATE } from "./e2e/dod/dod-shared";
 
-// Definition-of-Done gate (`pnpm dod`). Separate config so it never runs, or is run by,
-// the project's own Playwright suite. Adjust `port` and `webServer.command` per project.
+// Definition-of-Done gate (`pnpm dod`, which runs e2e/dod/run-dod.mjs). Separate config so it never
+// runs, or is run by, the project's own Playwright suite. Two phases, two runs of this config:
+// DOD_PHASE unset runs the scored phase (dod.spec.ts) alone; DOD_PHASE=checks runs every other spec
+// of e2e/dod (the experience standard's checks, standard.spec.ts) after it. Adjust `port` and `webServer.command` per project.
 // Run it from the project root: e2e/dod/dod-shared.ts finds routes.json and reports/
 // from the working directory (or DOD_ROOT), which works in ESM and CommonJS projects alike.
 const port = process.env.PORT ?? "3000";
@@ -11,6 +13,7 @@ const baseURL = `http://localhost:${port}`;
 
 export default defineConfig({
   testDir: "./e2e/dod",
+  ...(process.env.DOD_PHASE === "checks" ? { testIgnore: /[\\/]dod\.spec\.ts$/ } : { testMatch: /[\\/]dod\.spec\.ts$/ }),
   timeout: 120_000,
   expect: { timeout: 10_000 },
   // Every entry writes its own result file, so workers are safe. All routes x 2 viewports x 2 schemes

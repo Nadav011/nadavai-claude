@@ -242,7 +242,21 @@ if (process.argv.includes("--check")) {
   // checks cannot be trusted until it is fixed. Findings fail only in enforce mode.
   const configError = std.failures.some((f) => f.check === "standard.json");
   // A check id listed under "enforce" fails in report mode too.
-  const failing = std.failures.filter((f) => std.mode === "enforce" || (std.enforce ?? []).includes(f.check));
+  // The static checks crashing as a whole ("standard-check") errs every one of them: a failure
+  // when any static check is enforced.
+  // (The ids come from standard-checks.json; when that file is what failed, any enforced id counts.)
+  let STATIC = null;
+  try {
+    STATIC = JSON.parse(fs.readFileSync(path.join(ROOT, "e2e", "dod", "standard-checks.json"), "utf8")).static;
+  } catch {
+    STATIC = null;
+  }
+  const failing = std.failures.filter(
+    (f) =>
+      std.mode === "enforce" ||
+      (std.enforce ?? []).includes(f.check) ||
+      (f.check === "standard-check" && (std.enforce ?? []).some((id) => !STATIC || STATIC.includes(id))),
+  );
   console.log(
     `dod-standard (${std.mode}): ${std.failures.length} finding(s) in the static checks` +
       (std.failures.length > failing.length && !configError
