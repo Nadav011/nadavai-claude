@@ -4,6 +4,7 @@
     "cal-week": {
       "title": "יומן · שבוע",
       "menu": true,
+      "recordAnchors": ["cal.ended-appointment", "appt.happened", "appt.note", "appt.paid", "pay.method", "pay.confirm"],
       "tasks": [
         { "text": "לקבוע תור", "tour": "book", "anchors": ["cal.new-appointment", "appt.save"] },
         { "text": "לסגור טיפול שהסתיים", "tour": "close-1", "anchors": ["appt.happened", "appt.note", "appt.paid"] },
@@ -13,6 +14,7 @@
     "cal-day": {
       "title": "יומן · יום",
       "viewOf": "cal-week",
+      "recordAnchors": ["cal.ended-appointment", "appt.happened", "appt.note", "appt.paid", "pay.method", "pay.confirm"],
       "menu": true,
       "tasks": [
         { "text": "לקבוע תור", "tour": "book" },
@@ -22,6 +24,7 @@
     "appt-new": {
       "title": "תור חדש",
       "menu": false,
+      "recordAnchors": ["appt.patient-picker", "appt.service", "appt.save"],
       "tasks": [
         { "text": "לקבוע תור", "tour": "book", "anchors": ["appt.patient-picker", "appt.service", "appt.save"] }
       ]
@@ -29,15 +32,16 @@
     "patients": {
       "title": "מטופלים",
       "menu": true,
+      "recordAnchors": ["patients.row", "patients.charge"],
       "tasks": [
-        { "text": "לגבות ממי שלא שילם", "tour": "pat-debt", "anchors": [{ "anchor": "patients.filter", "arg": "לא שולם" }, "patients.charge"] }
+        { "text": "לגבות ממי שלא שילם", "tour": "pat-debt", "anchors": [{ "anchor": "patients.filter", "arg": "debt" }, "patients.charge"] }
       ]
     },
     "settings-msgs": {
       "title": "הגדרות · הודעות",
       "menu": true,
       "tasks": [
-        { "text": "לשנות תזכורת", "tour": "reminder", "anchors": [{ "anchor": "settings.row-edit", "arg": "תזכורת לפני תור" }, "settings.save"] }
+        { "text": "לשנות תזכורת", "tour": "reminder", "anchors": [{ "anchor": "settings.row-edit", "arg": "reminder-before" }, "settings.save"] }
       ]
     },
     "import": {

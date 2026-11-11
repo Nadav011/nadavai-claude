@@ -22,13 +22,13 @@
       "tasks": ["לקבוע תור"],
       "steps": [
         { "kind": "next", "anchor": "cal.new-appointment", "text": "קובעים תור מ\"תור חדש\", או מלחיצה על שעה פנויה ביומן." },
-        { "kind": "do", "act": "open", "anchor": "cal.free-slot", "result": { "kind": "open", "arg": "appt.create" },
+        { "kind": "do", "act": "open", "on": "none", "anchor": "cal.free-slot", "result": { "kind": "open", "arg": "appt.create" },
           "safeTest": "e2e/tours/sample-safe.spec.ts: opening the booking window sends nothing",
           "text": "לוחצים על השעה המסומנת. נפתח חלון לתור חדש." },
         { "kind": "do", "act": "pick", "on": "sample", "anchor": "appt.patient-picker", "result": { "kind": "custom", "arg": "appt.sample-picked" },
           "need": [{ "do": "reopen", "window": "appt.create" }],
           "safeTest": "e2e/tours/sample-safe.spec.ts: picking the sample patient sends nothing",
-          "text": "בוחרים את נועה לדוגמה, מטופלת לתרגול שלא מקבלת הודעות.",
+          "text": "בוחרים את נועה לדוגמה, המטופלת לתרגול.",
           "showText": "כאן בוחרים מטופל מהרשימה, או כותבים שם או טלפון.",
           "variants": [{ "when": "appt.other-picked", "text": "לתרגול בוחרים את נועה לדוגמה. לוחצים \"החלפה\"." }] },
         { "kind": "do", "act": "select", "on": "sample", "anchor": "appt.service", "result": { "kind": "step", "arg": { "window": "appt.create", "n": 3 } },
@@ -37,7 +37,7 @@
           "text": "בוחרים טיפול מהרשימה." },
         { "kind": "stop", "class": "T", "anchor": "appt.save",
           "need": [{ "do": "reopen", "window": "appt.create" }, { "do": "selectSample" }],
-          "text": "\"קביעת התור\" שומר ביומן. למטופלת לדוגמה לא יוצאת הודעה." }
+          "text": "\"קביעת התור\" שומר ביומן ושולח אישור. לכן הסיור נעצר כאן." }
       ],
       "finish": "עכשיו ידוע איך קובעים תור. התור נשמר רק בלחיצה על \"קביעת התור\"."
     },
@@ -102,7 +102,7 @@
             "stopTest": "e2e/tours/stop-steps.spec.ts: outside practice mode \"שולם\" is a stop step and the server refuses it"
           },
           "text": "במצב תרגול לוחצים \"שולם\". נפתח חלון התשלום." },
-        { "kind": "do", "act": "pick", "on": "sample", "anchor": "pay.method", "arg": "מזומן", "result": { "kind": "stateEquals", "arg": { "key": "pay.method", "value": "cash" } },
+        { "kind": "do", "act": "pick", "on": "sample", "anchor": "pay.method", "arg": "cash", "result": { "kind": "stateEquals", "arg": { "key": "pay.method", "value": "cash" } },
           "need": [{ "do": "reopen", "window": "pay.sheet" }],
           "safeTest": "e2e/practice/pay.spec.ts: choosing how she paid records nothing",
           "text": "בוחרים \"מזומן\". שום דבר לא נרשם עדיין." },
@@ -125,7 +125,7 @@
       "start": { "screen": "patients" },
       "tasks": ["לגבות ממי שלא שילם", "לראות מה המטופל חייב"],
       "steps": [
-        { "kind": "do", "act": "pick", "anchor": "patients.filter", "arg": "לא שולם", "result": { "kind": "stateEquals", "arg": { "key": "patients.filter", "value": "debt" } },
+        { "kind": "do", "act": "pick", "on": "none", "anchor": "patients.filter", "arg": "debt", "result": { "kind": "stateEquals", "arg": { "key": "patients.filter", "value": "debt" } },
           "safeTest": "e2e/tours/sample-safe.spec.ts: a filter changes nothing",
           "text": "לוחצים \"לא שולם\". נשארים רק מי שחייבים כסף." },
         { "kind": "next", "anchor": "patients.row", "text": "בכל שורה רואים כמה המטופל חייב, ומאז מתי." },
@@ -142,13 +142,13 @@
       "where": "הגדרות · הודעות",
       "tasks": ["לשנות תזכורת"],
       "steps": [
-        { "kind": "do", "act": "open", "when": "settings.msgs-closed", "anchor": "settings.tab", "arg": "הודעות", "result": { "kind": "route", "arg": { "is": "settings-msgs" } },
+        { "kind": "do", "act": "open", "on": "none", "when": "settings.msgs-closed", "anchor": "settings.tab", "arg": "messages", "result": { "kind": "route", "arg": { "is": "settings-msgs" } },
           "safeTest": "e2e/tours/sample-safe.spec.ts: opening a settings part changes nothing",
           "text": "לוחצים על \"הודעות\" ברשימת ההגדרות." },
-        { "kind": "do", "act": "open", "anchor": "settings.row-edit", "arg": "תזכורת לפני תור", "result": { "kind": "open", "arg": "settings.edit-sheet" },
+        { "kind": "do", "act": "open", "on": "none", "anchor": "settings.row-edit", "arg": "reminder-before", "result": { "kind": "open", "arg": "settings.edit-sheet" },
           "safeTest": "e2e/tours/sample-safe.spec.ts: opening an edit sheet changes nothing",
           "text": "לוחצים \"עריכה\" ליד \"תזכורת לפני תור\"." },
-        { "kind": "do", "act": "type", "anchor": "settings.reminder-hours", "result": { "kind": "fieldChanged", "arg": "settings.reminder-hours" },
+        { "kind": "do", "act": "type", "on": "none", "anchor": "settings.reminder-hours", "result": { "kind": "fieldChanged", "arg": "settings.reminder-hours" },
           "need": [{ "do": "reopen", "window": "settings.edit-sheet" }],
           "safeTest": "e2e/tours/sample-safe.spec.ts: typing in the sheet saves nothing",
           "text": "משנים כמה שעות לפני התור יוצאת התזכורת." },

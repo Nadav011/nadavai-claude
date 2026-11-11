@@ -17,6 +17,11 @@
         "required": ["menu", "tasks"],
         "properties": {
           "title": { "type": "string", "minLength": 1 },
+          "recordAnchors": {
+            "type": "array",
+            "items": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*(\\.[a-z0-9]+(-[a-z0-9]+)*)+$" },
+            "description": "The anchors of this screen that sit on a person's record or row (a row's button, an appointment, its payment): a do step on one of them with on: none is a finding. The project declares them; that the list is complete is judged in the running app."
+          },
           "viewOf": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$", "description": "This key is a view of that screen (the calendar's day view of its week): a core entry may group a screen's views, and they count as one core screen." },
           "menu": { "type": "boolean", "description": "The screen is reachable from the menu." },
           "tasks": {
@@ -40,7 +45,7 @@
                         "required": ["anchor", "arg"],
                         "properties": {
                           "anchor": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*(\\.[a-z0-9]+(-[a-z0-9]+)*)+$" },
-                          "arg": { "type": ["string", "number"] }
+                          "arg": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$" }
                         }
                       }
                     ]

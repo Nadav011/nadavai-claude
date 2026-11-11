@@ -1306,10 +1306,11 @@ const TOUR_EX = JSON.parse(fs.readFileSync(path.join(TOURS, 'example', 'tours.js
 const INV_EX = JSON.parse(fs.readFileSync(path.join(TOURS, 'example', 'inventory.json'), 'utf8'));
 const clone = x => JSON.parse(JSON.stringify(x));
 const tourOf = (m, id) => m.tours.find(t => t.id === id);
-function tourCheck(man, inv, checker = path.join(TOURS, 'tour-check.mjs')) {
+const offRecord = (i, anchor) => { for (const sc of Object.values(i.screens)) if (sc.recordAnchors) sc.recordAnchors = sc.recordAnchors.filter(a => a !== anchor); };
+function tourCheck(man, inv, checker = path.join(TOURS, 'tour-check.mjs'), extra = []) {
   const dir = fs.mkdtempSync(path.join(TMP, 'tours-'));
   fs.writeFileSync(path.join(dir, 'tours.json'), JSON.stringify(man));
-  const args = [checker, path.join(dir, 'tours.json'), '--json'];
+  const args = [checker, path.join(dir, 'tours.json'), '--json', ...extra];
   if (inv) { fs.writeFileSync(path.join(dir, 'inventory.json'), JSON.stringify(inv)); args.push('--inventory', path.join(dir, 'inventory.json')); }
   const r = sh('node', args);
   let out = null; try { out = JSON.parse(r.stdout); } catch { /* reported by the caller */ }
@@ -1345,8 +1346,11 @@ const TOUR_FIXTURES = [
   ['start-key', 'tour-no-commit', 'G-08', 'a start that asks to press a control', m => { tourOf(m, 'book').start.press = 'appt.save'; }],
   ['core-count', 'tour-shape', 'G-21', 'six core screens', m => { m.core.push(...['leads', 'chats', 'money', 'forms'].map(id => ({ id, screens: [id] }))); }],
   ['core-count', 'tour-shape', 'G-21', 'one core entry holding six screens that are not views of one screen', m => { m.core = [{ id: 'all', screens: ['cal-week', 'cal-day', 'patients', 'settings-msgs', 'import', 'appt-new', 'reports'] }]; }],
-  ['practice-not-sample', 'tour-no-commit', 'G-20', 'a practice-only step that does not run on the sample record', m => { delete tourOf(m, 'close-3').steps[1].on; }],
-  ['record-not-sample', 'tour-no-commit', 'G-08', 'a do step that opens a record that is not the sample record', m => { delete tourOf(m, 'close-1').steps[0].on; }],
+  ['practice-not-sample', 'tour-no-commit', 'G-20', 'a practice-only step that does not run on the sample record', (m, i) => { tourOf(m, 'close-3').steps[1].on = 'none'; offRecord(i, 'appt.paid'); }],
+  ['record-not-sample', 'tour-no-commit', 'G-08', 'a do step that opens a record that is not the sample record', (m, i) => { tourOf(m, 'close-1').steps[0].on = 'none'; offRecord(i, 'cal.ended-appointment'); }],
+  ['do-no-on', 'tour-no-commit', 'G-08', 'a do step that does not say whose record it acts on', m => { delete tourOf(m, 'book').steps[1].on; }],
+  ['do-no-on', 'tour-no-commit', 'G-08', 'the reviewer\'s P1, a do step that opens a debtor\'s charge window, as written (no on)', m => { const t = tourOf(m, 'pat-debt'); t.steps[3] = { kind: 'do', act: 'open', when: 'desktop', anchor: 'patients.charge', result: { kind: 'open', arg: 'pay.charge-sheet' }, safeTest: 'e2e/x.spec.ts: y', text: 'לוחצים "חיוב". נפתח חלון החיוב.' }; t.steps.push({ kind: 'stop', class: 'P', when: 'desktop', anchor: 'pay.charge-confirm', text: '"אישור החיוב" גובה מהכרטיס השמור.' }); }],
+  ['none-on-record', 'tour-no-commit', 'G-08', 'the same P1 at on: none, on a control the inventory lists on a person\'s row', m => { const t = tourOf(m, 'pat-debt'); t.steps[3] = { kind: 'do', act: 'open', on: 'none', when: 'desktop', anchor: 'patients.charge', result: { kind: 'open', arg: 'pay.charge-sheet' }, safeTest: 'e2e/x.spec.ts: y', text: 'לוחצים "חיוב". נפתח חלון החיוב.' }; t.steps.push({ kind: 'stop', class: 'P', when: 'desktop', anchor: 'pay.charge-confirm', text: '"אישור החיוב" גובה מהכרטיס השמור.' }); }],
   ['do-class', 'tour-no-commit', 'G-20', 'a practice-only step with no class and no tests', m => { const s = tourOf(m, 'close-3').steps[1]; delete s.class; s.practiceOnly = {}; s.safeTest = 'e2e/x.spec.ts: y'; }],
   ['view-of', 'tour-shape', 'G-21', 'a viewOf that names a screen the inventory does not have', (m, i) => { i.screens['cal-day'].viewOf = 'ghost'; }],
   ['view-of', 'tour-shape', 'G-21', 'a viewOf that names the key itself', (m, i) => { i.screens['cal-day'].viewOf = 'cal-day'; }],
@@ -1356,7 +1360,7 @@ const TOUR_FIXTURES = [
   ['start-screen', 'manifest', null, 'a start on a screen the tour does not list', m => { tourOf(m, 'book').start.screen = 'settings-msgs'; }],
   ['chapter-end', 'tour-shape', 'G-07', 'a chapter whose phone run ends at a showing step', m => { const t = tourOf(m, 'close-1'); t.steps.push({ kind: 'next', when: 'phone', anchor: 'appt.note', text: 'בטלפון: כאן עוד משהו.' }, { kind: 'stop', class: 'S', when: 'desktop', anchor: 'appt.note', text: 'במחשב: "סיכום" פותח את הרשומה.' }); }],
   ['article-anchor', 'help-refs', 'G-02, G-19', 'an article on one screen names a control of another screen', (m, i) => { i.screens.patients.tasks[0].anchors.push('cal.print'); }],
-  ['article-anchor', 'help-refs', 'G-02, G-19', 'an article names a known control with an arg nothing on its screen uses', (m, i) => { i.screens.patients.tasks[0].anchors[0] = { anchor: 'patients.filter', arg: 'אין כזה' }; }],
+  ['article-anchor', 'help-refs', 'G-02, G-19', 'an article names a known control with an arg nothing on its screen uses', (m, i) => { i.screens.patients.tasks[0].anchors[0] = { anchor: 'patients.filter', arg: 'no-such-row' }; }],
   ['task-no-tour', 'tour-inventory', 'G-19', 'an article task with no tour and no reason', (m, i) => { i.screens['cal-day'].tasks.push({ text: 'לבטל תור' }); }],
   ['task-no-tour', 'tour-inventory', 'G-19', 'an extra task with no tour and no reason', m => { m.extraTasks.push({ screen: 'patients', task: 'למחוק מטופל' }); }],
   ['screen-no-tour', 'tour-inventory', 'G-19', 'a menu screen with no tour and no reason', (m, i) => { i.screens.reports = { menu: true, tasks: [] }; }],
@@ -1384,7 +1388,26 @@ await test('TOUR-0', 'tour-check passes the example manifest clean, with and wit
   for (const [kind, id] of need) if (!b[kind] || !b[kind][id]) why.push(`bindings.web.mjs has no ${kind} "${id}"`);
   for (const id of Object.keys(b.anchors)) if (!anchors.has(id)) why.push(`bindings.web.mjs resolves "${id}", which no step points at`);
   for (const k of ['route', 'view', 'selectSample']) if (typeof b[k] !== 'function') why.push(`bindings.web.mjs has no ${k}`);
-  if (/reopenLast/.test(fs.readFileSync(path.join(TOURS, 'example', 'bindings.web.mjs'), 'utf8'))) why.push('bindings.web.mjs reopens the last window open, not the tour\'s own record');
+  // a reopen in a tour that opens a person's record puts back the sample's record: a fake app whose last-opened record
+  // is a real person's, and every call the binding makes is logged with its arguments
+  const SAMPLE = { id: 'sample-appt', sample: true };
+  const REAL = { id: 'real-appt', sample: false };
+  const fake = log => {
+    const node = name => new Proxy(function () {}, {
+      get: (t, k) => (typeof k === 'symbol' ? undefined : k === 'sampleEndedNotClosed' ? () => SAMPLE : /^(last|recent|current)$/.test(k) ? REAL : node(`${name}.${k}`)),
+      apply: (t, self, args) => { log.push({ name, args }); return node(`${name}()`); },
+    });
+    return { app: node('app'), $: () => null, $: () => [] };
+  };
+  for (const t of TOUR_EX.tours) {
+    if (!t.steps.some(st => st.result && st.result.kind === 'recordOpen')) continue;
+    for (const w of new Set(t.steps.flatMap(st => (st.need || []).filter(n => n.do === 'reopen').map(n => n.window)))) {
+      const log = [];
+      b.windows[w].reopen(fake(log));
+      const args = log.flatMap(c => c.args);
+      if (!args.includes(SAMPLE) || args.includes(REAL)) why.push(`${t.id}: the reopen of ${w} does not put back the sample's record (${JSON.stringify(log.map(c => c.name))})`);
+    }
+  }
   return why.join(' · ');
 });
 await test('TOUR-usage', 'tour-check exits 2 with no manifest, a missing file, a file that is not JSON and an unknown option', async () => {
@@ -1432,6 +1455,9 @@ await test('TOUR-schema', 'tour-check holds the manifest and the inventory to th
     ['a start on a record that is not the sample', m => { tourOf(m, 'book').start.record = 'shiran'; }, '/tours/0/start/record'],
     ['a start view per device with one device only', m => { tourOf(m, 'book').start.view = { phone: 'day' }; }, '/tours/0/start/view'],
     ['a start date that is not today', m => { tourOf(m, 'book').start.date = '2026-11-11'; }, '/tours/0/start/date'],
+    ['an arg that is a visible label, not a key', m => { tourOf(m, 'pat-debt').steps[0].arg = 'לא שולם'; }, '/tours/4/steps/0/arg'],
+    ['a test name that is a zero-width space', m => { tourOf(m, 'book').steps[1].safeTest = '\u200b'; }, '/tours/0/steps/1/safeTest'],
+    ['an on that is neither sample nor none', m => { tourOf(m, 'book').steps[1].on = 'real'; }, '/tours/0/steps/1/on'],
   ];
   for (const [what, change, at] of cases) {
     const m = clone(TOUR_EX);
@@ -1531,8 +1557,10 @@ await test('TOUR-kinds', 'a do step that opens a person\'s record without on: sa
   if (ok.status !== 0 || !ok.out || ok.out.findings.length) why.push(`open on a rule: exit ${ok.status} ${JSON.stringify(ok.out && ok.out.findings.map(f => f.code))}`);
   const p = clone(TOUR_EX);
   const s = tourOf(p, 'close-2').steps[0];
-  delete s.on;
-  const bad = tourCheck(p, INV_EX);
+  s.on = 'none';
+  const pinv = clone(INV_EX);
+  offRecord(pinv, 'cal.ended-appointment');
+  const bad = tourCheck(p, pinv);
   if (bad.status !== 1 || !bad.out || bad.out.findings.map(f => f.code).join(',') !== 'record-not-sample') why.push(`recordOpen without on: exit ${bad.status} ${JSON.stringify(bad.out && bad.out.findings.map(f => f.code))}`);
   return why.join(' · ');
 });
@@ -1549,6 +1577,48 @@ await test('TOUR-malformed', 'a tour or a step that is not an object, or a manif
   fs.writeFileSync(path.join(dir, 'tours.json'), JSON.stringify({ ...TOUR_EX, tours: [null] }));
   const t = sh('node', [path.join(TOURS, 'tour-check.mjs'), path.join(dir, 'tours.json')]);
   if (t.status !== 2 || !/tour 1 is not an object/.test(t.stderr) || /at file:/.test(t.stderr)) why.push(`text mode: exit ${t.status} ${t.stderr.trim()}`);
+  return why.join(' · ');
+});
+await test('TOUR-demo-practice', 'at stage demo a practice-only step may name no tests: one note, no finding; at stage app the same step is do-class; without the line M:demo-practice the note is gone', async () => {
+  const why = [];
+  const m = clone(TOUR_EX);
+  m.stage = 'demo';
+  tourOf(m, 'close-3').steps[1].practiceOnly = {};
+  const note = '1 practice-only steps name no mode test or stop test yet; each needs both before the app runs this tour';
+  const r = tourCheck(m, INV_EX);
+  if (r.status !== 0 || !r.out || r.out.findings.length || !r.out.notes.some(n => n.message === note)) why.push(`demo: exit ${r.status} ${JSON.stringify(r.out && { f: r.out.findings.map(f => f.code), n: r.out.notes })}`);
+  const a = clone(m);
+  a.stage = 'app';
+  const ra = tourCheck(a, INV_EX);
+  if (ra.status !== 1 || !ra.out || ra.out.findings.map(f => f.code).join(',') !== 'do-class') why.push(`app: exit ${ra.status} ${JSON.stringify(ra.out && ra.out.findings.map(f => f.code))}`);
+  const mu = tourCheck(m, INV_EX, mutant('demo-practice'));
+  if (!mu.out || mu.out.notes.some(n => n.message === note)) why.push('mutant without M:demo-practice still prints the note');
+  return why.join(' · ');
+});
+await test('TOUR-none-no-inventory', 'without --inventory the example\'s on: "none" steps are counted in a note, since recordAnchors are not read; with it there is no such note; without the line M:none-no-inventory the note is gone', async () => {
+  const why = [];
+  const n = TOUR_EX.tours.flatMap(t => t.steps).filter(s => s.kind === 'do' && s.on === 'none').length;
+  const note = `${n} do steps at on: "none" were not judged against recordAnchors: that needs --inventory`;
+  const r = tourCheck(TOUR_EX, null);
+  if (r.status !== 0 || !r.out || !r.out.notes.some(x => x.message === note)) why.push(`no inventory: exit ${r.status} ${JSON.stringify(r.out && r.out.notes)}`);
+  const w = tourCheck(TOUR_EX, INV_EX);
+  if (!w.out || w.out.notes.some(x => /recordAnchors/.test(x.message))) why.push('with --inventory the note is still printed');
+  const mu = tourCheck(TOUR_EX, null, mutant('none-no-inventory'));
+  if (!mu.out || mu.out.notes.some(x => x.message === note)) why.push('mutant without M:none-no-inventory still prints the note');
+  return why.join(' · ');
+});
+await test('TOUR-stage', 'with --require-stage app the example passes and a manifest at demo fails with stage-required only; without its line it passes; another value is a usage error', async () => {
+  const why = [];
+  const ok = tourCheck(TOUR_EX, INV_EX, undefined, ['--require-stage', 'app']);
+  if (ok.status !== 0 || !ok.out || ok.out.findings.length) why.push(`example: exit ${ok.status}`);
+  const m = clone(TOUR_EX);
+  m.stage = 'demo';
+  const r = tourCheck(m, INV_EX, undefined, ['--require-stage', 'app']);
+  if (r.status !== 1 || !r.out || r.out.findings.map(f => f.code).join(',') !== 'stage-required') why.push(`demo: exit ${r.status} ${JSON.stringify(r.out && r.out.findings.map(f => f.code))}`);
+  const mu = tourCheck(m, INV_EX, mutant('stage-required'), ['--require-stage', 'app']);
+  if (mu.status !== 0) why.push(`mutant without M:stage-required: exit ${mu.status}`);
+  const u = sh('node', [path.join(TOURS, 'tour-check.mjs'), path.join(TOURS, 'example', 'tours.json'), '--require-stage', 'beta']);
+  if (u.status !== 2) why.push(`--require-stage beta: exit ${u.status}`);
   return why.join(' · ');
 });
 await test('TOUR-demo','at stage demo, do steps that name no G-20 test are one note with their count, not findings; without the stage line they are findings', async () => {

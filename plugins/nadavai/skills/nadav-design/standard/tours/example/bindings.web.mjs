@@ -38,7 +38,10 @@ export default {
     'settings.msgs-closed': x => x.app.route.key !== 'settings-msgs',
   },
   // window id -> whether it is open (results open and step) and how a resume reopens it (need: reopen). A reopen
-  // puts back the tour's own record, the sample's, never the last one open: she may have opened a real person's since
+  // puts back the tour's own record, the sample's, never the last one open: she may have opened a real person's since.
+  // With no sample record (removed, or its appointment closed) a reopen does nothing and the step only shows; inside
+  // practice mode the sample's record is its copy. The engine asks her before it runs a need over something she chose
+  // or typed since (G-08); the bindings only do it
   windows: {
     'appt.create': { isOpen: x => x.app.booking.open, reopen: x => x.app.booking.reopenAtTourSlot(), step: x => x.app.booking.step },
     'appt.drawer': { isOpen: x => x.app.drawer.open, reopen: x => x.app.drawer.openFor(x.app.calendar.sampleEndedNotClosed()) },

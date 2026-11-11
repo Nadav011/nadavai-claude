@@ -153,13 +153,15 @@ room from the work; the first-visit card does not follow it there (G-15). On eve
 screen the first-visit card appears when the tour ends or is skipped, with "הראו לי". Every
 other tour is started by the person.
 
-**A step.** Each step is classed before the tour is written: its action on the sample record
-is safe to do (G-20); or it tells a real person; or it is permanent or charges. On the first
-kind the person does the step herself and the step moves on only when the screen shows the
-result the step names (a condition written in the manifest, not a timer). On the other two the
-step says what the control does and has "הבנתי" (a stop step): the tour never presses the
-control and never moves on because it was pressed. "הבנתי" goes on to a step that does not
-need it pressed, or ends the chapter.
+**A step.** Each step is classed before the tour is written: its action on the sample record is
+safe to do (G-20); or it tells a real person; or it is permanent or charges. On the first kind
+the person does the step herself and the step moves on only when the screen shows the result the
+step names (a condition written in the manifest, not a timer). On the other two the step says
+what the control does and has "הבנתי" (a stop step): the control is lit but does not respond,
+the tour never presses it and never moves on because it was pressed. "הבנתי" goes on to a step
+that does not need it pressed, or ends the chapter. A tour's sentence says that nothing goes
+out, or that no one is told, only where that action's G-20 test, or the practice mode's test,
+shows it [I]; otherwise it says what the control does in the real app.
 
 **Safe to do is proven, never assumed (G-20).** The built demo held the notice back in the
 browser only. In a real app the sample patient has the therapist's own phone (#93), and
@@ -202,14 +204,19 @@ treatment) comes with the sample record, made by the app, never by an earlier ch
 tour. The sample's business events (a booking, a payment) are not counted in reports or
 analytics; the tour's own steps and skips are.
 
-**The rest of the screen does not respond**, and that is done with the platform's own
-mechanism (`inert`, or `aria-hidden` on the siblings), which also stops the app's keyboard
-shortcuts and a screen reader's activation; see-through blocks over the page stop a finger
-only. The tour's card is not `aria-modal` over the control it points at, or a screen-reader
-user cannot do the step. The step's result is announced in a live region. With the on-screen
-keyboard open, the card and the lit control are both above it. A do-it-yourself target that
-cannot be reached by keyboard makes the step a showing step. A tap outside the light pulses it
-again and says where to press.
+**What responds.** On a do step only its own lit target and the tour's card respond. On a
+showing step and a stop step nothing on the screen responds, the lit control included; only the
+card does (the built version made the target inert on those steps too [B]). So a showing or stop
+step may light a control on a real person's row: it acts on nobody. Where the sample record
+carries the same control, the step lights the sample's. A test of the built engine shows it:
+pressing the lit control of a stop step does nothing, no click reaches the app and the step does
+not move on (`tour-anchors`). This is done with the platform's own mechanism (`inert`, or
+`aria-hidden` on the siblings), which also stops the app's keyboard shortcuts and a screen
+reader's activation; see-through blocks over the page stop a finger only. The tour's card is not
+`aria-modal` over the control it points at, or a screen-reader user cannot do the step. The
+step's result is announced in a live region. With the on-screen keyboard open, the card and the
+lit control are both above it. A do-it-yourself target that cannot be reached by keyboard makes
+the step a showing step. A tap outside the light pulses it again and says where to press.
 
 Also part of the contract, from the built version ([B]): "דילוג" on every step and progress
 dots; a skipped tour does not open by itself again; "הראו לי שוב" resumes at the same step and
@@ -237,44 +244,51 @@ written for each of them. Two layers:
   `screen`, one of its screens; `record: "sample"`; `view`, one key or one per device;
   `date: "today"`; `close`; and nothing else), the article tasks it shows, its steps and its
   closing sentence. Per step: `do`, `next` or `stop`; a stop step's class (`S` saves, `T` tells
-  a real person, `P` is permanent or charges); `on: "sample"`, which a practice-only step and a
-  do step that opens a person's record must carry, since tours run on the sample record (the
-  checker reads only the flag: that the bindings then reach the sample's record and no other is
-  judged in the running app); the anchor of its
-  control; what she reads, and the text when it only shows; a do step's action (open, pick,
-  select, type), its result, the G-20 test it names (`safeTest`) and, for a practice-only step,
-  `practiceOnly` with the mode's test for that action and the test that it is a stop step outside
-  the mode, named at both stages; and `need`, how a resumed run puts her back, which is only one
-  of the two G-08 allows (reopen a window, select the sample record again). A reopen puts back the
-  tour's own record, the sample's, never the last one open, since she may have opened a real
-  person's since; the bindings do it, and only the running app shows it (`tour-anchors`). The file's `stage` (`demo` or `app`), the
-  core screens, the anchors that no step points at (each with its screens), the written reason
-  for a screen or a task with no tour, and the important actions beyond an article's tasks are
-  in the same file.
+  a real person, `P` is permanent or charges); for every do step, `on`: `"sample"` when it acts
+  on the sample record, `"none"` when it acts on no person's record (an empty slot, a filter, a
+  settings tab). A practice-only step and a do step that opens a person's record carry
+  `"sample"`, and `"none"` on a control the inventory lists on a person's record or row
+  (`recordAnchors`) is a finding. The checker reads only the flag: that the bindings then reach
+  the sample's record and no other, and that `recordAnchors` lists every such control, is judged
+  in the running app. Then the anchor of its control; what she reads, and the text when it only
+  shows; a do step's action (open, pick, select, type), its result, the G-20 test it names
+  (`safeTest`) and, for a practice-only step, `practiceOnly` with the mode's test for that
+  action and the test that it is a stop step outside the mode (at stage `demo` it may be `{}`
+  and name them later; at stage `app` both are named); and `need`, how a resumed run puts her
+  back, which is only one of the two G-08 allows (reopen a window, select the sample record
+  again). A reopen puts back the tour's own record, the sample's, never the last one open, since
+  she may have opened a real person's since; with no sample record it does nothing and the step
+  only shows; the bindings do it, and only the running app shows it (`tour-anchors`). The file's
+  `stage` (`demo` or `app`), the core screens, the anchors that no step points at (each with its
+  screens), the written reason for a screen or a task with no tour, and the important actions
+  beyond an article's tasks are in the same file.
 - A bindings file for each environment, which is not portable: anchor id to element, a `custom`
   result to a predicate, and each window, condition and state value named in the manifest to
   that environment's way of reading it.
 
 An anchor is a stable dot-separated id (`cal.new-appointment`), with an optional argument for a
-family of controls (`{ "anchor": "settings.tab", "arg": "הודעות" }`: a tab by its name, the edit
-button of a row by its label). A static control carries `data-tour="<id>"`, and
+family of controls (`{ "anchor": "settings.tab", "arg": "messages" }`: a tab, a row, a field).
+The argument is a stable key, ASCII, lowercase and hyphens; the visible label is content and may
+change without breaking the anchor. A static control carries `data-tour="<id>"`, and
 `data-tour-arg="<arg>"` where there is one, in the demo's markup and in the app's components; it
 binds to the first visible element that carries them. Only a target that depends on state (the
-first free hour, an appointment that ended) is a resolver named in the bindings. A result is data
-too: a window is open, an anchor is present, the route or the view is a given key or changed, the
-window or card of a person's record is open (`recordOpen`: a patient, a customer, an
-appointment, a document addressed to someone, the kinds the sample record stands in for; the
-window of a settings entry, a rule or a template is `open`), a wizard reached step N, a field
-changed from its start and is not empty, a state value equals X; anything else is `custom`,
-named in the manifest and written in the bindings. The bindings own visibility: a hit on the target, inside it or on its ancestor
-counts as covering it, a target clipped by an ancestor's overflow is not on screen, and a target
-inside an inner scroll box is scrolled into that box's view before the step shows.
+first free hour, an appointment that ended) is a resolver named in the bindings. A result is
+data too: a window is open (`open`, whoever it belongs to), an anchor is present, the route or
+the view is a given key or changed, the window or card of the record behind an anchor is open
+(`recordOpen`: a patient, a customer, an appointment, a document addressed to someone), a wizard
+reached step N, a field changed from its start and is not empty, a state value equals X;
+anything else is `custom`, named in the manifest and written in the bindings. Whose record a do
+step acts on is its `on`, whatever the result kind. The bindings own visibility: a hit on the
+target, inside it or on its ancestor counts as covering it, a target clipped by an ancestor's
+overflow is not on screen, and a target inside an inner scroll box is scrolled into that box's
+view before the step shows.
 
 The manifest freezes with the approved demo's tag (its `tag` field), and the app reads that same
 file; a later change to a tour is a change to the file, made once. The app's manifest is the
-same file with `stage` changed from `demo` to `app` and every do step's test named. In an app
-whose demo lives in the app's own preview, tours are authored once, in the app, against this
-format.
+same file with `stage` changed from `demo` to `app` and every do step's test named, and the
+app's own check run always passes `--require-stage app`, so a manifest still at `demo` fails
+there. In an app whose demo lives in the app's own preview, tours are authored once, in the app,
+against this format.
 
 A help article is data keyed by the screen key. Each numbered task names the tour that shows it
 and the anchor ids of the controls its text mentions, in `inventory.json` beside the manifest,
@@ -286,10 +300,9 @@ reviewer's).
 `help-refs` judges an article task that names a tour that does not exist or does not list that
 task, and an anchor the manifest does not know on that screen: one that no tour on that screen
 points at or names as a result (with the same arg, where it has one; a chapter stands on the
-screens of its whole job)
-and no `anchors` entry for that screen lists. Whether the control is really on the screen, for an
-`anchors` entry and for an article's anchor alike, is judged only in the running app
-(`tour-anchors`, not built).
+screens of its whole job) and no `anchors` entry for that screen lists. Whether the control is
+really on the screen, for an `anchors` entry and for an article's anchor alike, is judged only
+in the running app (`tour-anchors`, not built).
 
 The format, an example and the checker are in [tours/](tours/): `tours.schema.json` and
 `inventory.schema.json`; `example/`, a manifest of six tours with its inventory and the bindings

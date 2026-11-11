@@ -29,7 +29,7 @@
         "required": ["screens", "what"],
         "properties": {
           "screens": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/screen" } },
-          "args": { "type": "array", "minItems": 1, "items": { "type": ["string", "number"] } },
+          "args": { "type": "array", "minItems": 1, "items": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$" } },
           "what": { "type": "string", "minLength": 1, "description": "Which control it is, for the author." }
         }
       }
@@ -94,7 +94,7 @@
           "type": "object",
           "additionalProperties": false,
           "required": ["anchor", "arg"],
-          "properties": { "anchor": { "$ref": "#/$defs/id" }, "arg": { "type": ["string", "number"] } }
+          "properties": { "anchor": { "$ref": "#/$defs/id" }, "arg": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$" } }
         }
       ]
     },
@@ -165,10 +165,10 @@
       "properties": {
         "kind": { "enum": ["do", "next", "stop"], "description": "do: she does it herself; next: it only explains (\"הבא\"); stop: it points at a control the tour never presses (\"הבנתי\")." },
         "class": { "enum": ["S", "T", "P"], "description": "S saves, T tells a real person, P is permanent or charges." },
-        "on": { "const": "sample", "description": "The step acts on the sample record: with no sample it only shows where to press." },
+        "on": { "enum": ["sample", "none"], "description": "Whose record the step acts on; every do step says it. sample: the sample record (with no sample the step only shows where to press). none: no person's record (an empty slot, a filter, a settings tab); on a control the inventory lists in recordAnchors it is a finding." },
         "when": { "$ref": "#/$defs/when", "description": "The step is in the run only when this holds." },
         "anchor": { "$ref": "#/$defs/id", "description": "The control the step lights. Absent: a centred card." },
-        "arg": { "type": ["string", "number"], "description": "The anchor's parameter: a tab by name, a row by its label, a field by key." },
+        "arg": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$", "description": "The anchor's parameter, a stable key (ASCII, lowercase, hyphens): a tab, a row, a field. The visible label is content and may change; the key does not." },
         "act": { "enum": ["open", "pick", "select", "type"] },
         "result": { "$ref": "#/$defs/result" },
         "outcome": { "type": "boolean", "description": "This step's result is the task's outcome that the article names (G-07)." },
@@ -195,15 +195,15 @@
           },
           "description": "How a resumed run is put back at this step: reopen a window ({\"do\": \"reopen\", \"window\": ...}) or select the sample record again ({\"do\": \"selectSample\"}), the only two G-08 allows. A reopen puts back the tour's own record, the sample's, never the last one open; the bindings implement it, and the running app judges it (tour-anchors)."
         },
-        "safeTest": { "type": "string", "minLength": 1, "pattern": "\\S", "description": "The test of G-20 that performs this action on the sample record and shows that nothing leaves." },
+        "safeTest": { "type": "string", "minLength": 1, "pattern": "[\\p{L}\\p{N}]", "description": "The test of G-20 that performs this action on the sample record and shows that nothing leaves." },
         "practiceOnly": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "modeTest": { "type": "string", "minLength": 1, "pattern": "\\S", "description": "The practice mode's test for this action: no number is taken and no provider reached." },
-            "stopTest": { "type": "string", "minLength": 1, "pattern": "\\S", "description": "The test that the step is a stop step outside the mode." }
+            "modeTest": { "type": "string", "minLength": 1, "pattern": "[\\p{L}\\p{N}]", "description": "The practice mode's test for this action: no number is taken and no provider reached." },
+            "stopTest": { "type": "string", "minLength": 1, "pattern": "[\\p{L}\\p{N}]", "description": "The test that the step is a stop step outside the mode." }
           },
-          "description": "A do step done to the end only inside practice mode (G-20); outside the mode it is a stop step. It names both tests and carries on: sample (the sample record's copy, never a real person's); tour-no-commit fails it otherwise."
+          "description": "A do step done to the end only inside practice mode (G-20); outside the mode it is a stop step. It carries on: sample (the sample record's copy, never a real person's). At stage app it names both tests; at stage demo it may be {} and name them later (the checker notes the count). tour-no-commit fails it otherwise."
         },
         "skip": { "type": "boolean", "description": "false only where a step cannot be skipped, which tour-shape reports." }
       },
@@ -219,14 +219,14 @@
       "required": ["kind", "arg"],
       "description": "What the screen shows when a do step is done.",
       "properties": {
-        "kind": { "enum": ["open", "present", "route", "view", "recordOpen", "step", "fieldChanged", "stateEquals", "custom"], "description": "recordOpen is the window or card of a person's record, which a do step opens only on the sample record (on: sample); open is any other window, such as a settings entry, a rule or a template." },
+        "kind": { "enum": ["open", "present", "route", "view", "recordOpen", "step", "fieldChanged", "stateEquals", "custom"], "description": "open: a window by its id is open, whoever it belongs to. recordOpen: the window or card of the record behind an anchor is open, which says which record. Whose record a do step acts on is said by its on, whatever the result kind." },
         "arg": {}
       },
       "allOf": [
         { "if": { "required": ["kind"], "properties": { "kind": { "const": "open" } } }, "then": { "properties": { "arg": { "$ref": "#/$defs/id", "description": "the window that is open" } } } },
         { "if": { "required": ["kind"], "properties": { "kind": { "const": "present" } } }, "then": { "properties": { "arg": { "$ref": "#/$defs/anchorRef" } } } },
         { "if": { "required": ["kind"], "properties": { "kind": { "enum": ["route", "view"] } } }, "then": { "properties": { "arg": { "$ref": "#/$defs/keyTest" } } } },
-        { "if": { "required": ["kind"], "properties": { "kind": { "const": "recordOpen" } } }, "then": { "properties": { "arg": { "$ref": "#/$defs/id", "description": "the anchor of a person's record (a patient, a customer, an appointment, a document addressed to someone), the kind the sample record stands in for, whose window or card is open; a settings entry, a rule or a template opens with open" } } } },
+        { "if": { "required": ["kind"], "properties": { "kind": { "const": "recordOpen" } } }, "then": { "properties": { "arg": { "$ref": "#/$defs/id", "description": "the anchor whose record's window or card is open (a patient, a customer, an appointment, a document addressed to someone)" } } } },
         { "if": { "required": ["kind"], "properties": { "kind": { "const": "step" } } }, "then": { "properties": { "arg": { "$ref": "#/$defs/wizardStep" } } } },
         { "if": { "required": ["kind"], "properties": { "kind": { "const": "fieldChanged" } } }, "then": { "properties": { "arg": { "$ref": "#/$defs/anchorRef" } } } },
         { "if": { "required": ["kind"], "properties": { "kind": { "const": "stateEquals" } } }, "then": { "properties": { "arg": { "$ref": "#/$defs/stateTest" } } } },

@@ -4,7 +4,8 @@
 //
 //   manifest        the file has the shape of tours.schema.json (and inventory.schema.json), tour ids
 //                   are unique, a job's chapters run 1..n, a tour opens by itself and starts only on its
-//                   own screens
+//                   own screens; with --require-stage, a manifest at another stage (the app's own check
+//                   run passes --require-stage app)
 //   tour-shape      a step over twelve words, a step with no skip, a do step with no result, a chapter
 //                   that can end (on the phone or the computer) neither at a result nor at a stop step, a
 //                   tour that opens by itself on a screen that is not core, more than five core screens
@@ -12,12 +13,14 @@
 //                   inventory, more than five entries), a viewOf that names itself, a screen the inventory
 //                   lacks or a view, and a core key's viewOf that names a screen outside its core entry; it
 //                   notes every tour of more than six steps with no chapter break, which is never a finding
-//   tour-no-commit  the part read from data: a do step classed T or P that is not practice-only, a
-//                   practice-only step without both tests or without on: "sample", a do step that opens a
-//                   record (result recordOpen) without on: "sample", a do step with no G-20 test named (at
-//                   stage "demo" one note with the count instead), a resume action other than reopening a
-//                   window or selecting the sample record again, a `start` key other than screen, record,
-//                   view, date and close
+//   tour-no-commit  the part read from data: a do step that does not say on: "sample" or on: "none", a
+//                   do step at on: "none" on a control the inventory lists in recordAnchors, a do step
+//                   classed T or P that is not practice-only, a practice-only step without on: "sample" or
+//                   (at stage "app") without both tests, a do step that opens a record (result recordOpen)
+//                   without on: "sample", a do step with no G-20 test named (at stage "demo" these, and a
+//                   practice-only step's missing tests, are notes with the count instead), a resume action
+//                   other than reopening a window or selecting the sample record again, a `start` key
+//                   other than screen, record, view, date and close
 //   tour-inventory  with --inventory: a screen the menu reaches, or a numbered task of an article, with
 //                   no tour and no written reason (an extra task of the manifest too)
 //   help-refs       with --inventory: an article task naming an anchor (with its arg) that no tour on that
@@ -27,11 +30,12 @@
 // Not covered here, because it needs the running app or the project's suite: that the engine itself
 // never dispatches a click, a submit or a key on a step target; that every anchor (the `anchors`
 // entries and the articles' too), result, condition, window and state id resolves on its screen
-// (`tour-anchors`); that a step's class is right; whether a do step that acts on a record in another
-// way runs on the sample; a stop step followed by a step that depends on that control having been
-// pressed; that the named tests exist and pass; and whether a chapter break sits at a real result.
+// (`tour-anchors`); that a step's class is right; that recordAnchors list every control on a person's
+// record or row (and, without --inventory, any on: "none" step); a stop step followed by a step that
+// depends on that control having been pressed; that the named tests exist and pass; that a showing or
+// stop step's lit control does not respond; and whether a chapter break sits at a real result.
 //
-// usage: node tour-check.mjs <tours.json> [--inventory <inventory.json>] [--json]
+// usage: node tour-check.mjs <tours.json> [--inventory <inventory.json>] [--require-stage app] [--json]
 // exit: 0 no findings, 1 findings, 2 usage, an input that cannot be read, or one whose shape the checks
 // cannot walk (a tour or a step that is not an object). Steps count from 1.
 // Each condition is one line ending in `// M:<code>`, the code its findings carry: the skill's tests
@@ -41,19 +45,21 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const USAGE = 'usage: node tour-check.mjs <tours.json> [--inventory <inventory.json>] [--json]';
+const USAGE = 'usage: node tour-check.mjs <tours.json> [--inventory <inventory.json>] [--require-stage app] [--json]';
 const NOT_COVERED = [
   'tour-no-commit: the engine itself dispatching a click, a submit or a key on a step target (the running app)',
   'tour-no-commit: that a tour\'s start does only what its `start` says, and asks before closing a window that holds unsaved input (the running app)',
   'tour-no-commit: whether a step\'s class is right (a numbered document, a payment and a close for good are always T or P); the manifest\'s class is taken as written',
   'tour-no-commit: a stop step followed by a step that depends on that control having been pressed (the manifest does not record what a control opens)',
   'tour-no-commit: that the named tests exist and pass (the project\'s own suite)',
-  'tour-no-commit: whether a do step that acts on a person\'s record other than by opening it (result recordOpen) runs on the sample record',
+  'tour-no-commit: without --inventory, whether a do step at on: "none" sits on a control of a person\'s record or row (recordAnchors are in the inventory; the run notes how many such steps it did not judge)',
   'tour-no-commit: that a step marked on: "sample" really reaches the sample\'s record and no other (the bindings, in the running app); only the flag is read',
   'tour-shape: that a key marked viewOf really is a view of that screen (the reviewer)',
   'tour-no-commit: that a need of reopen puts back the tour\'s own record, the sample\'s, and not the last one open (the bindings, in the running app)',
   'tour-anchors: every anchor (the anchors entries and the articles\' too), result, condition, window and state id resolving on its screen, and a step marked on: "sample" resolving to the sample\'s record and no other (the running app)',
   'tour-shape: whether a chapter break sits at a real result (the reviewer)',
+  'tour-anchors: a showing or stop step whose lit control responds; a test of the built engine presses the lit control of a stop step and shows that nothing happens (the running app)',
+  'tour-no-commit: that the inventory\'s recordAnchors list every control on a person\'s record or row; an unlisted one lets on: "none" pass (the running app)',
 ];
 
 function die(msg) {
@@ -117,10 +123,12 @@ const argv = process.argv.slice(2);
 let manifestFile = null;
 let inventoryFile = null;
 let asJson = false;
+let requireStage = null;
 for (let i = 0; i < argv.length; i++) {
   const a = argv[i];
   if (a === '--json') asJson = true;
   else if (a === '--inventory') { inventoryFile = argv[++i]; if (!inventoryFile) die('--inventory needs a file'); }
+  else if (a === '--require-stage') { requireStage = argv[++i]; if (requireStage !== 'demo' && requireStage !== 'app') die('--require-stage needs demo or app'); }
   else if (a === '-h' || a === '--help') { console.log(USAGE); process.exit(0); }
   else if (a.startsWith('-')) die(`unknown option ${a}`);
   else if (manifestFile) die(`one manifest at a time (got ${manifestFile} and ${a})`);
@@ -204,6 +212,9 @@ for (const [job, list] of jobs) {
 const words = s => String(s || '').trim().split(/\s+/).filter(Boolean).length;
 const coreKeys = new Set(arr(M && M.core).flatMap(c => arr(c && c.screens)));
 const noTest = []; // do steps that name no G-20 test: findings at stage app, one note at stage demo
+const demoPractice = []; // practice-only steps at stage demo that name their tests later: one note
+// a control the inventory lists as being on a person's record or row (recordAnchors), on one of the tour's screens
+const onRecord = (t, s) => !!s.anchor && screensOf(t).some(k => arr(obj(obj(INV && INV.screens)[k]).recordAnchors).includes(s.anchor));
 const START_KEYS = [
   'screen',
   'record', // M:start-record
@@ -249,10 +260,15 @@ tours.forEach((t, ti) => {
     const po = obj(s.practiceOnly);
     const missing = ['modeTest', 'stopTest'].filter(k => !po[k]);
     const tp = s.class === 'T' || s.class === 'P';
-    if (s.kind === 'do' && ((tp && !s.practiceOnly) || (s.practiceOnly && missing.length))) add('tour-no-commit', 'G-20', 'do-class', at, s.practiceOnly ? `a practice-only do step without ${missing.join(' and ')}: it is a stop step in the mode too` : `a do step classed ${s.class} is not practice-only: it is a stop step`); // M:do-class
+    // at stage demo a practice-only step may name its tests later (one note); at stage app it names both
+    const practiceGap = !!s.practiceOnly && missing.length > 0;
+    if (s.kind === 'do' && ((tp && !s.practiceOnly) || (practiceGap && M.stage !== 'demo'))) add('tour-no-commit', 'G-20', 'do-class', at, s.practiceOnly ? `a practice-only do step without ${missing.join(' and ')}: it is a stop step in the mode too` : `a do step classed ${s.class} is not practice-only: it is a stop step`); // M:do-class
+    if (s.kind === 'do' && practiceGap && M.stage === 'demo') demoPractice.push(at); // M:demo-practice
+    if (s.kind === 'do' && s.on === undefined) add('tour-no-commit', 'G-08', 'do-no-on', at, 'a do step that does not say whose record it acts on: on: "sample", or on: "none" when it acts on no person\'s record (an empty slot, a filter, a settings tab)'); // M:do-no-on
+    if (s.kind === 'do' && s.on === 'none' && onRecord(t, s)) add('tour-no-commit', 'G-08', 'none-on-record', at, `a do step with on: "none" on "${s.anchor}", which the inventory lists as a control on a person's record or row`); // M:none-on-record
     if (s.practiceOnly && s.on !== 'sample') add('tour-no-commit', 'G-20', 'practice-not-sample', at, 'a practice-only step without on: "sample": inside the mode the tour runs on the sample record\'s copy, never on a real person\'s'); // M:practice-not-sample
     if (s.kind === 'do' && plain(s.result) && s.result.kind === 'recordOpen' && s.on !== 'sample') add('tour-no-commit', 'G-08', 'record-not-sample', at, 'a do step opens a person\'s record (recordOpen) and does not carry on: "sample": tours run on the sample record, never on real data'); // M:record-not-sample
-    if (s.kind === 'do' && !s.safeTest && !po.modeTest) noTest.push(at);
+    if (s.kind === 'do' && !s.practiceOnly && !s.safeTest) noTest.push(at);
     for (const n of arr(s.need)) if (n && n.do !== 'reopen' && n.do !== 'selectSample') add('tour-no-commit', 'G-08', 'need-action', at, `the resume action "${n.do}" is not one of the two a tour does by itself (reopen a window, select the sample record again)`); // M:need-action
   });
   if (t.chapter) {
@@ -274,6 +290,10 @@ tours.forEach((t, ti) => {
   for (const k of arr(t.auto)) if (!coreKeys.has(k)) add('tour-shape', 'G-21', 'auto-not-core', { tour: t.id, path: `/tours/${ti}/auto` }, `opens by itself on "${k}", which is not a core screen`); // M:auto-not-core
   if (steps.length > 6 && !t.chapter) notes.push({ check: 'tour-shape', tour: t.id, message: `${steps.length} steps and no chapter break; the reviewer checks only that a chapter break, if there is one, sits at a real result, and length alone is never a finding` });
 });
+if (demoPractice.length) notes.push({ check: 'tour-no-commit', message: `${demoPractice.length} practice-only steps name no mode test or stop test yet; each needs both before the app runs this tour` });
+const noneSteps = INV ? 0 : tours.reduce((n, t) => n + arr(plain(t) && t.steps).filter(s => plain(s) && s.kind === 'do' && s.on === 'none').length, 0);
+if (noneSteps) notes.push({ check: 'tour-no-commit', message: `${noneSteps} do steps at on: "none" were not judged against recordAnchors: that needs --inventory` }); // M:none-no-inventory
+if (requireStage && M.stage !== requireStage) add('manifest', null, 'stage-required', { path: '/stage' }, `the manifest is at stage "${M.stage}", and this run requires "${requireStage}"`); // M:stage-required
 if (M && M.stage === 'demo' && noTest.length) { notes.push({ check: 'tour-no-commit', message: `${noTest.length} do steps name no G-20 test; each needs one before the app runs this tour` }); noTest.length = 0; } // M:demo-stage
 for (const at of noTest) add('tour-no-commit', 'G-20', 'do-no-safe-test', at, 'a do step names no test of G-20 (safeTest, or the practice mode\'s modeTest): it is a stop step'); // M:do-no-safe-test
 

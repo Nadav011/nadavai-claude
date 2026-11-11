@@ -243,7 +243,8 @@ async function clipped(p, id) {
   found.forEach(x => report.clipped.push({ id, ...x }));
 }
 
-const browser = await chromium.launch();
+// Chromium keeps its shared memory in /dev/shm, not on disk in /tmp, which has frozen the desktop under load
+const browser = await chromium.launch({ ignoreDefaultArgs: ['--disable-dev-shm-usage'] });
 try {
   if (!width) {
     const { ctx, p } = await open(browser, { width: 1280, height: 1000 }, theme);
