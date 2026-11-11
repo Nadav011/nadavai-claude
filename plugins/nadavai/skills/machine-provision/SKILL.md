@@ -187,6 +187,12 @@ Android emulator: `sdkmanager --install emulator "system-images;android-36;googl
 `avdmanager create avd -n pixel-36 -k "system-images;android-36;google_apis;x86_64" -d pixel_8`;
 `emulator -accel-check` must say `accel`, and a headless boot (`-no-window -gpu swiftshader_indirect`)
 reaches `sys.boot_completed=1` in 20-30 s on the LENOVO and the MSI. On omarchy the CI session owns it.
+For real work on the LENOVO start it with `-no-window -gpu host`, not `swiftshader_indirect`: the
+Intel GPU then draws the screen instead of the CPU. Measured on 2026-11-11 on a copy of the AVD,
+two interleaved rounds under real load: 47 CPU seconds for the same 50 scrolls against 78 and 92
+(about 45% less), 47-49 against 84-86 CPU seconds to boot, and `dumpsys SurfaceFlinger` names
+"Mesa Intel(R) Graphics". Not measured on the MSI: check that it boots there before relying on it.
+A second emulator of the same AVD needs `-read-only` on both, or a copy of the AVD folder.
 
 parry-guard: the default `onnx-fetch` feature downloads ONNX Runtime from a CDN that answers 403.
 Build against the system library instead: `pacman -S onnxruntime-cpu`, then
