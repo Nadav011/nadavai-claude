@@ -188,11 +188,13 @@ and no provider can be reached, proven by that mode's own tests: there she does 
 the end (his pick of 11.11.2026 for MediZen [A], in the example above; for another project whose
 mode gives the same proof [I]). The rest of this paragraph is this skill's own [I]. She enters
 the mode by her own tap from the tour's card, or is already in it; the tour never switches mode
-by itself. Inside the mode the tour still runs on the sample record's copy, never on the copy of
-a real person's record. The server refuses an action marked practice-only outside a practice
-session, so a press that arrives after the mode expired does nothing in the real clinic. Leaving
-the mode, or its expiry, discards the copy; that is the removal, and a resume starts the chapter
-again from its first step.
+by itself. Outside the mode a practice chapter ends at its first practice-only step, which is a
+stop step there. A step that tells a real person is never done in the mode. Inside the mode the
+tour still runs on the sample record's copy, never on the copy of a real person's record. The
+server refuses an action marked practice-only outside a practice session, so a press that
+arrives after the mode expired does nothing in the real clinic. Leaving the mode, or its expiry,
+discards the copy; that is the removal, and a resume starts the chapter again from its first
+step.
 
 What a step created is removed when she finishes the job's last chapter, or at the end of the
 day on which she left the tour and did not come back to it; a resume after that starts at the
@@ -249,12 +251,18 @@ written for each of them. Two layers:
   settings tab). A practice-only step and a do step that opens a person's record carry
   `"sample"`, and `"none"` on a control the inventory lists on a person's record or row
   (`recordAnchors`, on any of its screens, since a tour reaches screens it does not list) is a
-  finding, and so is a do step classed `S` (it saves) that does not carry `"sample"` [I]. The
-  checker reads only the flag: that the bindings then reach the sample's record and no other,
-  and that `recordAnchors` lists every such control, is judged in the running app. Then the
-  anchor of its control; what she reads, and the text when it only shows; a do step's action
-  (open, pick, select, type), its result, the G-20 test it names (`safeTest`) and, for a
-  practice-only step, `practiceOnly` with the mode's test for that action and the test that it
+  finding. `recordAnchors` lists every `data-tour` id that one person's record or row carries:
+  the row and each control on it, an appointment (the plain id a resolver picks among, such as
+  `cal.appointment`, as well as the resolver's own id), every control inside a window, card or
+  sheet opened on one person (her appointment, payment, chat, document), and every control that
+  acts on several people's records at once (select all, a bulk send or charge); an id listed on
+  one screen counts on every screen [I]. A do step classed `S` (it saves) that does not carry
+  `"sample"` is a finding too [I]. The checker reads only the flag: that the bindings then reach
+  the sample's record and no other, and that `recordAnchors` lists every such control, is judged
+  in the running app. Then the anchor of its control; what she reads, and the text when it only
+  shows; a do step's action (open, pick, select, type), its result, the G-20 test it names
+  (`safeTest`) and, for a practice-only step, `practiceOnly` (only a step classed `P`; a step
+  classed `T` is never practice-only) with the mode's test for that action and the test that it
   is a stop step outside the mode (at stage `demo` it may be `{}` and name them later; at stage
   `app` both are named); and `need`, how a resumed run puts her back, which is only one of the
   two G-08 allows (reopen a window, select the sample record again). A reopen puts back the

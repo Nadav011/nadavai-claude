@@ -16,7 +16,7 @@
 //   tour-no-commit  the part read from data: a do step that does not say on: "sample" or on: "none", a
 //                   do step at on: "none" on a control the inventory lists in recordAnchors (on any of its
 //                   screens), a do step classed S (it saves) without on: "sample", a do step
-//                   classed T or P that is not practice-only, a practice-only step without on: "sample" or
+//                   classed T (in practice mode too) or P that is not practice-only, a practice-only step without on: "sample" or
 //                   (at stage "app") without both tests, a do step that opens a record (result recordOpen)
 //                   without on: "sample", a do step with no G-20 test named (at stage "demo" these, and a
 //                   practice-only step's missing tests, are notes with the count instead), a resume action
@@ -24,7 +24,8 @@
 //                   other than screen, record, view, date and close
 //   tour-inventory  with --inventory: a screen the menu reaches, or a numbered task of an article, with
 //                   no tour and no written reason (an extra task of the manifest too); a tour whose screens
-//                   name a screen the inventory does not have
+//                   name a screen the inventory does not have, or that stands on no screen of its own or of
+//                   its job
 //   help-refs       with --inventory: an article task naming an anchor (with its arg) that no tour on that
 //                   screen points at or names as a result and no `anchors` entry for that screen lists, or
 //                   naming a tour that does not exist or does not list that task there
@@ -52,7 +53,10 @@ const USAGE = 'usage: node tour-check.mjs <tours.json> [--inventory <inventory.j
 const NOT_COVERED = [
   'tour-no-commit: the engine itself dispatching a click, a submit or a key on a step target (the running app)',
   'tour-no-commit: that a tour\'s start does only what its `start` says, and asks before closing a window that holds unsaved input (the running app)',
-  'tour-no-commit: whether a step\'s class is right (a numbered document, a payment and a close for good are always T or P; a save is S); the manifest\'s class is taken as written, so a save written as an unclassed do step passes',
+  'tour-no-commit: whether a step\'s class is right (a numbered document, a payment and a close for good are always P, a send is T, a save is S); the manifest\'s class is taken as written, so a save or a send written as an unclassed do step passes (the reviewer, and the step\'s safeTest, which performs the action on the sample record)',
+  'tour-no-commit: a step sentence that says nothing goes out, or that no one is told, where no test shows it (the reviewer, against the G-20 test or the practice mode\'s test)',
+  'tour-no-commit: an inventory that declares no recordAnchors, or too few, leaves on: "none" unjudged with no note (the running app)',
+  'tour-inventory: a result that routes to a screen the inventory does not have (only the screens a tour lists are read)',
   'tour-no-commit: that a do step classed S at on: "sample" saves only the sample\'s record (its safeTest, in the project\'s suite)',
   'tour-no-commit: a stop step followed by a step that depends on that control having been pressed (the manifest does not record what a control opens)',
   'tour-no-commit: that the named tests exist and pass (the project\'s own suite)',
@@ -268,7 +272,7 @@ tours.forEach((t, ti) => {
     const tp = s.class === 'T' || s.class === 'P';
     // at stage demo a practice-only step may name its tests later (one note); at stage app it names both
     const practiceGap = !!s.practiceOnly && missing.length > 0;
-    if (s.kind === 'do' && ((tp && !s.practiceOnly) || (practiceGap && M.stage !== 'demo'))) add('tour-no-commit', 'G-20', 'do-class', at, s.practiceOnly ? `a practice-only do step without ${missing.join(' and ')}: it is a stop step in the mode too` : `a do step classed ${s.class} is not practice-only: it is a stop step`); // M:do-class
+    if (s.kind === 'do' && (s.class === 'T' || (tp && !s.practiceOnly) || (practiceGap && M.stage !== 'demo'))) add('tour-no-commit', 'G-20', 'do-class', at, s.class === 'T' && s.practiceOnly ? 'a do step classed T tells a real person: it is a stop step, in practice mode too (the mode is for a numbered document, a payment and a close for good, classed P)' : s.practiceOnly ? `a practice-only do step without ${missing.join(' and ')}: it is a stop step in the mode too` : `a do step classed ${s.class} is not practice-only: it is a stop step`); // M:do-class
     if (s.kind === 'do' && practiceGap && M.stage === 'demo') demoPractice.push(at); // M:demo-practice
     if (s.kind === 'do' && s.on === undefined) add('tour-no-commit', 'G-08', 'do-no-on', at, 'a do step that does not say whose record it acts on: on: "sample", or on: "none" when it acts on no person\'s record (an empty slot, a filter, a settings tab)'); // M:do-no-on
     if (s.kind === 'do' && s.on === 'none' && onRecord(s)) add('tour-no-commit', 'G-08', 'none-on-record', at, `a do step with on: "none" on "${s.anchor}", which the inventory lists as a control on a person's record or row`); // M:none-on-record
@@ -342,6 +346,7 @@ if (INV) {
   };
   tours.forEach((t, ti) => {
     // auto and start.screen are already among the tour's or its job's screens (auto-screen, start-screen)
+    if (!screensOf(t).length) add('tour-inventory', 'G-19', 'screen-none', { tour: t.id, path: `/tours/${ti}/screens` }, 'names no screen, nor does its job: where it stands, and so its articles, tasks and recordAnchors, cannot be judged'); // M:screen-none
     for (const k of new Set(arr(t.screens))) if (!plain(obj(INV.screens)[k])) add('tour-inventory', 'G-19', 'screen-unknown', { tour: t.id, path: `/tours/${ti}` }, `stands on "${k}", which the inventory does not have: its articles, tasks and recordAnchors cannot be judged`); // M:screen-unknown
   });
   for (const [key, sc] of Object.entries(obj(INV.screens))) {
