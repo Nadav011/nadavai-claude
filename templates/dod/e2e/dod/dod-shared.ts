@@ -52,6 +52,109 @@ export interface NotFoundPrint {
   text: string;
 }
 
+/** What stands in for a removed query string or fragment, and for a secret's value. */
+const QUERY_REMOVED = "?[query removed]";
+const SECRET = "[redacted]";
+// An absolute URL, or a path in a sentence ("redirected to /login?next=…"); the query and the
+// fragment are what is cut.
+const URLISH = /(?:https?|wss?):\/\/[^\s"'<>`]+|(?<![\w:/.-])\/[^\s"'<>`]*/g;
+
+/**
+ * The one door for text that comes from a Playwright error, a locator's call log, a page's URL or
+ * console, or an environment value, on its way to anything the run writes (reports/, dod.json, a
+ * reason, the console). It keeps the first line only (a call log is the lines after it: Playwright
+ * puts the value of a fill there), replaces the value of DOD_PASSWORD, of DOD_USER and of any other
+ * DOD_* (or ARGOS_TOKEN) whose name looks secret with "[redacted]", and cuts every URL's query and
+ * fragment, except a query equal to `keepQuery` (the route's own, from routes.json).
+ */
+export function redact(text: unknown, keepQuery?: string): string {
+  let s = (text instanceof Error ? text.message : String(text ?? "")).split(/\r?\n/)[0] ?? "";
+  s = s.replace(/\x1b\[[0-9;]*m/g, "");
+  const secrets = Object.entries(process.env)
+    // The user name only from 6 characters on, so a short one ("qa") does not eat route words.
+    .filter(([k, v]) => v && v.length >= (k === "DOD_USER" ? 6 : 3) && (k === "DOD_PASSWORD" || k === "DOD_USER" || k === "ARGOS_TOKEN" || (k.startsWith("DOD_") && /PASS|SECRET|TOKEN|KEY|COOKIE|SESSION|AUTH/i.test(k))))
+    .map(([, v]) => v as string)
+    .sort((a, b) => b.length - a.length);
+  for (const v of secrets)
+    for (const form of new Set([v, JSON.stringify(v).slice(1, -1), encodeURIComponent(v)])) if (form) s = s.split(form).join(SECRET);
+  return s.replace(URLISH, (u) => {
+    const at = u.search(/[?#]/);
+    if (at < 0) return u;
+    if (keepQuery && u.slice(at) === keepQuery) return u;
+    return u.slice(0, at) + QUERY_REMOVED;
+  });
+}
+
+/** The query of a route in routes.json ("?state=empty"), or "" when it has none. */
+export const routeQuery = (route: string) => (route.includes("?") ? route.slice(route.indexOf("?")) : "");
+
+/**
+ * What the scored phase saw of a page, taken at the moment it measures it (painted, settled), so
+ * the checks phase can prove that its own load is the same page before judging it: the landmark
+ * kinds on the page, its visible h1-h3 headings, the labels of the visible controls in the route's
+ * region, and a sketch of the region's words. Texts are whitespace-collapsed, lower-cased and
+ * without digits (a clock, a count), so they stay the same across two loads of one page.
+ */
+export interface PageFingerprint {
+  landmarks: string[];
+  headings: string[];
+  /** Sorted, a multiset (a label can repeat). At most 80. */
+  controls: string[];
+  /** The 64 smallest 32-bit hashes of the region's distinct words (a bottom-k sketch). */
+  words: number[];
+}
+
+/** How far the checks phase's page may differ from the scored one and still be that page. */
+export interface FingerprintTolerance {
+  /** Least share of heading words in common (Jaccard), when either page has headings. */
+  headings: number;
+  /** Controls that may be missing or new, as a share of the larger set (at least one). */
+  controls: number;
+  /** Least share of region words in common (Jaccard, estimated from the sketches). */
+  words: number;
+}
+export const FINGERPRINT_TOLERANCE: FingerprintTolerance = { headings: 0.5, controls: 0.2, words: 0.5 };
+
+/**
+ * null when `now` is the page `scored` describes, within `tol`; otherwise the difference in a few
+ * words. The landmark kinds must be the same; the rest is compared with its tolerance.
+ */
+export function fingerprintDiff(scored: PageFingerprint, now: PageFingerprint, tol: FingerprintTolerance): string | null {
+  const out: string[] = [];
+  const a = [...scored.landmarks].sort().join(", ") || "none";
+  const b = [...now.landmarks].sort().join(", ") || "none";
+  if (a !== b) out.push(`landmarks ${a} → ${b}`);
+  const words = (hs: string[]) => new Set(hs.flatMap((h) => h.split(" ").filter(Boolean)));
+  const ha = words(scored.headings);
+  const hb = words(now.headings);
+  if (ha.size || hb.size) {
+    const both = [...ha].filter((w) => hb.has(w)).length;
+    const j = both / new Set([...ha, ...hb]).size;
+    if (j < tol.headings) out.push(`headings "${scored.headings.slice(0, 3).join('", "')}" → "${now.headings.slice(0, 3).join('", "')}"`);
+  }
+  const count = (xs: string[]) => xs.reduce((m, x) => m.set(x, (m.get(x) ?? 0) + 1), new Map<string, number>());
+  const ca = count(scored.controls);
+  const cb = count(now.controls);
+  const missing = [...ca].flatMap(([x, n]) => Array(Math.max(0, n - (cb.get(x) ?? 0))).fill(x) as string[]);
+  const added = [...cb].flatMap(([x, n]) => Array(Math.max(0, n - (ca.get(x) ?? 0))).fill(x) as string[]);
+  const allowed = Math.max(1, Math.floor(tol.controls * Math.max(scored.controls.length, now.controls.length)));
+  if (missing.length + added.length > allowed) {
+    const q = (xs: string[]) => xs.slice(0, 3).map((x) => `"${x}"`).join(", ") + (xs.length > 3 ? ", …" : "");
+    out.push(
+      `controls ${scored.controls.length} → ${now.controls.length}` +
+        ` (${[missing.length ? `missing ${q(missing)}` : "", added.length ? `new ${q(added)}` : ""].filter(Boolean).join("; ")})`,
+    );
+  }
+  if (scored.words.length || now.words.length) {
+    const A = new Set(scored.words);
+    const B = new Set(now.words);
+    const union = [...new Set([...scored.words, ...now.words])].sort((x, y) => x - y).slice(0, 64);
+    const j = union.filter((h) => A.has(h) && B.has(h)).length / union.length;
+    if (j < tol.words) out.push(`${Math.round(j * 100)}% of the words in common (at least ${Math.round(tol.words * 100)}%)`);
+  }
+  return out.length ? out.join("; ") : null;
+}
+
 /** Text of the route's own region, the way reachRoute reads it, for the not-found print. */
 export function normalizeRegionText(text: string, requestedPath: string): string {
   const without = requestedPath.length > 1 ? text.split(requestedPath).join("") : text;
@@ -146,6 +249,26 @@ export interface RouteEntry {
   noHelp: string | null;
   /** `static: true` with no `noHelp` key: the old form, which still exempts help as well. */
   legacyStatic: boolean;
+  /** How far the checks phase's load may differ from the scored page (FINGERPRINT_TOLERANCE, or
+   *  the route's own "fingerprint" with its reason). */
+  fingerprint: FingerprintTolerance;
+}
+
+/** A route's "fingerprint": { "headings"?, "controls"?, "words"?: 0..1, "reason": "<why>" }. */
+function routeTolerance(route: string, raw: unknown): FingerprintTolerance {
+  if (raw === undefined) return FINGERPRINT_TOLERANCE;
+  const o = raw as Record<string, unknown> | null;
+  const bad = (why: string) => new Error(`[dod] routes.json entry ${route}: "fingerprint" ${why}`);
+  if (!o || typeof o !== "object" || Array.isArray(o)) throw bad('is an object: { "words": 0.3, "reason": "<why>" }');
+  if (typeof o.reason !== "string" || !o.reason.trim()) throw bad('needs a "reason" (a non-empty string)');
+  const tol = { ...FINGERPRINT_TOLERANCE };
+  for (const [k, v] of Object.entries(o)) {
+    if (k === "reason") continue;
+    if (!(k in tol)) throw bad(`has an unknown key "${k}" (headings, controls, words, reason)`);
+    if (typeof v !== "number" || v < 0 || v > 1) throw bad(`"${k}" must be a number from 0 to 1`);
+    tol[k as keyof FingerprintTolerance] = v;
+  }
+  return tol;
 }
 
 /**
@@ -161,8 +284,8 @@ export function loadRoutes(): RouteEntry[] {
   const raw = readJson<unknown>(path.join(DOD_DIR, "routes.json"), []);
   if (!Array.isArray(raw)) throw new Error("[dod] e2e/dod/routes.json must be a JSON array");
   return raw.map((e: unknown, i): RouteEntry => {
-    if (typeof e === "string") return { route: e, audience: "qa", static: false, noHelp: null, legacyStatic: false };
-    const o = e as { route?: unknown; audience?: unknown; static?: unknown; noHelp?: unknown } | null;
+    if (typeof e === "string") return { route: e, audience: "qa", static: false, noHelp: null, legacyStatic: false, fingerprint: FINGERPRINT_TOLERANCE };
+    const o = e as { route?: unknown; audience?: unknown; static?: unknown; noHelp?: unknown; fingerprint?: unknown } | null;
     if (!o || typeof o.route !== "string") {
       throw new Error(`[dod] routes.json entry ${i} is neither a string nor an object with a "route"`);
     }
@@ -175,7 +298,7 @@ export function loadRoutes(): RouteEntry[] {
     }
     const legacyStatic = o.static === true && o.noHelp === undefined;
     const noHelp = typeof o.noHelp === "string" ? o.noHelp : legacyStatic ? "static (old form: add \"noHelp\")" : null;
-    return { route: o.route, audience, static: o.static === true, noHelp, legacyStatic };
+    return { route: o.route, audience, static: o.static === true, noHelp, legacyStatic, fingerprint: routeTolerance(o.route, o.fingerprint) };
   });
 }
 
@@ -412,8 +535,12 @@ export interface EntryResult {
   /** Set by the aggregation when the checks phase left no result for this entry (it has not
    *  run, it reached its deadline, or its test ended first): every planned check is errored. */
   standard_unchecked?: string;
-  /** The URL the scored phase measured (after a declared alias); the checks phase loads it. */
+  /** The URL the scored phase measured (after a declared alias), through redact(): a query that
+   *  is not the route's own is cut. The checks phase compares its path with its own load's. */
   measured_url?: string;
+  /** Recorded, not scored, with or without standard.json: what the measured page was, so the
+   *  checks phase can prove its own load is that page (PageFingerprint). */
+  fingerprint?: PageFingerprint;
   /** Whether the measured page showed a sign-in form (a visible password field). The checks phase
    *  compares: a form there that the scored phase did not see means its session is not signed in. */
   signin_form?: boolean;

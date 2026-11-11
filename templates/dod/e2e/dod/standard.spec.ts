@@ -11,13 +11,16 @@ import {
   CHECKS_DEADLINE_FILE,
   CHECKS_SIGNIN_FILE,
   checksStoppedWhy,
+  fingerprintDiff,
   loadParams,
   loadRoutes,
   loadStandard,
   NOT_FOUND_PRINT,
   notFinished,
   plannedChecks,
+  redact,
   RESULTS_DIR,
+  routeQuery,
   routeSlug,
   SCHEMES,
   standardFile,
@@ -27,7 +30,7 @@ import {
   type RouteEntry,
   type StandardConfig,
 } from "./dod-shared";
-import { accessCheck, hasSignInForm, reachRoute, settle, touchTargets, type AccessContext } from "./dod-page";
+import { accessCheck, hasSignInForm, pageFingerprint, reachRoute, settle, touchTargets, type AccessContext } from "./dod-page";
 import {
   BUILT_IN_FORBIDDEN,
   coreUnitVisible,
@@ -88,16 +91,20 @@ interface Guard {
   newDocument: boolean;
   /** The scored phase's result for this entry: the page the checks must be on. */
   scored: EntryResult;
+  /** A step has resized the page: a move from then on is said as the resize's. */
+  resized: boolean;
 }
 
 /**
  * Whether the page this phase loaded is the page the scored phase measured, and null when it is.
- * The same access check (status, redirect, markers, not-found print, denied and error wording),
- * then what the scored phase recorded: the same path, a painted page, and no sign-in form where
- * it had none (a session that is not signed in shows its form in place at the same URL).
+ * Identity is proven, not assumed: first the same access check (status, redirect, markers,
+ * not-found print, denied and error wording) and what the scored phase recorded (the same path,
+ * a painted page, no sign-in form where it had none), then the scored page's fingerprint, which
+ * this load must match within the route's tolerance. An error card, a skeleton or a "sign in
+ * again" card at the same URL differs from the page that was scored, and is judged by nothing.
  */
-async function notTheScoredPage(page: Page, route: string, status: number | null, scored: EntryResult): Promise<string | null> {
-  const access = await accessCheck(page, route, status, ACCESS);
+async function notTheScoredPage(page: Page, entry: RouteEntry, status: number | null, scored: EntryResult): Promise<string | null> {
+  const access = await accessCheck(page, entry.route, status, ACCESS);
   if (access.unreachable_reason) return `${access.unreachable_reason} (the scored phase had HTTP ${scored.status})`;
   const landed = new URL(page.url()).pathname;
   const measured = scored.measured_url ? new URL(scored.measured_url).pathname : landed;
@@ -105,17 +112,25 @@ async function notTheScoredPage(page: Page, route: string, status: number | null
   if (!scored.signin_form && (await hasSignInForm(page))) return "a sign-in form is on the page, where the scored phase had none: this phase's session is not signed in";
   const notPainted = await reachRoute(page);
   if (notPainted) return `the page did not paint: ${notPainted}`;
+  if (!scored.fingerprint) return "the scored phase recorded no fingerprint of this page, so it cannot be shown to be the same";
+  const diff = fingerprintDiff(scored.fingerprint, await pageFingerprint(page), entry.fingerprint);
+  if (diff) return `its fingerprint differs from the scored page's: ${diff}`;
   return null;
 }
 
-/** What a resize did to the page, if it moved it: a new document, or only a new URL. */
+/** What moved the page, if it moved: a new document, or only a new URL; after a resize or not. */
 function moved(g: Guard, page: Page): string | null {
   const url = page.url();
+  const to = redact(url, routeQuery(g.scored.route));
+  const when = g.resized ? "when resized" : "after it loaded";
   if (g.newDocument)
     return url !== g.url
-      ? `the page navigated to ${url} when resized, so later measurements were not taken`
-      : "the page reloaded itself when resized, so later measurements were not taken";
-  if (url !== g.url) return `the URL changed on resize (to ${url}, without a new page), so later measurements were not taken`;
+      ? `the page navigated to ${to} ${when}${g.resized ? "" : " (a late redirect)"}, so later measurements were not taken`
+      : `the page reloaded itself ${when}, so later measurements were not taken`;
+  if (url !== g.url)
+    return g.resized
+      ? `the URL changed on resize (to ${to}, without a new page), so later measurements were not taken`
+      : `the URL changed after the page loaded (to ${to}, without a new page: a late redirect), so its checks were not taken`;
   return null;
 }
 
@@ -167,18 +182,20 @@ async function runStandard(
   g: Guard,
 ) {
   const { route } = entry;
-  const failed = (err: unknown) => ({ count: 0, samples: [], error: err instanceof Error ? err.message.slice(0, 300) : String(err) });
-  // The page loaded again, in this phase's fresh context. Its own navigation is not a move, and
-  // nothing is judged until it is shown to be the page the scored phase measured.
+  const failed = (err: unknown) => ({ count: 0, samples: [], error: redact(err, routeQuery(route)).slice(0, 300) });
+  // The page loaded again, in this phase's fresh context, as the scored phase requested it (the
+  // route, its query included). Its own navigation is not a move, and nothing is judged until it
+  // is shown to be the page the scored phase measured; a move is counted from where it landed.
   let status: number | null = null;
   try {
-    const resp = await page.goto(g.url, { waitUntil: "domcontentloaded" });
+    const resp = await page.goto(route, { waitUntil: "domcontentloaded" });
     status = resp?.status() ?? null;
     await settle(page);
   } finally {
     g.newDocument = false;
+    g.url = page.url();
   }
-  const wrong = await notTheScoredPage(page, route, status, g.scored);
+  const wrong = await notTheScoredPage(page, entry, status, g.scored);
   if (wrong) throw new Error(`${NOT_SCORED_PAGE}: ${wrong}`);
   const checks = await step(g, page, () =>
     page.evaluate(domChecks, {
@@ -197,6 +214,7 @@ async function runStandard(
   if (cu && cu.route === route && scheme === "light" && viewport.width === (cu.viewport[0] <= 768 ? 375 : 1440)) {
     try {
       const [width, height] = cu.viewport;
+      g.resized = true;
       await step(g, page, () => page.setViewportSize({ width, height }));
       await step(g, page, () => page.waitForTimeout(RESIZE_MS));
       const visible = await step(g, page, () => page.evaluate(coreUnitVisible, cu.selector));
@@ -223,6 +241,7 @@ async function runStandard(
   for (const size of sizes) {
     const key = `${size.width}x${size.height}`;
     try {
+      g.resized = true;
       await step(g, page, () => page.setViewportSize(size));
       await step(g, page, () => page.waitForTimeout(RESIZE_MS));
       const at = await step(g, page, () => page.evaluate(probeAt, cfg.textFloorPx));
@@ -239,7 +258,7 @@ async function runStandard(
         ...(t?.samples ?? []).map((x) => `${key}: touch target under 44px ${x}`),
       );
     } catch (err) {
-      error = `${key}: ${err instanceof Error ? err.message.slice(0, 200) : String(err)}`;
+      error = `${key}: ${redact(err, routeQuery(route)).slice(0, 200)}`;
       break;
     }
   }
@@ -270,7 +289,7 @@ async function tryStandard(
       }),
     ]);
   } catch (err) {
-    error = err instanceof Error ? err.message.slice(0, 500) : String(err);
+    error = redact(err, routeQuery(entry.route)).slice(0, 500);
   } finally {
     clearTimeout(timer);
   }
@@ -314,7 +333,6 @@ async function checkStandard(
   name: string,
   scored: EntryResult,
 ): Promise<StandardPart> {
-  const measuredUrl = scored.measured_url ?? entry.route;
   const planned = plannedChecks(cfg, entry.route, viewport, scheme);
   if (timeoutsSoFar() >= cfg.maxTimeouts) {
     const why = `not checked: ${cfg.maxTimeouts} entries of this run ran out of time, so the standard's checks stopped for the rest of it`;
@@ -328,7 +346,7 @@ async function checkStandard(
     if (nav.g && r.isNavigationRequest() && r.frame() === page.mainFrame()) nav.g.newDocument = true;
   });
   const attempt = async () => {
-    const g: Guard = { deadline: Date.now() + STANDARD_BUDGET_MS, url: measuredUrl, stopped: null, newDocument: false, scored };
+    const g: Guard = { deadline: Date.now() + STANDARD_BUDGET_MS, url: entry.route, stopped: null, newDocument: false, scored, resized: false };
     nav.g = g;
     const r = await tryStandard(cfg, page, entry, viewport, scheme, g);
     nav.g = null;
@@ -392,10 +410,22 @@ if (standard)
             // Only a page the scored phase reached is checked; the aggregation says why not.
             if (!scored || !scored.reached || scored.unreachable) return;
             test.setTimeout(STANDARD_TIMEOUT_MS);
+            // The phase keeps its deadline itself as well (run-dod.mjs sets DOD_CHECKS_DEADLINE_AT), so
+            // a runner killed outright still ends it: an entry that starts after it is left to the
+            // aggregation, which says "reached its deadline".
+            const deadlineAt = Number(process.env.DOD_CHECKS_DEADLINE_AT ?? 0);
+            if (deadlineAt && Date.now() > deadlineAt) {
+              try {
+                fs.writeFileSync(CHECKS_DEADLINE_FILE, JSON.stringify({ at: new Date().toISOString(), why: `reached its deadline (checksMinutes ${standard.checksMinutes})` }), { flag: "wx" });
+              } catch {
+                // the runner, or another worker, wrote it first
+              }
+              return;
+            }
             const planned = plannedChecks(standard, route, viewport, scheme);
             // This phase's own sign-in failed (global-setup said so): a signed-in entry is not checked.
             if (entry.audience !== "anonymous" && fs.existsSync(CHECKS_SIGNIN_FILE)) {
-              const why = `not checked: the checks phase could not sign in (${fs.readFileSync(CHECKS_SIGNIN_FILE, "utf8").slice(0, 200)})`;
+              const why = `not checked: the checks phase could not sign in (${redact(fs.readFileSync(CHECKS_SIGNIN_FILE, "utf8")).slice(0, 200)})`;
               fs.writeFileSync(standardFile(name), JSON.stringify({ standard: notFinished(planned, why), standard_unchecked: why }, null, 2));
               return;
             }
@@ -406,7 +436,7 @@ if (standard)
             const part: StandardPart = await Promise.race([
               checkStandard(standard, page, entry, viewport, scheme, name, scored).catch(
                 (err: unknown): StandardPart => ({
-                  standard: notFinished(planned, `the checks failed: ${err instanceof Error ? err.message.slice(0, 200) : String(err)}`),
+                  standard: notFinished(planned, `the checks failed: ${redact(err, routeQuery(route)).slice(0, 200)}`),
                 }),
               ),
               new Promise<StandardPart>((resolve) => {

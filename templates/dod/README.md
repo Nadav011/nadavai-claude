@@ -199,18 +199,44 @@ the project has `e2e/dod/standard.json`. Without it nothing changes and `dod.jso
   checks' deductions are applied in the aggregation, so the CI score step sees them. The one case
   where the file's presence fails a run: a `standard.json` that is not valid (an unknown id under
   `enforce`, a bad `mode`) stops the run in the scored phase's global-setup, before the walk.
-- The checks judge only the page the scored phase measured. Each checks test runs the scored
-  phase's own access check on its load (`accessCheck` in `dod-page.ts`: status, redirect, markers,
-  not-found print, denied and error wording) and then compares it with what the scored phase
-  recorded: the same path (`measured_url`), a painted page, and no sign-in form where the scored
-  page had none. When any of these fails, or the checks phase's own sign-in did not land
-  (global-setup confirms it in both phases, and says so loudly), every planned check of that entry
-  is "errored" with that reason and the entry is listed in `standard.not_checked`: a failure where
-  enforced, a reported gap otherwise, never "clean".
+- The checks judge only the page the scored phase measured, and that is proven, not assumed. Each
+  checks test loads the route as the scored phase did, runs the scored phase's own access check on
+  it (`accessCheck` in `dod-page.ts`: status, redirect, markers, not-found print, denied and error
+  wording) and compares it with what the scored phase recorded: the same path (`measured_url`), a
+  painted page, no sign-in form where the scored page had none, and the scored page's
+  **fingerprint**. The scored phase records the fingerprint on every entry of every run, with or
+  without `standard.json` (recorded, not scored): the landmark kinds on the page, its visible
+  h1-h3 headings, the labels of the visible controls in the route's region, and a sketch of the
+  region's words (64 hashes, no text), all without digits and case. The checks phase's load
+  matches it when the landmark kinds are the same, at least half of the heading words are shared,
+  at most a fifth of the controls (at least one) are missing or new, and at least half of the
+  region's words are shared. That keeps a clock, a live count, a relative time, a reordered list
+  or a rotating greeting the same page, and makes an error card, a skeleton, a "sign in again"
+  card or a framework's crash page at the same URL another one. A route whose content really
+  changes more between two loads sets its own tolerance in `routes.json`, with its reason:
+  `{ "route": "/feed", "fingerprint": { "words": 0.2, "controls": 0.5, "reason": "a live feed" } }`
+  (`headings`, `controls`, `words`, each 0 to 1; the landmarks are always compared). When any of
+  this fails, or the checks phase's own sign-in did not land (global-setup confirms it in both
+  phases, and says so loudly), every planned check of that entry is "errored" with the reason (for
+  a fingerprint, what differed: "controls 3 → 2 (missing "שמירה"; new "להתחברות")") and the entry
+  is listed in `standard.not_checked`: a failure where enforced, a reported gap otherwise, never
+  "clean" or "skipped".
+- What the run writes is kept free of the QA account and of tokens: every text that comes from a
+  Playwright error, a page's URL or console, or the environment goes through one function
+  (`redact` in `dod-shared.ts`) before it reaches `reports/`, `dod.json` or the console. It keeps
+  the first line only (a Playwright call log is the lines after it), replaces the values of
+  `DOD_PASSWORD`, `DOD_USER` and every other `DOD_*` (or `ARGOS_TOKEN`) whose name looks secret
+  with `[redacted]`, and cuts every URL's query and fragment except the route's own query from
+  `routes.json`. The password is typed with `keyboard.insertText` after the field is checked, never
+  with `fill`, whose call log carries its value; the sign-in runs in global-setup's own browser,
+  outside every test, so no trace, video or screenshot holds it (the config records none anyway).
+  The file that says why the checks phase could not sign in is readable by its owner only. The QA
+  user is treated as private too: the log says "QA session saved" without naming it.
 - `pnpm dod` stopped by SIGINT or SIGTERM interrupts the phase that is running (so its teardown still
   writes `dod.json`; a checks phase stopped this way lists its entries as "not checked: the checks
-  phase stopped by SIGTERM"), kills it a minute later if it is still there, and starts no other; it
-  exits with the scored phase's code if that phase had finished, else 130 or 143. The
+  phase stopped by SIGTERM"), kills it a minute later if it is still there (at once on a second
+  signal, a second Ctrl-C), and starts no other; it exits with the scored phase's code if that phase
+  had finished, else 130 or 143. The
   QA session file is deleted after each phase however it ended, and first thing in each teardown.
   Each phase keeps its own Playwright output (`test-results/dod`, `test-results/dod-checks`).
 - What the checks phase still does, and the guarantee does not cover: it signs in again and loads
@@ -224,7 +250,8 @@ the project has `e2e/dod/standard.json`. Without it nothing changes and `dod.jso
   the first try's result for every check that did not error in it (`standard_retried` says why).
   Each checks test ends its checks 10 s before its own timeout (105 s) and writes its file itself,
   once, so nothing is written after the phase's teardown has read it. A resize that loads a new document (a navigation or a same-URL reload) or
-  changes the URL (`history.replaceState`) stops the measuring with an error that says which; a
+  changes the URL (`history.replaceState`) stops the measuring with an error that says which, and so
+  does a page that moves after it loaded with no resize yet (a late redirect, said as one); a
   reload too early to see is recorded as the raw "Execution context was destroyed". A check that
   fails or runs out of time (a bad `coreUnit.selector`, a hung page) writes an `error` on that check
   and in `standard.errors`, never an unreachable page or, in report mode, a changed score.
@@ -235,7 +262,8 @@ the project has `e2e/dod/standard.json`. Without it nothing changes and `dod.jso
   the workers, and the entries already being checked when it is reached still finish, so a run can
   end with up to `maxTimeouts + DOD_WORKERS - 1` timed-out entries.
 - `checksMinutes` (default 60): the checks phase as a whole stops then (`run-dod.mjs` interrupts it;
-  its teardown still writes `dod.json`, and a minute later it is killed). Every entry it left no
+  its teardown still writes `dod.json`, and a minute later it is killed). The phase keeps the
+  deadline itself as well, so a runner killed outright still ends it: no entry starts after it. Every entry it left no
   result for is listed in `standard.not_checked` (count and reason) and in the summary, and is
   "errored" where enforced; so is every entry when the checks phase has not run at all.
   `templates/ci/ui.yml` gives the job 120 minutes: with the default 60 here, the scored walk and
@@ -338,9 +366,15 @@ Five projects run an older copy. What changes for each, in the order it bites:
   directly gets the scored phase only. A test of the project's own in `e2e/dod` runs in the checks
   phase, not between scored entries.
 - **The sign-in must land.** global-setup now fails the sign-in when, after the submit, the page
-  is still the sign-in path or shows a sign-in form, or `DOD_READY_PATH` does: before, it saved
-  whatever session it had. A project whose ready page has a password field on purpose points
-  `DOD_READY_PATH` elsewhere.
+  still shows a sign-in form, or `DOD_READY_PATH` does: before, it saved whatever session it had.
+  The path is not what decides, so an app whose form and dashboard are both at "/" signs in; it
+  waits up to 15 s for the form to go, so a single-page app that changes its route only after its
+  sign-in request lands too. A
+  project whose ready page has a password field on purpose points `DOD_READY_PATH` elsewhere. The
+  password field must be visible and editable when the form shows (it is checked before typing).
+- **The checks need the fingerprint.** Results from an older kit have none, so a checks phase run
+  on them judges nothing; run both phases with this kit (`pnpm dod` does). A route whose content
+  changes a lot between two loads gets a `"fingerprint"` tolerance in `routes.json`, with a reason.
 - **Run from the root.** The template finds its files from the working directory (or `DOD_ROOT`),
   not from `__dirname`; an ESM project drops its `import.meta` and JSON-attribute patch.
 - **Heavily customised copies port by hand**, check by check, instead of copying the files over:

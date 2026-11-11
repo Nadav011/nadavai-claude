@@ -139,12 +139,14 @@ function startServer() {
         let body = "";
         req.on("data", (c) => (body += c));
         req.on("end", () => {
-          const user = new URLSearchParams(body).get("u") ?? "";
+          const form = new URLSearchParams(body);
+          const user = form.get("u") ?? "";
           const n = (logins.get(user) ?? 0) + 1;
           logins.set(user, n);
-          // A failed sign-in answers with its form again, 200 and no cookie.
-          if (user.startsWith("once-") && n > 1) return html("login", "<p>הפרטים שגויים.</p>" + LOGIN_FORM);
-          res.writeHead(303, { "set-cookie": ["qa=1; Path=/; HttpOnly", `qan=${n}; Path=/`], location: "/" }).end();
+          // A failed sign-in answers with its form again, 200 and no cookie: a once-… user from its
+          // second sign-in on, and a wrong-… password always.
+          if ((user.startsWith("once-") && n > 1) || (form.get("pw") ?? "").startsWith("wrong-")) return html("login", "<p>הפרטים שגויים.</p>" + LOGIN_FORM);
+          res.writeHead(303, { "set-cookie": ["qa=1; Path=/; HttpOnly", `qan=${n}; Path=/`], location: url.searchParams.get("back") ?? "/" }).end();
         });
         return;
       }
@@ -154,6 +156,35 @@ function startServer() {
           '<label for="pw">סיסמה</label><input id="pw" name="pw" type="password" autocomplete="current-password"><button type="submit">כניסה</button></form>',
       );
     }
+    // Round 7 (B2): sign-in forms that turn on their second visit (the checks phase's sign-in),
+    // counted per ?k=: /login-lock disables its password field ("too many attempts"), /login-hide
+    // hides it. Each posts to /login as the first visit does.
+    if (url.pathname === "/login-lock" || url.pathname === "/login-hide") {
+      const k = `${url.pathname}${url.search}`;
+      const n = (logins.get(k) ?? 0) + 1;
+      logins.set(k, n);
+      if (n < 2) return html("login", LOGIN_FORM);
+      return html(
+        "login",
+        url.pathname === "/login-lock"
+          ? "<p>יותר מדי ניסיונות כניסה. אפשר לנסות שוב בעוד דקה.</p>" + LOGIN_FORM.replace('type="password"', 'type="password" disabled')
+          : LOGIN_FORM.replace('type="password"', 'type="password" style="display:none"'),
+      );
+    }
+    // Round 7: a single-page app's sign-in: the form posts nothing, a request signs in, and the
+    // route changes 1.5 s after it (later than the 500 ms "networkidle" waits for).
+    if (url.pathname === "/api/sign-in") return res.writeHead(200, { "set-cookie": "qa=1; Path=/; HttpOnly", "content-type": "application/json" }).end("{}");
+    if (url.pathname === "/login-spa")
+      return html(
+        "login",
+        LOGIN_FORM.replace('method="post" action="/login"', 'id="spa"') +
+          '<script>document.getElementById("spa").onsubmit=async(e)=>{e.preventDefault();await fetch("/api/sign-in",{method:"POST"});setTimeout(()=>{history.pushState(null,"","/");document.querySelector("main").innerHTML="<h1>דף הבית</h1><p>ברוכים הבאים למערכת.</p>"},1500)}</script>',
+      );
+    // Round 7 (CF-1): the sign-in form and the dashboard at one path, as an app whose sign-in is "/".
+    if (url.pathname === "/app")
+      return /(?:^|;\s*)qa=1(?:;|$)/.test(req.headers.cookie ?? "")
+        ? html("app", "<p>לוח הבקרה של המערכת, עם התורים של היום.</p>")
+        : html("app", LOGIN_FORM.replace('action="/login"', 'action="/login?back=/app"'));
     if (url.pathname === "/") return html("home", "<p>דף הבית של הבדיקה.</p>");
     // H1 of review round 2: pages whose report-mode run must score exactly as without standard.json.
     // /slow keeps the network busy for SLOW_MS; /resize-log logs a console error 300 ms after a
@@ -225,11 +256,44 @@ function startServer() {
     if (R4[url.pathname]) return html(url.pathname.slice(1), R4[url.pathname]);
     // Round 6 (B1): the same page in the scored phase, the wrong one in the checks phase: a sign-in
     // form in place at the same URL, a redirect to /login, an HTTP 404 with a clean not-found page.
-    if (url.pathname.startsWith("/e-")) {
+    if (url.pathname.startsWith("/e-") || url.pathname.startsWith("/f-")) {
       const cookie = req.headers.cookie ?? "";
       const stale = !/(?:^|;\s*)qa=1(?:;|$)/.test(cookie) || Number(cookie.match(/(?:^|;\s*)qan=(\d+)/)?.[1] ?? 0) >= 2;
       const defect = fs.readFileSync(path.join(FIXTURES, "one-primary.html"), "utf8");
+      // Round 7 (B1): the same page on every load, with what changes between two loads of one
+      // page: the time, a live count, a list in another order, a rotating greeting.
+      if (url.pathname === "/f-noisy") {
+        const names = ["דנה כהן", "יוסי לוי", "מיכל אברהם", "רון שמעוני", "נועה פרץ"].sort(() => Math.random() - 0.5);
+        const greet = ["בוקר טוב", "ערב טוב", "לילה טוב"][Math.floor(Math.random() * 3)];
+        return html(
+          "f-noisy",
+          `<h2>${greet}, דנה</h2><p>השעה עכשיו ${new Date().toISOString().slice(11, 19)}, יש ${Math.floor(Math.random() * 90) + 2} הודעות חדשות.</p>` +
+            `<ul>${names.map((n, i) => `<li><a href="#c${i}">${n}</a> לפני ${Math.floor(Math.random() * 50) + 2} דקות</li>`).join("")}</ul>` +
+            defect,
+        );
+      }
       if (!stale) return html(url.pathname.slice(1), defect);
+      // Round 7 (B1, the reviewer's pages): what the app shows at the same URL, HTTP 200, no
+      // password field, when the checks phase's load goes wrong: its session ended, an API failed
+      // (in Hebrew and in English), Next.js's own client-exception page, a skeleton that stays.
+      const F = {
+        "/f-soft": '<p>החיבור שלך הסתיים. כדי להמשיך יש להתחבר מחדש.</p><a class="primary" href="/login">להתחברות</a>',
+        "/f-data": "<p>לא הצלחנו לטעון את הנתונים. נסו לרענן את הדף בעוד כמה דקות.</p><button>רענון</button>",
+        "/f-dataen": "<p>We couldn't load your bookings. Please refresh the page.</p><button>Refresh</button>",
+        "/f-skel": '<div class="sk"></div><div class="sk"></div><div class="sk"></div><style>.sk{height:48px;background:#e5e7eb;margin:8px 0;border-radius:8px}</style>',
+      };
+      if (F[url.pathname]) return html(url.pathname.slice(1), F[url.pathname]);
+      if (url.pathname === "/f-nexterr") {
+        res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+        return res.end(
+          '<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>f-nexterr</title><link rel="stylesheet" href="/fixture.css"></head>' +
+            "<body><div><h2>Application error: a client-side exception has occurred while loading localhost (see the browser console for more information).</h2></div></body></html>",
+        );
+      }
+      // Round 7 (CF-5): a page that keeps rewriting its URL after it loaded (a late client-side
+      // redirect), with no resize.
+      if (url.pathname === "/e-late")
+        return html("e-late", defect + '<script>let i=0;setInterval(()=>history.replaceState(null,"",location.pathname+"?step="+(++i)),30)</script>');
       if (url.pathname === "/e-inplace") return html("e-inplace", "<p>יש להתחבר כדי לראות את המסך הזה.</p>" + LOGIN_FORM);
       if (url.pathname === "/e-redir") return res.writeHead(302, { location: "/login" }).end();
       if (url.pathname === "/e-gone") {
@@ -283,13 +347,36 @@ function startServer() {
 }
 
 // --- running the template --------------------------------------------------------------------
+// Round 7 (B2): a QA password no other text contains, so a leak of it anywhere is found.
+const QA_PASSWORD = "Fx-QA-pw-5517";
+// Every run that left a password it was given under reports/, test-results*/ or in its output.
+const leaks = [];
+let scanned = 0;
+// The files of a finished run that hold `needle`: its reports/, test-results*/, its output (run.log)
+// and the json reporter's files.
+function holding(cwd, needle) {
+  const hits = [];
+  const walk = (d) => {
+    for (const e of fs.existsSync(d) ? fs.readdirSync(d, { withFileTypes: true }) : []) {
+      const f = path.join(d, e.name);
+      if (e.isDirectory()) walk(f);
+      else if (e.isFile() && fs.readFileSync(f).includes(needle)) hits.push(path.relative(cwd, f));
+    }
+  };
+  walk(path.join(cwd, "reports"));
+  for (const e of fs.readdirSync(cwd, { withFileTypes: true })) {
+    if (e.isDirectory() && e.name.startsWith("test-results")) walk(path.join(cwd, e.name));
+    if (e.isFile() && /^(run\.log|pw.*\.json)$/.test(e.name) && fs.readFileSync(path.join(cwd, e.name)).includes(needle)) hits.push(e.name);
+  }
+  return hits;
+}
 const BACKEND_VARS = /^(NEXT_PUBLIC_SUPABASE_URL|VITE_SUPABASE_URL|PUBLIC_SUPABASE_URL|SUPABASE_URL|DATABASE_URL|NEXT_PUBLIC_API_URL|VITE_API_URL|DOD_BACKEND_URL|ARGOS_TOKEN|DOD_ROOT|DOD_VERTICAL|CI)$/;
 function playwright(cwd, port, extraEnv = {}, signal = null) {
   const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !BACKEND_VARS.test(k)));
   Object.assign(env, {
     PORT: String(port),
     DOD_USER: "qa@example.com",
-    DOD_PASSWORD: "fixture",
+    DOD_PASSWORD: QA_PASSWORD,
     DOD_WORKERS: process.env.DOD_WORKERS ?? "3",
     ...extraEnv,
   });
@@ -305,18 +392,31 @@ function playwright(cwd, port, extraEnv = {}, signal = null) {
     // dot on the log, json in pw.json (each test's duration; the checks phase in pw.checks.json).
     env.PLAYWRIGHT_JSON_OUTPUT_NAME = path.join(cwd, "pw.json");
     const child = spawn(process.execPath, argv, { cwd, env, stdio: ["ignore", fd, fd] });
-    // { after, delayMs, sig }: once the log shows `after`, wait delayMs and send sig to the runner alone.
+    // { after, delayMs, sig, againMs }: once the log shows `after`, wait delayMs and send sig to the
+    // runner alone (again `againMs` later, when given: a second Ctrl-C).
     let poll;
+    let second = null;
     if (signal)
       poll = setInterval(() => {
         if (!fs.readFileSync(log, "utf8").includes(signal.after)) return;
         clearInterval(poll);
-        setTimeout(() => child.kill(signal.sig), signal.delayMs);
+        setTimeout(() => {
+          child.kill(signal.sig);
+          if (signal.againMs)
+            setTimeout(() => {
+              second = Date.now();
+              child.kill(signal.sig);
+            }, signal.againMs);
+        }, signal.delayMs);
       }, 500);
     child.on("exit", (code, signal) => {
       clearInterval(poll);
       fs.closeSync(fd);
-      resolve({ code, signal, secs: Math.round((Date.now() - t0) / 1000), log: fs.readFileSync(log, "utf8") });
+      // B2: the password this run was given is nowhere in what it left.
+      const leaked = env.DOD_PASSWORD ? holding(cwd, env.DOD_PASSWORD) : [];
+      scanned++;
+      if (leaked.length) leaks.push(`${path.basename(cwd)}: ${leaked.join(", ")}`);
+      resolve({ code, signal, secs: Math.round((Date.now() - t0) / 1000), log: fs.readFileSync(log, "utf8"), leaked, afterSecond: second && (Date.now() - second) / 1000 });
     });
   });
 }
@@ -601,6 +701,14 @@ async function smallRuns(kind, port) {
     const diffs = invariantDiffs(p, r, ROUTES);
     ok(diffs.length === 0 && r.totals.score === p.totals.score, `${kind}: invariant: every route's score, console count and scored entry fields are the same with and without standard.json (${ROUTES.length} routes, total ${r.totals.score} vs ${p.totals.score})`);
     for (const d of diffs.slice(0, 10)) console.log(`      ${d}`);
+    // Round 7 (B1): the fingerprint is recorded on every run, with or without standard.json, so
+    // both runs do the same work; it is not a scored field.
+    const fpOf = (rep) => Object.values(rep.routes).flatMap((x) => x.entries).filter((e) => e.reached);
+    const hasFp = (e) => Array.isArray(e.fingerprint?.landmarks) && Array.isArray(e.fingerprint?.controls) && Array.isArray(e.fingerprint?.words);
+    ok(
+      fpOf(p).length > 0 && fpOf(p).every(hasFp) && fpOf(r).every(hasFp),
+      `${kind}: every reached entry records its page's fingerprint, without standard.json (${fpOf(p).filter(hasFp).length}/${fpOf(p).length}) and in report mode (${fpOf(r).filter(hasFp).length}/${fpOf(r).length})`,
+    );
     ok(Object.values(r.routes).every((x) => x.entries.every((e) => !e.unreachable)), `${kind}: a check that throws never makes a page unreachable`);
     ok(r.routes["/clean"]?.standard?.["core-unit"]?.error && r.standard?.errors?.some((e) => e.includes("core-unit")), `${kind}: the broken selector is recorded as core-unit's error in dod.json`);
     const nav = r.routes["/nav-resize"];
@@ -705,6 +813,8 @@ async function smallRuns(kind, port) {
   const badDir = project(path.join(WORK, `${kind}-enforce-unknown`), kind, {
     "e2e/dod/routes.json": ["/clean"],
     "e2e/dod/standard.json": { ...STANDARD, mode: "report", enforce: ["help-rout"] },
+    // A previous run's report (round 7, CF-6): it must not stay behind as this run's.
+    "reports/dod/dod.json": { totals: { score: 100 }, routes: {} },
   });
   const bad = await playwright(badDir, port);
   ok(bad.code !== 0 && bad.log.includes('"enforce" must be a list of check ids'), `${kind}: an unknown id under "enforce" is a configuration error in the run (exit ${bad.code})`);
@@ -714,6 +824,7 @@ async function smallRuns(kind, port) {
       !fs.existsSync(path.join(badDir, "node_modules", ".cache", "dod", "qa-storage-state.json")),
     `${kind}: a bad standard.json stops the run before the walk and leaves no QA session file`,
   );
+  ok(!fs.existsSync(path.join(badDir, "reports", "dod", "dod.json")), `${kind}: a run that stops in global-setup leaves no dod.json from a previous run`);
   // Round 6 (B1): the checks judge only the page the scored phase measured. "enforce":
   // ["one-primary"], and each page has two accent actions in the scored phase, so a correct
   // result is one-primary "found 2" or, when the checks phase gets another page, "errored" with
@@ -762,6 +873,98 @@ async function smallRuns(kind, port) {
   ok(
     sg2.code === 143 && !sg2.log.includes("scored phase done") && !fs.existsSync(path.join(sig2Dir, "node_modules", ".cache", "dod", "qa-storage-state.json")),
     `${kind}: SIGTERM to the runner during the scored phase: exit ${sg2.code}, no checks phase, no session file`,
+  );
+  // Round 7 (B1): identity is proven, not assumed. In the checks phase only, each /f- page is
+  // something else at the same URL, HTTP 200, no password field (the reviewer's five: a "sign in
+  // again" card, an API error card in Hebrew and in English, Next.js's client-exception page, a
+  // skeleton with the page's heading). Each must be errored (enforced) with the fingerprint's
+  // difference, never "clean" or "skipped". /f-noisy is one page whose clock, count, list order and
+  // greeting change on every load: it must still be checked ("found 2").
+  const fpDir = project(path.join(WORK, `${kind}-fingerprint`), kind, {
+    "e2e/dod/routes.json": ["/f-soft", "/f-data", "/f-dataen", "/f-nexterr", "/f-skel", "/f-noisy"],
+    "e2e/dod/standard.json": STD6,
+  });
+  const fpRun = await playwright(fpDir, port, { DOD_USER: `twice-${kind}-fp-${Date.now()}@example.com` });
+  if (ranClean(fpRun, `${kind}: a run whose checks phase gets other pages at the same URL exits 0`)) {
+    const g = report(fpDir);
+    for (const x of ["/f-soft", "/f-data", "/f-dataen", "/f-nexterr", "/f-skel"]) {
+      const op = opOf(g, x);
+      ok(
+        op?.verdict === "errored" && String(op?.error).includes("fingerprint differs") && g.routes[x]?.score === 90 && g.routes[x]?.entries.every((e) => e.standard_unchecked),
+        `${kind}: ${x} in the checks phase is another page at the same URL: errored with the fingerprint's difference, not clean (${op?.verdict}: ${String(op?.error).slice(0, 160)}; score ${g.routes[x]?.score})`,
+      );
+    }
+    const noisy = opOf(g, "/f-noisy");
+    ok(
+      noisy?.verdict === "found 2" && g.routes["/f-noisy"]?.score === 90 && !g.routes["/f-noisy"]?.entries.some((e) => e.standard_unchecked),
+      `${kind}: /f-noisy (a clock, a live count, a reordered list, a rotating greeting) is still the same page and is checked (${noisy?.verdict}${noisy?.error ? `: ${String(noisy.error).slice(0, 160)}` : ""})`,
+    );
+  }
+  // Round 7 (CF-5): a URL rewritten after the load, with no resize yet, is said as that.
+  const lateDir = project(path.join(WORK, `${kind}-late`), kind, { "e2e/dod/routes.json": ["/e-late"], "e2e/dod/standard.json": STD6 });
+  const late = await playwright(lateDir, port, { DOD_USER: `twice-${kind}-late-${Date.now()}@example.com` });
+  if (ranClean(late, `${kind}: a run with a late redirect in the checks phase exits 0`)) {
+    const op = opOf(report(lateDir), "/e-late");
+    ok(
+      op?.verdict === "errored" && String(op?.error).includes("a late redirect") && !String(op?.error).includes("resize") && !String(op?.error).includes("step="),
+      `${kind}: a late redirect is said as one, not as a resize, and its query is cut (${String(op?.error).slice(0, 160)})`,
+    );
+  }
+  // Round 7 (B2): the QA password is nowhere a run writes (reports/, test-results*/, its output),
+  // whatever the checks phase's sign-in meets: a password field disabled after too many attempts,
+  // one that never shows, and a wrong password. (A good sign-in is every other run of this suite,
+  // scanned the same way.) The sign-in failure file is the owner's only.
+  const signinCase = async (name, env, want) => {
+    const d = project(path.join(WORK, `${kind}-signin-${name}`), kind, { "e2e/dod/routes.json": ["/clean"], "e2e/dod/standard.json": STD6 });
+    const r = await playwright(d, port, env);
+    const f = path.join(d, "reports", "dod", "results", "checks-signin-failed.txt");
+    const pw = env.DOD_PASSWORD ?? QA_PASSWORD;
+    ok(
+      r.leaked.length === 0 && !r.log.includes(pw) && r.log.includes(want),
+      `${kind}: sign-in ${name}: the password is in no file under reports/ or test-results*/ and not in the output, and the log says "${want}" (${r.leaked.join(", ") || "no file holds it"})`,
+    );
+    return { r, f };
+  };
+  const lock = await signinCase("disabled", { DOD_LOGIN_PATH: `/login-lock?k=${kind}-${Date.now()}` }, "is disabled or read-only");
+  ok(
+    fs.existsSync(lock.f) && (fs.statSync(lock.f).mode & 0o777) === 0o600 && !fs.readFileSync(lock.f, "utf8").includes(QA_PASSWORD),
+    `${kind}: the checks phase's sign-in failure file is readable by its owner only and holds no password (${fs.existsSync(lock.f) ? (fs.statSync(lock.f).mode & 0o777).toString(8) : "missing"})`,
+  );
+  await signinCase("hidden", { DOD_LOGIN_PATH: `/login-hide?k=${kind}-${Date.now()}` }, "did not show within 30 s");
+  await signinCase("wrong", { DOD_PASSWORD: `wrong-${QA_PASSWORD}` }, "the sign-in did not land");
+  // Round 7 (CF-1): the sign-in form and the dashboard at one path: the sign-in lands although the
+  // path does not change.
+  const rootDir = project(path.join(WORK, `${kind}-signin-samepath`), kind, { "e2e/dod/routes.json": ["/clean"] });
+  const root = await playwright(rootDir, port, { DOD_LOGIN_PATH: "/app", DOD_READY_PATH: "/app" });
+  ok(root.code === 0 && root.log.includes("QA session saved") && !root.log.includes("QA login failed"), `${kind}: a sign-in whose form and dashboard share one path lands (exit ${root.code})`);
+  // A single-page app whose route changes 1.5 s after its sign-in request: the sign-in is judged
+  // once its form has gone, not at the first quiet network.
+  const spaDir = project(path.join(WORK, `${kind}-signin-spa`), kind, { "e2e/dod/routes.json": ["/clean"] });
+  const spa = await playwright(spaDir, port, { DOD_LOGIN_PATH: "/login-spa" });
+  ok(spa.code === 0 && spa.log.includes("QA session saved") && !spa.log.includes("QA login failed"), `${kind}: a single-page app's sign-in that changes its route late lands (exit ${spa.code})`);
+  // Round 7 (CF-3): a second signal ends the runner at once, even when the phase does not stop on
+  // the first (a stand-in for Playwright that ignores SIGINT), and the session file still goes.
+  const twoDir = project(path.join(WORK, `${kind}-signal-twice`), kind, {
+    "e2e/dod/routes.json": ["/clean"],
+    "node_modules/@playwright/test/package.json": { name: "@playwright/test", version: "0.0.0" },
+    "node_modules/@playwright/test/cli.js":
+      'require("fs").writeFileSync(require("path").join(process.cwd(), "stand-in.pid"), String(process.pid));process.on("SIGINT",()=>{});setTimeout(()=>{},120000);',
+    "node_modules/.cache/dod/qa-storage-state.json": { cookies: [], origins: [] },
+  });
+  const two = await playwright(twoDir, port, {}, { after: "", delayMs: 2000, sig: "SIGTERM", againMs: 1000 });
+  const standIn = Number(fs.readFileSync(path.join(twoDir, "stand-in.pid"), "utf8"));
+  let standInAlive = true;
+  for (let i = 0; i < 10 && standInAlive; i++) {
+    try {
+      process.kill(standIn, 0);
+      await new Promise((r) => setTimeout(r, 300));
+    } catch {
+      standInAlive = false;
+    }
+  }
+  ok(
+    two.code === 143 && two.afterSecond !== null && two.afterSecond < 5 && !standInAlive && !fs.existsSync(path.join(twoDir, "node_modules", ".cache", "dod", "qa-storage-state.json")),
+    `${kind}: a second SIGTERM ends the runner at once (exit ${two.code}, ${two.afterSecond?.toFixed(1)} s after it), its phase is gone and so is the session file`,
   );
   // F3: after maxTimeouts entries ran out of time, the rest of the run is not checked: one worker,
   // /busy-once's 375 light entry runs out first, the 7 entries after it are skipped, and in
@@ -1079,9 +1282,11 @@ if (!SKIP_BROWSER) {
   } finally {
     server.close();
   }
+  // B2 (round 7): no run of the kit left the QA password it was given anywhere it writes.
+  ok(scanned > 0 && leaks.length === 0, `no run left its QA password under reports/, test-results*/ or in its output (${scanned} runs scanned${leaks.length ? `; ${leaks.slice(0, 5).join(" / ")}` : ""})`);
 }
 
-console.log("\n| run | check id | fixture | fired | fired on the clean page |\n|---|---|---|---|---|");
+console.log("\n| run | check id| fixture | fired | fired on the clean page |\n|---|---|---|---|---|");
 for (const t of table)
   console.log(
     t.real

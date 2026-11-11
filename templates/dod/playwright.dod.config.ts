@@ -35,8 +35,11 @@ export default defineConfig({
     // memory from /dev/shm (RAM) to /tmp on disk; with many pages open that has frozen a
     // desktop. Dropping the flag keeps it in RAM.
     launchOptions: { ignoreDefaultArgs: ["--disable-dev-shm-usage"] },
+    // Nothing of a run is recorded beyond the report: no trace, video or screenshot of a test (the
+    // sign-in runs in global-setup's own browser, outside every test, so it is never in one).
     trace: "off",
     video: "off",
+    screenshot: "off",
   },
   webServer: {
     command: `pnpm dev -p ${port}`,

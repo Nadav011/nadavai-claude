@@ -15,12 +15,14 @@ import {
   loadRoutes,
   loadScoring,
   NOT_FOUND_PRINT,
+  redact,
+  routeQuery,
   routeSlug,
   type EntryResult,
   type NotFoundPrint,
   type RouteEntry,
 } from "./dod-shared";
-import { accessCheck, hasSignInForm, reachRoute, settle, touchTargets } from "./dod-page";
+import { accessCheck, hasSignInForm, pageFingerprint, reachRoute, settle, touchTargets } from "./dod-page";
 
 // The scored phase. It never reads standard.json: the experience standard's checks are another
 // phase (standard.spec.ts), run by run-dod.mjs after every entry of this one has finished.
@@ -108,11 +110,13 @@ async function measureEntry(
   const { route } = entry;
   const consoleErrors: string[] = [];
   let frozen = false;
+  // The page's own words go into the report through redact(), like every error text: a console
+  // line can carry a URL with a key in its query.
   page.on("console", (m) => {
-    if (!frozen && m.type() === "error") consoleErrors.push(m.text().slice(0, 300));
+    if (!frozen && m.type() === "error") consoleErrors.push(redact(m.text(), routeQuery(route)).slice(0, 300));
   });
   page.on("pageerror", (e) => {
-    if (!frozen) consoleErrors.push(`pageerror: ${e.message.slice(0, 300)}`);
+    if (!frozen) consoleErrors.push(`pageerror: ${redact(e.message, routeQuery(route)).slice(0, 300)}`);
   });
   let measuredUrl = "";
   const result: EntryResult = {
@@ -158,6 +162,10 @@ async function measureEntry(
       result.not_reached_reason = await reachRoute(page);
       result.reached = result.not_reached_reason === null;
     }
+    // Recorded, not scored, on every run (with or without standard.json, so both do the same
+    // work): what this page is, for the checks phase to prove its own load is the same page.
+    const fp = await pageFingerprint(page).catch(() => null);
+    if (fp) result.fingerprint = fp;
 
     const shot = path.join(SCREENS_DIR, `${name}.png`);
     await page.screenshot({ path: shot, fullPage: true });
@@ -225,12 +233,12 @@ async function measureEntry(
       result.unreachable_reason = `the reduced-motion reload landed on ${rmLanded}: the session may have expired during the run`;
     }
   } catch (err) {
-    result.load_error = err instanceof Error ? err.message.slice(0, 500) : String(err);
+    result.load_error = redact(err, routeQuery(route)).slice(0, 500);
     result.unreachable = true;
     result.unreachable_reason = result.load_error;
   }
   frozen = true;
-  result.measured_url = measuredUrl || page.url();
+  result.measured_url = redact(measuredUrl || page.url(), routeQuery(route));
   return result;
 }
 

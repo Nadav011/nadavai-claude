@@ -1,6 +1,6 @@
 // Page helpers shared by the scored phase (dod.spec.ts) and the checks phase (standard.spec.ts).
 import type { Page } from "@playwright/test";
-import { normalizeRegionText, type NotFoundPrint, type RouteEntry, type RouteParams } from "./dod-shared";
+import { normalizeRegionText, redact, routeQuery, type NotFoundPrint, type PageFingerprint, type RouteEntry, type RouteParams } from "./dod-shared";
 
 const SETTLE_MS = 1200;
 
@@ -197,7 +197,9 @@ export async function accessCheck(
     landedPath !== expected &&
     (!leftItsArea || route in declaredAlias) &&
     routes.some(({ route: r }) => (r.split("?")[0] ?? r) === landedPath);
-  const redirected_to = alias ? landed : undefined;
+  // Said through redact(): a query the app added on the way (a token, a code) is cut.
+  const shownLanded = redact(landed, routeQuery(route));
+  const redirected_to = alias ? shownLanded : undefined;
   const bounced = landedPath !== expected && !alias;
   const deniedText = await page
     .locator("body")
@@ -225,7 +227,7 @@ export async function accessCheck(
   if (status !== null && status >= 400) {
     reason = `HTTP ${status}`;
   } else if (bounced) {
-    reason = `redirected to ${landed}: the QA account has no access`;
+    reason = `redirected to ${shownLanded}: the QA account has no access`;
   } else if (marker === "no-access" && askedState !== "no-access") {
     reason = 'access-denied screen rendered ([data-state="no-access"])';
   } else if (
@@ -255,6 +257,81 @@ export async function accessCheck(
     reason = "the app's own error screen rendered";
   }
   return { unreachable_reason: reason, ...(redirected_to ? { redirected_to } : {}) };
+}
+
+/**
+ * The page's fingerprint (PageFingerprint in dod-shared.ts), read in one evaluate. Its own
+ * visibility test, not checkVisibility: a page may break that (the suite's /tamper does), and a
+ * fingerprint that throws would leave the entry unprovable. Recorded by the scored phase on every
+ * run; compared by the checks phase.
+ */
+export function pageFingerprint(page: Page): Promise<PageFingerprint> {
+  return page.evaluate(() => {
+    const shown = (el: Element) => {
+      const r = el.getBoundingClientRect();
+      if (r.width === 0 && r.height === 0) return false;
+      for (let a: Element | null = el; a; a = a.parentElement) {
+        const cs = getComputedStyle(a);
+        if (cs.display === "none" || cs.visibility === "hidden" || cs.opacity === "0") return false;
+      }
+      return !el.closest('[aria-hidden="true"], [hidden], [inert]');
+    };
+    const norm = (t: string, n: number) => t.replace(/\d+/g, "").replace(/\s+/g, " ").trim().toLowerCase().slice(0, n);
+    const LANDMARKS: [string, string][] = [
+      ["main", 'main, [role="main"]'],
+      ["nav", 'nav, [role="navigation"]'],
+      ["banner", 'body > header, body > * > header, [role="banner"]'],
+      ["contentinfo", 'body > footer, body > * > footer, [role="contentinfo"]'],
+      ["complementary", 'aside, [role="complementary"]'],
+      ["search", 'search, [role="search"]'],
+    ];
+    const landmarks = LANDMARKS.filter(([, sel]) => [...document.querySelectorAll(sel)].some(shown)).map(([k]) => k);
+    const headings = [
+      ...new Set(
+        [...document.querySelectorAll('h1, h2, h3, [role="heading"][aria-level="1"], [role="heading"][aria-level="2"], [role="heading"][aria-level="3"]')]
+          .filter(shown)
+          .map((h) => norm((h as HTMLElement).innerText ?? "", 80))
+          .filter(Boolean),
+      ),
+    ]
+      .slice(0, 12)
+      .sort();
+    // The route's own region, as reachRoute reads it; without one, the body less its chrome.
+    const region =
+      document.querySelector("main, #main-content, #root, #__next") ??
+      (() => {
+        const clone = document.body.cloneNode(true) as HTMLElement;
+        for (const el of clone.querySelectorAll('nav, footer, header, [role="navigation"], [role="banner"], [role="contentinfo"], script, style'))
+          el.remove();
+        return clone;
+      })();
+    const live = region.isConnected;
+    const CONTROLS =
+      'a[href], button, input:not([type="hidden"]), select, textarea, [role="button"], [role="link"], [role="tab"], ' +
+      '[role="switch"], [role="checkbox"], [role="radio"], [role="menuitem"], [role="combobox"], [role="option"]';
+    const controls = [...region.querySelectorAll(CONTROLS)]
+      .filter((el) => !live || shown(el))
+      .map((el) => {
+        const e = el as HTMLInputElement;
+        return norm(e.getAttribute("aria-label") || e.innerText || e.getAttribute("placeholder") || e.getAttribute("name") || e.type || e.tagName, 40) || e.tagName.toLowerCase();
+      })
+      .slice(0, 80)
+      .sort();
+    const text = live ? ((region as HTMLElement).innerText ?? "") : (region.textContent ?? "");
+    const hash = (w: string) => {
+      let h = 0x811c9dc5;
+      for (let i = 0; i < w.length; i++) h = Math.imul(h ^ w.charCodeAt(i), 0x01000193) >>> 0;
+      return h;
+    };
+    const distinct = new Set(
+      text
+        .toLowerCase()
+        .split(/[^\p{L}]+/u)
+        .filter((w) => w.length >= 2),
+    );
+    const words = [...new Set([...distinct].map(hash))].sort((x, y) => x - y).slice(0, 64);
+    return { landmarks, headings, controls, words };
+  });
 }
 
 /** A visible password field: the page is a sign-in form (or has one), as the QA account sees it. */

@@ -17,8 +17,8 @@
 //
 // SIGINT and SIGTERM to this runner stop the phase that is running, as an interrupt (SIGINT, so its
 // teardown still writes dod.json; each phase runs in its own process group, so a terminal's Ctrl-C
-// reaches it once, through here), killed a minute later if it is still there; no phase starts
-// after one. The exit code is
+// reaches it once, through here), killed a minute later if it is still there, or at once on a
+// second signal; no phase starts after one. The exit code is
 // then the scored phase's if it had finished, else 130 or 143. The QA session file is deleted
 // after each phase, whatever ended it (DOD_KEEP_STORAGE_STATE=1 keeps it).
 import { spawn } from "node:child_process";
@@ -41,9 +41,23 @@ const dropSession = () => {
 let current = null;
 let running = null;
 let interrupted = null;
+// The scored phase's exit code, once it has finished.
+let scoredCode = null;
 for (const sig of ["SIGINT", "SIGTERM"])
   process.on(sig, () => {
-    if (interrupted) return;
+    if (interrupted) {
+      // A second signal (a second Ctrl-C): no more waiting for the phase. Its whole group is
+      // killed now, the session file goes, and the runner ends.
+      if (current) {
+        try {
+          process.kill(-current.pid, "SIGKILL");
+        } catch {
+          // already gone
+        }
+      }
+      dropSession();
+      process.exit(scoredCode ?? (interrupted.sig === "SIGINT" ? 130 : 143));
+    }
     interrupted = { sig, phase: running };
     if (current && current.exitCode === null) stop(current, `stopped by ${sig}`);
   });
@@ -105,11 +119,13 @@ const run = (phase, env, deadlineMs) =>
   });
 
 const scored = await run("scored", standard ? { DOD_CHECKS_NEXT: "1" } : {});
+if (!interrupted) scoredCode = scored;
 // Interrupted during the scored phase: its code is not a finished run's. After it: no checks phase.
 if (interrupted?.phase === "scored") process.exit(interrupted.sig === "SIGINT" ? 130 : 143);
 if (standard && !interrupted) {
   const minutes = typeof standard.checksMinutes === "number" && standard.checksMinutes > 0 ? standard.checksMinutes : 60;
-  const checks = await run("checks", {}, minutes * 60_000);
+  // The deadline also goes to the phase itself, which keeps it if this runner is killed outright.
+  const checks = await run("checks", { DOD_CHECKS_DEADLINE_AT: String(Date.now() + minutes * 60_000) }, minutes * 60_000);
   if (checks !== 0) console.log(`[dod] the checks phase exited ${checks}; the run's exit code is the scored phase's (${scored}).`);
 }
 dropSession();
