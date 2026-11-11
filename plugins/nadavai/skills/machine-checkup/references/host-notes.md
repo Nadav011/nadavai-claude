@@ -83,6 +83,23 @@ getting MIG mode: GPU requires reset", and "GCx pre-requisite" every 5 s. Found 
 waking from runtime sleep, which makes the `NVreg_DynamicPowerManagement=0x02` measurement the
 next step.
 
+Correction, 2026-11-11, read in NVIDIA's own README (chapter "PCI-Express Runtime D3 (RTD3) Power
+Management", https://download.nvidia.com/XFree86/Linux-x86_64/570.144/README/dynamicpowermanagement.html):
+`NVreg_DynamicPowerManagement=0x02` is fine-grained power control, and the default `0x03` already
+means the same on Ampere and newer notebooks; this card is an RTX 3070 Mobile (GA104M) and
+`/proc/driver/nvidia/params` shows 3. So every line above that names `0x02` as the setting that
+keeps the card powered is wrong: `0x02` changes nothing here. What keeps the card awake is `0x00`
+(module option, needs a reboot) or, live and without a reboot,
+`echo on | sudo tee /sys/bus/pci/devices/0000:01:00.0/power/control` (`auto` puts it back; the
+driver's own udev rule sets `auto` at bind). The next step is therefore, after a reboot that
+clears the fault (with a person beside the machine, the reboot may not return): measure
+`power/control` `on` against `auto` with `scripts/cpu-ab.sh` and the CI agent paused (heat and
+work at the 40 W limit, since the card shares the heat pipes), and when the cost is acceptable
+make it permanent with a udev rule on the card's bind event, then count the days without a
+fault. That the fault comes from waking out of runtime sleep is the leading reading (the
+GFW_BOOT line), not a proven one: the 2026-11-10 fault began at 16:59 and this one at 23:05
+with no suspend or resume line near either.
+
 **LENOVO** (Legion Pro 5 16IAX10H, Core Ultra 9 275HX 24 cores, 62 GB, RTX 5070 Ti, CachyOS,
 BIOS Q6CN79WW = latest per `download.lenovo.com/catalog/83LU_Win11.xml`; the main machine since
 2026-11-03). On Linux the firmware leaves `intel-rapl-mmio:0` at 30/30 W, so check that first:
