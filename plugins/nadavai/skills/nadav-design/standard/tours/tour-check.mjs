@@ -15,8 +15,9 @@
 //                   notes every tour of more than six steps with no chapter break, which is never a finding
 //   tour-no-commit  the part read from data: a do step that does not say on: "sample" or on: "none", a
 //                   do step at on: "none" on a control the inventory lists in recordAnchors (on any of its
-//                   screens), a do step classed S (it saves) without on: "sample", a do step
-//                   classed T (in practice mode too) or P that is not practice-only, a practice-only step without on: "sample" or
+//                   screens), or whose result names one, a do step classed S (it saves) without on: "sample",
+//                   a do step classed T (in practice mode too) or P that is not practice-only, a practice-only
+//                   step that is not classed P, a practice-only step without on: "sample" or
 //                   (at stage "app") without both tests, a do step that opens a record (result recordOpen)
 //                   without on: "sample", a do step with no G-20 test named (at stage "demo" these, and a
 //                   practice-only step's missing tests, are notes with the count instead), a resume action
@@ -53,7 +54,12 @@ const USAGE = 'usage: node tour-check.mjs <tours.json> [--inventory <inventory.j
 const NOT_COVERED = [
   'tour-no-commit: the engine itself dispatching a click, a submit or a key on a step target (the running app)',
   'tour-no-commit: that a tour\'s start does only what its `start` says, and asks before closing a window that holds unsaved input (the running app)',
-  'tour-no-commit: whether a step\'s class is right (a numbered document, a payment and a close for good are always P, a send is T, a save is S); the manifest\'s class is taken as written, so a save or a send written as an unclassed do step passes (the reviewer, and the step\'s safeTest, which performs the action on the sample record)',
+  'tour-no-commit: whether a step\'s class is right (a numbered document, a payment and a close for good are always P, a send is T, a save is S); the manifest\'s class is taken as written, so a save or a send written as an unclassed do step passes (the reviewer, and the step\'s safeTest, which performs the action on the sample record); a practice-only step is always classed P, so an unclassed do step always names a safeTest',
+  'tour-no-commit: a step classed P that also tells someone (a practice receipt that is also sent) carries one class, P; that its mode test also shows the message is held is the project\'s suite\'s (the checker reads one class)',
+  'tour-no-commit: that the practice mode\'s test covers every outbound path (no document number; no documents, payment or messaging provider; no calendar or webhook call): the test is named, not read',
+  'tour-no-commit: a do step lit on a container of people\'s rows (a list, a column, the calendar grid) at on: "none", where the inventory does not list the container and the result names no record control (the running app)',
+  'tour-shape: a device run left empty, every step of a tour marked for the other device (the reviewer)',
+  'tour-shape: two tours that open by themselves on one core screen, or a later chapter that opens by itself (the reviewer)',
   'tour-no-commit: a step sentence that says nothing goes out, or that no one is told, where no test shows it (the reviewer, against the G-20 test or the practice mode\'s test)',
   'tour-no-commit: an inventory that declares no recordAnchors, or too few, leaves on: "none" unjudged with no note (the running app)',
   'tour-inventory: a result that routes to a screen the inventory does not have (only the screens a tour lists are read)',
@@ -224,7 +230,10 @@ const noTest = []; // do steps that name no G-20 test: findings at stage app, on
 const demoPractice = []; // practice-only steps at stage demo that name their tests later: one note
 // a control the inventory lists as being on a person's record or row (recordAnchors), on any screen of the inventory:
 // anchor ids are global, and a tour reaches screens it does not list (a route, a chapter with screens [])
-const onRecord = s => !!s.anchor && Object.values(obj(INV && INV.screens)).some(sc => arr(obj(sc).recordAnchors).includes(s.anchor));
+const isRecordAnchor = id => !!id && Object.values(obj(INV && INV.screens)).some(sc => arr(obj(sc).recordAnchors).includes(id));
+// the step's own control, or the control its result names (present, fieldChanged): a do step lit on a list or the grid
+// whose result is a person's control has let her reach that person's record
+const onRecord = s => isRecordAnchor(s.anchor) || (plain(s.result) && ['present', 'fieldChanged'].includes(s.result.kind) && isRecordAnchor(typeof s.result.arg === 'string' ? s.result.arg : obj(s.result.arg).anchor));
 const START_KEYS = [
   'screen',
   'record', // M:start-record
@@ -272,10 +281,10 @@ tours.forEach((t, ti) => {
     const tp = s.class === 'T' || s.class === 'P';
     // at stage demo a practice-only step may name its tests later (one note); at stage app it names both
     const practiceGap = !!s.practiceOnly && missing.length > 0;
-    if (s.kind === 'do' && (s.class === 'T' || (tp && !s.practiceOnly) || (practiceGap && M.stage !== 'demo'))) add('tour-no-commit', 'G-20', 'do-class', at, s.class === 'T' && s.practiceOnly ? 'a do step classed T tells a real person: it is a stop step, in practice mode too (the mode is for a numbered document, a payment and a close for good, classed P)' : s.practiceOnly ? `a practice-only do step without ${missing.join(' and ')}: it is a stop step in the mode too` : `a do step classed ${s.class} is not practice-only: it is a stop step`); // M:do-class
+    if (s.kind === 'do' && ((tp && !s.practiceOnly) || (!!s.practiceOnly && s.class !== 'P') || (practiceGap && M.stage !== 'demo'))) add('tour-no-commit', 'G-20', 'do-class', at, s.class === 'T' && s.practiceOnly ? 'a do step classed T tells a real person: it is a stop step, in practice mode too (the mode is for a numbered document, a payment and a close for good, classed P)' : s.practiceOnly && s.class !== 'P' ? `a practice-only do step ${s.class ? `classed ${s.class}` : 'with no class'}: practice mode is only for a numbered document, a payment and a close for good (classed P); any other do step names its G-20 safeTest` : s.practiceOnly ? `a practice-only do step without ${missing.join(' and ')}: it is a stop step in the mode too` : `a do step classed ${s.class} is not practice-only: it is a stop step`); // M:do-class
     if (s.kind === 'do' && practiceGap && M.stage === 'demo') demoPractice.push(at); // M:demo-practice
     if (s.kind === 'do' && s.on === undefined) add('tour-no-commit', 'G-08', 'do-no-on', at, 'a do step that does not say whose record it acts on: on: "sample", or on: "none" when it acts on no person\'s record (an empty slot, a filter, a settings tab)'); // M:do-no-on
-    if (s.kind === 'do' && s.on === 'none' && onRecord(s)) add('tour-no-commit', 'G-08', 'none-on-record', at, `a do step with on: "none" on "${s.anchor}", which the inventory lists as a control on a person's record or row`); // M:none-on-record
+    if (s.kind === 'do' && s.on === 'none' && onRecord(s)) add('tour-no-commit', 'G-08', 'none-on-record', at, isRecordAnchor(s.anchor) ? `a do step with on: "none" on "${s.anchor}", which the inventory lists as a control on a person's record or row` : `a do step with on: "none" whose result names a control the inventory lists on a person's record or row: its lit target reaches that record`); // M:none-on-record
     if (s.kind === 'do' && s.class === 'S' && s.on !== 'sample') add('tour-no-commit', 'G-20', 'save-not-sample', at, 'a do step classed S (it saves) that does not carry on: "sample": a save the person does in a tour saves the sample record, never a real one or a business-wide setting'); // M:save-not-sample
     if (s.practiceOnly && s.on !== 'sample') add('tour-no-commit', 'G-20', 'practice-not-sample', at, 'a practice-only step without on: "sample": inside the mode the tour runs on the sample record\'s copy, never on a real person\'s'); // M:practice-not-sample
     if (s.kind === 'do' && plain(s.result) && s.result.kind === 'recordOpen' && s.on !== 'sample') add('tour-no-commit', 'G-08', 'record-not-sample', at, 'a do step opens a person\'s record (recordOpen) and does not carry on: "sample": tours run on the sample record, never on real data'); // M:record-not-sample

@@ -200,7 +200,7 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "modeTest": { "type": "string", "minLength": 1, "pattern": "[\\p{L}\\p{N}]", "description": "The practice mode's test for this action: no number is taken and no provider reached." },
+            "modeTest": { "type": "string", "minLength": 1, "pattern": "[\\p{L}\\p{N}]", "description": "The practice mode's test for this action. The mode's test shows that nothing leaves of any kind: no document number; no documents, payment or messaging provider; no calendar or webhook call. A step that both issues and sends (a practice receipt that is also sent) is classed P, and its mode test also shows the message is held." },
             "stopTest": { "type": "string", "minLength": 1, "pattern": "[\\p{L}\\p{N}]", "description": "The test that the step is a stop step outside the mode." }
           },
           "description": "A do step classed P (a numbered document, a payment, a close for good) done to the end only inside practice mode (G-20); a step classed T is never practice-only. Outside the mode it is a stop step. Outside the mode a practice chapter ends at its first practice-only step, which is a stop step there. It carries on: sample (the sample record's copy, never a real person's). At stage app it names both tests; at stage demo it may be {} and name them later (the checker notes the count). tour-no-commit fails it otherwise."
