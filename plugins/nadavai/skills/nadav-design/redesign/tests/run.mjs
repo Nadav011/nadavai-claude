@@ -1351,6 +1351,10 @@ const TOUR_FIXTURES = [
   ['do-no-on', 'tour-no-commit', 'G-08', 'a do step that does not say whose record it acts on', m => { delete tourOf(m, 'book').steps[1].on; }],
   ['do-no-on', 'tour-no-commit', 'G-08', 'the reviewer\'s P1, a do step that opens a debtor\'s charge window, as written (no on)', m => { const t = tourOf(m, 'pat-debt'); t.steps[3] = { kind: 'do', act: 'open', when: 'desktop', anchor: 'patients.charge', result: { kind: 'open', arg: 'pay.charge-sheet' }, safeTest: 'e2e/x.spec.ts: y', text: 'לוחצים "חיוב". נפתח חלון החיוב.' }; t.steps.push({ kind: 'stop', class: 'P', when: 'desktop', anchor: 'pay.charge-confirm', text: '"אישור החיוב" גובה מהכרטיס השמור.' }); }],
   ['none-on-record', 'tour-no-commit', 'G-08', 'the same P1 at on: none, on a control the inventory lists on a person\'s row', m => { const t = tourOf(m, 'pat-debt'); t.steps[3] = { kind: 'do', act: 'open', on: 'none', when: 'desktop', anchor: 'patients.charge', result: { kind: 'open', arg: 'pay.charge-sheet' }, safeTest: 'e2e/x.spec.ts: y', text: 'לוחצים "חיוב". נפתח חלון החיוב.' }; t.steps.push({ kind: 'stop', class: 'P', when: 'desktop', anchor: 'pay.charge-confirm', text: '"אישור החיוב" גובה מהכרטיס השמור.' }); }],
+  ['none-on-record', 'tour-no-commit', 'G-08', 'the fifth review\'s route case: a calendar tour that goes to the patients list and opens a debtor\'s charge window at on: none', m => { m.tours.push({ id: 'cal-to-debt', title: 'מהיומן לגבייה', screens: ['cal-week'], area: 'יומן', where: 'יומן', tasks: [], steps: [{ kind: 'do', act: 'open', on: 'none', anchor: 'nav.patients', result: { kind: 'route', arg: { is: 'patients' } }, safeTest: 'e2e/x.spec.ts: moving to the list changes nothing', text: 'עוברים לרשימת המטופלים.' }, { kind: 'do', act: 'open', on: 'none', when: 'desktop', anchor: 'patients.charge', result: { kind: 'open', arg: 'pay.charge-sheet' }, safeTest: 'e2e/x.spec.ts: opening the charge window sends nothing', text: 'לוחצים "חיוב". נפתח חלון החיוב.' }, { kind: 'stop', class: 'P', when: 'desktop', anchor: 'pay.charge-confirm', text: '"אישור החיוב" גובה מהכרטיס השמור.' }], finish: 'סוף.' }); }],
+  ['none-on-record', 'tour-no-commit', 'G-08', 'the fifth review\'s empty-screens case: the same charge step in a tour with screens [] and no job', m => { m.tours.push({ id: 'debt-list', title: 'לגבות', screens: [], area: 'מטופלים', where: 'מטופלים', tasks: [], steps: [{ kind: 'do', act: 'open', on: 'none', when: 'desktop', anchor: 'patients.charge', result: { kind: 'open', arg: 'pay.charge-sheet' }, safeTest: 'e2e/x.spec.ts: opening the charge window sends nothing', text: 'לוחצים "חיוב". נפתח חלון החיוב.' }, { kind: 'stop', class: 'P', when: 'desktop', anchor: 'pay.charge-confirm', text: '"אישור החיוב" גובה מהכרטיס השמור.' }], finish: 'סוף.' }); }],
+  ['save-not-sample', 'tour-no-commit', 'G-20', 'the fifth review\'s M1: the reminder save as a do step classed S at on: none, which saves a real clinic rule', m => { tourOf(m, 'reminder').steps[3] = { kind: 'do', act: 'open', class: 'S', on: 'none', anchor: 'settings.save', result: { kind: 'present', arg: 'settings.saved-toast' }, safeTest: 'e2e/x.spec.ts: saving the rule sends nothing', text: 'לוחצים "שמירה". התזכורות הבאות יוצאות לפי השינוי.' }; }],
+  ['screen-unknown', 'tour-inventory', 'G-19', 'the fifth review\'s M2: a tour on a screen the inventory does not have', m => { m.tours.push({ id: 'chats', title: 'צ׳אט', screens: ['msg-chats'], area: 'הודעות', where: 'הודעות', tasks: [], steps: [{ kind: 'do', act: 'open', on: 'none', anchor: 'chats.row', result: { kind: 'present', arg: 'chats.input' }, safeTest: 'e2e/x.spec.ts: y', text: 'פותחים שיחה מהרשימה.' }, { kind: 'stop', class: 'T', anchor: 'chats.send', text: '"שליחה" שולחת את ההודעה.' }], finish: 'סוף.' }); }],
   ['do-class', 'tour-no-commit', 'G-20', 'a practice-only step with no class and no tests', m => { const s = tourOf(m, 'close-3').steps[1]; delete s.class; s.practiceOnly = {}; s.safeTest = 'e2e/x.spec.ts: y'; }],
   ['view-of', 'tour-shape', 'G-21', 'a viewOf that names a screen the inventory does not have', (m, i) => { i.screens['cal-day'].viewOf = 'ghost'; }],
   ['view-of', 'tour-shape', 'G-21', 'a viewOf that names the key itself', (m, i) => { i.screens['cal-day'].viewOf = 'cal-day'; }],
@@ -1368,7 +1372,7 @@ const TOUR_FIXTURES = [
   ['article-tour', 'help-refs', 'G-02, G-19', 'an article names a tour that does not list its task', (m, i) => { i.screens['cal-day'].tasks[0].tour = 'close-1'; }],
   ['article-tour', 'help-refs', 'G-02, G-19', 'an article names a tour that does not exist', (m, i) => { i.screens['cal-day'].tasks[0].tour = 'no-such-tour'; }],
 ];
-await test('TOUR-0', 'tour-check passes the example manifest clean, with and without the inventory, and its bindings cover every id that is not a data-tour anchor', async () => {
+await test('TOUR-0', 'tour-check passes the example manifest clean, with and without the inventory, its bindings cover every id that is not a data-tour anchor, a reopen puts back the sample\'s record, and a resolver of a step marked "sample" selects by the sample\'s id', async () => {
   const why = [];
   const full = tourCheck(TOUR_EX, INV_EX);
   if (full.status !== 0 || !full.out || full.out.findings.length || full.out.tours !== 6) why.push(`with inventory: exit ${full.status} ${full.raw}`);
@@ -1397,7 +1401,7 @@ await test('TOUR-0', 'tour-check passes the example manifest clean, with and wit
       get: (t, k) => (typeof k === 'symbol' ? undefined : k === 'sampleEndedNotClosed' ? () => SAMPLE : /^(last|recent|current)$/.test(k) ? REAL : node(`${name}.${k}`)),
       apply: (t, self, args) => { log.push({ name, args }); return node(`${name}()`); },
     });
-    return { app: node('app'), $: () => null, $: () => [] };
+    return { app: node('app'), $: () => null, $$: () => [] };
   };
   for (const t of TOUR_EX.tours) {
     if (!t.steps.some(st => st.result && st.result.kind === 'recordOpen')) continue;
@@ -1407,6 +1411,15 @@ await test('TOUR-0', 'tour-check passes the example manifest clean, with and wit
       const args = log.flatMap(c => c.args);
       if (!args.includes(SAMPLE) || args.includes(REAL)) why.push(`${t.id}: the reopen of ${w} does not put back the sample's record (${JSON.stringify(log.map(c => c.name))})`);
     }
+  }
+  // a step marked "sample" whose control is a resolver selects by the sample's record id, never by position: every
+  // selector the resolver asks for names the sample's id and not the real record's
+  const sampled = steps.filter(st => st.on === 'sample' && st.anchor && b.anchors[st.anchor]);
+  if (!sampled.length) why.push('no step marked "sample" binds through a resolver, so nothing shows how one selects');
+  for (const st of sampled) {
+    const asked = [];
+    b.anchors[st.anchor]({ ...fake([]), $: q => { asked.push(q); return null; }, $$: q => { asked.push(q); return []; } });
+    if (!asked.length || !asked.every(q => q.includes(SAMPLE.id) && !q.includes(REAL.id))) why.push(`the resolver of ${st.anchor} does not select by the sample's record id (${JSON.stringify(asked)})`);
   }
   return why.join(' · ');
 });
@@ -1607,7 +1620,7 @@ await test('TOUR-none-no-inventory', 'without --inventory the example\'s on: "no
   if (!mu.out || mu.out.notes.some(x => x.message === note)) why.push('mutant without M:none-no-inventory still prints the note');
   return why.join(' · ');
 });
-await test('TOUR-stage', 'with --require-stage app the example passes and a manifest at demo fails with stage-required only; without its line it passes; another value is a usage error', async () => {
+await test('TOUR-stage', 'with --require-stage app the example passes and a manifest at demo fails with stage-required only; without its line it passes; another value is a usage error, and so is app without --inventory (without that line it passes)', async () => {
   const why = [];
   const ok = tourCheck(TOUR_EX, INV_EX, undefined, ['--require-stage', 'app']);
   if (ok.status !== 0 || !ok.out || ok.out.findings.length) why.push(`example: exit ${ok.status}`);
@@ -1619,6 +1632,13 @@ await test('TOUR-stage', 'with --require-stage app the example passes and a mani
   if (mu.status !== 0) why.push(`mutant without M:stage-required: exit ${mu.status}`);
   const u = sh('node', [path.join(TOURS, 'tour-check.mjs'), path.join(TOURS, 'example', 'tours.json'), '--require-stage', 'beta']);
   if (u.status !== 2) why.push(`--require-stage beta: exit ${u.status}`);
+  // the app's check without --inventory is a usage error, never a pass; without its line it would pass
+  const ni = tourCheck(TOUR_EX, null, undefined, ['--require-stage', 'app']);
+  if (ni.status !== 2 || !/--require-stage app needs --inventory/.test(ni.raw)) why.push(`--require-stage app without --inventory: exit ${ni.status} ${ni.raw}`);
+  const nim = tourCheck(TOUR_EX, null, mutant('stage-app-inventory'), ['--require-stage', 'app']);
+  if (nim.status !== 0) why.push(`mutant without M:stage-app-inventory: exit ${nim.status}`);
+  const nd = tourCheck(TOUR_EX, null, undefined, ['--require-stage', 'demo']);
+  if (nd.status !== 1 || !nd.out || nd.out.findings.map(x => x.code).join(',') !== 'stage-required') why.push(`--require-stage demo without --inventory: exit ${nd.status}`);
   return why.join(' · ');
 });
 await test('TOUR-demo','at stage demo, do steps that name no G-20 test are one note with their count, not findings; without the stage line they are findings', async () => {

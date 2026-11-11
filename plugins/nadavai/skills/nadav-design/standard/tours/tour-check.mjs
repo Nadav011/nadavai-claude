@@ -5,7 +5,7 @@
 //   manifest        the file has the shape of tours.schema.json (and inventory.schema.json), tour ids
 //                   are unique, a job's chapters run 1..n, a tour opens by itself and starts only on its
 //                   own screens; with --require-stage, a manifest at another stage (the app's own check
-//                   run passes --require-stage app)
+//                   run passes --inventory and --require-stage app; app without --inventory is a usage error)
 //   tour-shape      a step over twelve words, a step with no skip, a do step with no result, a chapter
 //                   that can end (on the phone or the computer) neither at a result nor at a stop step, a
 //                   tour that opens by itself on a screen that is not core, more than five core screens
@@ -14,7 +14,8 @@
 //                   lacks or a view, and a core key's viewOf that names a screen outside its core entry; it
 //                   notes every tour of more than six steps with no chapter break, which is never a finding
 //   tour-no-commit  the part read from data: a do step that does not say on: "sample" or on: "none", a
-//                   do step at on: "none" on a control the inventory lists in recordAnchors, a do step
+//                   do step at on: "none" on a control the inventory lists in recordAnchors (on any of its
+//                   screens), a do step classed S (it saves) without on: "sample", a do step
 //                   classed T or P that is not practice-only, a practice-only step without on: "sample" or
 //                   (at stage "app") without both tests, a do step that opens a record (result recordOpen)
 //                   without on: "sample", a do step with no G-20 test named (at stage "demo" these, and a
@@ -22,7 +23,8 @@
 //                   other than reopening a window or selecting the sample record again, a `start` key
 //                   other than screen, record, view, date and close
 //   tour-inventory  with --inventory: a screen the menu reaches, or a numbered task of an article, with
-//                   no tour and no written reason (an extra task of the manifest too)
+//                   no tour and no written reason (an extra task of the manifest too); a tour whose screens
+//                   name a screen the inventory does not have
 //   help-refs       with --inventory: an article task naming an anchor (with its arg) that no tour on that
 //                   screen points at or names as a result and no `anchors` entry for that screen lists, or
 //                   naming a tour that does not exist or does not list that task there
@@ -35,7 +37,8 @@
 // depends on that control having been pressed; that the named tests exist and pass; that a showing or
 // stop step's lit control does not respond; and whether a chapter break sits at a real result.
 //
-// usage: node tour-check.mjs <tours.json> [--inventory <inventory.json>] [--require-stage app] [--json]
+// usage: node tour-check.mjs <tours.json> [--inventory <inventory.json>] [--require-stage demo|app] [--json]
+// The app's own check: node tour-check.mjs tours.json --inventory inventory.json --require-stage app
 // exit: 0 no findings, 1 findings, 2 usage, an input that cannot be read, or one whose shape the checks
 // cannot walk (a tour or a step that is not an object). Steps count from 1.
 // Each condition is one line ending in `// M:<code>`, the code its findings carry: the skill's tests
@@ -45,15 +48,16 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const USAGE = 'usage: node tour-check.mjs <tours.json> [--inventory <inventory.json>] [--require-stage app] [--json]';
+const USAGE = 'usage: node tour-check.mjs <tours.json> [--inventory <inventory.json>] [--require-stage demo|app] [--json]\n  the app\'s own check: node tour-check.mjs tours.json --inventory inventory.json --require-stage app';
 const NOT_COVERED = [
   'tour-no-commit: the engine itself dispatching a click, a submit or a key on a step target (the running app)',
   'tour-no-commit: that a tour\'s start does only what its `start` says, and asks before closing a window that holds unsaved input (the running app)',
-  'tour-no-commit: whether a step\'s class is right (a numbered document, a payment and a close for good are always T or P); the manifest\'s class is taken as written',
+  'tour-no-commit: whether a step\'s class is right (a numbered document, a payment and a close for good are always T or P; a save is S); the manifest\'s class is taken as written, so a save written as an unclassed do step passes',
+  'tour-no-commit: that a do step classed S at on: "sample" saves only the sample\'s record (its safeTest, in the project\'s suite)',
   'tour-no-commit: a stop step followed by a step that depends on that control having been pressed (the manifest does not record what a control opens)',
   'tour-no-commit: that the named tests exist and pass (the project\'s own suite)',
   'tour-no-commit: without --inventory, whether a do step at on: "none" sits on a control of a person\'s record or row (recordAnchors are in the inventory; the run notes how many such steps it did not judge)',
-  'tour-no-commit: that a step marked on: "sample" really reaches the sample\'s record and no other (the bindings, in the running app); only the flag is read',
+  'tour-no-commit: that a step marked on: "sample" really reaches the sample\'s record and no other (the bindings, in the running app: they select by the sample\'s record id, never the first visible row); only the flag is read',
   'tour-shape: that a key marked viewOf really is a view of that screen (the reviewer)',
   'tour-no-commit: that a need of reopen puts back the tour\'s own record, the sample\'s, and not the last one open (the bindings, in the running app)',
   'tour-anchors: every anchor (the anchors entries and the articles\' too), result, condition, window and state id resolving on its screen, and a step marked on: "sample" resolving to the sample\'s record and no other (the running app)',
@@ -135,6 +139,7 @@ for (let i = 0; i < argv.length; i++) {
   else manifestFile = a;
 }
 if (!manifestFile) die('no manifest given');
+if (requireStage === 'app' && !inventoryFile) die('--require-stage app needs --inventory: the app\'s check judges on: "none" against recordAnchors and runs tour-inventory and help-refs, and none of that runs without it'); // M:stage-app-inventory
 
 const M = readJson(manifestFile, 'manifest');
 const INV = inventoryFile ? readJson(inventoryFile, 'inventory') : null;
@@ -213,8 +218,9 @@ const words = s => String(s || '').trim().split(/\s+/).filter(Boolean).length;
 const coreKeys = new Set(arr(M && M.core).flatMap(c => arr(c && c.screens)));
 const noTest = []; // do steps that name no G-20 test: findings at stage app, one note at stage demo
 const demoPractice = []; // practice-only steps at stage demo that name their tests later: one note
-// a control the inventory lists as being on a person's record or row (recordAnchors), on one of the tour's screens
-const onRecord = (t, s) => !!s.anchor && screensOf(t).some(k => arr(obj(obj(INV && INV.screens)[k]).recordAnchors).includes(s.anchor));
+// a control the inventory lists as being on a person's record or row (recordAnchors), on any screen of the inventory:
+// anchor ids are global, and a tour reaches screens it does not list (a route, a chapter with screens [])
+const onRecord = s => !!s.anchor && Object.values(obj(INV && INV.screens)).some(sc => arr(obj(sc).recordAnchors).includes(s.anchor));
 const START_KEYS = [
   'screen',
   'record', // M:start-record
@@ -265,7 +271,8 @@ tours.forEach((t, ti) => {
     if (s.kind === 'do' && ((tp && !s.practiceOnly) || (practiceGap && M.stage !== 'demo'))) add('tour-no-commit', 'G-20', 'do-class', at, s.practiceOnly ? `a practice-only do step without ${missing.join(' and ')}: it is a stop step in the mode too` : `a do step classed ${s.class} is not practice-only: it is a stop step`); // M:do-class
     if (s.kind === 'do' && practiceGap && M.stage === 'demo') demoPractice.push(at); // M:demo-practice
     if (s.kind === 'do' && s.on === undefined) add('tour-no-commit', 'G-08', 'do-no-on', at, 'a do step that does not say whose record it acts on: on: "sample", or on: "none" when it acts on no person\'s record (an empty slot, a filter, a settings tab)'); // M:do-no-on
-    if (s.kind === 'do' && s.on === 'none' && onRecord(t, s)) add('tour-no-commit', 'G-08', 'none-on-record', at, `a do step with on: "none" on "${s.anchor}", which the inventory lists as a control on a person's record or row`); // M:none-on-record
+    if (s.kind === 'do' && s.on === 'none' && onRecord(s)) add('tour-no-commit', 'G-08', 'none-on-record', at, `a do step with on: "none" on "${s.anchor}", which the inventory lists as a control on a person's record or row`); // M:none-on-record
+    if (s.kind === 'do' && s.class === 'S' && s.on !== 'sample') add('tour-no-commit', 'G-20', 'save-not-sample', at, 'a do step classed S (it saves) that does not carry on: "sample": a save the person does in a tour saves the sample record, never a real one or a business-wide setting'); // M:save-not-sample
     if (s.practiceOnly && s.on !== 'sample') add('tour-no-commit', 'G-20', 'practice-not-sample', at, 'a practice-only step without on: "sample": inside the mode the tour runs on the sample record\'s copy, never on a real person\'s'); // M:practice-not-sample
     if (s.kind === 'do' && plain(s.result) && s.result.kind === 'recordOpen' && s.on !== 'sample') add('tour-no-commit', 'G-08', 'record-not-sample', at, 'a do step opens a person\'s record (recordOpen) and does not carry on: "sample": tours run on the sample record, never on real data'); // M:record-not-sample
     if (s.kind === 'do' && !s.practiceOnly && !s.safeTest) noTest.push(at);
@@ -333,6 +340,10 @@ if (INV) {
   const needTour = (key, task, where) => {
     if (!covered(key, task)) add('tour-inventory', 'G-19', 'task-no-tour', where, `"${task}" has no tour and no written reason`); // M:task-no-tour
   };
+  tours.forEach((t, ti) => {
+    // auto and start.screen are already among the tour's or its job's screens (auto-screen, start-screen)
+    for (const k of new Set(arr(t.screens))) if (!plain(obj(INV.screens)[k])) add('tour-inventory', 'G-19', 'screen-unknown', { tour: t.id, path: `/tours/${ti}` }, `stands on "${k}", which the inventory does not have: its articles, tasks and recordAnchors cannot be judged`); // M:screen-unknown
+  });
   for (const [key, sc] of Object.entries(obj(INV.screens))) {
     if (sc && sc.menu === true && !toursOn(key).length && !screenWhy[key]) add('tour-inventory', 'G-19', 'screen-no-tour', { screen: key, path: `inventory/screens/${key}` }, 'the menu reaches this screen, and it has no tour and no written reason'); // M:screen-no-tour
     arr(sc && sc.tasks).forEach((task, i) => {

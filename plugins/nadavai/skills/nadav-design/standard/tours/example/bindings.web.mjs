@@ -3,11 +3,14 @@
 //
 // An anchor that is not a key of `anchors` binds as the first visible [data-tour="<id>"], and a step's arg adds
 // [data-tour-arg="<arg>"]: the demo's markup and the app's components carry those attributes, so "the first row of
-// the filtered list" (patients.row) needs no code. Only a target that depends on state is a named resolver. The
-// engine that reads this file owns visibility: a hit test that lands on the
-// target, on an element inside it or on its ancestor counts as covering it; a target clipped by an ancestor whose
-// overflow is not visible is not on screen; a target inside an inner scroll box is scrolled into that box's view
-// before the step shows.
+// the filtered list" (patients.row, a showing step that acts on nobody) needs no code. A binding for a step marked
+// on: "sample" selects by the sample's record id, never by position: on a list of people's rows it is a resolver
+// (cal.ended-appointment below); a plain binding serves only a control inside a window already opened on the
+// sample (appt.paid, pay.method, pay.confirm) or one that is nobody's record. Only a target that depends on state is
+// a named resolver. The engine that reads this file owns visibility: a hit test that lands on the target, on an
+// element inside it or on its ancestor counts as covering it; a target clipped by an ancestor whose overflow is not
+// visible is not on screen; a target inside an inner scroll box is scrolled into that box's view before the step
+// shows.
 //
 // Every function gets the environment's context x = { $, $$, app }: two query helpers that return visible elements
 // only, and the app's own state. `app` here is invented for the example.
