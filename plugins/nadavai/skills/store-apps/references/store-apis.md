@@ -166,3 +166,20 @@ Chrome refuses passwords and can be blocked by a password manager's overlay.
   him (an hourly systemd user timer, `Persistent=true`, that writes the state to a file and sends
   `nadavai-alert`; on a rejection it notifies too); it never posts the release request or changes
   availability by itself. Note the machine and the unit name in the project's memory.
+- **An expired build stalls the review.** On 2026-11-11, MediZen 1.2 and RetroBarber 1.0 had sat
+  in `WAITING_FOR_REVIEW` for 4.5 days (since 7.11), and the build attached to each was
+  `expired: true`. Every build of all six of Nadav's apps had expired, including builds uploaded
+  the day before. The cause was not found through the API. A new upload processed normally,
+  `expired: false` and `IN_BETA_TESTING`. When a review waits more than 48 hours, read
+  `GET /v1/apps/<id>/appStoreVersions?include=build` and check `expired` on the attached build.
+  `store-status.mjs` prints "IN REVIEW" for both `WAITING_FOR_REVIEW` and `IN_REVIEW`, so read
+  `appStoreState` itself.
+- **Read `releaseType` before every submission.** RetroBarber 1.0 had been submitted with
+  `AFTER_APPROVAL`, which would have released it to 175 territories without Nadav's yes. It was
+  set to `MANUAL` while it waited (`PATCH /v1/appStoreVersions/<id>`, allowed in
+  `WAITING_FOR_REVIEW`).
+- **"I don't see it in TestFlight":** read the tester's `state` in
+  `GET /v1/betaGroups/<id>/betaTesters`. `INVITED` means the email invitation was never accepted,
+  and the TestFlight app shows nothing until it is. `POST /v1/betaTesterInvitations`
+  (`app`, `betaTester`) sends it again, and answers 409 "Tester has no installable build" while
+  no valid build exists.

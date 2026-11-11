@@ -69,8 +69,11 @@ const apps = (await ascGet('/v1/apps?limit=200&fields[apps]=name,bundleId')).dat
 const rows = [];
 for (const a of apps) {
   const { name, bundleId } = a.attributes;
-  const versions = (await ascGet(`/v1/apps/${a.id}/appStoreVersions?limit=5&fields[appStoreVersions]=versionString,appStoreState,createdDate`)).data
-    .map((v) => v.attributes).sort((x, y) => y.createdDate.localeCompare(x.createdDate));
+  const vres = await ascGet(`/v1/apps/${a.id}/appStoreVersions?limit=5&include=build&fields[appStoreVersions]=versionString,appStoreState,createdDate,build&fields[builds]=expired`);
+  const expiredBuilds = new Set((vres.included || []).filter((b) => b.type === 'builds' && b.attributes?.expired).map((b) => b.id));
+  const versions = vres.data
+    .map((v) => ({ ...v.attributes, buildExpired: expiredBuilds.has(v.relationships?.build?.data?.id) }))
+    .sort((x, y) => y.createdDate.localeCompare(x.createdDate));
   let territories = null;
   try {
     const av = (await ascGet(`/v1/apps/${a.id}/appAvailabilityV2`)).data.id;
@@ -79,7 +82,10 @@ for (const a of apps) {
   const lookups = await Promise.all(['il', 'us'].map(async (c) => (await (await fetch(`https://itunes.apple.com/lookup?bundleId=${bundleId}&country=${c}`)).json()).resultCount));
   const publicIos = lookups.some((n) => n > 0);
   const newest = versions[0] || {};
-  const iosState = /WAITING|IN_REVIEW/.test(newest.appStoreState) ? `IN REVIEW ${newest.versionString}`
+  // A review never starts on an expired build (2026-11-11: two apps sat 4.5 days in WAITING_FOR_REVIEW).
+  const expiredNote = newest.buildExpired ? ' (attached build EXPIRED: upload a new build)' : '';
+  const iosState = /WAITING_FOR_REVIEW/.test(newest.appStoreState) ? `WAITING FOR REVIEW ${newest.versionString}${expiredNote}`
+    : /IN_REVIEW/.test(newest.appStoreState) ? `IN REVIEW ${newest.versionString}${expiredNote}`
     : /REJECTED|UNRESOLVED/.test(newest.appStoreState) ? `REJECTED ${newest.versionString}`
     : /PREPARE/.test(newest.appStoreState) ? `DRAFT ${newest.versionString}`
     : publicIos ? `LIVE ${newest.versionString}`
