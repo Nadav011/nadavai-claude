@@ -207,7 +207,12 @@ the project has `e2e/dod/standard.json`. Without it nothing changes and `dod.jso
   **fingerprint**. The scored phase records the fingerprint on every entry of every run, with or
   without `standard.json` (recorded, not scored): the landmark kinds on the page, its visible
   h1-h3 headings, the labels of the visible controls in the route's region, and a sketch of the
-  region's words (64 hashes, no text), all without digits and case. The checks phase's load
+  region's words (64 hashes, no text), all without digits and case. The route's region is the
+  page's `<main>` (or `[role="main"]`, `#main-content`) whenever it has one, and the app's root
+  (`#root`, `#__next`) only when it has none (`ROUTE_REGION` in `dod-shared.ts`), so the shell of
+  a Vite, CRA or Next app (its header, sidebar and footer) does not stand in for the page; "visible"
+  leaves out what is hidden and what lies wholly beside the screen (a drawer moved off-canvas). The
+  checks phase's load
   matches it when the landmark kinds are the same, at least half of the heading words are shared,
   at most a fifth of the controls (at least one) are missing or new, and at least half of the
   region's words are shared. That keeps a clock, a live count, a relative time, a reordered list
@@ -215,7 +220,11 @@ the project has `e2e/dod/standard.json`. Without it nothing changes and `dod.jso
   card or a framework's crash page at the same URL another one. A route whose content really
   changes more between two loads sets its own tolerance in `routes.json`, with its reason:
   `{ "route": "/feed", "fingerprint": { "words": 0.2, "controls": 0.5, "reason": "a live feed" } }`
-  (`headings`, `controls`, `words`, each 0 to 1; the landmarks are always compared). When any of
+  (`headings`, `controls`, `words`, each 0 to 1, and `"landmarks": false` for a route whose
+  landmark kinds change between loads, an `<aside>` that shows on some loads only). The fingerprint
+  proves the same screen, not the same data state: a partial failure (one section stuck loading,
+  one list replaced by its empty state, inside an otherwise full page) can still match the scored
+  page, which is the tolerance, not a proof that the two are equal. When any of
   this fails, or the checks phase's own sign-in did not land (global-setup confirms it in both
   phases, and says so loudly), every planned check of that entry is "errored" with the reason (for
   a fingerprint, what differed: "controls 3 → 2 (missing "שמירה"; new "להתחברות")") and the entry
@@ -226,8 +235,10 @@ the project has `e2e/dod/standard.json`. Without it nothing changes and `dod.jso
   (`redact` in `dod-shared.ts`) before it reaches `reports/`, `dod.json` or the console. It keeps
   the first line only (a Playwright call log is the lines after it), replaces the values of
   `DOD_PASSWORD`, `DOD_USER` and every other `DOD_*` (or `ARGOS_TOKEN`) whose name looks secret
-  with `[redacted]`, and cuts every URL's query and fragment except the route's own query from
-  `routes.json`. The password is typed with `keyboard.insertText` after the field is checked, never
+  (a `*_SELECTOR` or `*_PATH` is not: `DOD_PASSWORD_SELECTOR` is named in the messages), and any
+  JSON Web Token, with `[redacted]`, and cuts every URL's query and fragment except the route's own
+  query from `routes.json`. The password is typed with `keyboard.insertText` once the field shows
+  and takes typing (it waits up to 30 s for both, as `fill` would), never
   with `fill`, whose call log carries its value; the sign-in runs in global-setup's own browser,
   outside every test, so no trace, video or screenshot holds it (the config records none anyway).
   The file that says why the checks phase could not sign in is readable by its owner only. The QA
@@ -371,7 +382,8 @@ Five projects run an older copy. What changes for each, in the order it bites:
   waits up to 15 s for the form to go, so a single-page app that changes its route only after its
   sign-in request lands too. A
   project whose ready page has a password field on purpose points `DOD_READY_PATH` elsewhere. The
-  password field must be visible and editable when the form shows (it is checked before typing).
+  password field must show and take typing within 30 s (a field enabled a moment after load, or
+  after a check of the email, signs in).
 - **The checks need the fingerprint.** Results from an older kit have none, so a checks phase run
   on them judges nothing; run both phases with this kit (`pnpm dod` does). A route whose content
   changes a lot between two loads gets a `"fingerprint"` tolerance in `routes.json`, with a reason.

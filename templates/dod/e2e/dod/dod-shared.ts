@@ -64,7 +64,8 @@ const URLISH = /(?:https?|wss?):\/\/[^\s"'<>`]+|(?<![\w:/.-])\/[^\s"'<>`]*/g;
  * console, or an environment value, on its way to anything the run writes (reports/, dod.json, a
  * reason, the console). It keeps the first line only (a call log is the lines after it: Playwright
  * puts the value of a fill there), replaces the value of DOD_PASSWORD, of DOD_USER and of any other
- * DOD_* (or ARGOS_TOKEN) whose name looks secret with "[redacted]", and cuts every URL's query and
+ * DOD_* (or ARGOS_TOKEN) whose name looks secret (not a *_SELECTOR or *_PATH), and any JSON Web
+ * Token, with "[redacted]", and cuts every URL's query and
  * fragment, except a query equal to `keepQuery` (the route's own, from routes.json).
  */
 export function redact(text: unknown, keepQuery?: string): string {
@@ -72,11 +73,15 @@ export function redact(text: unknown, keepQuery?: string): string {
   s = s.replace(/\x1b\[[0-9;]*m/g, "");
   const secrets = Object.entries(process.env)
     // The user name only from 6 characters on, so a short one ("qa") does not eat route words.
-    .filter(([k, v]) => v && v.length >= (k === "DOD_USER" ? 6 : 3) && (k === "DOD_PASSWORD" || k === "DOD_USER" || k === "ARGOS_TOKEN" || (k.startsWith("DOD_") && /PASS|SECRET|TOKEN|KEY|COOKIE|SESSION|AUTH/i.test(k))))
+    // A *_SELECTOR or *_PATH (DOD_PASSWORD_SELECTOR) is not a secret: the message that names it is
+    // how a user finds the field.
+    .filter(([k, v]) => v && v.length >= (k === "DOD_USER" ? 6 : 3) && !/_(SELECTOR|PATH)$/.test(k) && (k === "DOD_PASSWORD" || k === "DOD_USER" || k === "ARGOS_TOKEN" || (k.startsWith("DOD_") && /PASS|SECRET|TOKEN|KEY|COOKIE|SESSION|AUTH/i.test(k))))
     .map(([, v]) => v as string)
     .sort((a, b) => b.length - a.length);
   for (const v of secrets)
     for (const form of new Set([v, JSON.stringify(v).slice(1, -1), encodeURIComponent(v)])) if (form) s = s.split(form).join(SECRET);
+  // A JSON Web Token anywhere in the text (an app's own console line can print one).
+  s = s.replace(/\beyJ[\w-]{4,}\.[\w-]{4,}\.[\w-]+/g, SECRET);
   return s.replace(URLISH, (u) => {
     const at = u.search(/[?#]/);
     if (at < 0) return u;
@@ -87,6 +92,17 @@ export function redact(text: unknown, keepQuery?: string): string {
 
 /** The query of a route in routes.json ("?state=empty"), or "" when it has none. */
 export const routeQuery = (route: string) => (route.includes("?") ? route.slice(route.indexOf("?")) : "");
+
+/**
+ * The route's own region, for the fingerprint: the first of these lists that matches, in this
+ * order. Its <main> (or [role="main"], #main-content) whenever the page has one, and the app's root
+ * (#root, #__next) only when it has none: one selector list would return the first match in
+ * document order, and #root wraps <main>, which made the "region" of every Vite, CRA and Next
+ * pages-router app its whole shell. (reachRoute and the not-found print still read the first of
+ * "main, #main-content, #root, #__next" in document order, the app's painted area: changing that
+ * would move scored numbers.)
+ */
+export const ROUTE_REGION = ['main, [role="main"], #main-content', "#root, #__next"] as const;
 
 /**
  * What the scored phase saw of a page, taken at the moment it measures it (painted, settled), so
@@ -106,6 +122,8 @@ export interface PageFingerprint {
 
 /** How far the checks phase's page may differ from the scored one and still be that page. */
 export interface FingerprintTolerance {
+  /** Whether the landmark kinds must be the same (false: a route whose landmarks change between loads). */
+  landmarks: boolean;
   /** Least share of heading words in common (Jaccard), when either page has headings. */
   headings: number;
   /** Controls that may be missing or new, as a share of the larger set (at least one). */
@@ -113,7 +131,7 @@ export interface FingerprintTolerance {
   /** Least share of region words in common (Jaccard, estimated from the sketches). */
   words: number;
 }
-export const FINGERPRINT_TOLERANCE: FingerprintTolerance = { headings: 0.5, controls: 0.2, words: 0.5 };
+export const FINGERPRINT_TOLERANCE: FingerprintTolerance = { landmarks: true, headings: 0.5, controls: 0.2, words: 0.5 };
 
 /**
  * null when `now` is the page `scored` describes, within `tol`; otherwise the difference in a few
@@ -123,7 +141,7 @@ export function fingerprintDiff(scored: PageFingerprint, now: PageFingerprint, t
   const out: string[] = [];
   const a = [...scored.landmarks].sort().join(", ") || "none";
   const b = [...now.landmarks].sort().join(", ") || "none";
-  if (a !== b) out.push(`landmarks ${a} → ${b}`);
+  if (tol.landmarks && a !== b) out.push(`landmarks ${a} → ${b}`);
   const words = (hs: string[]) => new Set(hs.flatMap((h) => h.split(" ").filter(Boolean)));
   const ha = words(scored.headings);
   const hb = words(now.headings);
@@ -254,7 +272,7 @@ export interface RouteEntry {
   fingerprint: FingerprintTolerance;
 }
 
-/** A route's "fingerprint": { "headings"?, "controls"?, "words"?: 0..1, "reason": "<why>" }. */
+/** A route's "fingerprint": { "landmarks"?: false, "headings"?, "controls"?, "words"?: 0..1, "reason": "<why>" }. */
 function routeTolerance(route: string, raw: unknown): FingerprintTolerance {
   if (raw === undefined) return FINGERPRINT_TOLERANCE;
   const o = raw as Record<string, unknown> | null;
@@ -264,9 +282,14 @@ function routeTolerance(route: string, raw: unknown): FingerprintTolerance {
   const tol = { ...FINGERPRINT_TOLERANCE };
   for (const [k, v] of Object.entries(o)) {
     if (k === "reason") continue;
-    if (!(k in tol)) throw bad(`has an unknown key "${k}" (headings, controls, words, reason)`);
+    if (!(k in tol)) throw bad(`has an unknown key "${k}" (landmarks, headings, controls, words, reason)`);
+    if (k === "landmarks") {
+      if (typeof v !== "boolean") throw bad('"landmarks" must be true or false');
+      tol.landmarks = v;
+      continue;
+    }
     if (typeof v !== "number" || v < 0 || v > 1) throw bad(`"${k}" must be a number from 0 to 1`);
-    tol[k as keyof FingerprintTolerance] = v;
+    tol[k as "headings" | "controls" | "words"] = v;
   }
   return tol;
 }

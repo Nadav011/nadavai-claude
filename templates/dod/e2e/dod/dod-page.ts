@@ -1,6 +1,6 @@
 // Page helpers shared by the scored phase (dod.spec.ts) and the checks phase (standard.spec.ts).
 import type { Page } from "@playwright/test";
-import { normalizeRegionText, redact, routeQuery, type NotFoundPrint, type PageFingerprint, type RouteEntry, type RouteParams } from "./dod-shared";
+import { normalizeRegionText, redact, ROUTE_REGION, routeQuery, type NotFoundPrint, type PageFingerprint, type RouteEntry, type RouteParams } from "./dod-shared";
 
 const SETTLE_MS = 1200;
 
@@ -266,10 +266,12 @@ export async function accessCheck(
  * run; compared by the checks phase.
  */
 export function pageFingerprint(page: Page): Promise<PageFingerprint> {
-  return page.evaluate(() => {
+  return page.evaluate((regionSelectors) => {
     const shown = (el: Element) => {
       const r = el.getBoundingClientRect();
       if (r.width === 0 && r.height === 0) return false;
+      // Wholly beside the viewport: an off-canvas drawer moved out with a transform.
+      if (r.right <= 0 || r.left >= innerWidth) return false;
       for (let a: Element | null = el; a; a = a.parentElement) {
         const cs = getComputedStyle(a);
         if (cs.display === "none" || cs.visibility === "hidden" || cs.opacity === "0") return false;
@@ -296,9 +298,10 @@ export function pageFingerprint(page: Page): Promise<PageFingerprint> {
     ]
       .slice(0, 12)
       .sort();
-    // The route's own region, as reachRoute reads it; without one, the body less its chrome.
+    // The route's own region (ROUTE_REGION): its <main> when it has one, the app's root only when it
+    // has none, and without either, the body less its chrome.
     const region =
-      document.querySelector("main, #main-content, #root, #__next") ??
+      regionSelectors.map((sel) => document.querySelector(sel)).find((el) => el !== null) ??
       (() => {
         const clone = document.body.cloneNode(true) as HTMLElement;
         for (const el of clone.querySelectorAll('nav, footer, header, [role="navigation"], [role="banner"], [role="contentinfo"], script, style'))
@@ -331,7 +334,7 @@ export function pageFingerprint(page: Page): Promise<PageFingerprint> {
     );
     const words = [...new Set([...distinct].map(hash))].sort((x, y) => x - y).slice(0, 64);
     return { landmarks, headings, controls, words };
-  });
+  }, [...ROUTE_REGION]);
 }
 
 /** A visible password field: the page is a sign-in form (or has one), as the QA account sees it. */

@@ -180,6 +180,19 @@ function startServer() {
         LOGIN_FORM.replace('method="post" action="/login"', 'id="spa"') +
           '<script>document.getElementById("spa").onsubmit=async(e)=>{e.preventDefault();await fetch("/api/sign-in",{method:"POST"});setTimeout(()=>{history.pushState(null,"","/");document.querySelector("main").innerHTML="<h1>דף הבית</h1><p>ברוכים הבאים למערכת.</p>"},1500)}</script>',
       );
+    // Round 8 (CF-1): a password field that takes typing only later: 1.5 s after load, or 400 ms
+    // after the email is typed (a debounced check).
+    if (url.pathname === "/login-late")
+      return html("login", LOGIN_FORM.replace('type="password"', 'type="password" disabled') + '<script>setTimeout(()=>document.getElementById("pw").disabled=false,1500)</script>');
+    if (url.pathname === "/login-after-email")
+      return html(
+        "login",
+        LOGIN_FORM.replace('type="password"', 'type="password" disabled') +
+          '<script>let t;document.getElementById("u").addEventListener("input",()=>{clearTimeout(t);t=setTimeout(()=>document.getElementById("pw").disabled=false,400)})</script>',
+      );
+    // Round 8 (CF-4): an app that prints a token on its console.
+    if (url.pathname === "/jwt-log")
+      return html("jwt-log", '<p>דף בדיקה עם מספיק תוכן כדי להיחשב כדף שצויר.</p><script>console.error("refresh failed for eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJxYS11c2VyIn0.c2lnbmF0dXJlLXZhbHVl")</script>');
     // Round 7 (CF-1): the sign-in form and the dashboard at one path, as an app whose sign-in is "/".
     if (url.pathname === "/app")
       return /(?:^|;\s*)qa=1(?:;|$)/.test(req.headers.cookie ?? "")
@@ -272,6 +285,29 @@ function startServer() {
             defect,
         );
       }
+      // Round 8 (B1): a Vite-style app, everything under <div id="root">: a header, a sidebar of 15
+      // links (off-canvas by a transform below 640 px) and a small page in <main> with two accent
+      // actions. In the checks phase /f-root-card shows an error card and /f-root-skel a skeleton
+      // inside the same shell, heading kept; /f-root-ok stays the page.
+      if (url.pathname.startsWith("/f-root-")) {
+        const NAV = ["לוח בקרה", "יומן", "הזמנות", "לקוחות", "שירותים", "צוות", "דוחות", "תשלומים", "הודעות", "מבצעים", "מלאי", "ספקים", "ביקורות", "הגדרות", "עזרה"];
+        const top = '<h1>פרטי ההזמנה</h1><a data-help="screen" href="#help">מה עושים כאן</a>';
+        const detail = top + '<p>מיכל לוי · תספורת · יום שלישי בשעה 10:00</p><p>הערות: מעדיפה את דנה</p><button class="primary">אישור</button> <button class="primary">שינוי מועד</button> <button>ביטול ההזמנה</button>';
+        const later = {
+          "/f-root-card": top + "<p>לא הצלחנו לטעון את הנתונים. נסו לרענן בעוד כמה דקות.</p><button>רענון</button>",
+          "/f-root-skel": top + '<div class="sk"></div><div class="sk"></div><div class="sk"></div>',
+        }[url.pathname];
+        res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+        return res.end(
+          `<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${url.pathname.slice(1)}</title><link rel="stylesheet" href="/fixture.css">` +
+            "<style>.side{width:240px}.sk{height:48px;background:#e5e7eb;margin:8px 0;border-radius:8px}@media (max-width:639px){.side{position:fixed;top:0;inset-inline-start:0;height:100vh;transform:translateX(100%)}}</style></head>" +
+            `<body><div id="root"><header class="top"><a href="/" data-help="door">סטודיו נועה</a> <input type="search" aria-label="חיפוש לקוחות" placeholder="חיפוש לקוחות"> <button aria-label="התראות">!</button> <button aria-label="תפריט חשבון">נועה כהן</button></header>` +
+            `<aside class="side" aria-label="תפריט ראשי"><nav><ul>${NAV.map((t, i) => `<li><a href="/n${i}">${t}</a></li>`).join("")}</ul></nav></aside><main>${stale && later ? later : detail}</main></div></body></html>`,
+        );
+      }
+      // Round 8 (CF-2): the page, with an <aside> (a "what's new" panel) in the checks phase only.
+      if (url.pathname === "/f-aside" || url.pathname === "/f-aside-strict")
+        return html(url.pathname.slice(1), defect + (stale ? '<aside aria-label="מה חדש"><p>חדש: תזכורות בהודעה.</p></aside>' : ""));
       if (!stale) return html(url.pathname.slice(1), defect);
       // Round 7 (B1, the reviewer's pages): what the app shows at the same URL, HTTP 200, no
       // password field, when the checks phase's load goes wrong: its session ended, an API failed
@@ -900,6 +936,56 @@ async function smallRuns(kind, port) {
       `${kind}: /f-noisy (a clock, a live count, a reordered list, a rotating greeting) is still the same page and is checked (${noisy?.verdict}${noisy?.error ? `: ${String(noisy.error).slice(0, 160)}` : ""})`,
     );
   }
+  // Round 8 (B1): the same in a Vite-style app, everything under #root around a header, a 15-link
+  // sidebar and a small <main>: the error card and the skeleton inside the shell are other pages,
+  // and the unchanged page is still checked. CF-2: an <aside> on the checks phase's load only is
+  // another page by its landmarks, unless the route says "landmarks": false with its reason.
+  const shellDir = project(path.join(WORK, `${kind}-fingerprint-root`), kind, {
+    "e2e/dod/routes.json": [
+      "/f-root-card",
+      "/f-root-skel",
+      "/f-root-ok",
+      "/f-aside-strict",
+    ],
+    "e2e/dod/standard.json": STD6,
+  });
+  const rootRun = await playwright(shellDir, port, { DOD_USER: `twice-${kind}-root-${Date.now()}@example.com` });
+  if (ranClean(rootRun, `${kind}: a run of an app under #root whose checks phase gets other pages exits 0`)) {
+    const g = report(shellDir);
+    for (const x of ["/f-root-card", "/f-root-skel", "/f-aside-strict"]) {
+      const op = opOf(g, x);
+      ok(
+        op?.verdict === "errored" && String(op?.error).includes("fingerprint differs") && g.routes[x]?.entries.every((e) => e.standard_unchecked),
+        `${kind}: ${x} in the checks phase is another page: errored with the fingerprint's difference, not clean (${op?.verdict}: ${String(op?.error).slice(0, 170)}; score ${g.routes[x]?.score})`,
+      );
+    }
+    const op = opOf(g, "/f-root-ok");
+    ok(
+      op?.verdict === "found 2" && !g.routes["/f-root-ok"]?.entries.some((e) => e.standard_unchecked),
+      `${kind}: /f-root-ok is the same page and is checked (${op?.verdict}${op?.error ? `: ${String(op.error).slice(0, 160)}` : ""})`,
+    );
+  }
+  // CF-2, in a project of its own (an older kit rejects the key): "landmarks": false with a reason.
+  const asideDir = project(path.join(WORK, `${kind}-fingerprint-landmarks`), kind, {
+    "e2e/dod/routes.json": [{ route: "/f-aside", fingerprint: { landmarks: false, reason: "a what's-new panel that shows on some loads" } }],
+    "e2e/dod/standard.json": STD6,
+  });
+  const aside = await playwright(asideDir, port, { DOD_USER: `twice-${kind}-aside-${Date.now()}@example.com` });
+  if (ranClean(aside, `${kind}: a run with "landmarks": false on a route exits 0`)) {
+    const g = report(asideDir);
+    const op = opOf(g, "/f-aside");
+    ok(
+      op?.verdict === "found 2" && !g.routes["/f-aside"]?.entries.some((e) => e.standard_unchecked),
+      `${kind}: /f-aside with "landmarks": false is the same page and is checked (${op?.verdict}${op?.error ? `: ${String(op.error).slice(0, 160)}` : ""})`,
+    );
+  }
+  // Round 8 (CF-4): a token on the app's console reaches dod.json as [redacted].
+  const jwtDir = project(path.join(WORK, `${kind}-jwt`), kind, { "e2e/dod/routes.json": ["/jwt-log"] });
+  const jwt = await playwright(jwtDir, port);
+  if (ranClean(jwt, `${kind}: a run whose page prints a token on its console exits 0`)) {
+    const logged = report(jwtDir).routes["/jwt-log"]?.entries.flatMap((e) => e.console_errors).join(" | ") ?? "";
+    ok(logged.includes("[redacted]") && !logged.includes("eyJ"), `${kind}: a JSON Web Token on the console is [redacted] in dod.json (${logged.slice(0, 120)})`);
+  }
   // Round 7 (CF-5): a URL rewritten after the load, with no resize yet, is said as that.
   const lateDir = project(path.join(WORK, `${kind}-late`), kind, { "e2e/dod/routes.json": ["/e-late"], "e2e/dod/standard.json": STD6 });
   const late = await playwright(lateDir, port, { DOD_USER: `twice-${kind}-late-${Date.now()}@example.com` });
@@ -925,18 +1011,25 @@ async function smallRuns(kind, port) {
     );
     return { r, f };
   };
-  const lock = await signinCase("disabled", { DOD_LOGIN_PATH: `/login-lock?k=${kind}-${Date.now()}` }, "is disabled or read-only");
+  const lock = await signinCase("disabled", { DOD_LOGIN_PATH: `/login-lock?k=${kind}-${Date.now()}` }, "stayed disabled or read-only for 30 s");
   ok(
     fs.existsSync(lock.f) && (fs.statSync(lock.f).mode & 0o777) === 0o600 && !fs.readFileSync(lock.f, "utf8").includes(QA_PASSWORD),
     `${kind}: the checks phase's sign-in failure file is readable by its owner only and holds no password (${fs.existsSync(lock.f) ? (fs.statSync(lock.f).mode & 0o777).toString(8) : "missing"})`,
   );
-  await signinCase("hidden", { DOD_LOGIN_PATH: `/login-hide?k=${kind}-${Date.now()}` }, "did not show within 30 s");
+  // CF-3 (round 8): the selector is named in the message, not hidden as a secret.
+  await signinCase("hidden", { DOD_LOGIN_PATH: `/login-hide?k=${kind}-${Date.now()}`, DOD_PASSWORD_SELECTOR: "#pw" }, "the password field (#pw) did not show within 30 s");
   await signinCase("wrong", { DOD_PASSWORD: `wrong-${QA_PASSWORD}` }, "the sign-in did not land");
   // Round 7 (CF-1): the sign-in form and the dashboard at one path: the sign-in lands although the
   // path does not change.
   const rootDir = project(path.join(WORK, `${kind}-signin-samepath`), kind, { "e2e/dod/routes.json": ["/clean"] });
   const root = await playwright(rootDir, port, { DOD_LOGIN_PATH: "/app", DOD_READY_PATH: "/app" });
   ok(root.code === 0 && root.log.includes("QA session saved") && !root.log.includes("QA login failed"), `${kind}: a sign-in whose form and dashboard share one path lands (exit ${root.code})`);
+  // Round 8 (CF-1): a password field that takes typing 1.5 s after load, or 400 ms after the email.
+  for (const [what, loginPath] of [["after load", "/login-late"], ["after the email", "/login-after-email"]]) {
+    const d = project(path.join(WORK, `${kind}-signin-${loginPath.slice(1)}`), kind, { "e2e/dod/routes.json": ["/clean"] });
+    const r = await playwright(d, port, { DOD_LOGIN_PATH: loginPath });
+    ok(r.code === 0 && r.log.includes("QA session saved") && !r.log.includes("QA login failed"), `${kind}: a password field that takes typing a moment ${what} signs in (exit ${r.code})`);
+  }
   // A single-page app whose route changes 1.5 s after its sign-in request: the sign-in is judged
   // once its form has gone, not at the first quiet network.
   const spaDir = project(path.join(WORK, `${kind}-signin-spa`), kind, { "e2e/dod/routes.json": ["/clean"] });

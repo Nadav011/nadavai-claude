@@ -184,12 +184,17 @@ export default async function globalSetup(config: FullConfig) {
     // field is found and checked first, each failure said in fixed words, and the value is typed
     // with keyboard.insertText (what fill itself uses), whose errors carry no value.
     const pw = page.locator(passwordSelector).first();
-    try {
-      await pw.waitFor({ state: "visible", timeout: 30_000 });
-    } catch {
-      throw new Error(`the password field (${passwordSelector}) did not show within 30 s`);
+    // Up to 30 s for it to show and take typing, as fill would wait: a form may enable its password
+    // field a moment after load, or after a check of the email typed above.
+    let shownField = false;
+    let editable = false;
+    for (const end = Date.now() + 30_000; !(shownField && editable) && Date.now() < end; ) {
+      shownField = await pw.isVisible().catch(() => false);
+      editable = shownField && (await pw.isEditable().catch(() => false));
+      if (!(shownField && editable)) await page.waitForTimeout(250);
     }
-    if (!(await pw.isEditable().catch(() => false))) throw new Error(`the password field (${passwordSelector}) is disabled or read-only`);
+    if (!shownField) throw new Error(`the password field (${passwordSelector}) did not show within 30 s`);
+    if (!editable) throw new Error(`the password field (${passwordSelector}) stayed disabled or read-only for 30 s`);
     try {
       await pw.fill("");
       await pw.focus();
