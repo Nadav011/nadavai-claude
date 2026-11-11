@@ -165,7 +165,7 @@
       "properties": {
         "kind": { "enum": ["do", "next", "stop"], "description": "do: she does it herself; next: it only explains (\"הבא\"); stop: it points at a control the tour never presses (\"הבנתי\")." },
         "class": { "enum": ["S", "T", "P"], "description": "S saves, T tells a real person, P is permanent or charges." },
-        "on": { "enum": ["sample", "none"], "description": "Whose record the step acts on; every do step says it. sample: the sample record (with no sample the step only shows where to press). none: no person's record (an empty slot, a filter, a settings tab); on a control the inventory lists in recordAnchors it is a finding." },
+        "on": { "enum": ["sample", "none"], "description": "Whose record the step acts on; every do step says it. sample: the sample record (with no sample the step only shows where to press). none: no person's record (an empty slot, a filter, a settings tab); on a control the inventory lists in recordAnchors, or with a result that names one, it is a finding. With the inventory, sample on a control no recordAnchors lists is a finding too: the sample's record does not carry it." },
         "when": { "$ref": "#/$defs/when", "description": "The step is in the run only when this holds." },
         "anchor": { "$ref": "#/$defs/id", "description": "The control the step lights. Absent: a centred card." },
         "arg": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$", "description": "The anchor's parameter, a stable key (ASCII, lowercase, hyphens): a tab, a row, a field. The visible label is content and may change; the key does not." },
@@ -195,7 +195,7 @@
           },
           "description": "How a resumed run is put back at this step: reopen a window ({\"do\": \"reopen\", \"window\": ...}) or select the sample record again ({\"do\": \"selectSample\"}), the only two G-08 allows. A reopen puts back the tour's own record, the sample's, never the last one open; the bindings implement it, and the running app judges it (tour-anchors)."
         },
-        "safeTest": { "type": "string", "minLength": 1, "pattern": "[\\p{L}\\p{N}]", "description": "The test of G-20 that performs this action on the sample record and shows that nothing leaves." },
+        "safeTest": { "type": "string", "minLength": 1, "pattern": "[\\p{L}\\p{N}]", "description": "The test of G-20 that performs this action on the sample record and shows that nothing leaves. That only the sample's record changed is judged in the running app (tour-anchors), and the checker requires the step's control to be one the sample's record carries." },
         "practiceOnly": {
           "type": "object",
           "additionalProperties": false,
@@ -219,7 +219,7 @@
       "required": ["kind", "arg"],
       "description": "What the screen shows when a do step is done.",
       "properties": {
-        "kind": { "enum": ["open", "present", "route", "view", "recordOpen", "step", "fieldChanged", "stateEquals", "custom"], "description": "open: a window by its id is open, whoever it belongs to. recordOpen: the window or card of the record behind an anchor is open, which says which record. Whose record a do step acts on is said by its on, whatever the result kind." },
+        "kind": { "enum": ["open", "present", "route", "view", "recordOpen", "step", "fieldChanged", "stateEquals", "custom"], "description": "open: a window by its id is open, whoever it belongs to. recordOpen: the window or card of the record behind an anchor is open, which says which record. Whose record a do step acts on is said by its on, whatever the result kind. For a step that filters a list or opens a window, name the state (stateEquals) or the window (open) as the result, not a control inside it: a control of a person's record named as the result of a step at on: none is a finding." },
         "arg": {}
       },
       "allOf": [

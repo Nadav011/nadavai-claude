@@ -1347,7 +1347,7 @@ const TOUR_FIXTURES = [
   ['core-count', 'tour-shape', 'G-21', 'six core screens', m => { m.core.push(...['leads', 'chats', 'money', 'forms'].map(id => ({ id, screens: [id] }))); }],
   ['core-count', 'tour-shape', 'G-21', 'one core entry holding six screens that are not views of one screen', m => { m.core = [{ id: 'all', screens: ['cal-week', 'cal-day', 'patients', 'settings-msgs', 'import', 'appt-new', 'reports'] }]; }],
   ['practice-not-sample', 'tour-no-commit', 'G-20', 'a practice-only step that does not run on the sample record', (m, i) => { tourOf(m, 'close-3').steps[1].on = 'none'; offRecord(i, 'appt.paid'); }],
-  ['record-not-sample', 'tour-no-commit', 'G-08', 'a do step that opens a record that is not the sample record', (m, i) => { tourOf(m, 'close-1').steps[0].on = 'none'; offRecord(i, 'cal.ended-appointment'); }],
+  ['record-not-sample', 'tour-no-commit', 'G-08', 'a do step that opens a record that is not the sample record', m => { Object.assign(tourOf(m, 'close-1').steps[0], { on: 'none', anchor: 'cal.card', result: { kind: 'recordOpen', arg: 'cal.card' } }); }],
   ['do-no-on', 'tour-no-commit', 'G-08', 'a do step that does not say whose record it acts on', m => { delete tourOf(m, 'book').steps[1].on; }],
   ['do-no-on', 'tour-no-commit', 'G-08', 'the reviewer\'s P1, a do step that opens a debtor\'s charge window, as written (no on)', m => { const t = tourOf(m, 'pat-debt'); t.steps[3] = { kind: 'do', act: 'open', when: 'desktop', anchor: 'patients.charge', result: { kind: 'open', arg: 'pay.charge-sheet' }, safeTest: 'e2e/x.spec.ts: y', text: 'לוחצים "חיוב". נפתח חלון החיוב.' }; t.steps.push({ kind: 'stop', class: 'P', when: 'desktop', anchor: 'pay.charge-confirm', text: '"אישור החיוב" גובה מהכרטיס השמור.' }); }],
   ['none-on-record', 'tour-no-commit', 'G-08', 'the same P1 at on: none, on a control the inventory lists on a person\'s row', m => { const t = tourOf(m, 'pat-debt'); t.steps[3] = { kind: 'do', act: 'open', on: 'none', when: 'desktop', anchor: 'patients.charge', result: { kind: 'open', arg: 'pay.charge-sheet' }, safeTest: 'e2e/x.spec.ts: y', text: 'לוחצים "חיוב". נפתח חלון החיוב.' }; t.steps.push({ kind: 'stop', class: 'P', when: 'desktop', anchor: 'pay.charge-confirm', text: '"אישור החיוב" גובה מהכרטיס השמור.' }); }],
@@ -1361,9 +1361,17 @@ const TOUR_FIXTURES = [
   ['do-class', 'tour-no-commit', 'G-20', 'the seventh review\'s D2: a practice-only step with both tests classed S', m => { tourOf(m, 'close-3').steps[1].class = 'S'; }],
   ['do-class', 'tour-no-commit', 'G-20', 'at stage app, a practice-only step that names its stop test and leaves out the mode test', m => { delete tourOf(m, 'close-3').steps[1].practiceOnly.modeTest; }],
   ['screen-none', 'tour-inventory', 'G-19', 'a job whose every chapter lists no screens', m => { m.tours.push({ id: 'chats-1', title: 'צ׳אט', job: 'chats', jobTitle: 'לענות', chapter: [1, 1], screens: [], area: 'הודעות', where: 'הודעות', tasks: [], steps: [{ kind: 'do', act: 'open', on: 'none', anchor: 'chats.row', result: { kind: 'present', arg: 'chats.input' }, safeTest: 'e2e/x.spec.ts: y', text: 'פותחים שיחה מהרשימה.' }, { kind: 'stop', class: 'T', anchor: 'chats.send', text: '"שליחה" שולחת את ההודעה.' }], finish: 'סוף.' }); }],
-  ['do-no-safe-test', 'tour-no-commit', 'G-20', 'at stage app, a do step classed S on the sample that names no G-20 test', m => { tourOf(m, 'reminder').steps[3] = { kind: 'do', act: 'open', class: 'S', on: 'sample', anchor: 'settings.save', result: { kind: 'present', arg: 'settings.saved-toast' }, text: 'לוחצים "שמירה".' }; }],
+  ['do-no-safe-test', 'tour-no-commit', 'G-20', 'at stage app, a do step classed S on the sample record that names no G-20 test', m => { tourOf(m, 'close-1').steps[1] = { kind: 'do', act: 'open', class: 'S', on: 'sample', anchor: 'appt.happened', result: { kind: 'present', arg: 'appt.happened-mark' }, need: [{ do: 'reopen', window: 'appt.drawer' }], text: 'לוחצים "התקיים".' }; }],
   ['words', 'tour-shape', 'G-07', 'a showing text of thirteen words, where the step text is short', m => { tourOf(m, 'book').steps[0].showText = 'אחת שתיים שלוש ארבע חמש שש שבע שמונה תשע עשר אחת עשרה שתים עשרה'; }],
   ['none-on-record', 'tour-no-commit', 'G-08', 'the seventh review\'s D9: a do step at on: none lit on the patients list whose result is a debtor\'s charge button', m => { tourOf(m, 'pat-debt').steps[1] = { kind: 'do', act: 'open', on: 'none', anchor: 'patients.list', result: { kind: 'present', arg: 'patients.charge' }, safeTest: 'e2e/x.spec.ts: y', text: 'לוחצים על שורה ברשימה.' }; }],
+  ['sample-not-record', 'tour-no-commit', 'G-20', 'the eighth review\'s E9: the reminder save as a do step classed S at on: sample, on a control no recordAnchors lists (a real clinic rule)', m => { tourOf(m, 'reminder').steps[3] = { kind: 'do', act: 'open', class: 'S', on: 'sample', anchor: 'settings.save', result: { kind: 'present', arg: 'settings.saved-toast' }, safeTest: 'e2e/x.spec.ts: saving the rule sends nothing', text: 'לוחצים "שמירה".' }; }],
+  ['sample-not-record', 'tour-no-commit', 'G-08', 'an unclassed do step at on: sample on a settings tab, which is nobody\'s record', m => { tourOf(m, 'reminder').steps[0].on = 'sample'; }],
+  ['sample-not-record', 'tour-no-commit', 'G-20', 'a practice-only step at on: sample on a control no recordAnchors lists', m => { tourOf(m, 'close-3').steps[3].anchor = 'pay.month-close'; }],
+  ['none-on-record', 'tour-no-commit', 'G-08', 'a do step at on: none on the calendar\'s print, which exports many people\'s appointments', m => { m.tours.push({ id: 'cal-print', title: 'הדפסה', screens: ['cal-week'], area: 'יומן', where: 'יומן', tasks: [], steps: [{ kind: 'do', act: 'open', on: 'none', anchor: 'cal.print', result: { kind: 'open', arg: 'cal.print-sheet' }, safeTest: 'e2e/x.spec.ts: y', text: 'לוחצים "הדפסה".' }], finish: 'סוף.' }); }],
+  ['do-class', 'tour-no-commit', 'G-20', 'at stage demo, a practice-only step with both tests and no class', m => { m.stage = 'demo'; delete tourOf(m, 'close-3').steps[1].class; }],
+  ['none-on-record', 'tour-no-commit', 'G-08', 'a do step at on: none whose result is a changed field on a person\'s record (fieldChanged)', m => { tourOf(m, 'reminder').steps[2].result = { kind: 'fieldChanged', arg: 'appt.note' }; }],
+  ['none-on-record', 'tour-no-commit', 'G-08', 'a do step at on: none whose result names a record control with an arg ({ anchor, arg })', m => { tourOf(m, 'book').steps[1].result = { kind: 'present', arg: { anchor: 'appt.service', arg: 'first' } }; }],
+  ['words', 'tour-shape', 'G-07', 'a variant text of thirteen words, where the step text is short', m => { tourOf(m, 'book').steps[2].variants[0].text = 'אחת שתיים שלוש ארבע חמש שש שבע שמונה תשע עשר אחת עשרה שתים עשרה'; }],
   ['do-class', 'tour-no-commit', 'G-20', 'a practice-only step with no class and no tests', m => { const s = tourOf(m, 'close-3').steps[1]; delete s.class; s.practiceOnly = {}; s.safeTest = 'e2e/x.spec.ts: y'; }],
   ['view-of', 'tour-shape', 'G-21', 'a viewOf that names a screen the inventory does not have', (m, i) => { i.screens['cal-day'].viewOf = 'ghost'; }],
   ['view-of', 'tour-shape', 'G-21', 'a viewOf that names the key itself', (m, i) => { i.screens['cal-day'].viewOf = 'cal-day'; }],
@@ -1578,11 +1586,8 @@ await test('TOUR-kinds', 'a do step that opens a person\'s record without on: sa
   const ok = tourCheck(m, INV_EX);
   if (ok.status !== 0 || !ok.out || ok.out.findings.length) why.push(`open on a rule: exit ${ok.status} ${JSON.stringify(ok.out && ok.out.findings.map(f => f.code))}`);
   const p = clone(TOUR_EX);
-  const s = tourOf(p, 'close-2').steps[0];
-  s.on = 'none';
-  const pinv = clone(INV_EX);
-  offRecord(pinv, 'cal.ended-appointment');
-  const bad = tourCheck(p, pinv);
+  Object.assign(tourOf(p, 'close-2').steps[0], { on: 'none', anchor: 'cal.card', result: { kind: 'recordOpen', arg: 'cal.card' } });
+  const bad = tourCheck(p, INV_EX);
   if (bad.status !== 1 || !bad.out || bad.out.findings.map(f => f.code).join(',') !== 'record-not-sample') why.push(`recordOpen without on: exit ${bad.status} ${JSON.stringify(bad.out && bad.out.findings.map(f => f.code))}`);
   return why.join(' · ');
 });
