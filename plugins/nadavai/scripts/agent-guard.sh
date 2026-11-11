@@ -21,7 +21,9 @@
 #          cash-next-app, snooker-smart, or any other Nadav011 repo whose main head carries a
 #          nadavai-ci status, one more gh call) whose head's newest nadavai-ci round is not a full pass
 #          at main tier (landing request) or that is behind main, unless the PR is documentation
-#          only by the runner's rule or the command carries `# land-urgent: <reason>`. The merge
+#          only by the runner's rule or the command carries `# land-urgent: <reason>`. Any merge into a
+#          repo that `nadavai-deploy hold-status` reports held is denied, land-urgent included, unless the
+#          command carries `# hold-merge: <reason>` (Nadav, 2026-11-11). The merge
 #          commit is a new sha, and main reruns the full suite on anything that did not land
 #          through ci-wait --land (18 times on 2026-10-28). An unknown repo or a failed gh call
 #          (10 s each) allows, except that a behind_by above 0 denies even when the statuses
@@ -709,10 +711,13 @@ wp_merge_check() { # owner name pr-or-branch dir command
   return 0
 }
 
+merge_hold_status() { # merge_hold_status <repo>: the deploy service's one word, or nothing when unreachable
+  [[ $1 =~ ^[A-Za-z0-9._-]+$ ]] || return 0
+  timeout 8 ssh -o BatchMode=yes -o ConnectTimeout=5 nadavai-vm "nadavai-deploy hold-status $1" 2>/dev/null | tr -d '[:space:]'
+}
 merge_guard() { # merge_guard <command> <cwd>: denies on the first failing merge, or returns
   local found lines line rp pr dir o n pv head ref base kind passed behind
   case "$1" in *gh*pr*merge*) ;; *) return 0 ;; esac
-  case "$1" in *'# land-urgent:'*) return 0 ;; esac
   found=$(printf '%s\n' "$1" | check_strict 0 0 "${2:-$PWD}" 1)
   mapfile -t lines <<<"$found"
   for line in "${lines[@]}"; do
@@ -732,6 +737,14 @@ merge_guard() { # merge_guard <command> <cwd>: denies on the first failing merge
     case "$rp" in */*) ;; *) continue ;; esac
     n=${rp##*/}; o=${rp%/*}; o=${o##*[/:]}
     [ "${o,,}" = nadav011 ] || continue
+    # A held repo (nadavai-deploy hold; Nadav, 2026-11-11): no merge at all until the hold is released,
+    # because main moving during a production window stops that window (513 sets 15-18 each died that way).
+    # Not even '# land-urgent:'. '# hold-merge: <reason>' is only for the step the hold protects (513's WEB
+    # merge of its own PR), on Nadav's word. The VM unreachable lets the merge through, like gh failing.
+    if [[ $1 != *'# hold-merge:'* ]] && [ "$(merge_hold_status "$n")" = held ]; then
+      deny "$n is held (ssh nadavai-vm nadavai-deploy hold-status $n: held). Nadav holds it for a production window (the 513 nights), and no PR merges into it until he releases the hold. Do not release it yourself and do not merge through the GitHub web UI: keep the PR ready, and merge once hold-status says off, manual or auto."
+    fi
+    case "$1" in *'# land-urgent:'*) continue ;; esac
     # CI v2: a repo cut over to Woodpecker (lib/woodpecker-repos.txt in nadavai) has its own rule.
     # A PR named through the shell cannot be looked up on either path.
     if grep -qixF "$n" <(sed 's/[[:space:]]*#.*//; /^$/d' "${NADAVAI_HOME:-$HOME/nadavai}/lib/woodpecker-repos.txt" 2>/dev/null); then

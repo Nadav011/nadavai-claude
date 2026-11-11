@@ -42,4 +42,10 @@ run allow success 0 "" "$D_CMD" FAKE_STATUS_FAIL=1
 run deny  success 0 "" "gh pr merge 141 -R Nadav011/snooker-smart --squash"
 run deny  success 0 "" "gh pr merge 141 -R Nadav011/snooker-smart --squash --match-head-commit bbbbbbbbbbbb"
 run allow success 0 "" "gh pr merge 141 -R Nadav011/snooker-smart --squash --match-head-commit=aaaaaaaa"
+# A held repo (nadavai-deploy hold-status: held) refuses every merge, land-urgent included; '# hold-merge:' passes.
+run deny  success 0 "" "$D_CMD" FAKE_HOLD=held
+run deny  success 0 "" "gh pr merge 141 -R Nadav011/snooker-smart --squash # land-urgent: test" FAKE_HOLD=held
+run allow success 0 "" "$D_CMD # hold-merge: 513 WEB" FAKE_HOLD=held
+run allow success 0 "" "$D_CMD" FAKE_HOLD=manual
+run allow success 0 "" "$D_CMD" FAKE_HOLD=
 exit $fail

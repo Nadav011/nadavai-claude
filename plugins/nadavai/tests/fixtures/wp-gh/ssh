@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Fake ssh for agent-guard's hold check: prints FAKE_HOLD (default manual) for nadavai-deploy hold-status.
+case "$*" in *"nadavai-deploy hold-status"*) echo "${FAKE_HOLD:-manual}" ;; *) exit 255 ;; esac
