@@ -1681,25 +1681,79 @@ await test('TOUR-container-show', 'the tenth review\'s N: a showing step and a s
   const r = tourCheck(m, INV_EX, undefined, ['--require-stage', 'app']);
   return r.status === 0 && r.out && !r.out.findings.length ? '' : `exit ${r.status} ${JSON.stringify(r.out && r.out.findings.map(f => f.code))}`;
 });
-await test('TOUR-save-stop-message', 'the tenth review\'s K5d: the reminder save at on: sample with no class fails sample-not-record only, and its message, like the S and the practice-only one, says a save on a control that is nobody\'s record is a stop step, so following it ends at the example\'s own stop step', async () => {
+await test('TOUR-save-stop-message', 'the tenth review\'s K5d and the eleventh\'s N1: the reminder save at on: sample with no class fails sample-not-record only, and with no on do-no-on only; each message, like the S and the practice-only one, says a save of a business-wide setting is a stop step, so following it ends at the example\'s own stop step', async () => {
   const why = [];
-  const clause = 'a save there (a business-wide setting) is a stop step, never a do step';
+  const snr = 'a save there (a business-wide setting) is a stop step, never a do step';
+  const dno = 'a save of a business-wide setting, including a switch or a field that saves as it changes, is a stop step, never a do step';
   const save = { kind: 'do', act: 'open', on: 'sample', anchor: 'settings.save', result: { kind: 'present', arg: 'settings.saved-toast' }, safeTest: 'e2e/x.spec.ts: saving the rule sends nothing', text: 'לוחצים "שמירה".' };
   const cases = [
-    ['no class (K5d)', m => { tourOf(m, 'reminder').steps[3] = { ...save }; }],
-    ['classed S (K5)', m => { tourOf(m, 'reminder').steps[3] = { ...save, class: 'S' }; }],
-    ['practice-only', m => { tourOf(m, 'close-3').steps[3].anchor = 'pay.month-close'; }],
+    ['no class (K5d)', m => { tourOf(m, 'reminder').steps[3] = { ...save }; }, 'sample-not-record', snr],
+    ['classed S (K5)', m => { tourOf(m, 'reminder').steps[3] = { ...save, class: 'S' }; }, 'sample-not-record', snr],
+    ['practice-only', m => { tourOf(m, 'close-3').steps[3].anchor = 'pay.month-close'; }, 'sample-not-record', snr],
+    ['no class and no on (N1)', m => { const s = { ...save }; delete s.on; tourOf(m, 'reminder').steps[3] = s; }, 'do-no-on', dno],
   ];
-  for (const [what, change] of cases) {
+  for (const [what, change, code, clause] of cases) {
     const m = clone(TOUR_EX);
     change(m);
     const r = tourCheck(m, INV_EX, undefined, ['--require-stage', 'app']);
     const f = r.out ? r.out.findings : [];
-    if (r.status !== 1 || f.length !== 1 || f[0].code !== 'sample-not-record' || !f[0].message.includes(clause)) why.push(`${what}: exit ${r.status} ${JSON.stringify(f.map(x => [x.code, x.message]))}`);
+    if (r.status !== 1 || f.length !== 1 || f[0].code !== code || !f[0].message.includes(clause)) why.push(`${what}: exit ${r.status} ${JSON.stringify(f.map(x => [x.code, x.message]))}`);
   }
   // the step the clause leads to is the example's own: the reminder save as a stop step classed S, which passes
   const stop = tourOf(TOUR_EX, 'reminder').steps[3];
   if (stop.kind !== 'stop' || stop.anchor !== 'settings.save') why.push(`the example's reminder step 4 is no longer the stop step on settings.save (${JSON.stringify(stop)})`);
+  return why.join(' · ');
+});
+// The clauses a literal author follows out of each safety finding, and the NOT_COVERED lines that state where the checker
+// stops: each fixture fails with that one finding, and its message carries every clause, so a later edit cannot drop one.
+await test('TOUR-message-steers', 'the eleventh review\'s B2: the steering clauses of sample-not-record, both none-on-record branches, do-on-container, do-on-bulk, do-no-on, record-not-sample and do-class, and the NOT_COVERED lines on the unread class, the unclassed save at none, the window at none and the picker, are each present', async () => {
+  const why = [];
+  const ST = 'e2e/x.spec.ts: y';
+  const patients = (id, step) => ({ id, title: 'x', screens: ['patients'], area: 'מטופלים', where: 'מטופלים', tasks: [], steps: [step], finish: 'סוף.' });
+  const cases = [
+    ['sample-not-record, no class (K5d)', m => { tourOf(m, 'reminder').steps[3] = { kind: 'do', act: 'open', on: 'sample', anchor: 'settings.save', result: { kind: 'present', arg: 'settings.saved-toast' }, safeTest: ST, text: 'לוחצים "שמירה".' }; }, 'sample-not-record', [
+      'If it sits on the sample\'s record or row, or in a window opened on her, list it in recordAnchors and keep on: "sample"',
+      'a save there (a business-wide setting) is a stop step, never a do step',
+      'never answer this finding by setting on: "none" on a person\'s control']],
+    ['sample-not-record, practice-only', m => { tourOf(m, 'close-3').steps[3].anchor = 'pay.month-close'; }, 'sample-not-record', ['a practice-only step stays on the sample\'s copy']],
+    ['none-on-record, result branch (K1)', m => { tourOf(m, 'pat-debt').steps[1] = { kind: 'do', act: 'open', on: 'none', anchor: 'patients.list', result: { kind: 'present', arg: 'patients.charge' }, safeTest: ST, text: 'לוחצים על שורה ברשימה.' }; }, 'none-on-record', [
+      'name the state (stateEquals) or the window (open) as the result, not a control inside it',
+      'name a window only when it is nobody\'s (a menu, a filter panel)',
+      'a list or a row of people goes in containerAnchors or recordAnchors, and the step lights the sample\'s own row at on: "sample"']],
+    ['none-on-record, anchor branch (K2)', m => { m.tours.push(patients('k2', { kind: 'do', act: 'open', on: 'none', anchor: 'patients.row', result: { kind: 'open', arg: 'patients.card' }, safeTest: ST, text: 'לוחצים על שורה.' })); }, 'none-on-record', ['on a row in a list, the step is at on: "sample", lit through a resolver that picks the sample\'s row']],
+    ['do-on-container, the free hour (K3c)', m => { tourOf(m, 'book').steps[1].anchor = 'cal.grid'; }, 'do-on-container', [
+      'light the sample\'s own row or control at on: "sample", through a resolver that picks it and is listed in recordAnchors',
+      'for an empty slot, the slot through a resolver (cal.free-slot) at on: "none"']],
+    ['do-on-bulk, the print', m => { m.tours.push({ id: 'cal-print', title: 'הדפסה', screens: ['cal-week'], area: 'יומן', where: 'יומן', tasks: [], steps: [{ kind: 'do', act: 'open', on: 'none', anchor: 'cal.print', result: { kind: 'open', arg: 'cal.print-sheet' }, safeTest: ST, text: 'לוחצים "הדפסה".' }], finish: 'סוף.' }); }, 'do-on-bulk', [
+      'an import',
+      'it shows that control or stops at it (a stop step there is classed T)',
+      'name the window (open) as the result, not a control inside it']],
+    ['do-no-on, the save (N1)', m => { tourOf(m, 'reminder').steps[3] = { kind: 'do', act: 'open', anchor: 'settings.save', result: { kind: 'present', arg: 'settings.saved-toast' }, safeTest: ST, text: 'לוחצים "שמירה".' }; }, 'do-no-on', [
+      'a field in a form that has its own save',
+      'a save of a business-wide setting, including a switch or a field that saves as it changes, is a stop step, never a do step']],
+    ['record-not-sample, a search (N3a)', m => { m.tours.push(patients('find', { kind: 'do', act: 'type', on: 'none', anchor: 'patients.search', result: { kind: 'recordOpen', arg: 'patients.row' }, safeTest: ST, text: 'מקלידים "נועה" בחיפוש.' })); }, 'record-not-sample', [
+      'split the step: it filters or opens at on: "none" with a stateEquals or open result (a window that is nobody\'s)',
+      'the next step lights the sample\'s own row at on: "sample" through a resolver, with the recordOpen result, or is a stop step']],
+    ['do-class, practice-only with no class (N5a)', m => { delete tourOf(m, 'close-3').steps[1].class; }, 'do-class', ['class it P and keep it practice-only; only any other do step drops practiceOnly and names its G-20 safeTest']],
+  ];
+  const notCovered = [
+    'a stop step on a bulk control is classed T, and its class is not read either',
+    'at on: "none" no test reaches a business-wide save, so an unclassed one there, or one on a switch or a field that saves as it changes, passes and only the reviewer stops it',
+    'that a window named by an open result at on: "none" is nobody\'s',
+    'that a person picker\'s step has a result that checks the sample was picked',
+  ];
+  let nc = null;
+  for (const [what, change, code, clauses] of cases) {
+    const m = clone(TOUR_EX);
+    const inv = clone(INV_EX);
+    change(m, inv);
+    const r = tourCheck(m, inv, undefined, ['--require-stage', 'app']);
+    const f = r.out ? r.out.findings : [];
+    if (r.out) nc = r.out.notCovered;
+    if (r.status !== 1 || f.length !== 1 || f[0].code !== code) { why.push(`${what}: exit ${r.status} ${JSON.stringify(f.map(x => x.code))}`); continue; }
+    for (const c of clauses) if (!f[0].message.includes(c)) why.push(`${what}: the message lacks "${c}"`);
+  }
+  for (const c of notCovered) if (!(nc || []).some(x => x.includes(c))) why.push(`NOT_COVERED lacks "${c}"`);
   return why.join(' · ');
 });
 await test('TOUR-stage', 'with --require-stage app the example passes and a manifest at demo fails with stage-required only; without its line it passes; another value is a usage error, and so is app without --inventory (without that line it passes)', async () => {
