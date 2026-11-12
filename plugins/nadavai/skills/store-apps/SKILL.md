@@ -63,7 +63,8 @@ this decision, it wins for that repo (`rules/working-style.md`: a project's stri
 2. **Set up each shell** against [references/shell-checklist.md](references/shell-checklist.md),
    then bring it to the native bar in [references/native-bar.md](references/native-bar.md) (every
    native component and capability a person can feel; Nadav, 2026-11-09: Capacitor stays, nothing
-   less than the full bar).
+   less than the full bar). Every row applies by default, and a row's product question is asked
+   while the plan is written, never left for a later version (Nadav, 2026-11-12).
    Done when every row there has its check result, and the open rows have an owner and a date.
 
 3. **Build.** Do iOS on Codemagic and Android locally ([references/builds.md](references/builds.md)).

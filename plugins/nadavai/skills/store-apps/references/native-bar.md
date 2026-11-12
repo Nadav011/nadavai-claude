@@ -6,6 +6,14 @@ keeps a ledger `native/NATIVE-BAR.md` (or the repo's plan folder) with one row p
 platform: pass, fail with owner and date, or "n/a" with the reason. A store build is not submitted
 while a row that applies is "fail" without an owner.
 
+Default is everything (Nadav, 2026-11-12: "always strive to do everything, at the highest level, end
+to end"). Every row applies to every app. "n/a" is valid only for a fact about the app (a customer app
+holds no owner, staff or money data, so no biometric lock; an iPhone-only build has no iPad layout),
+never for "deferred", "later" or "not needed for now". A row that needs a product decision (what a
+push says, whether the tab bar changes the look) is asked once while the plan is written, with the
+full option first and recommended, so the first store build already carries it. Holding rows 3 and 9 back on MediZen, RetroBarber
+and Cash (2026-11-10) cost each a second store version.
+
 Plugin choice: official `@capacitor/*` first, then Capawesome or capacitor-community, then others.
 Before adding any third-party plugin check: a release in the last 6 months, Capacitor 8 support in its
 README, a free licence (Capawesome "Insiders" plugins are paid: money is asked first), and its
@@ -15,7 +23,7 @@ socket.dev page has no alert. Bundled apps: every plugin is a native change (sto
 |---|---|---|---|
 | 1 | Haptics | `@capacitor/haptics`: light impact on primary taps, success/error notification on outcomes; native only. | Felt on a device for confirm, success and error. |
 | 2 | Native action sheets and dialogs | `@capacitor/action-sheet` for choice menus, `@capacitor/dialog` for destructive confirms. | No web modal for a yes/no or a menu of actions. |
-| 3 | Native tab bar and nav bar (apps with tab navigation) | `@capgo/capacitor-native-navigation` (UITabBar / Material bottom nav, one WebView; on iOS 26 the system Liquid Glass bar). Spike on one screen first; keep the web bar as fallback. | Tabs switch with native feel; badge counts on tabs; web bar hidden only inside the app. |
+| 3 | Native tab bar and nav bar (apps with tab navigation) | An in-repo plugin per shell, not `@capgo/capacitor-native-navigation` (8.16.1: Socket alerts for MPL-2.0, a new author and network access, about 9,000 lines, and on iOS 26 it moves the WebView into a `UITabBarController` it owns, beside the shell's bridge controller, keyboard resize and privacy cover). Android: Material 3 `BottomNavigationView` laid over the WebView bottom, forced RTL, the web's icons as vector drawables, active pill and token colours per theme, dot badges with a content description, padded above the gesture bar, hidden while the keyboard is up, removed at every `onPageStarted`, its height reported in CSS px. iOS 26+: the system Liquid Glass tab bar with the same JS API; iOS below 26 and the browser keep the web bar. Web: one module sends tabs, the active tab and badges; a tap navigates in the router and is refused while the web nav is inert (a sheet open, a save running); `html.native-tabbar` hides the web nav and sets the bottom inset to the bar's height, so page padding, floating buttons and toasts sit above it; hidden links never prefetch, so prefetch the tab roots. Reference: cash-next-app `CashTabBarPlugin.java`, `src/lib/native/tab-bar.ts`; therapy-flow-v2 `native/NATIVE-BAR.md` row 3. | Tabs switch with native feel on both platforms; badges show; nothing is covered on any route that shows the bar (check floating buttons, dialogs, toasts); signed-out and lock screens never show it; R8 keeps the plugin (`seeds.txt`). |
 | 4 | Back gestures | iOS: `webView.allowsBackForwardNavigationGestures = true` in a small `CAPBridgeViewController` subclass (no config key exists). Android: `@capacitor/app` `backButton` handled by the router; predictive back declared. | Edge swipe goes back on iOS; Android back closes sheets first, then pages, then leaves. |
 | 5 | System bars and edge to edge | Capacitor 8 SystemBars + `@capacitor/status-bar`; `viewport-fit=cover`; safe-area insets in CSS. | Status bar style follows the theme; nothing under the notch or home indicator. |
 | 6 | Keyboard | `@capacitor/keyboard` (resize mode, accessory bar off where not needed, scroll the focused field into view). | The focused field is never covered; inputs are 16px or larger (no zoom). |
@@ -33,6 +41,20 @@ socket.dev page has no alert. Bundled apps: every plugin is a native change (sto
 | 18 | Device permissions | Usage strings for every capability the web layer reaches (`shell-checklist.md` row 14); ask at the moment of use, never at launch. | No crash and no surprise prompt at launch. |
 | 19 | Touch feel of the web layer | The `mobile-native` skill list: no tap highlight, no 300 ms delay, `overscroll-behavior`, 44pt targets, momentum scroll, View Transitions between pages, 60fps. No large base64 payloads over the bridge (pass files by path); app state is persisted, because the OS can kill the WebView process in the background. | Screen recording on a device shows no jank and no web artefacts. `adb shell am force-stop <pkg>` then `adb shell am start -W -n <pkg>/.MainActivity` gives `TotalTime`; `adb shell dumpsys gfxinfo <pkg> reset`, use the main flow, then `dumpsys gfxinfo <pkg>` gives the janky-frame share. Record both in the ledger and compare after each native change. |
 | 20 | Accessibility | VoiceOver and TalkBack labels, focus order, announcements for status changes. On each route change set `document.title` and move focus to the page's `<h1 tabindex="-1">`, because an SPA route change is silent. | A full main flow with the screen reader on: every route change is announced, every control has a spoken name. |
+
+## Lessons per row (MediZen, RetroBarber and Cash, 2026-11-10 to 11-12)
+
+- Row 4: on Android the back order is: close the top sheet (through its history entry), then an older dialog, then go back, then minimize on a tab root; a screen with no history goes to the home tab. In a remote shell the web listener ships with the web deploy, so the store build reaches phones only after that deploy.
+- Row 5: Capacitor's SystemBars applies its style after StatusBar, and its `DEFAULT` follows the phone's mode, not the app's: set both explicitly, then let the web follow the app's own theme class (`dumpsys window` shows `LIGHT_STATUS_BARS`).
+- Row 7: the launch colour lives in `capacitor.config.ts`, Android 12+ `windowSplashScreenBackground`, the window background behind the WebView and the bundled offline page; a mismatch is a flash. Draw the adaptive launcher icon with its monochrome themed layer by a script, inside the 66 dp safe circle.
+- Row 9: a customer app gets push too, in addition to its WhatsApp messages, behind the same send gates and its own kill switch, built dark and switched on after the action-safety replay. A token is stored only for the signed-in user's own device, never found by phone number.
+- Row 10: biometric lock applies to owner, staff and money apps; a customer-only app is n/a.
+- Row 13: Play in-app update is part of the row, not optional.
+- Row 15: `assetlinks.json` lists both the Play app-signing key and the upload key; an emulator install signed with the debug key never verifies, so verify on a Play install. Claiming every path (`/*`, broad intent filters) makes every route reachable from a link: see `shell-checklist.md` row 24 (no plan price or upgrade ask on any route, App Review 3.1.1).
+- Row 17: a remote shell shows a bundled offline page on a transport failure (Android `WebViewClient.onReceivedError`, iOS `server.errorPath`).
+- Row 19: start the Android emulator with `-gpu host`, not swiftshader (about 45% less CPU, and swiftshader alone makes most frames janky); compare the web list against a native Settings list on the same emulator for a ratio, and take absolute numbers on a phone.
+- Row 20: names come from Chromium's computed tree (CDP `Accessibility.getFullAXTree`) next to `uiautomator dump`. Fixes that recur: the focused route heading draws no focus ring (`[data-route-focus]:focus-visible { outline: none }`), the toast region has a Hebrew name, every horizontal scroller Chrome makes focusable is a `role="group"` named by its section heading.
+- R8 (with Play's DEX rule): keep line numbers, `shell-checklist.md` row 25.
 
 Device checks: Android on the LENOVO emulator (`apps/native/AGENTS.md` in sportchat-web has the
 headless recipe) and on Nadav's phone over wireless debugging (`adb pair`, then `adb connect`);
