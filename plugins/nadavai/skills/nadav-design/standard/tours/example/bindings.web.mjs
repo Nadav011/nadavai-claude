@@ -52,8 +52,9 @@ export default {
     // person's open drawer or sheet reopens the sample's instead of leaving hers in place
     'appt.drawer': { isOpen: x => x.app.drawer.open && !!x.app.drawer.record && !!x.app.drawer.record.sample, reopen: x => x.app.drawer.openFor(x.app.calendar.sampleEndedNotClosed()) },
     'pay.sheet': { isOpen: x => x.app.pay.open && !!x.app.pay.record && !!x.app.pay.record.sample, reopen: x => x.app.pay.openFor(x.app.calendar.sampleEndedNotClosed()) },
-    // a settings rule is nobody's record, but the reopen is still the tour's own row, not the last sheet opened
-    'settings.edit-sheet': { isOpen: x => x.app.sheet.open, reopen: x => x.app.sheet.openFor('reminder-before') },
+    // a settings rule is nobody's record, but the sheet counts as open only on the tour's own row, and the reopen opens
+    // that row, not the last sheet opened
+    'settings.edit-sheet': { isOpen: x => x.app.sheet.open && x.app.sheet.row === 'reminder-before', reopen: x => x.app.sheet.openFor('reminder-before') },
   },
   // state id (result stateEquals) -> its current value
   state: {

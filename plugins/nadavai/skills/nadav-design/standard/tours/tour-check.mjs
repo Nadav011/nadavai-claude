@@ -19,7 +19,9 @@
 //                   step without on: "sample"; a do step classed S without on: "sample"; a do step that opens
 //                   a record (result recordOpen) without on: "sample"; with --inventory a do step at
 //                   on: "sample" on a recordAnchors control with no earlier step in its tour that opened her
-//                   record (recordOpen) or picked her (custom), on either device; a do step with no G-20 test named (at stage "demo" these, and a
+//                   record (a recordOpen result naming its own control) or picked her (an unclassed pick
+//                   with a custom result after a step at on: "none" that opened its window), on each device
+//                   the step runs on, or that names no need; a do step with no G-20 test named (at stage "demo" these, and a
 //                   practice-only step's missing tests, are notes with the count); a resume action other
 //                   than reopening a window or selecting the sample record again; a `start` key other than
 //                   screen, record, view, date and close. With --inventory, which holds recordAnchors (ids
@@ -66,17 +68,17 @@ const NOT_COVERED = [
   'tour-no-commit: that a do step at on: "sample" on a control recordAnchors lists changes only the sample\'s record (a save that also changes a business-wide rule): the running app (tour-anchors); the checker requires only that the control is a record control, and the step\'s safeTest shows that nothing leaves, not what changed',
   'tour-no-commit: a stop step followed by a step that depends on that control having been pressed (the manifest does not record what a control opens)',
   'tour-no-commit: that the named tests exist and pass (the project\'s own suite)',
-  'tour-no-commit: without --inventory, none-on-record, sample-not-record, sample-not-opened, do-on-bulk, do-on-container and anchor-both: the three lists are in the inventory (the run notes how many do steps it did not judge)',
+  'tour-no-commit: without --inventory, none-on-record, sample-not-record, sample-not-opened, sample-no-need, do-on-bulk, do-on-container and anchor-both: the three lists are in the inventory (the run notes how many do steps it did not judge)',
   'tour-no-commit: an anchor family whose members differ (one exports or sits on a person\'s record, another only shows): a listed id covers every arg of its family, so a member that was not given its own id passes; such a control gets its own id (the reviewer)',
-  'tour-no-commit: that a step marked on: "sample" really reaches the sample\'s record and no other (the bindings, in the running app: they select by the sample\'s record id, never the first visible row); only the flag, and whether the control is one recordAnchors lists, are read, and recordAnchors holds only ids that resolve to the sample\'s record (a resolver\'s own id, a control in a window opened on her), while an id every row of a list carries is in containerAnchors; such an id listed in recordAnchors by mistake passes (the reviewer, and tour-anchors in the running app)',
+  'tour-no-commit: that a step marked on: "sample" really reaches the sample\'s record and no other (the bindings, in the running app: they select by the sample\'s record id, never the first visible row, or, inside a window opened on her, bind the window\'s own control); that the earlier opener opened the window the step\'s control sits in, that the step\'s need reopens that window, and that no step between them left it or opened another record (the reviewer); only the flag, and whether the control is one recordAnchors lists, are read, and recordAnchors holds only ids that resolve to the sample\'s record (a resolver\'s own id, a control in a window opened on her), while an id every row of a list carries is in containerAnchors; such an id listed in recordAnchors by mistake passes (the reviewer, and tour-anchors in the running app)',
   'tour-shape: that a key marked viewOf really is a view of that screen (the reviewer)',
-  'tour-no-commit: that a need of reopen puts back the tour\'s own record, the sample\'s, and not the last one open (the bindings, in the running app)',
+  'tour-no-commit: that a need of reopen puts back the tour\'s own record, the sample\'s, and not the last one open, that a window opened on one person counts as open (isOpen) only while it shows the sample\'s record, and that a resume or a skip runs a step\'s need before the step (the bindings and the engine, in the running app)',
   'tour-anchors: every anchor (the anchors entries and the articles\' too), result, condition, window and state id resolving on its screen, and a step marked on: "sample" resolving to the sample\'s record and no other (the running app)',
   'tour-shape: whether a chapter break sits at a real result (the reviewer)',
   'tour-anchors: a showing or stop step whose lit control responds; a test of the built engine presses the lit control of a stop step and shows that nothing happens (the running app)',
   'tour-no-commit: that the inventory\'s three lists are complete: recordAnchors every id that resolves to the sample\'s record (a resolver\'s own id, a control in a window opened on her), bulkAnchors every control that acts on many people\'s records at once, containerAnchors every element that holds people\'s rows and every id each row carries; an unlisted one lets the step pass (the running app)',
   'tour-no-commit: that what a step at on: "none" lands on through its result, a window (open), a wizard window (step), a screen (route or view) or a custom result, is nobody\'s (a menu, a filter panel), never a person\'s page, card or window: the manifest does not record whose it is (the reviewer)',
-  'tour-no-commit: that a person picker\'s step has a result that checks the sample was picked (a custom result, as appt.sample-picked), that picking saves and sends nothing by itself, and that no do step on that window\'s other controls comes before it: the reviewer, and the bindings',
+  'tour-no-commit: that a person picker\'s step has a result that checks the sample was picked (a custom result, as appt.sample-picked), that picking saves and sends nothing by itself, and that no do step on that window\'s other controls comes before it: the reviewer, and the bindings; the checker takes an unclassed pick step with a custom result, after a step at on: "none" that opened a window, as that picker, and a recordOpen result that names the step\'s own control as a resolver\'s own id',
 ];
 
 function die(msg) {
@@ -283,20 +285,26 @@ const coreCount = INV ? coreScreens.size : coreList.length;
 if (coreCount > 5) add('tour-shape', 'G-21', 'core-count', { path: '/core' }, INV ? `${coreCount} core screens (${[...coreScreens].join(', ')}), at most five; keys of one core entry count as one screen only where inventory.json marks them viewOf it` : `${coreCount} core entries, so more than five core screens`); // M:core-count
 if (!INV && coreCount <= 5 && coreKeys.size > 5) notes.push({ check: 'tour-shape', message: `${coreKeys.size} core keys in ${coreCount} entries: whether that is more than five core screens needs --inventory, which marks the keys that are views of one screen` });
 const okEnd = s => !!s && (s.kind === 'stop' || (s.kind === 'do' && !!s.result));
-// a do step at on: "sample" that opens her record (recordOpen) or picks her (custom): the steps after it in the tour act
-// in a window opened on her, so a do step at on: "sample" on a control recordAnchors lists comes after one (a control no
-// list holds is sample-not-record already, a bulk or container control its own finding); one under a condition other than the device opens it only where the condition holds
-const opensSample = s => s.kind === 'do' && s.on === 'sample' && plain(s.result) && ['recordOpen', 'custom'].includes(s.result.kind);
+// a do step at on: "sample" that opens her record or picks her: the steps after it in the tour act in a window opened
+// on her, so a do step at on: "sample" on a control recordAnchors lists comes after one (a control no list holds is
+// sample-not-record already, a bulk or container control its own finding). It opens her record when its recordOpen
+// result names its own control (a resolver's own id); it picks her when it is the picker exception's own shape, an
+// unclassed pick step with a custom result whose latest earlier do step opened a window at on: "none" (open or step).
+// One under a condition other than the device opens it only where the condition holds
+const opensSample = (s, prevDo) => s.kind === 'do' && s.on === 'sample' && plain(s.result) && ((s.result.kind === 'recordOpen' && resultAnchor(s) === s.anchor) || (s.result.kind === 'custom' && s.act === 'pick' && !s.class && !!prevDo && prevDo.on === 'none' && plain(prevDo.result) && ['open', 'step'].includes(prevDo.result.kind)));
 const DEVICES = ['phone', 'desktop'];
 tours.forEach((t, ti) => {
   const steps = arr(t.steps);
   const opened = new Set(); // the devices on which an earlier step of this tour opened her record or picked her
+  let prevDo = null; // the latest earlier do step of this tour
   steps.forEach((s, si) => {
     if (!s || typeof s !== 'object') return;
     const at = { tour: t.id, step: si + 1, path: `/tours/${ti}/steps/${si}` };
     const runsOn = DEVICES.filter(d => !s.when || s.when === d || !DEVICES.includes(s.when));
-    if (INV && s.kind === 'do' && s.on === 'sample' && isRecordAnchor(s.anchor) && !opensSample(s) && runsOn.some(d => !opened.has(d))) add('tour-no-commit', 'G-08', 'sample-not-opened', at, `a do step at on: "sample" on "${s.anchor}" with no earlier step in this tour that opened the sample's record (a do step at on: "sample" with a recordOpen result) or picked her (a custom result that checks the sample was picked)${runsOn.length < 2 ? `, on the ${runsOn[0]}` : ''}: a control in a window acts on whichever record that window shows, a real person's when the tour starts over it; put the step that opens her record or picks her before this one, or, when this step itself opens her record through a resolver's own id, give it the recordOpen result`); // M:sample-not-opened
-    if (opensSample(s)) for (const d of DEVICES) if (!s.when || s.when === d) opened.add(d); // M:sample-opener
+    if (INV && s.kind === 'do' && s.on === 'sample' && isRecordAnchor(s.anchor) && !opensSample(s, prevDo) && runsOn.some(d => !opened.has(d))) add('tour-no-commit', 'G-08', 'sample-not-opened', at, `a do step at on: "sample" on "${s.anchor}" with no earlier step in this tour that opened the sample's record (a do step at on: "sample" whose recordOpen result names its own control, a resolver's own id) or picked her (an unclassed pick step, after the step at on: "none" that opened its window, whose custom result checks the sample was picked)${runsOn.length < 2 ? `, on the ${runsOn[0]}` : ''}: a control in a window acts on whichever record that window shows, a real person's when the tour starts over it; put the step that opens her record or picks her before this one, or, when this step itself opens her record through a resolver's own id, give it the recordOpen result that names that id`); // M:sample-not-opened
+    if (INV && s.kind === 'do' && s.on === 'sample' && isRecordAnchor(s.anchor) && !opensSample(s, prevDo) && !arr(s.need).length) add('tour-no-commit', 'G-08', 'sample-no-need', at, `a do step at on: "sample" on "${s.anchor}" that names no need: a resume or a skip reaches it without the step that opened her record, and it then acts in whatever window is open, a real person's if she opened one since; name how to put her back (reopen its window, or selectSample), which a resume or a skip runs first`); // M:sample-no-need
+    if (opensSample(s, prevDo)) for (const d of DEVICES) if (!s.when || s.when === d) opened.add(d); // M:sample-opener
+    if (s.kind === 'do') prevDo = s;
     const texts = [['text', s.text], ['showText', s.showText], ...arr(s.variants).map((v, vi) => [`variants[${vi}] (${v && v.when})`, v && v.text])];
     for (const [field, text] of texts) if (words(text) > 12) add('tour-shape', 'G-07', 'words', at, `${field} has ${words(text)} words, at most 12: the fix is two steps, never a trimmed one`); // M:words
     if (s.skip === false) add('tour-shape', 'G-07', 'no-skip', at, 'the step cannot be skipped; every step can be'); // M:no-skip
@@ -340,7 +348,7 @@ tours.forEach((t, ti) => {
 });
 if (demoPractice.length) notes.push({ check: 'tour-no-commit', message: `${demoPractice.length} practice-only steps name no mode test or stop test yet; each needs both before the app runs this tour` });
 const unjudged = INV ? 0 : tours.reduce((n, t) => n + arr(plain(t) && t.steps).filter(s => plain(s) && s.kind === 'do').length, 0);
-if (unjudged) notes.push({ check: 'tour-no-commit', message: `${unjudged} do steps were not judged against the inventory (recordAnchors, bulkAnchors, containerAnchors: none-on-record, sample-not-record, sample-not-opened, do-on-bulk, do-on-container): that needs --inventory` }); // M:none-no-inventory
+if (unjudged) notes.push({ check: 'tour-no-commit', message: `${unjudged} do steps were not judged against the inventory (recordAnchors, bulkAnchors, containerAnchors: none-on-record, sample-not-record, sample-not-opened, sample-no-need, do-on-bulk, do-on-container): that needs --inventory` }); // M:none-no-inventory
 if (requireStage && M.stage !== requireStage) add('manifest', null, 'stage-required', { path: '/stage' }, `the manifest is at stage "${M.stage}", and this run requires "${requireStage}"`); // M:stage-required
 if (M && M.stage === 'demo' && noTest.length) { notes.push({ check: 'tour-no-commit', message: `${noTest.length} do steps name no G-20 test; each needs one before the app runs this tour` }); noTest.length = 0; } // M:demo-stage
 for (const at of noTest) add('tour-no-commit', 'G-20', 'do-no-safe-test', at, 'a do step names no test of G-20 (safeTest, or the practice mode\'s modeTest): it is a stop step'); // M:do-no-safe-test

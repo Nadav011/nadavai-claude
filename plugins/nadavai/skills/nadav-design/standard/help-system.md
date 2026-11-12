@@ -306,10 +306,15 @@ written for each of them. Two layers:
   record changes the step (a save of a business-wide rule is then a stop step), and this finding
   is never answered by setting `"none"` [I]. A do step at `"sample"` on a control
   `recordAnchors` lists comes after an earlier do step at `"sample"` in the same tour, on the
-  same device, that opened her record (a `recordOpen` result) or picked her (a `custom` result),
-  unless it is that step itself; a control in a window acts on whichever record the window
-  shows, a real person's when the tour starts over it, and a step that breaks this order is a
-  finding with the inventory [I]. Beyond that the checker reads only the flag and
+  same device, that opened her record (a `recordOpen` result that names the step's own
+  control, a resolver's own id) or picked her (the picker exception: an unclassed `pick` step
+  with a `custom` result, after the do step at `"none"` that opened its window), unless it is
+  that step itself; a control in a window acts on whichever record the window shows, a real
+  person's when the tour starts over it, and a step that breaks this order is a finding with
+  the inventory. Such a step that is not itself the opener names a `need` (reopen its window,
+  or `selectSample`), and a run that reaches it other than from the step before it (a resume,
+  a skipped step) runs that need first; with no sample record, or when she declines, the step
+  only shows [I]. Beyond that the checker reads only the flag and
   whether the control is listed: that the bindings then reach the sample's record and no other,
   and that the three lists are complete, is judged in the running app. Then the anchor of its
   control; what she reads, and the text when it only shows; a do step's action (open, pick,
@@ -319,7 +324,9 @@ written for each of them. Two layers:
   outside the mode (at stage `demo` it may be `{}` and name them later; at stage `app` both are
   named); and `need`, how a resumed run puts her back, which is only one of the two G-08 allows
   (reopen a window, select the sample record again). A reopen puts back the tour's own record,
-  the sample's, never the last one open, since she may have opened a real person's since; with
+  the sample's, never the last one open, since she may have opened a real person's since, and a
+  window opened on one person counts as open (`isOpen`) only while it shows the sample's
+  record [I]; with
   no sample record it does nothing and the step only shows; the bindings do it, and only the
   running app shows it (`tour-anchors`). The file's `stage` (`demo` or `app`), the core screens,
   the anchors that no step points at (each with its screens), the written reason for a screen or
