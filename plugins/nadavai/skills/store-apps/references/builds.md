@@ -36,6 +36,17 @@ Traps already paid for on 7.11 (each cost a failed run):
 | The Mac's disk is case-insensitive: two paths differing only in case broke the clone. | Rename, and keep a guard test that fails on any case-only collision. |
 | The build-number `sed` and `use-profiles` edit `project.pbxproj`, a fingerprint input. | Bake the OTA runtime right after `cap sync` on the clean tree, pass `OTA_RUNTIME` through `--archive-xcargs`, and restore `project.pbxproj` before reading the runtime back from the IPA. |
 
+A simulator workflow (no signing, no upload) doubles as the iOS compile check of a native branch
+and as the App Review screen recording: Cash's `cash-ios-review-recording` builds the shell for the
+simulator, drives it with a Maestro flow and records with `xcrun simctl io recordVideo`; the
+reviewers' code comes from the API's environment variables and is masked in the log. Traps it paid
+for (2026-11-11): every build of the account's six apps was marked expired that day (cause not
+known), so re-read `expired` on the attached build right before submitting; a step that
+needs an element the earlier steps scrolled away fails, so scroll back to it; demo data drifts
+(a day left open turns «סיום יום» into «סיום ו׳ 6.11»), so match a pattern; Maestro's long-press
+on the iOS 26 home screen does not open the quick-action menu; trim the idle start with ffmpeg
+and label the file a simulator recording in the notes.
+
 ## Android locally
 
 JDK 21 and the Android SDK, run through `heavy-slot --` (`rules/machine-load.md`). The signed-AAB
