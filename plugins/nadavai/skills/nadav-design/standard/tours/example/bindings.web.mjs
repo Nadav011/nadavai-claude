@@ -6,8 +6,9 @@
 // the filtered list" (patients.row, a showing step that acts on nobody) needs no code. A binding for a step marked
 // on: "sample" selects by the sample's record id, never by position: on a list of people's rows it is a resolver
 // (cal.ended-appointment below); a plain binding serves only a control inside a window already opened on the
-// sample (appt.paid, pay.method, pay.confirm) or one that is nobody's record. Only a target that depends on state is
-// a named resolver. The engine that reads this file owns visibility: a hit test that lands on the target, on an
+// sample (appt.paid, pay.method, pay.confirm), one that is nobody's record, or the picker of a window opened on
+// nobody (appt.patient-picker), whose custom result checks the sample was picked, and that window's controls after it
+// (appt.service). Only a target that depends on state is a named resolver. The engine that reads this file owns visibility: a hit test that lands on the target, on an
 // element inside it or on its ancestor counts as covering it; a target clipped by an ancestor whose overflow is not
 // visible is not on screen; a target inside an inner scroll box is scrolled into that box's view before the step
 // shows.
@@ -47,8 +48,10 @@ export default {
   // or typed since (G-08); the bindings only do it
   windows: {
     'appt.create': { isOpen: x => x.app.booking.open, reopen: x => x.app.booking.reopenAtTourSlot(), step: x => x.app.booking.step },
-    'appt.drawer': { isOpen: x => x.app.drawer.open, reopen: x => x.app.drawer.openFor(x.app.calendar.sampleEndedNotClosed()) },
-    'pay.sheet': { isOpen: x => x.app.pay.open, reopen: x => x.app.pay.openFor(x.app.calendar.sampleEndedNotClosed()) },
+    // a window opened on one person counts as open only while it shows the sample's record, so a resume over a real
+    // person's open drawer or sheet reopens the sample's instead of leaving hers in place
+    'appt.drawer': { isOpen: x => x.app.drawer.open && !!x.app.drawer.record && !!x.app.drawer.record.sample, reopen: x => x.app.drawer.openFor(x.app.calendar.sampleEndedNotClosed()) },
+    'pay.sheet': { isOpen: x => x.app.pay.open && !!x.app.pay.record && !!x.app.pay.record.sample, reopen: x => x.app.pay.openFor(x.app.calendar.sampleEndedNotClosed()) },
     // a settings rule is nobody's record, but the reopen is still the tour's own row, not the last sheet opened
     'settings.edit-sheet': { isOpen: x => x.app.sheet.open, reopen: x => x.app.sheet.openFor('reminder-before') },
   },

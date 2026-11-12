@@ -271,9 +271,13 @@ written for each of them. Two layers:
   each row (`patients.charge`), binds the first visible row, a real person's whenever the sample
   is not first: it is a container and goes in `containerAnchors`, never in `recordAnchors` [I].
   The one exception: a control that picks a person in a window opened on nobody (a patient
-  picker) is listed in `recordAnchors`, and its step's result checks that the sample was picked
-  (a `custom` result,
-  as `appt.sample-picked`) [I]. `containerAnchors` lists every element that holds people's rows
+  picker), where picking saves and sends nothing by itself, is listed in `recordAnchors`; its do
+  step carries no class, and its result checks that the sample was picked (a `custom` result, as
+  `appt.sample-picked`). That window's other controls (`appt.service`, `appt.save`) are listed
+  with it, and a do step on one of them comes only after the picker's step. A picker that saves
+  or sends as it picks (it adds the person to a list, assigns or invites her) is a stop step,
+  never a do step, and the rows of a picker's list are containers [I]. `containerAnchors` lists
+  every element that holds people's rows
   or records (a list, a column, the calendar grid) and every id each row of such a list carries:
   the lit target of a do step is live, so a do step lit on one is a finding at any `on` and any
   class, and a tour lights the sample's own row or control at `"sample"`, through a resolver's
@@ -295,11 +299,17 @@ written for each of them. Two layers:
   stop step [I]. A do step
   classed `S` (it saves) that does not carry `"sample"` is a finding too, and with the inventory
   so is a do step at `"sample"`, of any class, on a control no `recordAnchors` lists. When the
-  control sits in a window opened on her, the fix is in the inventory: list it in
-  `recordAnchors` and keep `"sample"`; when it sits on her row in a list, it is lit through a
+  control sits in a window opened on her (a step before it in the tour opened it on her), the
+  fix is in the inventory: list it in `recordAnchors` and keep `"sample"`; when it sits on her
+  row in a list, it is lit through a
   resolver's own id that picks her row, and that id is listed. Only a control that is nobody's
   record changes the step (a save of a business-wide rule is then a stop step), and this finding
-  is never answered by setting `"none"` [I]. Beyond that the checker reads only the flag and
+  is never answered by setting `"none"` [I]. A do step at `"sample"` on a control
+  `recordAnchors` lists comes after an earlier do step at `"sample"` in the same tour, on the
+  same device, that opened her record (a `recordOpen` result) or picked her (a `custom` result),
+  unless it is that step itself; a control in a window acts on whichever record the window
+  shows, a real person's when the tour starts over it, and a step that breaks this order is a
+  finding with the inventory [I]. Beyond that the checker reads only the flag and
   whether the control is listed: that the bindings then reach the sample's record and no other,
   and that the three lists are complete, is judged in the running app. Then the anchor of its
   control; what she reads, and the text when it only shows; a do step's action (open, pick,
