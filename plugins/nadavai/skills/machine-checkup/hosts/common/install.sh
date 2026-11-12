@@ -55,6 +55,18 @@ else
   later+=("rasdaemon is not installed: paru -S rasdaemon, then run this again")
 fi
 
+# earlyoom: the largest process goes before systemd-oomd takes a whole terminal.
+if pacman -Q earlyoom >/dev/null 2>&1; then
+  if ! sudo cmp -s "$here/earlyoom.default" /etc/default/earlyoom; then
+    [ -f /etc/default/earlyoom ] && { sudo install -d -m 700 /root/retired-tuning; sudo cp -p /etc/default/earlyoom "/root/retired-tuning/earlyoom.$(date +%Y%m%d-%H%M%S)"; }
+    sudo install -m 644 "$here/earlyoom.default" /etc/default/earlyoom
+    sudo systemctl restart earlyoom
+  fi
+  sudo systemctl enable -q --now earlyoom
+else
+  later+=("earlyoom is not installed: sudo pacman -S earlyoom, then run this again")
+fi
+
 systemctl is-enabled -q fstrim.timer 2>/dev/null || sudo systemctl enable --now fstrim.timer
 install -D -m 755 "$here/machine-baseline-check" "$HOME/.local/bin/machine-baseline-check"
 for l in "${later[@]}"; do echo "LATER: $l"; done

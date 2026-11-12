@@ -26,6 +26,10 @@ row info "memory available" "$(awk '/^MemAvailable:/ { printf "%d GB", $2 / 1048
 [ "$(systemctl is-active systemd-oomd 2>/dev/null)" = active ] && s=ok || s=BAD
 # The kills are logged by the user's systemd manager, not by the systemd-oomd unit.
 row "$s" "systemd-oomd" "$(systemctl is-active systemd-oomd 2>/dev/null); terminals killed in 7 days: $(journalctl --since -7d -q -t systemd -g 'systemd-oomd killed' 2>/dev/null | wc -l)"
+e=; ep=$(pgrep -o -x earlyoom 2>/dev/null) && e=$(tr '\0' ' ' <"/proc/$ep/cmdline" 2>/dev/null)
+# The whole command line, so an extra flag (--prefer, --avoid, --dryrun, a second -m) fails too.
+[[ $e =~ ^[^\ ]+\ -r\ 60\ -m\ 25,20\ -s\ 20,12\ -n\ --ignore\ [^\ ]+\ $ && $e != *claude* ]] && s=ok || s=BAD
+row "$s" "earlyoom before oomd, by oom_score" "$(systemctl is-active earlyoom 2>/dev/null); kills in 7 days: $(journalctl -u earlyoom --since -7d -q -g 'sending SIG(TERM|KILL) to process' 2>/dev/null | wc -l)"
 o=$(sysctl -n kernel.panic_on_oops 2>/dev/null) p=$(sysctl -n kernel.panic 2>/dev/null)
 [ "$o" = 1 ] && [ "$p" = 10 ] && s=ok || s=BAD
 row "$s" "reboot after a kernel oops" "panic_on_oops=$o panic=$p"

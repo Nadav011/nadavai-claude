@@ -1,0 +1,36 @@
+# earlyoom ends one large process before systemd-oomd ends a whole Orca terminal.
+#
+# What happened (journalctl -u earlyoom, -t systemd-oomd): on 2026-11-12 swap went from 28% to
+# 80% used in about two minutes. With "--prefer chrome" earlyoom sent SIGTERM to 55 Chrome tabs
+# of 50-133 MiB each in 12 seconds, which did not stop the growth, and 17 seconds after its first
+# kill systemd-oomd killed the terminal scope that held 81.3 GB of the swap (328 processes).
+# Which process grew is not known. On 2026-11-06 and 11-07 systemd-oomd killed three terminals
+# while earlyoom did nothing at all, because its memory condition (-m 10) was not met.
+#
+#   -r 60        one memory line a minute in the journal: the only record of the minute before
+#                a kill (atop samples every ten minutes)
+#   -m 25,20     memory condition. earlyoom's percentage is MemAvailable out of MemAvailable plus
+#                anonymous memory, a smaller total than systemd-oomd's: with -m 10 its figure
+#                was still 18-34% in the last sample before each of those three kills
+#   -s 20,12     TERM at 80% of swap used, KILL at 88%; systemd-oomd kills a terminal when swap
+#                and memory are both over 90% used. Both conditions must hold here too. At the
+#                growth rate of 11-12 that is about 17 s for TERM and 3-4 s for KILL
+#   no --prefer, no --avoid, no --sort-by-rss
+#                the victim is the kernel's oom_score, which counts resident memory and swap.
+#                RSS alone misses a process that sits in swap (a 3.4 GB pyright showed 72 MiB).
+#                Chrome marks its tabs as first to go (oom_score_adj 300 against 200), so a tab
+#                goes before any other process smaller than about 19 GB, and one process large
+#                enough to fill the swap is far above that. --prefer and --avoid move a score
+#                by 300, about 86 GB here: --prefer chrome put every tab above the process
+#                that grew, and --avoid chrome would end every Claude session before a
+#                browser that grows.
+#                Known limit: when no single process is over about 19 GB (the three terminals
+#                of 11-06/07 held 7-13 GB of swap each), tabs and Playwright browsers still go
+#                first, 4-5 a second, and may not stop the growth before systemd-oomd acts
+#   --ignore     never the desktop, the login shells or Orca. A Claude session is not on this
+#                list on purpose: a session that itself grows must stay killable (it can be
+#                resumed; a terminal killed by systemd-oomd takes it and its jobs anyway)
+#
+# See the choice without killing anything (limits that are met whenever any swap is in use):
+#   . /etc/default/earlyoom; eval "timeout 5 earlyoom --dryrun $EARLYOOM_ARGS -m 99 -s 99" 2>&1 | grep -m1 "to process"
+EARLYOOM_ARGS="-r 60 -m 25,20 -s 20,12 -n --ignore '^(init|systemd|systemd-.*|dbus-broker.*|sshd|sshd-session|bash|fish|zsh|kwin_.*|plasmashell|plasmalogin.*|sddm.*|ksmserver|Xwayland|Xorg|pipewire.*|wireplumber|startplasma.*|orca-ide|tailscaled|dockerd|containerd.*|woodpecker-agen.*)$'"

@@ -216,7 +216,9 @@ nvidia-container-toolkit + CDI for Docker GPU access.
 **Every home machine** shares one OS baseline, `hosts/common/` (`install.sh`, idempotent, stops
 nothing; each host's `install.sh` calls it; `machine-baseline-check` prints it): `/tmp` on disk,
 compressed swap twice the RAM, a reboot 10 s after a kernel oops, 1 GB of journal, rasdaemon,
-weekly fstrim. Compressed swap is twice the RAM because systemd-oomd kills the Orca terminal with
+weekly fstrim, and earlyoom set to end one process by the kernel's oom_score at 80% of swap,
+before systemd-oomd takes a terminal at 90% (`hosts/common/earlyoom.default` says why each flag
+is there and what it cannot do; do not add `--prefer`, `--avoid` or `--sort-by-rss`). Compressed swap is twice the RAM because systemd-oomd kills the Orca terminal with
 the most swap at 90% of the uncompressed size: on the LENOVO on 2026-11-10 a 62 GB device stood at
 56% while those pages took 5.8 GB of real memory (6.5 to 1) and 20 GB were free. A running
 machine gets the second half as a hot-added `/dev/zram1` (no swapoff); after a reboot the
