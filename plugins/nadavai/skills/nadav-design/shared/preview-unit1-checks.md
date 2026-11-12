@@ -4,7 +4,7 @@ A reading aid for `rules.md`, «An app is built once», point 5: the proofs of t
 each with its pass and fail condition. It adds no rule. Where this list and point 5 differ, point 5 holds and the
 difference is a fault to report («Where a fault goes»). Source: the eleventh independent review of the rule
 (11.11.2026), which wrote the list for a Next app with a Capacitor shell, in Hebrew and RTL, corrected against point 5
-by the twelfth to the twenty-first; a Vite app reads "the root layout's `<head>`" as its `index.html` and skips the
+by the twelfth to the twenty-second; a Vite app reads "the root layout's `<head>`" as its `index.html` and skips the
 lines that name Next. A fail stops the unit. Each proof is shown failing first, through the planted cases its browser
 can show going out, then passing clean.
 
@@ -43,11 +43,13 @@ can show going out, then passing clean.
      load and on a warm one (one way to show it: a test script that records `attachShadow` calls and link creation
      finds none before the guard). Every HTML response the journey records and every HTML file in the public folder
      holds it before any script that is not an external one (with `src`) marked `async` or `defer`, or a module (the
-     framework's own chunk tags may come first in the file); on Next the start script's layer writes it first in
-     `<head>` of every HTML response, Next's own error document (`__next_error__`) included.
+     framework's own chunk tags may come first in the file); on Next the start script's layer, which listens on the
+     app's port in front of Next's own, writes it first in `<head>` of every HTML response (right after the doctype
+     where there is no `<head>` tag), Next's own error document (`__next_error__`) included, shown on a planted page
+     whose render throws on the server.
    - Fail: a script that ran, a shadow root or a link made before it; or an HTML document the journey records or the
      public folder holds without it, or with a script before it that is not an external one marked `async` or `defer`,
-     or a module; or, on Next, a 500 error document without it.
+     or a module; or, on Next, a 500 error document without it, or a shell that frames Next's own port.
 6. **The app's own forms and controls inside the frame, effect checked** (5c).
    - Pass: one of each kind the app has keeps its effect: a modifier click, a context menu, a drag, and a form whose
      action is a function, rendered in the browser and, where the app renders one on the server, after hydration. The

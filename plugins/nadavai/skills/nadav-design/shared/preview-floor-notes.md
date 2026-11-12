@@ -251,15 +251,27 @@ records every request that is not to 127.0.0.1. Cases that attempted a request o
   `app/error` rendered opened it in Chromium, while a planted link on the app's normal page was rewritten. With a
   local layer in front of the app's port that wrote the guard as the first child of `<head>` in every HTML response,
   the error document held the guard, its link was rewritten, the clicks went nowhere and the normal page hydrated
-  without error. Other same-origin documents the guard reaches only at their frame's `load` (the same run): with a
-  late `load`, a middle and a Ctrl click on a link went out under the rule's set-up from a `srcdoc` set on a frame
-  that already held a document (Chromium and Firefox), from an XHTML page (Chromium and Firefox) and from an XML file
-  that XSLT turns into HTML (Firefox; both the twenty-first review's run), from a `javascript:` URL document
-  (Chromium; Firefox hung and was not measured), from a `blob:` page reached by the frame's navigation once the policy
-  allowed `frame-src blob:` (Chromium and Firefox; the policy as committed blocks it) and from an SVG file of the
-  public folder opened as a page (Chromium and Firefox). WebKit kept each of them in, `blob:` not measured there. A
-  `srcdoc` or a `blob:` page set as the `src` of a new frame did not go out. In an SVG document `a.href = …` sets a
-  property and no attribute, so a walk plants its link with `setAttribute`.
+  without error. A layer built from the rule's sentence alone (the twenty-second review's run, Next 16.4.1 under `next
+  start` and `next dev`, Chromium): the error document carried the guard and its clicks went nowhere, while the same
+  app framed at Next's own port let the click out. Behind the layer, a route handler's `Response.redirect(new URL(…,
+  request.url))` named `http://localhost:<Next's port>` and the shell's `frame-src` refused it; `proxy.js` followed
+  `Host`; a layer that rewrote that `Location` to its own origin kept both working. An HTML response with no `<head>`
+  tag got no guard from a layer that wrote it into `<head>` only, and its link went out; written right after the
+  doctype, the guard held it. The layer's copy and the root layout's copy lived together: the second found the guard
+  installed and did nothing. What failed loudly: a layer that edited compressed bytes (a blank frame), one that kept
+  the upstream `Content-Length` (a cut page, which a check that knew the guard by an id alone passed), one that looked
+  for `<head>` in the first write only (the static check fails on it), one that did not pass the WebSocket upgrade on
+  (no hot reload). `HEAD`, 304, a client navigation's payload and the app's policy header passed through unchanged,
+  and a 10 KB guard ahead of `<meta charset>` showed Hebrew correctly in the three browsers. On Vite the dev server's
+  own error and 404 pages carry no guard and hold no outside link. Other same-origin documents the guard reaches only
+  at their frame's `load` (the same run): with a late `load`, a middle and a Ctrl click on a link went out under the
+  rule's set-up from a `srcdoc` set on a frame that already held a document (Chromium and Firefox), from an XHTML page
+  (Chromium and Firefox) and from an XML file that XSLT turns into HTML (Firefox; both the twenty-first review's run),
+  from a `javascript:` URL document (Chromium; Firefox hung and was not measured), from a `blob:` page reached by the
+  frame's navigation once the policy allowed `frame-src blob:` (Chromium and Firefox; the policy as committed blocks
+  it) and from an SVG file of the public folder opened as a page (Chromium and Firefox). WebKit kept each of them in,
+  `blob:` not measured there. A `srcdoc` or a `blob:` page set as the `src` of a new frame did not go out. In an SVG
+  document `a.href = …` sets a property and no attribute, so a walk plants its link with `setAttribute`.
 - Keyboard activation (the nineteenth review's run, not part of this probe): Ctrl+Enter and Shift+Enter on a focused
   `<a>`, and Ctrl+Enter on a focused SVG `<a tabindex="0">`, went out with the frame alone in Chromium and Firefox and
   nowhere under the rule's set-up in any of the three. A MathML element with `xlink:href` and no `href` is not a link
@@ -412,6 +424,9 @@ report as not shown.
   key held on the button that ran it, it opened nothing in the three browsers (the fifteenth review's run), which is
   today's engines and not a rule.
 - An `<embed>` document, which has no `contentDocument` for the guard to wrap; the walk is what shows it.
+- Next behind the layer under `next dev`: every page logged "A tree hydrated but some attributes … didn't match", also
+  where nothing was rewritten at load; `next start` logged none, and dev without the layer was not run (the
+  twenty-second review). The layer in WebKit and Firefox, and on a real app.
 - Other same-origin documents the guard's own install reaches only at their frame's `load` (beyond a `srcdoc` set
   later, a `javascript:` URL, a `blob:` page and an SVG file): the destination rules stand behind them.
 - The root listing still reports one guarded arrangement as unlisted, which fails closed (the twentieth review's run):
