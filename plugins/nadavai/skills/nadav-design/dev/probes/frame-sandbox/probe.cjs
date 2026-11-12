@@ -204,12 +204,18 @@ const GUARD = `<script>(() => {
     doc.addEventListener('DOMContentLoaded', () => sweep(doc));
     fence(win); // the guard is the first script, so on the window its listeners run before the app's
     fence(doc);
+    doc.addEventListener('guard-ping', cancel); // answers the installer below while this document's listeners live
     try { if (win !== window && doc.documentElement) doc.documentElement.style.setProperty('-webkit-touch-callout', 'none'); } catch { /* not there yet */ }
   };
   install(window);
   // For the app's own code, where a child document is made or emptied in a way the guard does not see.
   // document.open keeps the Document object and removes its listeners, so the document's mark is cleared first.
-  window.__guard = (w) => { try { w.document.__guard = false; } catch { return; } install(w); };
+  window.__guard = (w) => {
+    let alive = false;
+    try { alive = !w.document.dispatchEvent(new w.Event('guard-ping', { cancelable: true })); } catch { return; }
+    if (alive) return;
+    w.document.__guard = false; install(w);
+  };
 })();</script><style>:root,a,area,img{-webkit-touch-callout:none}</style>`;
 const appHtml = (guard, fault) => `<!doctype html><meta charset="utf-8"><title>app</title>${guard ? GUARD : ''}
 <a id="tel" href="tel:+12025550123">call</a>
@@ -271,7 +277,10 @@ ${fault ? `<script>{ // a fault on purpose: a root made with the attachShadow of
   const w = window.frames[window.frames.length - 1];
   const host = document.createElement('div'); host.id = 'faulthost'; document.body.appendChild(host);
   const rr = w.Element.prototype.attachShadow.call(host, { mode: 'closed' });
-  rr.innerHTML = '<a href="https://example.com/fault">fault</a>'; }</script>` : ''}`;
+  rr.innerHTML = '<a href="https://example.com/fault">fault</a>';
+  const ch = document.createElement('div'); ch.id = 'clonehost'; document.body.appendChild(ch);
+  ch.attachShadow({ mode: 'closed', clonable: true }).innerHTML = '<a href="https://example.com/clone">clone</a>';
+  const copy = ch.cloneNode(true); copy.id = 'clonecopy'; document.body.appendChild(copy); }</script>` : ''}`;
 const shellHtml = (query) => `<!doctype html><meta charset="utf-8"><title>shell</title>
 <iframe id="app" width="700" height="500" sandbox="${SANDBOX}" src="${APP_ORIGIN}/app${query}"></iframe>`;
 
@@ -392,7 +401,9 @@ const MODES = [
     if (u.startsWith('/react.js') && reactBundle) { res.writeHead(200, { 'content-type': 'text/javascript' }); return res.end(reactBundle); }
     if (u.startsWith('/react-app.js')) { res.writeHead(200, { 'content-type': 'text/javascript' }); return res.end(REACT_APP); }
     if (u.startsWith('/px.svg')) { res.writeHead(200, { 'content-type': 'image/svg+xml' }); return res.end('<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40"><rect width="40" height="40" fill="#89a"/></svg>'); }
-    res.writeHead(200, /policy=1/.test(u) ? { 'content-type': 'text/html', 'content-security-policy': APP_POLICY } : { 'content-type': 'text/html' });
+    const head = /policy=1/.test(u) ? { 'content-type': 'text/html', 'content-security-policy': APP_POLICY } : { 'content-type': 'text/html' };
+    if (/oac=1/.test(u)) head['origin-agent-cluster'] = '?1'; // Chromium then gives the app's frame its own process
+    res.writeHead(200, head);
     res.end(u.startsWith('/would-open') ? '<!doctype html><title>would open</title><p id="would">would have opened</p>' : appHtml(/guard=1/.test(u), /fault=1/.test(u)));
   });
   // Chromium: no name is ever resolved, so not even a DNS lookup for example.com leaves the host.
@@ -466,33 +477,52 @@ const MODES = [
       await ctx.close();
     }
     if (browserName === 'chromium' && policy) {
-      for (const fault of [false, true]) {
+      // Every author shadow root, read through the DevTools protocol, against the guard's lists. The page's session
+      // does not reach a frame that runs in a process of its own, so each such frame's session is read too, and the
+      // documents listed are counted against the frames the browser has. A host is matched by identity: the script
+      // stamps the host of every root on a guard list with a token of this pass and reads the stamp back from the
+      // protocol's tree (a clone made earlier carries no stamp, or an older one).
+      const RUNS = [
+        ['', ''],
+        [", with two roots planted outside the wrapper (one through window.frames[i]'s attachShadow in the task that made the frame, one a clone of a clonable root)", '&fault=1'],
+        [", the same with the app's frame in a process of its own (Origin-Agent-Cluster)", '&fault=1&oac=1'],
+      ];
+      for (const [label, extra] of RUNS) {
         const ctx = await browser.newContext();
         await ctx.route('**/*', (route) => (route.request().url().startsWith('http://127.0.0.1:') ? route.continue() : route.abort()));
         const page = await ctx.newPage();
-        await page.goto(`http://127.0.0.1:${SHELL}/${query}${fault ? '&fault=1' : ''}`);
+        await page.goto(`http://127.0.0.1:${SHELL}/${query}${extra}`);
         let frame;
         for (let i = 0; i < 20 && !frame; i += 1) { frame = page.frames().find((f) => f.url().startsWith(`${APP_ORIGIN}/app`)); if (!frame) await page.waitForTimeout(100); }
         await page.waitForTimeout(800);
-        const cdp = await ctx.newCDPSession(page);
-        const { root } = await cdp.send('DOM.getDocument', { depth: -1, pierce: true });
-        const hosts = [];
-        const idOf = (n) => { const a = n.attributes || []; for (let i = 0; i < a.length; i += 2) if (a[i] === 'id') return a[i + 1]; return `<${n.localName}>`; };
-        const visit = (n) => {
-          for (const r of n.shadowRoots || []) { if (r.shadowRootType !== 'user-agent') hosts.push(idOf(n)); visit(r); }
-          for (const c of n.children || []) visit(c);
-          if (n.contentDocument) visit(n.contentDocument);
-          if (n.templateContent) visit(n.templateContent);
-        };
-        visit(root);
-        const listed = [];
-        const collect = async (fr) => {
-          try { listed.push(...await fr.evaluate(() => (typeof window.__guardRoots === 'function' ? window.__guardRoots().map((r) => r.host.id || `<${r.host.localName}>`) : []))); } catch { /* a document the script cannot evaluate */ }
-          for (const c of fr.childFrames()) await collect(c);
-        };
-        await collect(frame);
-        const none = hosts.filter((h) => !listed.includes(h));
-        console.log(`-- shadow roots read through the DevTools protocol${fault ? ", with a root planted through window.frames[i]'s attachShadow in the task that made the frame" : ''}: ${hosts.length} author root(s) [${hosts.join(', ')}]; on no guard list: ${none.length ? none.join(', ') : 'none'}`);
+        const token = `pass-${Date.now()}`;
+        for (const fr of page.frames()) {
+          try { await fr.evaluate((t) => { if (typeof window.__guardRoots === 'function') for (const r of window.__guardRoots()) r.host.setAttribute('data-guard-listed', t); }, token); } catch { /* a document the script cannot evaluate */ }
+        }
+        const sessions = [await ctx.newCDPSession(page)];
+        for (const fr of page.frames()) {
+          if (fr === page.mainFrame()) continue;
+          try { sessions.push(await ctx.newCDPSession(fr)); } catch { /* this frame is part of its parent's session */ }
+        }
+        const attr = (n, name) => { const at = n.attributes || []; for (let i = 0; i < at.length; i += 2) if (at[i] === name) return at[i + 1]; return null; };
+        const perSession = [];
+        const roots = [];
+        for (const session of sessions) {
+          let docs = 0;
+          const visit = (n) => {
+            if (n.nodeName === '#document') docs += 1;
+            for (const r of n.shadowRoots || []) { if (r.shadowRootType !== 'user-agent') roots.push({ id: attr(n, 'id') || `<${n.localName}>`, listed: attr(n, 'data-guard-listed') === token }); visit(r); }
+            for (const c of n.children || []) visit(c);
+            if (n.contentDocument) visit(n.contentDocument);
+            if (n.templateContent) visit(n.templateContent);
+          };
+          visit((await session.send('DOM.getDocument', { depth: -1, pierce: true })).root);
+          perSession.push(docs);
+        }
+        const docsListed = perSession.reduce((x, y) => x + y, 0);
+        const frames = page.frames().length;
+        const none = roots.filter((r) => !r.listed).map((r) => r.id);
+        console.log(`-- shadow roots read through the DevTools protocol${label}: ${sessions.length} session(s), the page's own lists ${perSession[0]} document(s), all of them ${docsListed} for ${frames} frame(s)${docsListed < frames ? ' (FEWER: the check fails)' : ''}; ${roots.length} author root(s) [${roots.map((r) => r.id).join(', ')}]; on no guard list: ${none.length ? none.join(', ') : 'none'}`);
         await ctx.close();
       }
     }
