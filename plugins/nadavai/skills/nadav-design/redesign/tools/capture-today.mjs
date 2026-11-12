@@ -90,7 +90,8 @@ const { chromium } = await import(pathToFileURL(pw).href);
 fs.mkdirSync(outDir, { recursive: true });
 
 const result = { written: [], errors: [], blocked: [], stale: [], remote: isLocal(base) ? null : { origin: base.origin, approval: approvals[base.origin] } };
-const browser = await chromium.launch();
+// Chromium keeps its shared memory in /dev/shm, not on disk in /tmp, which has frozen the desktop under load
+const browser = await chromium.launch({ ignoreDefaultArgs: ['--disable-dev-shm-usage'] });
 try {
   const ctx = await browser.newContext({
     viewport: { width: T.width || C.phone.width, height: T.height || C.phone.height },

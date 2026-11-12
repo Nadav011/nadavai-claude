@@ -1,0 +1,255 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "nadav-design/standard/tours/tours.schema.json",
+  "title": "Tour manifest (tours.json)",
+  "description": "The portable content of a project's guided tours (standard/help-system.md, \"The tour manifest\"): data only, no selector and no code. The demo and the app read the same file; each environment binds anchor ids, custom results, conditions, windows and state ids in its own bindings file. Checked by tour-check.mjs.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "stage", "core", "tours"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "version": { "type": "string", "minLength": 1, "description": "Date or name of this version of the content." },
+    "stage": {
+      "enum": ["demo", "app"],
+      "description": "demo: the file belongs to a standalone demo, where no do step can name a test on the real app yet; app: the app runs these tours, and every do step names its G-20 test. The app's manifest is the same file with the stage changed and the tests named."
+    },
+    "tag": { "type": "string", "minLength": 1, "description": "The git tag of the approved demo this file was frozen with." },
+    "core": {
+      "type": "array",
+      "description": "The core screens whose tour may open by itself (G-21). One entry per core screen; a core screen with several views lists the screen key of each view.",
+      "items": { "$ref": "#/$defs/core" }
+    },
+    "anchors": {
+      "type": "object",
+      "description": "Anchor ids the screens carry that no tour step points at, for example a control a help article mentions, each with the screens that carry it and, for a family of controls, the args it takes. On a screen, the known anchors are these and the anchors of the steps of the tours that list that screen (help-refs). That they resolve on screen is judged only in the running app (tour-anchors).",
+      "propertyNames": { "$ref": "#/$defs/id" },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["screens", "what"],
+        "properties": {
+          "screens": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/screen" } },
+          "args": { "type": "array", "minItems": 1, "items": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$" } },
+          "what": { "type": "string", "minLength": 1, "description": "Which control it is, for the author." }
+        }
+      }
+    },
+    "tours": { "type": "array", "items": { "$ref": "#/$defs/tour" } },
+    "noTour": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The written reason for a screen or a task that has no tour (G-19). A screen's reason covers the screen and every task of its article.",
+      "properties": {
+        "screens": {
+          "type": "object",
+          "propertyNames": { "$ref": "#/$defs/screen" },
+          "additionalProperties": { "type": "string", "minLength": 1 }
+        },
+        "tasks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["screen", "task", "reason"],
+            "properties": {
+              "screen": { "$ref": "#/$defs/screen" },
+              "task": { "type": "string", "minLength": 1 },
+              "reason": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      }
+    },
+    "extraTasks": {
+      "type": "array",
+      "description": "Important actions of a screen beyond the numbered tasks its article holds (G-19: the inventory lists the rest). Each needs a tour or a written reason like an article task.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["screen", "task"],
+        "properties": {
+          "screen": { "$ref": "#/$defs/screen" },
+          "task": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*(\\.[a-z0-9]+(-[a-z0-9]+)*)+$",
+      "description": "A stable dot-separated id, for example cal.new-appointment: an anchor, a window, a condition, a state value or a custom result."
+    },
+    "tourId": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$" },
+    "screen": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$", "description": "A screen key: the key of the screen's help article." },
+    "when": {
+      "type": "string",
+      "pattern": "^(phone|desktop|[a-z0-9]+(-[a-z0-9]+)*(\\.[a-z0-9]+(-[a-z0-9]+)*)+)$",
+      "description": "phone, desktop, or the id of a condition the bindings implement."
+    },
+    "anchorRef": {
+      "anyOf": [
+        { "$ref": "#/$defs/id" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["anchor", "arg"],
+          "properties": { "anchor": { "$ref": "#/$defs/id" }, "arg": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$" } }
+        }
+      ]
+    },
+    "core": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "screens"],
+      "properties": {
+        "id": { "$ref": "#/$defs/tourId" },
+        "screens": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/screen" } }
+      }
+    },
+    "tour": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "screens", "area", "where", "tasks", "steps", "finish"],
+      "properties": {
+        "id": { "$ref": "#/$defs/tourId" },
+        "title": { "type": "string", "minLength": 1, "description": "The tour's name in the list (G-17)." },
+        "job": { "$ref": "#/$defs/tourId", "description": "A job taught as chapters: the id shared by its chapters." },
+        "jobTitle": { "type": "string", "minLength": 1 },
+        "chapter": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": { "type": "integer", "minimum": 1 },
+          "description": "[n, of]: this tour is chapter n of the job's chapters (\"פרק 2 מתוך 3\")."
+        },
+        "screens": { "type": "array", "items": { "$ref": "#/$defs/screen" }, "description": "The screen keys whose articles this tour serves." },
+        "area": { "type": "string", "minLength": 1 },
+        "where": { "type": "string", "minLength": 1 },
+        "auto": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/screen" },
+          "description": "The screen keys on which this tour opens by itself (G-21); absent when it never does."
+        },
+        "tasks": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "The article task names this tour shows, on its screens." },
+        "steps": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/step" } },
+        "start": {
+          "type": "object",
+          "description": "The start state the tour brings her to when it starts (G-08, this skill's reading): its screen (one of its screens) and the sample record, the view and the date; close a window that holds no unsaved input (with unsaved input it asks her first). It never saves, sends or discards anything, and opens no window: a tour that needs one begins with a step that opens it on the sample's record. Any other key fails tour-no-commit.",
+          "properties": {
+            "screen": { "$ref": "#/$defs/screen" },
+            "record": { "const": "sample" },
+            "view": {
+              "anyOf": [
+                { "type": "string", "minLength": 1 },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["phone", "desktop"],
+                  "properties": { "phone": { "type": "string", "minLength": 1 }, "desktop": { "type": "string", "minLength": 1 } }
+                }
+              ]
+            },
+            "date": { "const": "today" },
+            "close": { "type": "boolean" }
+          }
+        },
+        "finish": { "type": "string", "minLength": 1, "description": "The closing sentence: what she did (G-07)." }
+      }
+    },
+    "step": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "text"],
+      "properties": {
+        "kind": { "enum": ["do", "next", "stop"], "description": "do: she does it herself; next: it only explains (\"הבא\"); stop: it points at a control the tour never presses (\"הבנתי\")." },
+        "class": { "enum": ["S", "T", "P"], "description": "S saves (a control that saves as it changes, a switch or a field with no save button, saves too), T tells a real person, P is permanent or charges." },
+        "on": { "enum": ["sample", "none"], "description": "Whose record the step acts on; every do step says it. sample: the sample record (with no sample the step only shows where to press). none: no person's record (an empty slot, a filter, a settings tab, a field in a settings form that has its own save); a save of a business-wide setting, including a switch or a field that saves as it changes, is a stop step, never a do step; on a control the inventory lists in recordAnchors, or with a result that names one or a container, it is a finding. With the inventory, sample on a control no recordAnchors lists is a finding too: when the control sits in a window opened on her (a step before it in the tour opened it on her), list it in recordAnchors and keep sample; when it sits on her row in a list, light it through a resolver's own id that picks her row and list that id; only a control that is nobody's record changes the step, and a save there is a stop step; never answer that finding by setting none. With the inventory, a do step at sample on a control recordAnchors lists comes after an earlier do step at sample in the same tour, on the same device, that opened her record (a recordOpen result that names the step's own control, a resolver's own id) or picked her (the picker exception: an unclassed pick step with a custom result, after the do step at on: none, on that device and under no other condition, that opened its window), unless it is that step itself. Such a step that is not itself the opener names a need that reopens the window its control sits in, and a step after the picker names selectSample as well (the picker's own step names the reopen too); the engine runs that need each time the run reaches the step: a reopen is skipped only when its window is already open on her (isOpen; a window that picks a person counts as open only while it is the tour's own and every person field it has (a second person, such as a family member or a referrer, included) holds the sample or is empty), and selectSample always runs, asking first when she picked someone since; a resume or a skip can reach it without the opener, or after she opened another record at an earlier step; with no sample record, or when she declines, the step only shows. A do step on a bulk control, or whose result names one, or lit on a container is a finding at any on." },
+        "when": { "$ref": "#/$defs/when", "description": "The step is in the run only when this holds." },
+        "anchor": { "$ref": "#/$defs/id", "description": "The control the step lights. Absent: a centred card." },
+        "arg": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$", "description": "The anchor's parameter, a stable key (ASCII, lowercase, hyphens): a tab, a row, a field. The visible label is content and may change; the key does not." },
+        "act": { "enum": ["open", "pick", "select", "type"] },
+        "result": { "$ref": "#/$defs/result" },
+        "outcome": { "type": "boolean", "description": "This step's result is the task's outcome that the article names (G-07)." },
+        "text": { "type": "string", "minLength": 1, "description": "What she reads." },
+        "showText": { "type": "string", "minLength": 1, "description": "The same step when it only shows (no sample record)." },
+        "variants": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["when", "text"],
+            "properties": { "when": { "$ref": "#/$defs/when" }, "text": { "type": "string", "minLength": 1 } }
+          },
+          "description": "Other wordings of the step, the first whose condition holds wins over text."
+        },
+        "need": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["do"],
+            "properties": { "do": { "type": "string", "minLength": 1 }, "window": { "$ref": "#/$defs/id" } },
+            "allOf": [{ "if": { "required": ["do"], "properties": { "do": { "const": "reopen" } } }, "then": { "required": ["window"] } }]
+          },
+          "description": "How the run puts her back at this step: reopen a window ({\"do\": \"reopen\", \"window\": ...}) or select the sample record again ({\"do\": \"selectSample\"}), the only two G-08 allows. A reopen puts back the tour's own record, the sample's, never the last one open, and a window opened on one person counts as open (isOpen) only while it shows the sample's record; the bindings implement it, and the running app judges it (tour-anchors). A do step at sample on a control recordAnchors lists, other than the step that opened her record or picked her, names a need that reopens the window its control sits in, and a step after the picker names selectSample as well (the picker's own step names the reopen too); the engine runs it each time the run reaches the step: a reopen is skipped only when its window is already open on her (isOpen; a window that picks a person counts as open only while it is the tour's own and every person field it has (a second person, such as a family member or a referrer, included) holds the sample or is empty), and selectSample always runs, asking first when she picked someone since; a resume or a skip can reach it without the opener, or after she opened another record at an earlier step."
+        },
+        "safeTest": { "type": "string", "minLength": 1, "pattern": "[\\p{L}\\p{N}]", "description": "The test of G-20 that performs this action on the sample record and shows that nothing leaves. That only the sample's record changed is judged in the running app (tour-anchors), and the checker requires the step's control to be one the sample's record carries." },
+        "practiceOnly": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "modeTest": { "type": "string", "minLength": 1, "pattern": "[\\p{L}\\p{N}]", "description": "The practice mode's test for this action. The mode's test shows that nothing leaves of any kind: no document number; no documents, payment or messaging provider; no calendar or webhook call. A step that both issues and sends (a practice receipt that is also sent) is classed P, and its mode test also shows the message is held." },
+            "stopTest": { "type": "string", "minLength": 1, "pattern": "[\\p{L}\\p{N}]", "description": "The test that the step is a stop step outside the mode." }
+          },
+          "description": "A do step classed P (a numbered document, a payment, a close for good) done to the end only inside practice mode (G-20); a step classed T is never practice-only. Outside the mode it is a stop step. Outside the mode a practice chapter ends at its first practice-only step, which is a stop step there. It carries on: sample (the sample record's copy, never a real person's). At stage app it names both tests; at stage demo it may be {} and name them later (the checker notes the count). tour-no-commit fails it otherwise."
+        },
+        "skip": { "type": "boolean", "description": "false only where a step cannot be skipped, which tour-shape reports." }
+      },
+      "allOf": [
+        { "if": { "required": ["kind"], "properties": { "kind": { "const": "stop" } } }, "then": { "required": ["class"] } },
+        { "if": { "required": ["kind"], "properties": { "kind": { "const": "do" } } }, "then": { "required": ["anchor", "act"] } },
+        { "if": { "required": ["arg"] }, "then": { "required": ["anchor"] } }
+      ]
+    },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "arg"],
+      "description": "What the screen shows when a do step is done.",
+      "properties": {
+        "kind": { "enum": ["open", "present", "route", "view", "recordOpen", "step", "fieldChanged", "stateEquals", "custom"], "description": "open: a window by its id is open; at on: none only a window that is nobody's (a menu, a filter panel), never a person's card or window, and the same holds at on: none for a route, a view, a wizard step (step) and a custom result: never a person's page, card or window. recordOpen: the window or card of the record behind an anchor is open, which says which record. Whose record a do step acts on is said by its on, whatever the result kind. For a step that filters a list or opens a window, name the state (stateEquals) or the window (open) as the result, not a control inside it: a control of a person's record named as the result of a step at on: none is a finding." },
+        "arg": {}
+      },
+      "allOf": [
+        { "if": { "required": ["kind"], "properties": { "kind": { "const": "open" } } }, "then": { "properties": { "arg": { "$ref": "#/$defs/id", "description": "the window that is open" } } } },
+        { "if": { "required": ["kind"], "properties": { "kind": { "const": "present" } } }, "then": { "properties": { "arg": { "$ref": "#/$defs/anchorRef" } } } },
+        { "if": { "required": ["kind"], "properties": { "kind": { "enum": ["route", "view"] } } }, "then": { "properties": { "arg": { "$ref": "#/$defs/keyTest" } } } },
+        { "if": { "required": ["kind"], "properties": { "kind": { "const": "recordOpen" } } }, "then": { "properties": { "arg": { "$ref": "#/$defs/id", "description": "the anchor whose record's window or card is open (a patient, a customer, an appointment, a document addressed to someone)" } } } },
+        { "if": { "required": ["kind"], "properties": { "kind": { "const": "step" } } }, "then": { "properties": { "arg": { "$ref": "#/$defs/wizardStep" } } } },
+        { "if": { "required": ["kind"], "properties": { "kind": { "const": "fieldChanged" } } }, "then": { "properties": { "arg": { "$ref": "#/$defs/anchorRef" } } } },
+        { "if": { "required": ["kind"], "properties": { "kind": { "const": "stateEquals" } } }, "then": { "properties": { "arg": { "$ref": "#/$defs/stateTest" } } } },
+        { "if": { "required": ["kind"], "properties": { "kind": { "const": "custom" } } }, "then": { "properties": { "arg": { "$ref": "#/$defs/id", "description": "the custom result the bindings implement" } } } }
+      ]
+    },
+    "keyTest": {
+      "anyOf": [
+        { "type": "object", "additionalProperties": false, "required": ["is"], "properties": { "is": { "type": "string", "minLength": 1 } } },
+        { "type": "object", "additionalProperties": false, "required": ["changed"], "properties": { "changed": { "const": true } } }
+      ]
+    },
+    "wizardStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["window", "n"],
+      "properties": { "window": { "$ref": "#/$defs/id" }, "n": { "type": "integer", "minimum": 1 } }
+    },
+    "stateTest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "value"],
+      "properties": { "key": { "$ref": "#/$defs/id" }, "value": { "type": ["string", "number", "boolean"] } }
+    }
+  }
+}

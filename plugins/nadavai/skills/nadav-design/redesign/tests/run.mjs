@@ -1357,6 +1357,705 @@ await test('PL', 'legit: a spec start without spec after a clean run; build mode
   return why.join('; ');
 });
 
+// ---------------- the tour manifest checker (standard/tours/tour-check.mjs) ----------------
+// Each fixture is the example manifest with one change, and must fail with that one finding and no other. Its mutant is
+// a copy of the checker without the line marked `// M:<code>`: on the same fixture it must pass, so the test shows the
+// finding comes from that line.
+const TOURS = path.join(SK, '..', 'standard', 'tours');
+const TOUR_EX = JSON.parse(fs.readFileSync(path.join(TOURS, 'example', 'tours.json'), 'utf8'));
+const INV_EX = JSON.parse(fs.readFileSync(path.join(TOURS, 'example', 'inventory.json'), 'utf8'));
+const clone = x => JSON.parse(JSON.stringify(x));
+const tourOf = (m, id) => m.tours.find(t => t.id === id);
+const offRecord = (i, anchor) => { for (const sc of Object.values(i.screens)) if (sc.recordAnchors) sc.recordAnchors = sc.recordAnchors.filter(a => a !== anchor); };
+function tourCheck(man, inv, checker = path.join(TOURS, 'tour-check.mjs'), extra = []) {
+  const dir = fs.mkdtempSync(path.join(TMP, 'tours-'));
+  fs.writeFileSync(path.join(dir, 'tours.json'), JSON.stringify(man));
+  const args = [checker, path.join(dir, 'tours.json'), '--json', ...extra];
+  if (inv) { fs.writeFileSync(path.join(dir, 'inventory.json'), JSON.stringify(inv)); args.push('--inventory', path.join(dir, 'inventory.json')); }
+  const r = sh('node', args);
+  let out = null; try { out = JSON.parse(r.stdout); } catch { /* reported by the caller */ }
+  return { status: r.status, out, raw: (r.stdout + r.stderr).slice(-400) };
+}
+function mutant(code) {
+  const src = fs.readFileSync(path.join(TOURS, 'tour-check.mjs'), 'utf8').split('\n');
+  const keep = src.filter(l => !l.trimEnd().endsWith(`// M:${code}`));
+  if (src.length - keep.length !== 1) throw new Error(`the checker has ${src.length - keep.length} lines marked M:${code}, not one`);
+  const dir = fs.mkdtempSync(path.join(TMP, `mutant-${code}-`));
+  for (const f of ['tours.schema.json', 'inventory.schema.json']) fs.copyFileSync(path.join(TOURS, f), path.join(dir, f));
+  fs.writeFileSync(path.join(dir, 'tour-check.mjs'), keep.join('\n'));
+  return path.join(dir, 'tour-check.mjs');
+}
+// [code, check, rule, what the fixture changes, (manifest, inventory) => void]
+const TOUR_FIXTURES = [
+  ['schema', 'manifest', null, 'a step carries a field the format does not have', m => { tourOf(m, 'book').steps[0].autoClick = true; }],
+  ['schema-inventory', 'manifest', null, 'an inventory screen says menu "yes"', (m, i) => { i.screens['cal-day'].menu = 'yes'; }],
+  ['duplicate-id', 'manifest', null, 'two tours share an id', m => { m.tours.push(clone(tourOf(m, 'reminder'))); }],
+  ['auto-screen', 'manifest', null, 'a tour opens by itself on a screen it does not list', m => { tourOf(m, 'book').auto.push('patients'); }],
+  ['practice-kind', 'manifest', null, 'practiceOnly on a stop step', m => { Object.assign(tourOf(m, 'close-1').steps[1], { on: 'sample', practiceOnly: { modeTest: 'a', stopTest: 'b' } }); }],
+  ['chapter-set', 'manifest', null, 'a chapter says 2 of 4 while the others say of 3', m => { tourOf(m, 'close-2').chapter = [2, 4]; }],
+  ['words', 'tour-shape', 'G-07', 'a step of fourteen words', m => { tourOf(m, 'reminder').steps[2].text = 'משנים כמה שעות לפני התור יוצאת התזכורת, ואפשר לבחור גם יום שלם לפני התור.'; }],
+  ['no-skip', 'tour-shape', 'G-07', 'a step that cannot be skipped', m => { tourOf(m, 'book').steps[0].skip = false; }],
+  ['do-no-result', 'tour-shape', 'G-16', 'a do step with no result', m => { delete tourOf(m, 'reminder').steps[1].result; }],
+  ['chapter-end', 'tour-shape', 'G-07', 'a chapter that ends at a showing step', m => { tourOf(m, 'close-1').steps[1].kind = 'next'; }],
+  ['auto-not-core', 'tour-shape', 'G-21', 'a tour opens by itself on a screen that is not core', m => { tourOf(m, 'reminder').auto = ['settings-msgs']; }],
+  ['do-class', 'tour-no-commit', 'G-20', 'a do step classed T that is not practice-only', m => { tourOf(m, 'pat-debt').steps[0].class = 'T'; }],
+  ['do-class', 'tour-no-commit', 'G-20', 'a practice-only P step that names no stop test', m => { delete tourOf(m, 'close-3').steps[1].practiceOnly.stopTest; }],
+  ['do-no-safe-test', 'tour-no-commit', 'G-20', 'at stage app, a do step that names no G-20 test', m => { delete tourOf(m, 'book').steps[1].safeTest; }],
+  ['do-class', 'tour-no-commit', 'G-20', 'at stage demo, a do step classed P that is not practice-only', m => { m.stage = 'demo'; tourOf(m, 'pat-debt').steps[0].class = 'P'; }],
+  ['need-action', 'tour-no-commit', 'G-08', 'a resume that presses a control', m => { tourOf(m, 'book').steps[3].need.push({ do: 'press', window: 'appt.create' }); }],
+  ['start-key', 'tour-no-commit', 'G-08', 'a start that asks to press a control', m => { tourOf(m, 'book').start.press = 'appt.save'; }],
+  ['core-count', 'tour-shape', 'G-21', 'six core screens', m => { m.core.push(...['leads', 'chats', 'money', 'forms'].map(id => ({ id, screens: [id] }))); }],
+  ['core-count', 'tour-shape', 'G-21', 'one core entry holding six screens that are not views of one screen', m => { m.core = [{ id: 'all', screens: ['cal-week', 'cal-day', 'patients', 'settings-msgs', 'import', 'appt-new', 'reports'] }]; }],
+  ['practice-not-sample', 'tour-no-commit', 'G-20', 'a practice-only step that does not run on the sample record', (m, i) => { tourOf(m, 'close-3').steps[1].on = 'none'; offRecord(i, 'appt.paid'); }],
+  ['record-not-sample', 'tour-no-commit', 'G-08', 'a do step that opens a record that is not the sample record', m => { Object.assign(tourOf(m, 'close-1').steps[0], { on: 'none', anchor: 'cal.card', result: { kind: 'recordOpen', arg: 'cal.card' } }); }],
+  ['do-no-on', 'tour-no-commit', 'G-08', 'a do step that does not say whose record it acts on (the reminder tour\'s row edit)', m => { delete tourOf(m, 'reminder').steps[1].on; }],
+  ['do-no-on', 'tour-no-commit', 'G-08', 'the reviewer\'s P1, a do step that opens a debtor\'s charge window, as written (no on), lit through a resolver\'s own id', m => { m.anchors['patients.charge'] = { screens: ['patients'], what: 'חיוב' }; const t = tourOf(m, 'pat-debt'); t.steps[3] = { kind: 'do', act: 'open', when: 'desktop', anchor: 'patients.sample-charge', result: { kind: 'open', arg: 'pay.charge-sheet' }, safeTest: 'e2e/x.spec.ts: y', text: 'לוחצים "חיוב". נפתח חלון החיוב.' }; t.steps.push({ kind: 'stop', class: 'P', when: 'desktop', anchor: 'pay.charge-confirm', text: '"אישור החיוב" גובה מהכרטיס השמור.' }); }],
+  ['do-on-container', 'tour-no-commit', 'G-08', 'the same P1 at on: none, on the charge button every row carries (a container since the twelfth review)', m => { const t = tourOf(m, 'pat-debt'); t.steps[3] = { kind: 'do', act: 'open', on: 'none', when: 'desktop', anchor: 'patients.charge', result: { kind: 'open', arg: 'pay.charge-sheet' }, safeTest: 'e2e/x.spec.ts: y', text: 'לוחצים "חיוב". נפתח חלון החיוב.' }; t.steps.push({ kind: 'stop', class: 'P', when: 'desktop', anchor: 'pay.charge-confirm', text: '"אישור החיוב" גובה מהכרטיס השמור.' }); }],
+  ['do-on-container', 'tour-no-commit', 'G-08', 'the fifth review\'s route case: a calendar tour that goes to the patients list and opens a debtor\'s charge window at on: none', m => { m.tours.push({ id: 'cal-to-debt', title: 'מהיומן לגבייה', screens: ['cal-week'], area: 'יומן', where: 'יומן', tasks: [], steps: [{ kind: 'do', act: 'open', on: 'none', anchor: 'nav.patients', result: { kind: 'route', arg: { is: 'patients' } }, safeTest: 'e2e/x.spec.ts: moving to the list changes nothing', text: 'עוברים לרשימת המטופלים.' }, { kind: 'do', act: 'open', on: 'none', when: 'desktop', anchor: 'patients.charge', result: { kind: 'open', arg: 'pay.charge-sheet' }, safeTest: 'e2e/x.spec.ts: opening the charge window sends nothing', text: 'לוחצים "חיוב". נפתח חלון החיוב.' }, { kind: 'stop', class: 'P', when: 'desktop', anchor: 'pay.charge-confirm', text: '"אישור החיוב" גובה מהכרטיס השמור.' }], finish: 'סוף.' }); }],
+  ['do-on-container', 'tour-no-commit', 'G-08', 'the fifth review\'s empty-screens case: the same charge step in a chapter with screens [], whose job stands on the calendar', m => { for (const id of ['close-1', 'close-2', 'close-3']) tourOf(m, id).chapter[1] = 4; m.tours.push({ id: 'close-4', title: 'לגבות', job: 'close', jobTitle: 'לסגור טיפול', chapter: [4, 4], screens: [], area: 'מטופלים', where: 'מטופלים', tasks: [], steps: [{ kind: 'do', act: 'open', on: 'none', when: 'desktop', anchor: 'patients.charge', result: { kind: 'open', arg: 'pay.charge-sheet' }, safeTest: 'e2e/x.spec.ts: opening the charge window sends nothing', text: 'לוחצים "חיוב". נפתח חלון החיוב.' }, { kind: 'stop', class: 'P', when: 'desktop', anchor: 'pay.charge-confirm', text: '"אישור החיוב" גובה מהכרטיס השמור.' }], finish: 'סוף.' }); }],
+  ['save-not-sample', 'tour-no-commit', 'G-20', 'the fifth review\'s M1: the reminder save as a do step classed S at on: none, which saves a real clinic rule', m => { tourOf(m, 'reminder').steps[3] = { kind: 'do', act: 'open', class: 'S', on: 'none', anchor: 'settings.save', result: { kind: 'present', arg: 'settings.saved-toast' }, safeTest: 'e2e/x.spec.ts: saving the rule sends nothing', text: 'לוחצים "שמירה". התזכורות הבאות יוצאות לפי השינוי.' }; }],
+  ['screen-unknown', 'tour-inventory', 'G-19', 'the fifth review\'s M2: a tour on three screens, the middle one a screen the inventory does not have', m => { m.tours.push({ id: 'chats', title: 'צ׳אט', screens: ['cal-week', 'msg-chats', 'patients'], area: 'הודעות', where: 'הודעות', tasks: [], steps: [{ kind: 'do', act: 'open', on: 'none', anchor: 'chats.row', result: { kind: 'present', arg: 'chats.input' }, safeTest: 'e2e/x.spec.ts: y', text: 'פותחים שיחה מהרשימה.' }, { kind: 'stop', class: 'T', anchor: 'chats.send', text: '"שליחה" שולחת את ההודעה.' }], finish: 'סוף.' }); }],
+  ['do-class', 'tour-no-commit', 'G-20', 'the sixth review\'s C2: a practice-only step classed T, with both tests named', m => { tourOf(m, 'close-3').steps[1].class = 'T'; }],
+  ['screen-none', 'tour-inventory', 'G-19', 'the sixth review\'s C3: a chat tour with screens [] and no job opens a person\'s chat row at on: none', m => { m.tours.push({ id: 'chat-reply', title: 'צ׳אט', screens: [], area: 'הודעות', where: 'הודעות', tasks: [], steps: [{ kind: 'do', act: 'open', on: 'none', anchor: 'chats.row', result: { kind: 'present', arg: 'chats.input' }, safeTest: 'e2e/x.spec.ts: y', text: 'פותחים שיחה מהרשימה.' }, { kind: 'stop', class: 'T', anchor: 'chats.send', text: '"שליחה" שולחת את ההודעה.' }], finish: 'סוף.' }); }],
+  ['do-class', 'tour-no-commit', 'G-20', 'the seventh review\'s B1: a practice-only step with both tests and no class (close-3 step 2 with its class deleted)', m => { delete tourOf(m, 'close-3').steps[1].class; }],
+  ['do-class', 'tour-no-commit', 'G-20', 'the seventh review\'s D2: a practice-only step with both tests classed S', m => { tourOf(m, 'close-3').steps[1].class = 'S'; }],
+  ['do-class', 'tour-no-commit', 'G-20', 'at stage app, a practice-only step that names its stop test and leaves out the mode test', m => { delete tourOf(m, 'close-3').steps[1].practiceOnly.modeTest; }],
+  ['screen-none', 'tour-inventory', 'G-19', 'a job whose every chapter lists no screens', m => { m.tours.push({ id: 'chats-1', title: 'צ׳אט', job: 'chats', jobTitle: 'לענות', chapter: [1, 1], screens: [], area: 'הודעות', where: 'הודעות', tasks: [], steps: [{ kind: 'do', act: 'open', on: 'none', anchor: 'chats.row', result: { kind: 'present', arg: 'chats.input' }, safeTest: 'e2e/x.spec.ts: y', text: 'פותחים שיחה מהרשימה.' }, { kind: 'stop', class: 'T', anchor: 'chats.send', text: '"שליחה" שולחת את ההודעה.' }], finish: 'סוף.' }); }],
+  ['do-no-safe-test', 'tour-no-commit', 'G-20', 'at stage app, a do step classed S on the sample record that names no G-20 test', m => { tourOf(m, 'close-1').steps[1] = { kind: 'do', act: 'open', class: 'S', on: 'sample', anchor: 'appt.happened', result: { kind: 'present', arg: 'appt.happened-mark' }, need: [{ do: 'reopen', window: 'appt.drawer' }], text: 'לוחצים "התקיים".' }; }],
+  ['words', 'tour-shape', 'G-07', 'a showing text of thirteen words, where the step text is short', m => { tourOf(m, 'book').steps[0].showText = 'אחת שתיים שלוש ארבע חמש שש שבע שמונה תשע עשר אחת עשרה שתים עשרה'; }],
+  ['none-on-record', 'tour-no-commit', 'G-08', 'the seventh review\'s D9: a do step at on: none lit on the patients list whose result is a debtor\'s charge button', m => { tourOf(m, 'pat-debt').steps[1] = { kind: 'do', act: 'open', on: 'none', anchor: 'patients.list', result: { kind: 'present', arg: 'patients.charge' }, safeTest: 'e2e/x.spec.ts: y', text: 'לוחצים על שורה ברשימה.' }; }],
+  ['sample-not-record', 'tour-no-commit', 'G-20', 'the eighth review\'s E9: the reminder save as a do step classed S at on: sample, on a control no recordAnchors lists (a real clinic rule)', m => { tourOf(m, 'reminder').steps[3] = { kind: 'do', act: 'open', class: 'S', on: 'sample', anchor: 'settings.save', result: { kind: 'present', arg: 'settings.saved-toast' }, safeTest: 'e2e/x.spec.ts: saving the rule sends nothing', text: 'לוחצים "שמירה".' }; }],
+  ['sample-not-record', 'tour-no-commit', 'G-08', 'an unclassed do step at on: sample on a settings tab, which is nobody\'s record', m => { tourOf(m, 'reminder').steps[0].on = 'sample'; }],
+  ['sample-not-record', 'tour-no-commit', 'G-20', 'a practice-only step at on: sample on a control no recordAnchors lists', m => { tourOf(m, 'close-3').steps[3].anchor = 'pay.month-close'; }],
+  ['do-on-bulk', 'tour-no-commit', 'G-20', 'the case that passed: a do step at on: sample on the calendar\'s print, a bulk control', m => { m.tours.push({ id: 'cal-print', title: 'הדפסה', screens: ['cal-week'], area: 'יומן', where: 'יומן', tasks: [], steps: [{ kind: 'do', act: 'open', on: 'sample', anchor: 'cal.print', result: { kind: 'open', arg: 'cal.print-sheet' }, safeTest: 'e2e/x.spec.ts: y', text: 'לוחצים "הדפסה".' }], finish: 'סוף.' }); }],
+  ['do-on-bulk', 'tour-no-commit', 'G-20', 'a do step at on: none on the calendar\'s print', m => { m.tours.push({ id: 'cal-print', title: 'הדפסה', screens: ['cal-week'], area: 'יומן', where: 'יומן', tasks: [], steps: [{ kind: 'do', act: 'open', on: 'none', anchor: 'cal.print', result: { kind: 'open', arg: 'cal.print-sheet' }, safeTest: 'e2e/x.spec.ts: y', text: 'לוחצים "הדפסה".' }], finish: 'סוף.' }); }],
+  ['do-on-bulk', 'tour-no-commit', 'G-20', 'a do step whose result names the calendar\'s print (the debt tour\'s filter)', m => { tourOf(m, 'pat-debt').steps[0].result = { kind: 'present', arg: 'cal.print' }; }],
+  ['do-on-bulk', 'tour-no-commit', 'G-20', 'a do step whose result is a changed field of the calendar\'s print (fieldChanged; the debt tour\'s filter)', m => { tourOf(m, 'pat-debt').steps[0].result = { kind: 'fieldChanged', arg: 'cal.print' }; }],
+  ['anchor-both', 'manifest', null, 'an id listed in both recordAnchors and bulkAnchors', (m, i) => { i.screens['cal-week'].recordAnchors.push('cal.print'); }],
+  ['anchor-both', 'manifest', null, 'an id in bulkAnchors of one screen and recordAnchors of another, not the first bulk id', (m, i) => { i.screens['cal-day'].bulkAnchors.push('pay.month-close'); i.screens['appt-new'].recordAnchors.push('pay.month-close'); }],
+  ['anchor-both', 'manifest', null, 'an id in both bulkAnchors and containerAnchors', (m, i) => { i.screens['cal-week'].containerAnchors.push('cal.print'); }],
+  ['do-on-bulk', 'tour-no-commit', 'G-20', 'the ninth review\'s B5: a do step classed S at on: sample on the calendar\'s print', m => { m.tours.push({ id: 'b5', title: 'x', screens: ['cal-week'], area: 'יומן', where: 'יומן', tasks: [], steps: [{ kind: 'do', act: 'open', class: 'S', on: 'sample', anchor: 'cal.print', result: { kind: 'open', arg: 'cal.print-sheet' }, safeTest: 'e2e/x.spec.ts: y', text: 'לוחצים "הדפסה".' }], finish: 'סוף.' }); }],
+  ['do-on-bulk', 'tour-no-commit', 'G-20', 'the ninth review\'s B6: a practice-only P step on a bulk control listed on the second screen', (m, i) => { i.screens['cal-day'].bulkAnchors.push('pay.month-close'); tourOf(m, 'close-3').steps[3].anchor = 'pay.month-close'; }],
+  ['do-on-bulk', 'tour-no-commit', 'G-20', 'the ninth review\'s B7: a do step at on: sample whose result (recordOpen) names the calendar\'s print (close-3\'s payment method, after its opener)', m => { tourOf(m, 'close-3').steps[2].result = { kind: 'recordOpen', arg: 'cal.print' }; }],
+  ['do-on-bulk', 'tour-no-commit', 'G-20', 'the ninth review\'s B8: a result that names the calendar\'s print with an arg (the debt tour\'s filter)', m => { tourOf(m, 'pat-debt').steps[0].result = { kind: 'present', arg: { anchor: 'cal.print', arg: 'week' } }; }],
+  ['do-on-container', 'tour-no-commit', 'G-08', 'the ninth review\'s C1: a do step at on: sample lit on the calendar grid, a container', m => { m.tours.push({ id: 'c1', title: 'x', screens: ['cal-week'], area: 'יומן', where: 'יומן', tasks: [], steps: [{ kind: 'do', act: 'open', on: 'sample', anchor: 'cal.grid', result: { kind: 'recordOpen', arg: 'cal.appointment' }, safeTest: 'e2e/x.spec.ts: y', text: 'פותחים תור ביומן.' }], finish: 'סוף.' }); }],
+  ['do-on-container', 'tour-no-commit', 'G-08', 'a do step at on: none lit on the calendar grid', m => { m.tours.push({ id: 'c2', title: 'x', screens: ['cal-week'], area: 'יומן', where: 'יומן', tasks: [], steps: [{ kind: 'do', act: 'open', on: 'none', anchor: 'cal.grid', result: { kind: 'open', arg: 'appt.drawer' }, safeTest: 'e2e/x.spec.ts: y', text: 'פותחים תור ביומן.' }], finish: 'סוף.' }); }],
+  ['do-on-container', 'tour-no-commit', 'G-08', 'a do step classed S at on: sample lit on the calendar grid', m => { m.tours.push({ id: 'c3', title: 'x', screens: ['cal-week'], area: 'יומן', where: 'יומן', tasks: [], steps: [{ kind: 'do', act: 'open', class: 'S', on: 'sample', anchor: 'cal.grid', result: { kind: 'open', arg: 'appt.drawer' }, safeTest: 'e2e/x.spec.ts: y', text: 'לוחצים על תור.' }], finish: 'סוף.' }); }],
+  ['do-on-bulk', 'tour-no-commit', 'G-20', 'a do step on the calendar\'s print shown on the computer only (when)', m => { m.tours.push({ id: 'b9', title: 'x', screens: ['cal-week'], area: 'יומן', where: 'יומן', tasks: [], steps: [{ kind: 'do', act: 'open', on: 'none', when: 'desktop', anchor: 'cal.print', result: { kind: 'open', arg: 'cal.print-sheet' }, safeTest: 'e2e/x.spec.ts: y', text: 'לוחצים "הדפסה".' }], finish: 'סוף.' }); }],
+  ['none-on-record', 'tour-no-commit', 'G-08', 'a do step at on: none whose result names a container (the debt tour\'s filter)', m => { tourOf(m, 'pat-debt').steps[0].result = { kind: 'present', arg: 'cal.grid' }; }],
+  ['sample-not-record', 'tour-no-commit', 'G-08', 'a do step at on: sample with act type on a field no recordAnchors lists', m => { tourOf(m, 'reminder').steps[2].on = 'sample'; }],
+  ['do-class', 'tour-no-commit', 'G-20', 'a do step classed P, not practice-only, shown on the computer only (when)', m => { tourOf(m, 'close-1').steps.splice(1, 0, { kind: 'do', act: 'open', class: 'P', on: 'sample', when: 'desktop', anchor: 'pay.confirm', result: { kind: 'open', arg: 'pay.sheet' }, need: [{ do: 'reopen', window: 'appt.drawer' }], safeTest: 'e2e/x.spec.ts: y', text: 'לוחצים "רישום התשלום".' }); }],
+  ['record-not-sample', 'tour-no-commit', 'G-08', 'a do step that opens a record that is not the sample\'s, shown on the computer only (when)', m => { Object.assign(tourOf(m, 'close-1').steps[0], { on: 'none', when: 'desktop', anchor: 'cal.card', result: { kind: 'recordOpen', arg: 'cal.card' } }); }],
+  ['do-class', 'tour-no-commit', 'G-20', 'at stage demo, a practice-only step with both tests and no class', m => { m.stage = 'demo'; delete tourOf(m, 'close-3').steps[1].class; }],
+  ['none-on-record', 'tour-no-commit', 'G-08', 'a do step at on: none whose result is a changed field on a person\'s record (fieldChanged)', m => { tourOf(m, 'reminder').steps[2].result = { kind: 'fieldChanged', arg: 'appt.note' }; }],
+  ['none-on-record', 'tour-no-commit', 'G-08', 'a do step at on: none whose result names a record control with an arg ({ anchor, arg }; the debt tour\'s filter)', m => { tourOf(m, 'pat-debt').steps[0].result = { kind: 'present', arg: { anchor: 'appt.service', arg: 'first' } }; }],
+  ['words', 'tour-shape', 'G-07', 'a variant text of thirteen words, where the step text is short', m => { tourOf(m, 'book').steps[2].variants[0].text = 'אחת שתיים שלוש ארבע חמש שש שבע שמונה תשע עשר אחת עשרה שתים עשרה'; }],
+  ['do-class', 'tour-no-commit', 'G-20', 'a practice-only step with no class and no tests', m => { const s = tourOf(m, 'close-3').steps[1]; delete s.class; s.practiceOnly = {}; s.safeTest = 'e2e/x.spec.ts: y'; }],
+  ['view-of', 'tour-shape', 'G-21', 'a viewOf that names a screen the inventory does not have', (m, i) => { i.screens['cal-day'].viewOf = 'ghost'; }],
+  ['view-of', 'tour-shape', 'G-21', 'a viewOf that names the key itself', (m, i) => { i.screens['cal-day'].viewOf = 'cal-day'; }],
+  ['view-of', 'tour-shape', 'G-21', 'a viewOf that names a screen that is itself a view', (m, i) => { i.screens.import.viewOf = 'cal-day'; }],
+  ['view-of', 'tour-shape', 'G-21', 'a view of a screen in another core entry', m => { m.core = [{ id: 'calendar', screens: ['cal-week'] }, { id: 'day', screens: ['cal-day'] }, { id: 'patients', screens: ['patients'] }]; }],
+  ['view-of', 'tour-shape', 'G-21', 'a key outside the core whose viewOf names a screen the inventory does not have', (m, i) => { i.screens['appt-new'].viewOf = 'ghost'; }, 'view-phantom'],
+  ['start-screen', 'manifest', null, 'a start on a screen the tour does not list', m => { tourOf(m, 'book').start.screen = 'settings-msgs'; }],
+  ['chapter-end', 'tour-shape', 'G-07', 'a chapter whose phone run ends at a showing step', m => { const t = tourOf(m, 'close-1'); t.steps.push({ kind: 'next', when: 'phone', anchor: 'appt.note', text: 'בטלפון: כאן עוד משהו.' }, { kind: 'stop', class: 'S', when: 'desktop', anchor: 'appt.note', text: 'במחשב: "סיכום" פותח את הרשומה.' }); }],
+  ['article-anchor', 'help-refs', 'G-02, G-19', 'an article on one screen names a control of another screen', (m, i) => { i.screens.patients.tasks[0].anchors.push('cal.print'); }],
+  ['article-anchor', 'help-refs', 'G-02, G-19', 'an article names a known control with an arg nothing on its screen uses', (m, i) => { i.screens.patients.tasks[0].anchors[0] = { anchor: 'patients.filter', arg: 'no-such-row' }; }],
+  ['task-no-tour', 'tour-inventory', 'G-19', 'an article task with no tour and no reason', (m, i) => { i.screens['cal-day'].tasks.push({ text: 'לבטל תור' }); }],
+  ['task-no-tour', 'tour-inventory', 'G-19', 'an extra task with no tour and no reason', m => { m.extraTasks.push({ screen: 'patients', task: 'למחוק מטופל' }); }],
+  ['screen-no-tour', 'tour-inventory', 'G-19', 'a menu screen with no tour and no reason', (m, i) => { i.screens.reports = { menu: true, tasks: [] }; }],
+  ['article-anchor', 'help-refs', 'G-02, G-19', 'an article names a control nothing knows', (m, i) => { i.screens['cal-day'].tasks[0].anchors = ['cal.no-such-button']; }],
+  ['article-tour', 'help-refs', 'G-02, G-19', 'an article names a tour that does not list its task', (m, i) => { i.screens['cal-day'].tasks[0].tour = 'close-1'; }],
+  ['article-tour', 'help-refs', 'G-02, G-19', 'an article names a tour that does not exist', (m, i) => { i.screens['cal-day'].tasks[0].tour = 'no-such-tour'; }],
+  ['do-on-container', 'tour-no-commit', 'G-08', 'the tenth review\'s P: a practice-only step classed P at on: sample lit on the calendar grid, which the inventory lists on cal-day only', (m, i) => { delete i.screens['cal-week'].containerAnchors; m.anchors['appt.paid'] = { screens: ['cal-week'], what: 'שולם' }; tourOf(m, 'close-3').steps[1].anchor = 'cal.grid'; }],
+  ['do-on-container', 'tour-no-commit', 'G-08', 'the tenth review\'s W: a do step at on: none lit on the calendar grid, shown on the computer only (when)', m => { m.tours.push({ id: 'w', title: 'x', screens: ['cal-week'], area: 'יומן', where: 'יומן', tasks: [], steps: [{ kind: 'do', act: 'open', on: 'none', when: 'desktop', anchor: 'cal.grid', result: { kind: 'open', arg: 'appt.drawer' }, safeTest: 'e2e/x.spec.ts: y', text: 'פותחים תור.' }], finish: 'סוף.' }); }],
+  ['do-on-container', 'tour-no-commit', 'G-08', 'the tenth review\'s S2: a do step at on: none lit on the calendar grid, which the inventory lists on cal-day (the second screen) only', (m, i) => { delete i.screens['cal-week'].containerAnchors; m.tours.push({ id: 's2', title: 'x', screens: ['cal-week'], area: 'יומן', where: 'יומן', tasks: [], steps: [{ kind: 'do', act: 'open', on: 'none', anchor: 'cal.grid', result: { kind: 'open', arg: 'appt.drawer' }, safeTest: 'e2e/x.spec.ts: y', text: 'פותחים תור.' }], finish: 'סוף.' }); }],
+  ['do-on-container', 'tour-no-commit', 'G-08', 'the tenth review\'s S1: a do step at on: none lit on the calendar grid, which the inventory lists on cal-week (the first screen) only', (m, i) => { delete i.screens['cal-day'].containerAnchors; m.tours.push({ id: 's1', title: 'x', screens: ['cal-week'], area: 'יומן', where: 'יומן', tasks: [], steps: [{ kind: 'do', act: 'open', on: 'none', anchor: 'cal.grid', result: { kind: 'open', arg: 'appt.drawer' }, safeTest: 'e2e/x.spec.ts: y', text: 'פותחים תור.' }], finish: 'סוף.' }); }],
+  ['do-on-container', 'tour-no-commit', 'G-08', 'the tenth review\'s A: a do step at on: none that picks (act pick) on the calendar grid', m => { m.tours.push({ id: 'a', title: 'x', screens: ['cal-week'], area: 'יומן', where: 'יומן', tasks: [], steps: [{ kind: 'do', act: 'pick', on: 'none', anchor: 'cal.grid', result: { kind: 'open', arg: 'appt.drawer' }, safeTest: 'e2e/x.spec.ts: y', text: 'בוחרים תור.' }], finish: 'סוף.' }); }],
+  ['none-on-record', 'tour-no-commit', 'G-08', 'the tenth review\'s R: a do step at on: none whose result names the calendar grid with an arg ({ anchor, arg }; the debt tour\'s filter)', m => { tourOf(m, 'pat-debt').steps[0].result = { kind: 'present', arg: { anchor: 'cal.grid', arg: 'week' } }; }],
+  ['do-on-container', 'tour-no-commit', 'G-08', 'the twelfth review\'s R1, its first step: the patient row\'s plain id at on: sample (its only on flipped); the whole chain is TOUR-R1-chain', m => { m.tours.push({ id: 'k2', title: 'x', screens: ['patients'], area: 'מטופלים', where: 'מטופלים', tasks: [], steps: [{ kind: 'do', act: 'open', on: 'sample', anchor: 'patients.row', result: { kind: 'open', arg: 'patients.card' }, safeTest: 'e2e/x.spec.ts: y', text: 'לוחצים על שורה.' }], finish: 'סוף.' }); }],
+  ['do-on-container', 'tour-no-commit', 'G-08', 'the twelfth review\'s K3c-followed-plain-id: the appointment\'s plain id at on: sample, result recordOpen', m => { Object.assign(tourOf(m, 'book').steps[1], { on: 'sample', anchor: 'cal.appointment', result: { kind: 'recordOpen', arg: 'cal.appointment' } }); }],
+  ['do-on-container', 'tour-no-commit', 'G-08', 'the twelfth review\'s R2-chain-note-save: close-1 opens the appointment\'s plain id at on: sample, then a do step classed S types a note', m => { const t = tourOf(m, 'close-1'); Object.assign(t.steps[0], { anchor: 'cal.appointment', result: { kind: 'recordOpen', arg: 'cal.appointment' } }); t.steps.splice(1, 0, { kind: 'do', act: 'type', class: 'S', on: 'sample', anchor: 'appt.note', result: { kind: 'fieldChanged', arg: 'appt.note' }, need: [{ do: 'reopen', window: 'appt.drawer' }], safeTest: 'e2e/x.spec.ts: y', text: 'כותבים הערה קצרה.' }); }],
+  ['none-on-record', 'tour-no-commit', 'G-08', 'a do step at on: none on a control of the sample\'s payment window (pay.method), which recordAnchors lists', m => { tourOf(m, 'close-3').steps[2].on = 'none'; }],
+  ['sample-not-opened', 'tour-no-commit', 'G-08', 'the thirteenth review\'s W1: a tour whose first step types a note classed S at on: sample in the appointment drawer, which no step of it opened on her', m => { m.tours.push({ id: 'summary', title: 'סיכום', screens: ['cal-week'], area: 'יומן', where: 'יומן · חלון התור', tasks: [], steps: [{ kind: 'do', act: 'type', class: 'S', on: 'sample', anchor: 'appt.note', result: { kind: 'fieldChanged', arg: 'appt.note' }, need: [{ do: 'reopen', window: 'appt.drawer' }], safeTest: 'e2e/x.spec.ts: y', text: 'כותבים סיכום לטיפול.' }, { kind: 'stop', class: 'S', anchor: 'appt.happened', text: '"התקיים" מסמן שהטיפול קרה.' }], finish: 'סוף.' }); }],
+  ['sample-not-opened', 'tour-no-commit', 'G-08', 'the thirteenth review\'s chat case: a compose field listed in recordAnchors, as sample-not-record says, typed at on: sample with no step that opened her chat', (m, i) => { i.screens.patients.recordAnchors = ['chat.compose']; m.tours.push({ id: 'chat', title: 'x', screens: ['patients'], area: 'מטופלים', where: 'מטופלים', tasks: [], steps: [{ kind: 'do', act: 'type', class: 'S', on: 'sample', anchor: 'chat.compose', result: { kind: 'fieldChanged', arg: 'chat.compose' }, need: [{ do: 'reopen', window: 'chat.window' }], safeTest: 'e2e/x.spec.ts: y', text: 'כותבים.' }], finish: 'סוף.' }); }],
+  ['sample-not-opened', 'tour-no-commit', 'G-08', 'a step in the sample\'s drawer that runs on both devices after an opener shown on the computer only (it opened her record on the computer, not on the phone)', m => { const t = tourOf(m, 'close-3'); for (const k of [0, 2, 3]) t.steps[k].when = 'desktop'; }],
+  ['do-on-bulk', 'tour-no-commit', 'G-20', 'a practice-only step on a bulk id that only a screen outside the tour and its job lists (import)', (m, i) => { i.screens.import.bulkAnchors = ['pay.month-close']; tourOf(m, 'close-3').steps[3].anchor = 'pay.month-close'; }],
+  ['sample-no-need', 'tour-no-commit', 'G-08', 'the fourteenth review\'s R1: the opener, then a note classed S that names no need (a resume at the note lights whatever drawer is open)', m => { const n = { kind: 'do', act: 'type', class: 'S', on: 'sample', anchor: 'appt.note', result: { kind: 'fieldChanged', arg: 'appt.note' }, need: [{ do: 'reopen', window: 'appt.drawer' }], safeTest: 'e2e/x.spec.ts: y', text: 'כותבים סיכום.' }; delete n.need; m.tours.push(({ id: 'summary', title: 'סיכום', screens: ['cal-week'], area: 'יומן', where: 'יומן · חלון התור', tasks: [], steps: [{ kind: 'do', act: 'open', on: 'sample', anchor: 'cal.ended-appointment', result: { kind: 'recordOpen', arg: 'cal.ended-appointment' }, safeTest: 'e2e/x.spec.ts: y', text: 'פותחים את התור שהסתיים.' }, n], finish: 'סוף.' })); }],
+  ['sample-no-need', 'tour-no-commit', 'G-08', 'the fourteenth review\'s R2: the example\'s booking tour with the need of its service step removed', m => { delete tourOf(m, 'book').steps[3].need; }],
+  ['sample-no-need', 'tour-no-commit', 'G-08', 'the fifteenth review\'s R4: the opener, then a note whose need is selectSample alone (it picks in the booking window and reopens no drawer)', m => { m.tours.push({ id: 'summary', title: 'סיכום', screens: ['cal-week'], area: 'יומן', where: 'יומן · חלון התור', tasks: [], steps: [{ kind: 'do', act: 'open', on: 'sample', anchor: 'cal.ended-appointment', result: { kind: 'recordOpen', arg: 'cal.ended-appointment' }, safeTest: 'e2e/x.spec.ts: y', text: 'פותחים את התור שהסתיים.' }, { kind: 'do', act: 'type', class: 'S', on: 'sample', anchor: 'appt.note', result: { kind: 'fieldChanged', arg: 'appt.note' }, need: [{ do: 'selectSample' }], safeTest: 'e2e/x.spec.ts: y', text: 'כותבים סיכום.' }], finish: 'סוף.' }); }],
+  ['sample-no-need', 'tour-no-commit', 'G-08', 'the booking tour\'s service step shown on the phone only (when), with its need removed', m => { const s = tourOf(m, 'book').steps[3]; s.when = 'phone'; delete s.need; }],
+  ['sample-not-opened', 'tour-no-commit', 'G-08', 'the fifteenth review\'s A4, one step: the booking tour\'s window step and service step on the computer only, so the picker, shown on both, fails on the phone', m => { const b = tourOf(m, 'book'); b.steps[1].when = 'desktop'; b.steps[3].when = 'desktop'; }],
+  ['sample-no-need', 'tour-no-commit', 'G-08', 'the sixteenth review\'s P2: the booking tour\'s picker step with its need removed (a skip or a resume at it lights whatever picker is open)', m => { delete tourOf(m, 'book').steps[2].need; }],
+  ['sample-no-need', 'tour-no-commit', 'G-08', 'the sixteenth review\'s P1b, one step: the booking tour\'s service step, after the picker, whose need only reopens the window (selectSample dropped)', m => { tourOf(m, 'book').steps[3].need = [{ do: 'reopen', window: 'appt.create' }]; }],
+  ['do-on-bulk', 'tour-no-commit', 'G-20', 'a do step whose result names the calendar\'s print, on an open step (the reminder tour\'s row edit)', m => { tourOf(m, 'reminder').steps[1].result = { kind: 'present', arg: 'cal.print' }; }],
+  ['sample-not-opened', 'tour-no-commit', 'G-08', 'a note classed S at on: sample after a step at on: none whose custom result names the sample (only a step at on: sample opens her record or picks her)', m => { m.tours.push({ id: 'summary', title: 'סיכום', screens: ['cal-week'], area: 'יומן', where: 'יומן · חלון התור', tasks: [], steps: [{ kind: 'do', act: 'open', on: 'none', anchor: 'cal.free-slot', result: { kind: 'custom', arg: 'appt.sample-picked' }, safeTest: 'e2e/x.spec.ts: y', text: 'לוחצים על השעה.' }, { kind: 'do', act: 'type', class: 'S', on: 'sample', anchor: 'appt.note', result: { kind: 'fieldChanged', arg: 'appt.note' }, need: [{ do: 'reopen', window: 'appt.drawer' }], safeTest: 'e2e/x.spec.ts: y', text: 'כותבים סיכום.' }], finish: 'סוף.' }); }],
+];
+await test('TOUR-0', 'tour-check passes the example manifest clean, with and without the inventory, its bindings cover every id that is not a data-tour anchor, a reopen puts back the sample\'s record, and a resolver of a step marked "sample" selects by the sample\'s id', async () => {
+  const why = [];
+  const full = tourCheck(TOUR_EX, INV_EX);
+  if (full.status !== 0 || !full.out || full.out.findings.length || full.out.tours !== 6) why.push(`with inventory: exit ${full.status} ${full.raw}`);
+  const bare = tourCheck(TOUR_EX, null);
+  if (bare.status !== 0 || !bare.out || bare.out.findings.length || 'tour-inventory' in bare.out.counts) why.push(`without inventory: exit ${bare.status} ${bare.raw}`);
+  const b = (await import(path.join(TOURS, 'example', 'bindings.web.mjs'))).default;
+  const steps = TOUR_EX.tours.flatMap(t => t.steps);
+  const anchors = new Set(steps.map(s => s.anchor).filter(Boolean));
+  const need = [
+    ...steps.filter(s => s.result && s.result.kind === 'custom').map(s => ['results', s.result.arg]),
+    ...steps.filter(s => s.result && s.result.kind === 'stateEquals').map(s => ['state', s.result.arg.key]),
+    ...steps.filter(s => s.result && s.result.kind === 'recordOpen').map(s => ['records', s.result.arg]),
+    ...steps.filter(s => s.result && ['open', 'step'].includes(s.result.kind)).map(s => ['windows', s.result.kind === 'open' ? s.result.arg : s.result.arg.window]),
+    ...steps.flatMap(s => (s.need || []).filter(n => n.do === 'reopen').map(n => ['windows', n.window])),
+    ...steps.flatMap(s => [s.when, ...(s.variants || []).map(v => v.when)]).filter(w => w && w !== 'phone' && w !== 'desktop').map(w => ['conditions', w]),
+  ];
+  for (const [kind, id] of need) if (!b[kind] || !b[kind][id]) why.push(`bindings.web.mjs has no ${kind} "${id}"`);
+  for (const id of Object.keys(b.anchors)) if (!anchors.has(id)) why.push(`bindings.web.mjs resolves "${id}", which no step points at`);
+  for (const k of ['route', 'view', 'selectSample']) if (typeof b[k] !== 'function') why.push(`bindings.web.mjs has no ${k}`);
+  // a reopen in a tour that opens a person's record puts back the sample's record: a fake app whose last-opened record
+  // is a real person's, and every call the binding makes is logged with its arguments
+  const SAMPLE = { id: 'sample-appt', sample: true };
+  const REAL = { id: 'real-appt', sample: false };
+  const fake = log => {
+    const node = name => new Proxy(function () {}, {
+      get: (t, k) => (typeof k === 'symbol' ? undefined : k === 'sampleEndedNotClosed' ? () => SAMPLE : /^(last|recent|current)$/.test(k) ? REAL : node(`${name}.${k}`)),
+      apply: (t, self, args) => { log.push({ name, args }); return node(`${name}()`); },
+    });
+    return { app: node('app'), $: () => null, $$: () => [] };
+  };
+  for (const t of TOUR_EX.tours) {
+    if (!t.steps.some(st => st.result && st.result.kind === 'recordOpen')) continue;
+    for (const w of new Set(t.steps.flatMap(st => (st.need || []).filter(n => n.do === 'reopen').map(n => n.window)))) {
+      const log = [];
+      b.windows[w].reopen(fake(log));
+      const args = log.flatMap(c => c.args);
+      if (!args.includes(SAMPLE) || args.includes(REAL)) why.push(`${t.id}: the reopen of ${w} does not put back the sample's record (${JSON.stringify(log.map(c => c.name))})`);
+    }
+  }
+  // a step marked "sample" whose control is a resolver selects by the sample's record id, never by position: every
+  // selector the resolver asks for names the sample's id and not the real record's
+  const sampled = steps.filter(st => st.on === 'sample' && st.anchor && b.anchors[st.anchor]);
+  if (!sampled.length) why.push('no step marked "sample" binds through a resolver, so nothing shows how one selects');
+  for (const st of sampled) {
+    const asked = [];
+    b.anchors[st.anchor]({ ...fake([]), $: q => { asked.push(q); return null; }, $$: q => { asked.push(q); return []; } });
+    if (!asked.length || !asked.every(q => q.includes(SAMPLE.id) && !q.includes(REAL.id))) why.push(`the resolver of ${st.anchor} does not select by the sample's record id (${JSON.stringify(asked)})`);
+  }
+  // a reopen is skipped only when its window is already open on her (isOpen), so every window a need names reports
+  // open on the sample's state and closed on a state that shows a real record, has a real person picked, or is a
+  // booking she opened herself away from the tour's slot (the example app's invented shape)
+  const state = (rec, booking = {}) => ({ $: () => null, $$: () => [], app: { booking: { open: true, atTourSlot: true, patient: rec, ...booking }, drawer: { open: true, record: rec }, pay: { open: true, record: rec }, sheet: { open: true, row: rec === SAMPLE ? 'reminder-before' : 'real-row' } } });
+  const states = [['the sample', state(SAMPLE), true], ['nobody picked yet at the tour\'s slot', state(SAMPLE, { patient: null }), true], ['a real record or a real person picked', state(REAL), false], ['a booking she opened away from the tour\'s slot, nobody picked', state(REAL, { atTourSlot: false, patient: null }), false]];
+  const needWindows = new Set(steps.flatMap(st => (st.need || []).filter(n => n.do === 'reopen').map(n => n.window)));
+  if (needWindows.size < 4) why.push(`only ${needWindows.size} windows named by a need`);
+  for (const w of needWindows) for (const [what, x, want] of states) if (b.windows[w].isOpen(x) !== want) why.push(`${w}: isOpen is ${!want} on ${what}`);
+  return why.join(' · ');
+});
+await test('TOUR-usage', 'tour-check exits 2 with no manifest, a missing file, a file that is not JSON and an unknown option, and under --json says so as JSON', async () => {
+  const why = [];
+  const bad = path.join(TMP, 'tours-bad.json');
+  fs.writeFileSync(bad, '{ not json');
+  const cases = [[[], 'no manifest'], [[path.join(TMP, 'tours-missing.json')], 'cannot read'], [[bad], 'not JSON'], [[path.join(TOURS, 'example', 'tours.json'), '--strict'], 'unknown option'], [[path.join(TOURS, 'example', 'tours.json'), '--inventory'], 'needs a file']];
+  for (const [args, re] of cases) {
+    const r = sh('node', [path.join(TOURS, 'tour-check.mjs'), ...args]);
+    if (r.status !== 2 || !r.stderr.includes(re)) why.push(`${args.join(' ') || '(none)'}: exit ${r.status} ${r.stderr.trim()}`);
+  }
+  for (const args of [['--strict', '--json'], ['--json', path.join(TOURS, 'example', 'tours.json'), '--inventory']]) {
+    const r = sh('node', [path.join(TOURS, 'tour-check.mjs'), ...args]);
+    let o = null; try { o = JSON.parse(r.stdout); } catch { /* reported below */ }
+    if (r.status !== 2 || !o || o.ok !== false || !o.error) why.push(`${args.join(' ')}: exit ${r.status} ${r.stdout.trim()} ${r.stderr.trim()}`);
+  }
+  for (const [file, re] of [[path.join(TMP, 'tours-missing.json'), /cannot read/], [bad, /not JSON/]]) {
+    const r = sh('node', [path.join(TOURS, 'tour-check.mjs'), file, '--json']);
+    let o = null; try { o = JSON.parse(r.stdout); } catch { /* reported below */ }
+    if (r.status !== 2 || !o || o.ok !== false || !re.test(o.error)) why.push(`${path.basename(file)} --json: exit ${r.status} ${r.stdout.trim()}`);
+  }
+  return why.join(' · ');
+});
+await test('TOUR-text', 'tour-check prints one line per finding with the check, the rule, the tour and the step, and exits 1', async () => {
+  const m = clone(TOUR_EX);
+  tourOf(m, 'book').steps[0].skip = false;
+  const dir = fs.mkdtempSync(path.join(TMP, 'tours-text-'));
+  fs.writeFileSync(path.join(dir, 'tours.json'), JSON.stringify(m));
+  const r = sh('node', [path.join(TOURS, 'tour-check.mjs'), path.join(dir, 'tours.json')]);
+  const fails = r.stdout.split('\n').filter(l => l.startsWith('FAIL '));
+  return r.status === 1 && fails.length === 1 && /^FAIL tour-shape G-07 book step 1: /.test(fails[0]) && /not covered here:/.test(r.stdout) ? '' : `exit ${r.status}: ${r.stdout.slice(0, 400)}`;
+});
+await test('TOUR-schema', 'tour-check holds the manifest and the inventory to their schema files: kind, class, id form, result arg, chapter, reopen, anchor with arg', async () => {
+  const why = [];
+  const cases = [
+    ['a kind the format does not have', m => { tourOf(m, 'book').steps[0].kind = 'maybe'; }, '/tours/0/steps/0/kind'],
+    ['a stop step with no class', m => { delete tourOf(m, 'book').steps[4].class; }, '/tours/0/steps/4'],
+    ['an anchor id with no dot', m => { tourOf(m, 'book').steps[0].anchor = 'newbutton'; }, '/tours/0/steps/0/anchor'],
+    ['an open result whose arg is not a window id', m => { tourOf(m, 'book').steps[1].result.arg = { window: 'appt.create' }; }, '/tours/0/steps/1/result/arg'],
+    ['a route result with neither is nor changed', m => { tourOf(m, 'reminder').steps[0].result.arg = { was: 'x' }; }, '/tours/5/steps/0/result/arg'],
+    ['chapter 0', m => { tourOf(m, 'close-1').chapter = [0, 3]; }, '/tours/1/chapter/0'],
+    ['a reopen with no window', m => { delete tourOf(m, 'book').steps[2].need[0].window; }, '/tours/0/steps/2/need/0'],
+    ['an arg with no anchor', m => { delete tourOf(m, 'pat-debt').steps[0].anchor; }, '/tours/4/steps/0'],
+    ['an article anchor object with no arg', (m, i) => { i.screens.patients.tasks[0].anchors[0] = { anchor: 'patients.filter' }; }, 'inventory/screens/patients/tasks/0/anchors/0'],
+    ['no stage', m => { delete m.stage; }, '/'],
+    ['a stage that is neither demo nor app', m => { m.stage = 'beta'; }, '/stage'],
+    ['a safeTest that is only a space', m => { tourOf(m, 'book').steps[1].safeTest = ' '; }, '/tours/0/steps/1/safeTest'],
+    ['practice tests that are only spaces', m => { tourOf(m, 'close-3').steps[1].practiceOnly = { modeTest: ' ', stopTest: ' ' }; }, '/tours/3/steps/1/practiceOnly/modeTest'],
+    ['an anchors entry without its screens', m => { m.anchors['cal.print'] = 'כפתור ההדפסה'; }, '/anchors/cal.print'],
+    ['a start on a record that is not the sample', m => { tourOf(m, 'book').start.record = 'shiran'; }, '/tours/0/start/record'],
+    ['a start view per device with one device only', m => { tourOf(m, 'book').start.view = { phone: 'day' }; }, '/tours/0/start/view'],
+    ['a start date that is not today', m => { tourOf(m, 'book').start.date = '2026-11-11'; }, '/tours/0/start/date'],
+    ['an arg that is a visible label, not a key', m => { tourOf(m, 'pat-debt').steps[0].arg = 'לא שולם'; }, '/tours/4/steps/0/arg'],
+    ['a test name that is a zero-width space', m => { tourOf(m, 'book').steps[1].safeTest = '\u200b'; }, '/tours/0/steps/1/safeTest'],
+    ['an on that is neither sample nor none', m => { tourOf(m, 'book').steps[1].on = 'real'; }, '/tours/0/steps/1/on'],
+  ];
+  for (const [what, change, at] of cases) {
+    const m = clone(TOUR_EX);
+    const inv = clone(INV_EX);
+    change(m, inv);
+    const r = tourCheck(m, inv);
+    const hit = r.out && r.out.findings.some(f => f.check === 'manifest' && /^schema/.test(f.code) && f.path === at);
+    if (r.status !== 1 || !hit) why.push(`${what}: exit ${r.status} ${JSON.stringify(r.out && r.out.findings.map(f => [f.code, f.path, f.message]))}`);
+  }
+  return why.join(' · ');
+});
+await test('TOUR-paths', 'a chapter whose every run, phone and computer, ends at a stop step passes, though its last unconditional step is a showing one', async () => {
+  const m = clone(TOUR_EX);
+  const t = tourOf(m, 'close-1');
+  const stop = t.steps.pop();
+  t.steps.push({ kind: 'next', anchor: 'appt.note', text: 'כאן הסיכום.' }, { ...stop, when: 'phone' }, { ...stop, when: 'desktop' });
+  const r = tourCheck(m, INV_EX);
+  return r.status === 0 && r.out && !r.out.findings.length ? '' : `exit ${r.status} ${JSON.stringify(r.out && r.out.findings.map(f => [f.code, f.step]))}`;
+});
+await test('TOUR-words', 'a step of exactly twelve words passes and one of thirteen fails', async () => {
+  const twelve = 'אחת שתיים שלוש ארבע חמש שש שבע שמונה תשע עשר אחת-עשרה שתים-עשרה';
+  const why = [];
+  for (const [text, want] of [[twelve, 0], [`${twelve} שלוש-עשרה`, 1]]) {
+    const m = clone(TOUR_EX);
+    tourOf(m, 'reminder').steps[2].text = text;
+    const r = tourCheck(m, INV_EX);
+    const got = r.out ? r.out.findings.map(f => f.code) : [];
+    if (r.status !== want || got.join(',') !== (want ? 'words' : '')) why.push(`${text.split(' ').length} words: exit ${r.status} ${JSON.stringify(got)}`);
+  }
+  return why.join(' · ');
+});
+await test('TOUR-views', 'core screens count once per screen: six keys of which one is a view pass, fail without the mark, and without the inventory are a note; six entries fail without the inventory too', async () => {
+  const why = [];
+  const m = clone(TOUR_EX);
+  m.core = [{ id: 'calendar', screens: ['cal-week', 'cal-day'] }, ...['patients', 'settings-msgs', 'import', 'appt-new'].map(id => ({ id, screens: [id] }))];
+  const ok = tourCheck(m, INV_EX);
+  if (ok.status !== 0 || !ok.out || ok.out.findings.length) why.push(`with viewOf: exit ${ok.status} ${JSON.stringify(ok.out && ok.out.findings.map(f => f.code))}`);
+  const inv = clone(INV_EX);
+  delete inv.screens['cal-day'].viewOf;
+  const r = tourCheck(m, inv);
+  const got = r.out ? r.out.findings.map(f => f.code) : [];
+  if (r.status !== 1 || got.join(',') !== 'core-count') why.push(`without viewOf: exit ${r.status} ${JSON.stringify(got)}`);
+  const bare = tourCheck(m, null);
+  if (bare.status !== 0 || !bare.out || bare.out.findings.length || !bare.out.notes.some(n => /needs --inventory/.test(n.message))) why.push(`without the inventory: exit ${bare.status} ${JSON.stringify(bare.out && { f: bare.out.findings.map(f => f.code), n: bare.out.notes })}`);
+  const six = clone(m);
+  six.core.push({ id: 'reports', screens: ['reports'] });
+  const s6 = tourCheck(six, null);
+  if (s6.status !== 1 || !s6.out || s6.out.findings.map(f => f.code).join(',') !== 'core-count') why.push(`six entries without the inventory: exit ${s6.status} ${JSON.stringify(s6.out && s6.out.findings.map(f => f.code))}`);
+  const cyc = clone(INV_EX);
+  cyc.screens['cal-week'].viewOf = 'cal-day';
+  const c = tourCheck(TOUR_EX, cyc);
+  if (c.status !== 1 || !c.out || c.out.findings.map(f => f.code).join(',') !== 'view-of,view-of') why.push(`a cycle: exit ${c.status} ${JSON.stringify(c.out && c.out.findings.map(f => f.code))}`);
+  return why.join(' · ');
+});
+// manifests that must pass, each with the marked line that makes them pass: without it the checker fails them
+const TOUR_PASSES = [
+  ['walk-skip', 'a chapter whose phone run ends at a do step with a result and whose computer run ends at a stop step', m => { const t = tourOf(m, 'close-1'); const stop = t.steps.pop(); t.steps.push({ kind: 'next', when: 'desktop', anchor: 'appt.note', text: 'במחשב: כאן הסיכום.' }, { ...stop, when: 'desktop' }); }],
+  ['walk-stop', 'the same chapter: the computer run stops at its stop step and does not judge the steps before it', m => { const t = tourOf(m, 'close-1'); const stop = t.steps.pop(); t.steps.push({ kind: 'next', when: 'desktop', anchor: 'appt.note', text: 'במחשב: כאן הסיכום.' }, { ...stop, when: 'desktop' }); }],
+  ['anchor-args', 'an article names an arg that its anchors entry lists', (m, i) => { m.anchors['cal.print'].args = ['week', 'day']; i.screens['cal-week'].tasks[2].anchors = [{ anchor: 'cal.print', arg: 'week' }]; }],
+  ['start-record', 'a start on the sample record', m => { tourOf(m, 'close-1').start = { screen: 'cal-week', record: 'sample', date: 'today' }; }],
+  ['sample-opener', 'the example, whose chapters open the sample\'s record (recordOpen) or pick her (custom) before they act in her window, and a chapter whose opener and every step after it are shown on the computer only', m => { for (const st of tourOf(m, 'close-3').steps) st.when = 'desktop'; }],
+];
+for (const [code, what, change] of TOUR_PASSES) {
+  await test(`TOUR-pass-${code}`, `tour-check passes ${what}; without the line M:${code} it fails it`, async () => {
+    const m = clone(TOUR_EX);
+    const inv = clone(INV_EX);
+    change(m, inv);
+    const r = tourCheck(m, inv);
+    if (r.status !== 0 || !r.out || r.out.findings.length) return `fixture: exit ${r.status} ${JSON.stringify(r.out && r.out.findings.map(f => [f.code, f.step]))}`;
+    const mu = tourCheck(m, inv, mutant(code));
+    return mu.status === 1 && mu.out && mu.out.findings.length ? '' : `mutant without M:${code}: exit ${mu.status} ${JSON.stringify(mu.out && mu.out.findings.map(f => f.code))}`;
+  });
+}
+await test('TOUR-view-own', 'a core key whose viewOf is a finding counts as a screen of its own: six keys, one a view of a screen in another entry, are six screens; without the line M:view-own they would be five', async () => {
+  const m = clone(TOUR_EX);
+  m.core = [{ id: 'week', screens: ['cal-week'] }, { id: 'day', screens: ['cal-day', 'patients'] }, ...['settings-msgs', 'import', 'appt-new'].map(id => ({ id, screens: [id] }))];
+  const r = tourCheck(m, INV_EX);
+  const got = r.out ? r.out.findings.map(f => f.code).join(',') : '';
+  if (r.status !== 1 || got !== 'view-of,core-count') return `fixture: exit ${r.status} ${got}`;
+  const mu = tourCheck(m, INV_EX, mutant('view-own'));
+  const mg = mu.out ? mu.out.findings.map(f => f.code).join(',') : '';
+  return mg === 'view-of' ? '' : `mutant without M:view-own: exit ${mu.status} ${mg}`;
+});
+await test('TOUR-walk', 'a chapter that ends at a stop step only under a condition fails at the showing step before it, which ends the run when the condition does not hold', async () => {
+  const m = clone(TOUR_EX);
+  const t = tourOf(m, 'close-1');
+  const stop = t.steps.pop();
+  t.steps.push({ kind: 'next', anchor: 'appt.note', text: 'כאן הסיכום.' }, { ...stop, when: 'appt.has-note' });
+  const r = tourCheck(m, INV_EX);
+  const got = r.out ? r.out.findings.map(f => `${f.code}@${f.step}`) : [];
+  return r.status === 1 && got.join(',') === 'chapter-end@2' ? '' : `exit ${r.status} ${JSON.stringify(got)}`;
+});
+await test('TOUR-kinds', 'a do step that opens a person\'s record without on: sample fails, and one that opens a rule\'s window (open) passes', async () => {
+  const why = [];
+  const m = clone(TOUR_EX);
+  tourOf(m, 'reminder').steps[1].result = { kind: 'open', arg: 'settings.rule-window' };
+  const ok = tourCheck(m, INV_EX);
+  if (ok.status !== 0 || !ok.out || ok.out.findings.length) why.push(`open on a rule: exit ${ok.status} ${JSON.stringify(ok.out && ok.out.findings.map(f => f.code))}`);
+  const p = clone(TOUR_EX);
+  Object.assign(tourOf(p, 'close-2').steps[0], { on: 'none', anchor: 'cal.card', result: { kind: 'recordOpen', arg: 'cal.card' } });
+  const bad = tourCheck(p, INV_EX);
+  if (bad.status !== 1 || !bad.out || bad.out.findings.map(f => f.code).join(',') !== 'record-not-sample') why.push(`recordOpen without on: exit ${bad.status} ${JSON.stringify(bad.out && bad.out.findings.map(f => f.code))}`);
+  return why.join(' · ');
+});
+await test('TOUR-malformed', 'a tour or a step that is not an object, or a manifest that is not an object, exits 2 with the reason, as JSON under --json', async () => {
+  const why = [];
+  const cases = [['a null tour', m => { m.tours.push(null); }], ['a null step', m => { tourOf(m, 'book').steps.push(null); }], ['steps that are not a list', m => { tourOf(m, 'book').steps = 'x'; }], ['a manifest that is a list', () => []]];
+  for (const [what, change] of cases) {
+    const m = clone(TOUR_EX);
+    const out = change(m) || m;
+    const r = tourCheck(out, INV_EX);
+    if (r.status !== 2 || !r.out || r.out.ok !== false || !r.out.error) why.push(`${what}: exit ${r.status} ${r.raw}`);
+  }
+  const dir = fs.mkdtempSync(path.join(TMP, 'tours-null-'));
+  fs.writeFileSync(path.join(dir, 'tours.json'), JSON.stringify({ ...TOUR_EX, tours: [null] }));
+  const t = sh('node', [path.join(TOURS, 'tour-check.mjs'), path.join(dir, 'tours.json')]);
+  if (t.status !== 2 || !/tour 1 is not an object/.test(t.stderr) || /at file:/.test(t.stderr)) why.push(`text mode: exit ${t.status} ${t.stderr.trim()}`);
+  return why.join(' · ');
+});
+await test('TOUR-demo-practice', 'at stage demo a practice-only step may name no tests: one note, no finding; at stage app the same step is do-class; without the line M:demo-practice the note is gone', async () => {
+  const why = [];
+  const m = clone(TOUR_EX);
+  m.stage = 'demo';
+  tourOf(m, 'close-3').steps[1].practiceOnly = {};
+  const note = '1 practice-only steps name no mode test or stop test yet; each needs both before the app runs this tour';
+  const r = tourCheck(m, INV_EX);
+  if (r.status !== 0 || !r.out || r.out.findings.length || !r.out.notes.some(n => n.message === note)) why.push(`demo: exit ${r.status} ${JSON.stringify(r.out && { f: r.out.findings.map(f => f.code), n: r.out.notes })}`);
+  const a = clone(m);
+  a.stage = 'app';
+  const ra = tourCheck(a, INV_EX);
+  if (ra.status !== 1 || !ra.out || ra.out.findings.map(f => f.code).join(',') !== 'do-class') why.push(`app: exit ${ra.status} ${JSON.stringify(ra.out && ra.out.findings.map(f => f.code))}`);
+  const mu = tourCheck(m, INV_EX, mutant('demo-practice'));
+  if (!mu.out || mu.out.notes.some(n => n.message === note)) why.push('mutant without M:demo-practice still prints the note');
+  return why.join(' · ');
+});
+await test('TOUR-none-no-inventory', 'without --inventory every do step of the example is counted in a note, since the three lists are not read; with it there is no such note; without the line M:none-no-inventory the note is gone', async () => {
+  const why = [];
+  const n = TOUR_EX.tours.flatMap(t => t.steps).filter(s => s.kind === 'do').length;
+  const note = `${n} do steps were not judged against the inventory (recordAnchors, bulkAnchors, containerAnchors: none-on-record, sample-not-record, sample-not-opened, sample-no-need, do-on-bulk, do-on-container): that needs --inventory`;
+  const r = tourCheck(TOUR_EX, null);
+  if (r.status !== 0 || !r.out || !r.out.notes.some(x => x.message === note)) why.push(`no inventory: exit ${r.status} ${JSON.stringify(r.out && r.out.notes)}`);
+  const w = tourCheck(TOUR_EX, INV_EX);
+  if (!w.out || w.out.notes.some(x => /recordAnchors/.test(x.message))) why.push('with --inventory the note is still printed');
+  const mu = tourCheck(TOUR_EX, null, mutant('none-no-inventory'));
+  if (!mu.out || mu.out.notes.some(x => x.message === note)) why.push('mutant without M:none-no-inventory still prints the note');
+  return why.join(' · ');
+});
+await test('TOUR-container-resolver', 'the same do step as the ninth review\'s C1, lit on the sample\'s own appointment through the resolver instead of the grid, passes', async () => {
+  const m = clone(TOUR_EX);
+  m.tours.push({ id: 'c1', title: 'x', screens: ['cal-week'], area: 'יומן', where: 'יומן', tasks: [], steps: [{ kind: 'do', act: 'open', on: 'sample', anchor: 'cal.ended-appointment', result: { kind: 'recordOpen', arg: 'cal.ended-appointment' }, safeTest: 'e2e/x.spec.ts: y', text: 'פותחים את התור של נועה לדוגמה.' }], finish: 'סוף.' });
+  const r = tourCheck(m, INV_EX, undefined, ['--require-stage', 'app']);
+  return r.status === 0 && r.out && !r.out.findings.length ? '' : `exit ${r.status} ${JSON.stringify(r.out && r.out.findings.map(f => f.code))}`;
+});
+await test('TOUR-bulk-show', 'a showing step and a stop step on a bulk control (cal.print) pass: only a do step on one is a finding', async () => {
+  const m = clone(TOUR_EX);
+  m.tours.push({ id: 'cal-print', title: 'הדפסה', screens: ['cal-week'], area: 'יומן', where: 'יומן', tasks: [], steps: [{ kind: 'next', anchor: 'cal.print', text: 'כאן מדפיסים את היומן.' }, { kind: 'stop', class: 'T', anchor: 'cal.print', text: '"הדפסה" מוציאה את תורי כולם.' }], finish: 'סוף.' });
+  const r = tourCheck(m, INV_EX, undefined, ['--require-stage', 'app']);
+  return r.status === 0 && r.out && !r.out.findings.length ? '' : `exit ${r.status} ${JSON.stringify(r.out && r.out.findings.map(f => f.code))}`;
+});
+await test('TOUR-container-show', 'the tenth review\'s N: a showing step and a stop step lit on the calendar grid (a container) pass: only a do step lit on one is a finding', async () => {
+  const m = clone(TOUR_EX);
+  m.tours.push({ id: 'n', title: 'x', screens: ['cal-week'], area: 'יומן', where: 'יומן', tasks: [], steps: [{ kind: 'next', anchor: 'cal.grid', text: 'זה היומן.' }, { kind: 'stop', class: 'S', anchor: 'cal.grid', text: 'גרירה ביומן מזיזה תור.' }], finish: 'סוף.' });
+  const r = tourCheck(m, INV_EX, undefined, ['--require-stage', 'app']);
+  return r.status === 0 && r.out && !r.out.findings.length ? '' : `exit ${r.status} ${JSON.stringify(r.out && r.out.findings.map(f => f.code))}`;
+});
+await test('TOUR-R1-chain', 'the twelfth review\'s R1 whole: the patient row\'s plain id at on: sample, then a note classed S on the card, fails do-on-container on the row and sample-not-opened on the note, and each line alone catches its step', async () => {
+  const m = clone(TOUR_EX);
+  const inv = clone(INV_EX);
+  inv.screens.patients.recordAnchors = ['patients.card-note'];
+  m.tours.push({ id: 'k2', title: 'x', screens: ['patients'], area: 'מטופלים', where: 'מטופלים', tasks: [], steps: [{ kind: 'do', act: 'open', on: 'sample', anchor: 'patients.row', result: { kind: 'open', arg: 'patients.card' }, safeTest: 'e2e/x.spec.ts: y', text: 'לוחצים על שורה.' }, { kind: 'do', act: 'type', class: 'S', on: 'sample', anchor: 'patients.card-note', result: { kind: 'fieldChanged', arg: 'patients.card-note' }, need: [{ do: 'reopen', window: 'patients.card' }], safeTest: 'e2e/x.spec.ts: y', text: 'כותבים הערה.' }], finish: 'סוף.' });
+  const got = c => { const r = tourCheck(m, inv, c); return r.out ? r.out.findings.map(f => `${f.code}@${f.step}`).join(',') : `exit ${r.status}`; };
+  const why = [];
+  if (got() !== 'do-on-container@1,sample-not-opened@2') why.push(`checker: ${got()}`);
+  if (got(mutant('do-on-container')) !== 'sample-not-opened@2') why.push(`without M:do-on-container: ${got(mutant('do-on-container'))}`);
+  if (got(mutant('sample-not-opened')) !== 'do-on-container@1') why.push(`without M:sample-not-opened: ${got(mutant('sample-not-opened'))}`);
+  return why.join(' · ');
+});
+await test('TOUR-P1-picker', 'the thirteenth review\'s P1: the picker with a present result instead of the custom one, then a do step classed S on appt.save, fails sample-not-opened on the picker, the service and the save and nothing else; without the line M:sample-not-opened it passes', async () => {
+  const m = clone(TOUR_EX);
+  const t = tourOf(m, 'book');
+  t.steps[2].result = { kind: 'present', arg: 'appt.service' };
+  delete t.steps[2].variants;
+  t.steps[4] = { kind: 'do', act: 'open', class: 'S', on: 'sample', anchor: 'appt.save', result: { kind: 'present', arg: 'cal.ended-appointment' }, need: [{ do: 'reopen', window: 'appt.create' }, { do: 'selectSample' }], safeTest: 'e2e/x.spec.ts: y', text: 'שומרים את התור.' };
+  const r = tourCheck(m, INV_EX, undefined, ['--require-stage', 'app']);
+  const got = r.out ? r.out.findings.map(f => `${f.code}@${f.step}`).join(',') : `exit ${r.status}`;
+  if (r.status !== 1 || got !== 'sample-not-opened@3,sample-not-opened@4,sample-not-opened@5') return `checker: ${got}`;
+  const mu = tourCheck(m, INV_EX, mutant('sample-not-opened'), ['--require-stage', 'app']);
+  return mu.status === 0 ? '' : `without M:sample-not-opened: exit ${mu.status} ${JSON.stringify(mu.out && mu.out.findings.map(f => f.code))}`;
+});
+// the fourteenth review's B1: a step is the opener only by its shape, never by its result kind alone. Each case below
+// passed on 8e12319 and saves on whichever window is open; each fails sample-not-opened (and, with no need, sample-no-need)
+await test('TOUR-opener-shapes', 'a custom or recordOpen result does not make a step the opener by its kind alone: H1 (the note with a custom result), H1b (recordOpen naming another control), H1c (a chat field with a custom result), H2 (an earlier custom pick on a payment control), H8 (the picker classed S), H13 (a practice-only step with a custom result) each fail; the picker counts only after a do step at on: "none" with an open or step result, only as a pick, and a next step between them does not matter; a recordOpen at on: "none" opens nothing; an object-form recordOpen arg is a schema finding and does not open her record either; the picker counts only on the devices its window step surely ran on (A4, A5); and without the line M:sample-not-opened only their sample-no-need findings remain', async () => {
+  const ST = 'e2e/x.spec.ts: y';
+  const note = extra => ({ ...{ kind: 'do', act: 'type', class: 'S', on: 'sample', anchor: 'appt.note', result: { kind: 'fieldChanged', arg: 'appt.note' }, need: [{ do: 'reopen', window: 'appt.drawer' }], safeTest: 'e2e/x.spec.ts: y', text: 'כותבים סיכום.' }, ...extra });
+  const summary = steps => ({ id: 'summary', title: 'סיכום', screens: ['cal-week'], area: 'יומן', where: 'יומן · חלון התור', tasks: [], steps: steps, finish: 'סוף.' });
+  const cases = [
+    ['H1', m => { m.tours.push(summary([note({ result: { kind: 'custom', arg: 'appt.note-saved' } }), { kind: 'stop', class: 'S', anchor: 'appt.happened', text: '"התקיים".' }])); }, 'sample-not-opened@summary:1'],
+    ['H1b', m => { m.tours.push(summary([note({ result: { kind: 'recordOpen', arg: 'cal.ended-appointment' } })])); }, 'sample-not-opened@summary:1'],
+    ['H1c', (m, i) => { i.screens.patients.recordAnchors = ['chat.compose']; m.tours.push({ id: 'chat', title: 'x', screens: ['patients'], area: 'מטופלים', where: 'מטופלים', tasks: [], steps: [{ kind: 'do', act: 'type', class: 'S', on: 'sample', anchor: 'chat.compose', result: { kind: 'custom', arg: 'chat.draft-saved' }, safeTest: ST, text: 'כותבים.' }], finish: 'סוף.' }); }, 'sample-not-opened@chat:1,sample-no-need@chat:1'],
+    ['H2', m => { m.tours.push(summary([{ kind: 'do', act: 'pick', on: 'sample', anchor: 'pay.method', arg: 'cash', result: { kind: 'custom', arg: 'pay.method-shown' }, safeTest: ST, text: 'בוחרים מזומן.' }, note({})])); }, 'sample-not-opened@summary:1,sample-no-need@summary:1,sample-not-opened@summary:2'],
+    ['H8', m => { tourOf(m, 'book').steps[2].class = 'S'; }, 'sample-not-opened@book:3,sample-not-opened@book:4'],
+    ['H13', m => { m.tours.push(summary([{ kind: 'do', act: 'open', class: 'P', on: 'sample', anchor: 'pay.confirm', result: { kind: 'custom', arg: 'pay.receipt-shown' }, practiceOnly: { modeTest: 'a', stopTest: 'b' }, safeTest: ST, text: 'x.' }])); }, 'sample-not-opened@summary:1,sample-no-need@summary:1'],
+    ['the step before the picker at on: "sample"', m => { tourOf(m, 'book').steps[1].on = 'sample'; }, 'sample-not-record@book:2,sample-not-opened@book:3,sample-not-opened@book:4'],
+    ['the step before the picker with a present result', m => { tourOf(m, 'book').steps[1].result = { kind: 'present', arg: 'appt.create' }; }, 'sample-not-opened@book:3,sample-not-opened@book:4'],
+    ['the picker with act select', m => { tourOf(m, 'book').steps[2].act = 'select'; }, 'sample-not-opened@book:3,sample-not-opened@book:4'],
+    ['a next step between the window and the picker (passes)', m => { tourOf(m, 'book').steps.splice(2, 0, { kind: 'next', anchor: 'appt.patient-picker', text: 'כאן בוחרים מטופל.' }); }, ''],
+    ['her record opened at on: "none" (recordOpen naming its own control)', m => { tourOf(m, 'close-3').steps[0].on = 'none'; }, 'none-on-record@close-3:1,record-not-sample@close-3:1,sample-not-opened@close-3:2,sample-not-opened@close-3:3,sample-not-opened@close-3:4'],
+    ['H1b with the object form of the arg (its anchor names another control; the schema allows a recordOpen arg only as a plain id, and the order check still fires)', m => { m.tours.push(summary([note({ result: { kind: 'recordOpen', arg: { anchor: 'cal.ended-appointment', arg: 'x' } } })])); }, 'schema@summary:1,sample-not-opened@summary:1'],
+    ['A4: the window step before the picker on the computer only (the picker and the service step fail on the phone)', m => { tourOf(m, 'book').steps[1].when = 'desktop'; }, 'sample-not-opened@book:3,sample-not-opened@book:4'],
+    ['A5: the window step before the picker under a condition (the picker and the service step fail)', m => { tourOf(m, 'book').steps[1].when = 'settings.msgs-closed'; }, 'sample-not-opened@book:3,sample-not-opened@book:4'],
+    ['P1: a do step classed S on the booking\'s save after the service step, both naming reopen and selectSample (passes: the engine runs selectSample each time, and isOpen holds only for the tour\'s own booking whose person field holds the sample or is empty; the bindings, TOUR-0)', m => { tourOf(m, 'book').steps[4] = { kind: 'do', act: 'open', class: 'S', on: 'sample', anchor: 'appt.save', result: { kind: 'custom', arg: 'appt.saved' }, need: [{ do: 'reopen', window: 'appt.create' }, { do: 'selectSample' }], safeTest: ST, text: 'שומרים את התור לנועה לדוגמה.' }; }, ''],
+    ['P1b: the same with each need holding only the reopen', m => { const b = tourOf(m, 'book'); b.steps[3].need = [{ do: 'reopen', window: 'appt.create' }]; b.steps[4] = { kind: 'do', act: 'open', class: 'S', on: 'sample', anchor: 'appt.save', result: { kind: 'custom', arg: 'appt.saved' }, need: [{ do: 'reopen', window: 'appt.create' }], safeTest: ST, text: 'שומרים את התור.' }; }, 'sample-no-need@book:4,sample-no-need@book:5'],
+    ['P3: the picker after a step that opened another window (passes: stated, NOT_COVERED, the reviewer checks the step opened the picker\'s own window)', m => { tourOf(m, 'book').steps[1] = { kind: 'do', act: 'open', on: 'none', anchor: 'cal.filters', result: { kind: 'open', arg: 'cal.filter-panel' }, safeTest: ST, text: 'פותחים את המסננים.' }; }, ''],
+    ['a recordOpen opener after the picker: the steps after it need no selectSample', m => { const b = tourOf(m, 'book'); b.steps.splice(4, 0, { kind: 'do', act: 'open', on: 'sample', anchor: 'cal.ended-appointment', result: { kind: 'recordOpen', arg: 'cal.ended-appointment' }, safeTest: ST, text: 'פותחים את התור.' }, { kind: 'do', act: 'type', class: 'S', on: 'sample', anchor: 'appt.note', result: { kind: 'fieldChanged', arg: 'appt.note' }, need: [{ do: 'reopen', window: 'appt.drawer' }], safeTest: ST, text: 'כותבים סיכום.' }); }, ''],
+    ['after a picker on the computer only, a step shown on both devices still names selectSample', m => { const b = tourOf(m, 'book'); b.steps[1].when = 'desktop'; b.steps[3].need = [{ do: 'reopen', window: 'appt.create' }]; }, 'sample-not-opened@book:3,sample-not-opened@book:4,sample-no-need@book:4'],
+    ['a second picker after the first, its own need only the reopen (passes: the picker itself names no selectSample)', m => { const b = tourOf(m, 'book'); b.steps.splice(4, 0, clone(b.steps[1]), clone(b.steps[2])); }, ''],
+    ['a picker shown on the phone only does not ask selectSample of a step shown on the computer only after an earlier opener (passes)', m => { const b = tourOf(m, 'book'); m.tours.push({ id: 'mixed', title: 'x', screens: ['cal-week'], area: 'יומן', where: 'יומן', tasks: [], finish: 'סוף.', steps: [{ kind: 'do', act: 'open', on: 'sample', anchor: 'cal.ended-appointment', result: { kind: 'recordOpen', arg: 'cal.ended-appointment' }, safeTest: ST, text: 'פותחים את התור.' }, clone(b.steps[1]), { ...clone(b.steps[2]), when: 'phone' }, { kind: 'do', act: 'type', class: 'S', on: 'sample', when: 'desktop', anchor: 'appt.note', result: { kind: 'fieldChanged', arg: 'appt.note' }, need: [{ do: 'reopen', window: 'appt.drawer' }], safeTest: ST, text: 'כותבים סיכום.' }] }); }, ''],
+    ['the window step and the picker both on the computer only (passes)', m => { const b = tourOf(m, 'book'); for (const k of [1, 2, 3]) b.steps[k].when = 'desktop'; }, ''],
+  ];
+  const why = [];
+  for (const [name, change, want] of cases) {
+    const m = clone(TOUR_EX);
+    const inv = clone(INV_EX);
+    change(m, inv);
+    const got = c => { const r = tourCheck(m, inv, c, ['--require-stage', 'app']); return r.out ? r.out.findings.map(f => `${f.code}@${f.tour}:${f.step}`).join(',') : `exit ${r.status}`; };
+    const g = got();
+    if (g !== want) why.push(`${name}: ${g}`);
+    const mu = got(mutant('sample-not-opened'));
+    const rest = want.split(',').filter(x => !x.startsWith('sample-not-opened@')).join(',');
+    if (mu !== rest) why.push(`${name} without M:sample-not-opened: ${mu}`);
+  }
+  return why.join(' · ');
+});
+// the need rule is text for the engine and the bindings, which the checker cannot see: its key sentences are pinned in
+// each place that states it, so a later edit cannot quietly drop the per-reopen isOpen, the picker's window or selectSample
+await test('TOUR-need-texts', 'the need rule\'s sentences (a reopen skipped only when its window is open on her, a window that picks a person open only while it is the tour\'s own and each of its person fields holds the sample or is empty, selectSample always run, and selectSample named after the picker) stand in help-system.md, both schemas (on and need) and experience.md', async () => {
+  const why = [];
+  const norm = t => t.replace(/`/g, '').replace(/\s+/g, ' ');
+  const read = f => norm(fs.readFileSync(path.join(TOURS, f), 'utf8'));
+  const RUNS = "each time the run reaches the step: a reopen is skipped only when its window is already open on her (isOpen; a window that picks a person counts as open only while it is the tour's own and every person field it has (a second person, such as a family member or a referrer, included) holds the sample or is empty), and selectSample always runs, asking first when she picked someone since";
+  const NAMES = "names a need that reopens the window its control sits in, and a step after the picker names selectSample as well (the picker's own step names the reopen too)";
+  const pins = [
+    ['../help-system.md', RUNS, 1], ['../help-system.md', NAMES, 1], ['../help-system.md', 'how the run selects the sample record again (selectSample)', 1],
+    ['tours.schema.json', RUNS, 2], ['tours.schema.json', NAMES, 2],
+    ['inventory.schema.json', RUNS, 1], ['inventory.schema.json', NAMES, 1],
+    ['../experience.md', RUNS, 1], ['../experience.md', 'names no need that reopens a window (the window its control sits in, and after the picker selectSample as well;', 1],
+  ];
+  for (const [f, text, n] of pins) { const got = read(f).split(text).length - 1; if (got < n) why.push(`${f}: "${text.slice(0, 60)}…" ${got} times, not ${n}`); }
+  return why.join(' · ');
+});
+await test('TOUR-save-stop-message', 'the tenth review\'s K5d and the eleventh\'s N1: the reminder save at on: sample with no class fails sample-not-record only, and with no on do-no-on only; each message, like the S and the practice-only one, says a save of a business-wide setting is a stop step, so following it ends at the example\'s own stop step', async () => {
+  const why = [];
+  const snr = 'a save there (a business-wide setting) is a stop step, never a do step';
+  const dno = 'a save of a business-wide setting, including a switch or a field that saves as it changes, is a stop step, never a do step';
+  const save = { kind: 'do', act: 'open', on: 'sample', anchor: 'settings.save', result: { kind: 'present', arg: 'settings.saved-toast' }, safeTest: 'e2e/x.spec.ts: saving the rule sends nothing', text: 'לוחצים "שמירה".' };
+  const cases = [
+    ['no class (K5d)', m => { tourOf(m, 'reminder').steps[3] = { ...save }; }, 'sample-not-record', snr],
+    ['classed S (K5)', m => { tourOf(m, 'reminder').steps[3] = { ...save, class: 'S' }; }, 'sample-not-record', snr],
+    ['practice-only', m => { tourOf(m, 'close-3').steps[3].anchor = 'pay.month-close'; }, 'sample-not-record', snr],
+    ['no class and no on (N1)', m => { const s = { ...save }; delete s.on; tourOf(m, 'reminder').steps[3] = s; }, 'do-no-on', dno],
+  ];
+  for (const [what, change, code, clause] of cases) {
+    const m = clone(TOUR_EX);
+    change(m);
+    const r = tourCheck(m, INV_EX, undefined, ['--require-stage', 'app']);
+    const f = r.out ? r.out.findings : [];
+    if (r.status !== 1 || f.length !== 1 || f[0].code !== code || !f[0].message.includes(clause)) why.push(`${what}: exit ${r.status} ${JSON.stringify(f.map(x => [x.code, x.message]))}`);
+  }
+  // the step the clause leads to is the example's own: the reminder save as a stop step classed S, which passes
+  const stop = tourOf(TOUR_EX, 'reminder').steps[3];
+  if (stop.kind !== 'stop' || stop.anchor !== 'settings.save') why.push(`the example's reminder step 4 is no longer the stop step on settings.save (${JSON.stringify(stop)})`);
+  return why.join(' · ');
+});
+// Every finding kind of tour-check, and each branch of its message, with the message word for word; NOT_COVERED and the
+// app-stage usage error word for word too. A message is what an author follows literally, so its wording is behaviour.
+// A test that a clause is present lets a reversal through (", except at on: none" appended, "you may ignore this: "
+// put in front); equality turns any edit red. A changed message is a deliberate update of this table, a fresh run of
+// the follow-the-message cases, and a reviewer reading the new sentence: equality pins the words, only a person judges
+// what they mean. [label, change, ('no-inventory'), code, message]
+const ST = 'e2e/x.spec.ts: y';
+const GOLDEN = [
+    ['schema', m => { tourOf(m, 'book').steps[0].autoClick = true; }, "schema", "/tours/0/steps/0: \"autoClick\" is not a field of this format"],
+    ['schema-inventory', (m, i) => { i.screens['cal-day'].menu = 'yes'; }, "schema-inventory", "inventory /screens/cal-day/menu: should be boolean"],
+    ['anchor-both', (m, i) => { i.screens['cal-week'].recordAnchors.push('cal.print'); }, "anchor-both", "\"cal.print\" is in recordAnchors and bulkAnchors of the inventory: a control is one person's, many people's at once, or a container of people's rows, never two of these; an id every row of a list carries is a container, and only a resolver's own id or a control in a window opened on her is in recordAnchors"],
+    ['duplicate-id', m => { m.tours.push(clone(tourOf(m, 'reminder'))); }, "duplicate-id", "tour id \"reminder\" is used twice; a start by id reaches only the first"],
+    ['auto-screen', m => { tourOf(m, 'book').auto.push('patients'); }, "auto-screen", "opens by itself on \"patients\", which is not one of its screens"],
+    ['start-screen', m => { tourOf(m, 'book').start.screen = 'settings-msgs'; }, "start-screen", "starts on \"settings-msgs\", which is not one of its screens"],
+    ['practice-kind', m => { Object.assign(tourOf(m, 'close-1').steps[1], { on: 'sample', practiceOnly: { modeTest: 'a', stopTest: 'b' } }); }, "practice-kind", "practiceOnly is for a do step (this one is \"stop\")"],
+    ['chapter-set', m => { tourOf(m, 'close-2').chapter = [2, 4]; }, "chapter-set", "job \"close\": its chapters disagree on how many there are (3, 4)"],
+    ['stage-required', m => { m.stage = 'demo'; }, "stage-required", "the manifest is at stage \"demo\", and this run requires \"app\""],
+    ['view-of (itself)', (m, i) => { i.screens['cal-day'].viewOf = 'cal-day'; }, "view-of", "viewOf names the key itself; a key is a view only of another screen of the inventory that is not a view, in the same core entry"],
+    ['view-of (phantom)', (m, i) => { i.screens['cal-day'].viewOf = 'ghost'; }, "view-of", "viewOf names \"ghost\", which the inventory does not have; a key is a view only of another screen of the inventory that is not a view, in the same core entry"],
+    ['view-of (a view)', (m, i) => { i.screens.import.viewOf = 'cal-day'; }, "view-of", "viewOf names \"cal-day\", which is itself a view of \"cal-week\"; a key is a view only of another screen of the inventory that is not a view, in the same core entry"],
+    ['view-of (another core entry)', m => { m.core = [{ id: 'calendar', screens: ['cal-week'] }, { id: 'day', screens: ['cal-day'] }, { id: 'patients', screens: ['patients'] }]; }, "view-of", "viewOf names \"cal-week\", which is not in the same core entry as \"cal-day\"; a key is a view only of another screen of the inventory that is not a view, in the same core entry"],
+    ['core-count (inventory)', m => { m.core.push(...['leads', 'chats', 'money', 'forms'].map(id => ({ id, screens: [id] }))); }, "core-count", "6 core screens (cal-week, patients, leads, chats, money, forms), at most five; keys of one core entry count as one screen only where inventory.json marks them viewOf it"],
+    ['core-count (no inventory)', m => { m.core.push(...['leads', 'chats', 'money', 'forms'].map(id => ({ id, screens: [id] }))); }, 'no-inventory', "core-count", "6 core entries, so more than five core screens"],
+    ['words', m => { tourOf(m, 'reminder').steps[2].text = 'אחת שתיים שלוש ארבע חמש שש שבע שמונה תשע עשר אחת עשרה שתים עשרה'; }, "words", "text has 14 words, at most 12: the fix is two steps, never a trimmed one"],
+    ['no-skip', m => { tourOf(m, 'book').steps[0].skip = false; }, "no-skip", "the step cannot be skipped; every step can be"],
+    ['do-no-result', m => { delete tourOf(m, 'reminder').steps[1].result; }, "do-no-result", "a do step with no result condition: it moves on only when the screen shows the result it names"],
+    ['chapter-end', m => { tourOf(m, 'close-1').steps[1].kind = 'next'; }, "chapter-end", "chapter 1 of 3 can end at this \"next\" step, neither at a result nor at a stop step"],
+    ['auto-not-core', m => { tourOf(m, 'reminder').auto = ['settings-msgs']; }, "auto-not-core", "opens by itself on \"settings-msgs\", which is not a core screen"],
+    ['do-class (T, practice-only)', m => { tourOf(m, 'close-3').steps[1].class = 'T'; }, "do-class", "a do step classed T tells a real person: it is a stop step, in practice mode too (the mode is for a numbered document, a payment and a close for good, classed P)"],
+    ['do-class (practice-only, no class)', m => { delete tourOf(m, 'close-3').steps[1].class; }, "do-class", "a practice-only do step with no class: practice mode is only for a numbered document, a payment and a close for good: if it issues a numbered document, takes a payment or closes for good, class it P and keep it practice-only; only any other do step that tells no one drops practiceOnly and names its G-20 safeTest"],
+    ['do-class (practice-only, classed S)', m => { tourOf(m, 'close-3').steps[1].class = 'S'; }, "do-class", "a practice-only do step classed S: practice mode is only for a numbered document, a payment and a close for good: if it issues a numbered document, takes a payment or closes for good, class it P and keep it practice-only; only any other do step that tells no one drops practiceOnly and names its G-20 safeTest"],
+    ['do-class (practice-only, a test missing)', m => { delete tourOf(m, 'close-3').steps[1].practiceOnly.modeTest; }, "do-class", "a practice-only do step without modeTest: it is a stop step in the mode too"],
+    ['do-class (T, not practice-only)', m => { tourOf(m, 'pat-debt').steps[0].class = 'T'; }, "do-class", "a do step classed T is not practice-only: it is a stop step"],
+    ['do-class (P, not practice-only)', m => { tourOf(m, 'pat-debt').steps[0].class = 'P'; }, "do-class", "a do step classed P is not practice-only: it is a stop step"],
+    ['do-no-on (N1)', m => { tourOf(m, 'reminder').steps[3] = { kind: 'do', act: 'open', anchor: 'settings.save', result: { kind: 'present', arg: 'settings.saved-toast' }, safeTest: ST, text: 'לוחצים "שמירה".' }; }, "do-no-on", "a do step that does not say whose record it acts on: on: \"sample\", or on: \"none\" when it acts on no person's record (an empty slot, a filter, a settings tab, a field in a settings form that has its own save); a save of a business-wide setting, including a switch or a field that saves as it changes, is a stop step, never a do step"],
+    ['none-on-record (anchor)', m => { tourOf(m, 'close-3').steps[2].on = 'none'; }, "none-on-record", "a do step with on: \"none\" on \"pay.method\", which the inventory lists as a control of the sample's record (recordAnchors); the step is at on: \"sample\", and on a row in a list it is lit through a resolver's own id that picks the sample's row (as cal.ended-appointment), never the row's plain id, which binds the first visible row"],
+    ['none-on-record (result, K1)', m => { tourOf(m, 'pat-debt').steps[1] = { kind: 'do', act: 'open', on: 'none', anchor: 'patients.list', result: { kind: 'present', arg: 'patients.charge' }, safeTest: ST, text: 'לוחצים על שורה ברשימה.' }; }, "none-on-record", "a do step with on: \"none\" whose result names a control the inventory lists in recordAnchors, or a container (a list of people's rows, or an id every row carries), so its lit target reaches a person's record; for a step that filters a list or opens a window, name the state (stateEquals) or the window (open) as the result, not a control inside it, and name a window only when it is nobody's (a menu, a filter panel); a list of people, and the plain id every row in it carries, go in containerAnchors, and the step lights the sample's own row at on: \"sample\" through a resolver's own id"],
+    ['save-not-sample', m => { tourOf(m, 'reminder').steps[3] = { kind: 'do', act: 'open', class: 'S', on: 'none', anchor: 'settings.save', result: { kind: 'present', arg: 'settings.saved-toast' }, safeTest: ST, text: 'לוחצים "שמירה".' }; }, "save-not-sample", "a do step classed S (it saves) that does not carry on: \"sample\": a save done in a tour is done on the sample's record, on a control that record carries; saving a business-wide rule or a real person's record is a stop step"],
+    ['do-on-bulk (anchor)', m => { m.tours.push({ id: 'cal-print', title: 'הדפסה', screens: ['cal-week'], area: 'יומן', where: 'יומן', tasks: [], steps: [{ kind: 'do', act: 'open', on: 'none', anchor: 'cal.print', result: { kind: 'open', arg: 'cal.print-sheet' }, safeTest: ST, text: 'לוחצים "הדפסה".' }], finish: 'סוף.' }); }, "do-on-bulk", "a do step on \"cal.print\", which the inventory lists in bulkAnchors (an export, a print, a download or share, an import, or an action on many people's records at once): a tour never does one, whatever its on and its class; it shows that control or stops at it (a stop step there is classed T); for a step that opens a menu or a window, name the window (open) as the result, not a control inside it"],
+    ['do-on-bulk (result)', m => { tourOf(m, 'pat-debt').steps[0].result = { kind: 'present', arg: 'cal.print' }; }, "do-on-bulk", "a do step whose result names \"cal.print\", which the inventory lists in bulkAnchors (an export, a print, a download or share, an import, or an action on many people's records at once): a tour never does one, whatever its on and its class; it shows that control or stops at it (a stop step there is classed T); for a step that opens a menu or a window, name the window (open) as the result, not a control inside it"],
+    ['do-on-container (K3c)', m => { tourOf(m, 'book').steps[1].anchor = 'cal.grid'; }, "do-on-container", "a do step lit on \"cal.grid\", which the inventory lists in containerAnchors (a list, a column, the calendar grid, or an id every row of a list carries): the lit target of a do step is live, so she could press any person's row inside it, or the first visible row, whatever its on and its class; light the sample's own row or control at on: \"sample\", through a resolver that picks it and is listed in recordAnchors (its own id, as cal.ended-appointment, never the plain id every row carries, which binds the first visible row), or, for an empty slot, the slot through a resolver (cal.free-slot) at on: \"none\""],
+    ['sample-not-record (no class, K5d)', m => { tourOf(m, 'reminder').steps[3] = { kind: 'do', act: 'open', on: 'sample', anchor: 'settings.save', result: { kind: 'present', arg: 'settings.saved-toast' }, safeTest: ST, text: 'לוחצים "שמירה".' }; }, "sample-not-record", "a do step at on: \"sample\" on \"settings.save\", which no recordAnchors lists. If it sits in a window opened on her (a step before it in the tour opened it on her), list it in recordAnchors and keep on: \"sample\"; if it sits on her row in a list, light it through a resolver's own id that picks her row and list that id; only a control that is nobody's record (a tab, a filter, a business-wide setting) changes the step, to on: \"none\", and a save there (a business-wide setting) is a stop step, never a do step; never answer this finding by setting on: \"none\" on a person's control"],
+    ['sample-not-record (classed S, K5)', m => { tourOf(m, 'reminder').steps[3] = { kind: 'do', act: 'open', class: 'S', on: 'sample', anchor: 'settings.save', result: { kind: 'present', arg: 'settings.saved-toast' }, safeTest: ST, text: 'לוחצים "שמירה".' }; }, "sample-not-record", "a do step at on: \"sample\" on \"settings.save\", which no recordAnchors lists. If it sits in a window opened on her (a step before it in the tour opened it on her), list it in recordAnchors and keep on: \"sample\"; if it sits on her row in a list, light it through a resolver's own id that picks her row and list that id; only a control that is nobody's record (a tab, a filter, a business-wide setting) changes the step, to on: \"none\", and a save there (a business-wide setting) is a stop step, never a do step; never answer this finding by setting on: \"none\" on a person's control"],
+    ['sample-not-record (practice-only)', m => { tourOf(m, 'close-3').steps[3].anchor = 'pay.month-close'; }, "sample-not-record", "a do step at on: \"sample\" on \"pay.month-close\", which no recordAnchors lists. If it sits in a window opened on her (a step before it in the tour opened it on her), list it in recordAnchors and keep on: \"sample\"; if it sits on her row in a list, light it through a resolver's own id that picks her row and list that id; only a control that is nobody's record (a tab, a filter, a business-wide setting) changes the step, to on: \"none\", and a save there (a business-wide setting) is a stop step, never a do step; never answer this finding by setting on: \"none\" on a person's control; a practice-only step stays on the sample's copy"],
+    ['practice-not-sample', (m, i) => { tourOf(m, 'close-3').steps[1].on = 'none'; offRecord(i, 'appt.paid'); }, "practice-not-sample", "a practice-only step without on: \"sample\": inside the mode the tour runs on the sample record's copy, never on a real person's"],
+    ['record-not-sample (N3a)', m => { m.tours.push({ id: 'find', title: 'x', screens: ['patients'], area: 'מטופלים', where: 'מטופלים', tasks: [], steps: [{ kind: 'do', act: 'type', on: 'none', anchor: 'patients.search', result: { kind: 'recordOpen', arg: 'patients.row' }, safeTest: ST, text: 'מקלידים "נועה" בחיפוש.' }], finish: 'סוף.' }); }, "record-not-sample", "a do step opens a person's record (recordOpen) and does not carry on: \"sample\": tours run on the sample record, never on real data; if the control is nobody's (a search, a button that opens a list), split the step: it filters or opens at on: \"none\" with a stateEquals or open result (a window that is nobody's), and the next step lights the sample's own row at on: \"sample\" through a resolver, with the recordOpen result, or is a stop step"],
+    ['sample-not-opened (both devices, W1)', m => { m.tours.push({ id: 'summary', title: 'סיכום', screens: ['cal-week'], area: 'יומן', where: 'יומן · חלון התור', tasks: [], steps: [{ kind: 'do', act: 'type', class: 'S', on: 'sample', anchor: 'appt.note', result: { kind: 'fieldChanged', arg: 'appt.note' }, need: [{ do: 'reopen', window: 'appt.drawer' }], safeTest: ST, text: 'כותבים סיכום.' }], finish: 'סוף.' }); }, "sample-not-opened", "a do step at on: \"sample\" on \"appt.note\" with no earlier step in this tour that opened the sample's record (a do step at on: \"sample\" whose recordOpen result names its own control, a resolver's own id) or picked her (an unclassed pick step, after the step at on: \"none\" that opened its window on that device, under no other condition, whose custom result checks the sample was picked): a control in a window acts on whichever record that window shows, a real person's when the tour starts over it; put the step that opens her record or picks her before this one, or, when this step itself opens her record through a resolver's own id, give it the recordOpen result that names that id"],
+    ['sample-not-opened (one device)', m => { const t = tourOf(m, 'close-3'); for (const k of [0, 2, 3]) t.steps[k].when = 'desktop'; t.steps[1].when = 'phone'; }, "sample-not-opened", "a do step at on: \"sample\" on \"appt.paid\" with no earlier step in this tour that opened the sample's record (a do step at on: \"sample\" whose recordOpen result names its own control, a resolver's own id) or picked her (an unclassed pick step, after the step at on: \"none\" that opened its window on that device, under no other condition, whose custom result checks the sample was picked), on the phone: a control in a window acts on whichever record that window shows, a real person's when the tour starts over it; put the step that opens her record or picks her before this one, or, when this step itself opens her record through a resolver's own id, give it the recordOpen result that names that id"],
+    ['sample-no-need (R4, selectSample alone)', m => { m.tours.push({ id: 'summary', title: 'סיכום', screens: ['cal-week'], area: 'יומן', where: 'יומן · חלון התור', tasks: [], steps: [{ kind: 'do', act: 'open', on: 'sample', anchor: 'cal.ended-appointment', result: { kind: 'recordOpen', arg: 'cal.ended-appointment' }, safeTest: ST, text: 'פותחים את התור שהסתיים.' }, { kind: 'do', act: 'type', class: 'S', on: 'sample', anchor: 'appt.note', result: { kind: 'fieldChanged', arg: 'appt.note' }, need: [{ do: 'selectSample' }], safeTest: ST, text: 'כותבים סיכום.' }], finish: 'סוף.' }); }, "sample-no-need", "a do step at on: \"sample\" on \"appt.note\" that names no need that reopens a window: a resume or a skip reaches it without the step that opened her record, or after she opened another record at an earlier step, and it then acts in whatever window is open, a real person's if she opened one; name the window its control sits in (reopen), adding selectSample where that window picks a person; the engine runs that need each time it reaches the step: a reopen only when its window is not open on her, and selectSample always"],
+    ['sample-not-opened (the picker, one device: A4)', m => { const b = tourOf(m, 'book'); b.steps[1].when = 'desktop'; b.steps[3].when = 'desktop'; }, "sample-not-opened", "a do step at on: \"sample\" on \"appt.patient-picker\" with no earlier step in this tour that opened the sample's record (a do step at on: \"sample\" whose recordOpen result names its own control, a resolver's own id) or picked her (an unclassed pick step, after the step at on: \"none\" that opened its window on that device, under no other condition, whose custom result checks the sample was picked), on the phone: a control in a window acts on whichever record that window shows, a real person's when the tour starts over it; put the step that opens her record or picks her before this one, or, when this step itself opens her record through a resolver's own id, give it the recordOpen result that names that id"],
+    ['sample-no-need (the picker itself: P2)', m => { delete tourOf(m, 'book').steps[2].need; }, "sample-no-need", "a do step at on: \"sample\" on \"appt.patient-picker\" that names no need that reopens a window: a resume or a skip reaches it without the step that opened its window, and it then acts in whatever window is open, a real person's if she opened one; name the window its control sits in (reopen), adding selectSample where that window picks a person; the engine runs that need each time it reaches the step: a reopen only when its window is not open on her, and selectSample always"],
+    ['sample-no-need (after the picker: P1b)', m => { tourOf(m, 'book').steps[3].need = [{ do: 'reopen', window: 'appt.create' }]; }, "sample-no-need", "a do step at on: \"sample\" on \"appt.service\" that names no need that reopens a window and selects the sample again: a resume or a skip reaches it without the step that opened her record, or after she opened another record at an earlier step, or after she picked another person in the picker's window, and it then acts in whatever window is open, a real person's if she opened one; name the window its control sits in (reopen), and selectSample, as every step after the picker does; the engine runs that need each time it reaches the step: a reopen only when its window is not open on her, and selectSample always"],
+    ['sample-no-need (R1)',m => { const n = { kind: 'do', act: 'type', class: 'S', on: 'sample', anchor: 'appt.note', result: { kind: 'fieldChanged', arg: 'appt.note' }, need: [{ do: 'reopen', window: 'appt.drawer' }], safeTest: ST, text: 'כותבים סיכום.' }; delete n.need; m.tours.push(({ id: 'summary', title: 'סיכום', screens: ['cal-week'], area: 'יומן', where: 'יומן · חלון התור', tasks: [], steps: [{ kind: 'do', act: 'open', on: 'sample', anchor: 'cal.ended-appointment', result: { kind: 'recordOpen', arg: 'cal.ended-appointment' }, safeTest: ST, text: 'פותחים את התור שהסתיים.' }, n], finish: 'סוף.' })); }, "sample-no-need", "a do step at on: \"sample\" on \"appt.note\" that names no need that reopens a window: a resume or a skip reaches it without the step that opened her record, or after she opened another record at an earlier step, and it then acts in whatever window is open, a real person's if she opened one; name the window its control sits in (reopen), adding selectSample where that window picks a person; the engine runs that need each time it reaches the step: a reopen only when its window is not open on her, and selectSample always"],
+    ['need-action', m => { tourOf(m, 'book').steps[3].need.push({ do: 'press', window: 'appt.create' }); }, "need-action", "the resume action \"press\" is not one of the two a tour does by itself (reopen a window, select the sample record again)"],
+    ['start-key', m => { tourOf(m, 'book').start.press = 'appt.save'; }, "start-key", "start asks for \"press\"; a tour that starts only goes to its screen and the sample record, sets the view and the date, and closes a window that holds no unsaved input"],
+    ['do-no-safe-test', m => { delete tourOf(m, 'book').steps[1].safeTest; }, "do-no-safe-test", "a do step names no test of G-20 (safeTest, or the practice mode's modeTest): it is a stop step"],
+    ['screen-none', m => { m.tours.push({ id: 'chat-reply', title: 'צ׳אט', screens: [], area: 'הודעות', where: 'הודעות', tasks: [], steps: [{ kind: 'stop', class: 'T', anchor: 'chats.send', text: '"שליחה" שולחת את ההודעה.' }], finish: 'סוף.' }); }, "screen-none", "names no screen, nor does its job: where it stands, and so its articles, tasks and recordAnchors, cannot be judged"],
+    ['screen-unknown', m => { m.tours.push({ id: 'chats', title: 'צ׳אט', screens: ['msg-chats'], area: 'הודעות', where: 'הודעות', tasks: [], steps: [{ kind: 'stop', class: 'T', anchor: 'chats.send', text: '"שליחה" שולחת את ההודעה.' }], finish: 'סוף.' }); }, "screen-unknown", "stands on \"msg-chats\", which the inventory does not have: its articles, tasks and recordAnchors cannot be judged"],
+    ['screen-no-tour', (m, i) => { i.screens.reports = { menu: true, tasks: [] }; }, "screen-no-tour", "the menu reaches this screen, and it has no tour and no written reason"],
+    ['task-no-tour', (m, i) => { i.screens['cal-day'].tasks.push({ text: 'לבטל תור' }); }, "task-no-tour", "\"לבטל תור\" has no tour and no written reason"],
+    ['article-anchor', (m, i) => { i.screens['cal-day'].tasks[0].anchors = ['cal.no-such-button']; }, "article-anchor", "the article on cal-day names the control \"cal.no-such-button\", which no tour on cal-day points at or names as a result and no anchors entry for cal-day lists"],
+    ['article-tour (does not list the task)', (m, i) => { i.screens['cal-day'].tasks[0].tour = 'close-1'; }, "article-tour", "the article names tour \"close-1\", which does not list \"לקבוע תור\" on cal-day"],
+    ['article-tour (no such tour)', (m, i) => { i.screens['cal-day'].tasks[0].tour = 'no-such-tour'; }, "article-tour", "the article names tour \"no-such-tour\", which does not exist"],
+];
+const GOLDEN_NOT_COVERED = [
+    "tour-no-commit: the engine itself dispatching a click, a submit or a key on a step target (the running app)",
+    "tour-no-commit: that a tour's start does only what its `start` says, and asks before closing a window that holds unsaved input (the running app)",
+    "tour-no-commit: whether a step's class is right (a numbered document, a payment and a close for good are always P, a send is T, a save is S); the manifest's class is taken as written, so a save or a send written as an unclassed do step passes (the reviewer; at on: \"sample\" also the step's safeTest, which performs the action on the sample record; at on: \"none\" no test reaches a business-wide save, so an unclassed one there, or one on a switch or a field that saves as it changes, passes and only the reviewer stops it); a practice-only step is always classed P, so an unclassed do step always names a safeTest; a stop step on a bulk control is classed T, and its class is not read either",
+    "tour-no-commit: a step classed P that also tells someone (a practice receipt that is also sent) carries one class, P; that its mode test also shows the message is held is the project's suite's (the checker reads one class)",
+    "tour-no-commit: that the practice mode's test covers every outbound path (no document number; no documents, payment or messaging provider; no calendar or webhook call): the test is named, not read",
+    "tour-shape: a device run left empty, every step of a tour marked for the other device (the reviewer)",
+    "tour-shape: two tours that open by themselves on one core screen, or a later chapter that opens by itself (the reviewer)",
+    "tour-no-commit: a step sentence that says nothing goes out, or that no one is told, where no test shows it (the reviewer, against the G-20 test or the practice mode's test)",
+    "tour-no-commit: an inventory that declares no recordAnchors, or too few, leaves on: \"none\" unjudged with no note (the running app)",
+    "tour-inventory: a result that routes to a screen the inventory does not have (only the screens a tour lists are read)",
+    "tour-no-commit: that a do step at on: \"sample\" on a control recordAnchors lists changes only the sample's record (a save that also changes a business-wide rule): the running app (tour-anchors); the checker requires only that the control is a record control, and the step's safeTest shows that nothing leaves, not what changed",
+    "tour-no-commit: a stop step followed by a step that depends on that control having been pressed (the manifest does not record what a control opens)",
+    "tour-no-commit: that the named tests exist and pass (the project's own suite)",
+    "tour-no-commit: without --inventory, none-on-record, sample-not-record, sample-not-opened, sample-no-need, do-on-bulk, do-on-container and anchor-both: the three lists are in the inventory (the run notes how many do steps it did not judge)",
+    "tour-no-commit: an anchor family whose members differ (one exports or sits on a person's record, another only shows): a listed id covers every arg of its family, so a member that was not given its own id passes; such a control gets its own id (the reviewer)",
+    "tour-no-commit: that a step marked on: \"sample\" really reaches the sample's record and no other (the bindings, in the running app: they select by the sample's record id, never the first visible row, or, inside a window opened on her, bind the window's own control); that the earlier opener opened the window the step's control sits in, that the step's need reopens that window, and that no step between them left it or opened another record (the reviewer); only the flag, and whether the control is one recordAnchors lists, are read, and recordAnchors holds only ids that resolve to the sample's record (a resolver's own id, a control in a window opened on her), while an id every row of a list carries is in containerAnchors; such an id listed in recordAnchors by mistake passes (the reviewer, and tour-anchors in the running app)",
+    "tour-shape: that a key marked viewOf really is a view of that screen (the reviewer)",
+    "tour-no-commit: that a need of reopen puts back the tour's own record, the sample's, and not the last one open, that a window opened on one person counts as open (isOpen) only while it shows the sample's record, and that the engine runs a step's need each time it reaches the step, not only after a resume or a skip: a reopen is skipped only when its window is already open on her (isOpen; a window that picks a person counts as open only while it is the tour's own and every person field it has (a second person, such as a family member or a referrer, included) holds the sample or is empty), and selectSample always runs, asking first when she picked someone since; and that while a window is open on her no second window of the same kind, open on someone else, holds the step's control where the binding finds it first (the bindings and the engine, in the running app; the reviewer of the bindings checks isOpen against every person field a window has; the suite checks only the example's bindings)",
+    "tour-anchors: every anchor (the anchors entries and the articles' too), result, condition, window and state id resolving on its screen, and a step marked on: \"sample\" resolving to the sample's record and no other (the running app)",
+    "tour-shape: whether a chapter break sits at a real result (the reviewer)",
+    "tour-anchors: a showing or stop step whose lit control responds; a test of the built engine presses the lit control of a stop step and shows that nothing happens (the running app)",
+    "tour-no-commit: that the inventory's three lists are complete: recordAnchors every id that resolves to the sample's record (a resolver's own id, a control in a window opened on her), bulkAnchors every control that acts on many people's records at once, containerAnchors every element that holds people's rows and every id each row carries; an unlisted one lets the step pass (the running app)",
+    "tour-no-commit: that what a step at on: \"none\" lands on through its result, a window (open), a wizard window (step), a screen (route or view) or a custom result, is nobody's (a menu, a filter panel), never a person's page, card or window: the manifest does not record whose it is (the reviewer)",
+    "tour-no-commit: that a person picker's step has a result that checks the sample was picked (a custom result, as appt.sample-picked), that picking saves and sends nothing by itself, and that no do step on that window's other controls comes before it, and that the step before it opened the picker's own window: the reviewer, and the bindings; the checker takes an unclassed pick step with a custom result, after a step at on: \"none\" that opened a window on the same device under no other condition, as that picker",
+    "tour-no-commit: that a step the checker takes as the opener through a recordOpen result naming its own control is a resolver's own id (a key of the bindings' anchors and records, which select by the sample's record id), never a control inside a window (the reviewer, against the bindings)",
+];
+await test('TOUR-message-steers', 'the twelfth review\'s B2: every finding kind of tour-check, each branch of its message, fails alone with its message word for word; every code the checker can emit has a row; NOT_COVERED and the app-stage usage error are word for word', async () => {
+  const why = [];
+  for (const [label, change, ...rest] of GOLDEN) {
+    const [code, message] = rest.slice(-2);
+    const noInv = rest.length === 3;
+    const m = clone(TOUR_EX);
+    const inv = noInv ? null : clone(INV_EX);
+    change(m, inv);
+    const r = tourCheck(m, inv, undefined, noInv ? [] : ['--require-stage', 'app']);
+    const f = r.out ? r.out.findings : [];
+    if (r.status !== 1 || f.length !== 1 || f[0].code !== code) { why.push(`${label}: exit ${r.status} ${JSON.stringify(f.map(x => x.code))}`); continue; }
+    if (f[0].message !== message) why.push(`${label}: the message is now ${JSON.stringify(f[0].message)}`);
+  }
+  // every code an add() in the checker can emit has a row above, so no kind is left out when one is added
+  const src = fs.readFileSync(path.join(TOURS, 'tour-check.mjs'), 'utf8');
+  const codes = new Set([...src.matchAll(/\badd\(\s*['"`][a-z-]+['"`],[\s\S]*?,\s*['"`]([a-z0-9-]+)['"`]\s*,/g)].map(x => x[1]));
+  // every finding goes through add(): the name add appears ADD_REFS times (its definition and each call, any shape:
+  // other quotes, a digit in a code, split over lines, an alias, add.call), findings is written twice (its declaration and
+  // the push inside add), and the whole checker file hashes to CHECKER_HASH (a helper a message interpolates, such as
+  // named or missing, and the text output's loc, steer an author as much as a message does). A new finding, a new branch of
+  // an existing message, a new write to findings, or any other edit of the checker turns this red until the table, the
+  // count and the hash are updated on purpose, after a reviewer has read the change
+  const ADD_REFS = 40;
+  const CHECKER_HASH = 'd0521a608d59e60e004ec9bd2c4be2ee933a44760ef1ec7b9b7cb5edf4ed7e73';
+  const refs = (src.match(/\badd\b/g) || []).length;
+  if (refs !== ADD_REFS) why.push(`the checker names add ${refs} times, not ${ADD_REFS}: a finding was added, removed or aliased without its row`);
+  const pushes = (src.match(/\bfindings\s*(\.\s*(push|unshift|splice|pop|shift|fill|copyWithin|reverse|sort)\s*\(|\.\s*length\s*=[^=]|\[|=[^=>])/g) || []).length;
+  if (pushes !== 2) why.push(`findings is written ${pushes} times, not twice (its declaration and the push inside add): a finding bypasses add() or one is removed`);
+  const { createHash } = await import('node:crypto');
+  const hash = createHash('sha256').update(src).digest('hex');
+  if (hash !== CHECKER_HASH) why.push(`the checker hashes to ${hash}, not ${CHECKER_HASH}: it changed; read the change, then update GOLDEN, ADD_REFS and CHECKER_HASH`);
+  const rows = new Set(GOLDEN.map(e => e[e.length - 2]));
+  for (const c of codes) if (!rows.has(c)) why.push(`no GOLDEN row for the finding "${c}"`);
+  if (codes.size < 34) why.push(`only ${codes.size} finding codes read from the checker`);
+  const ex = tourCheck(TOUR_EX, INV_EX);
+  if (!ex.out || JSON.stringify(ex.out.notCovered) !== JSON.stringify(GOLDEN_NOT_COVERED)) why.push(`NOT_COVERED differs: ${JSON.stringify(ex.out && ex.out.notCovered.filter(x => !GOLDEN_NOT_COVERED.includes(x)))} / missing ${JSON.stringify(GOLDEN_NOT_COVERED.filter(x => !(ex.out && ex.out.notCovered.includes(x))))}`);
+  const u = tourCheck(TOUR_EX, null, undefined, ['--require-stage', 'app']);
+  if (u.status !== 2 || !u.out || u.out.error !== "--require-stage app needs --inventory: the app's check judges every do step against recordAnchors, bulkAnchors and containerAnchors and runs tour-inventory and help-refs, and none of that runs without it") why.push(`the app-stage usage error is now ${JSON.stringify(u.out && u.out.error)}`);
+  return why.join(' · ');
+});
+await test('TOUR-stage', 'with --require-stage app the example passes and a manifest at demo fails with stage-required only; without its line it passes; another value is a usage error, and so is app without --inventory (without that line it passes)', async () => {
+  const why = [];
+  const ok = tourCheck(TOUR_EX, INV_EX, undefined, ['--require-stage', 'app']);
+  if (ok.status !== 0 || !ok.out || ok.out.findings.length) why.push(`example: exit ${ok.status}`);
+  const m = clone(TOUR_EX);
+  m.stage = 'demo';
+  const r = tourCheck(m, INV_EX, undefined, ['--require-stage', 'app']);
+  if (r.status !== 1 || !r.out || r.out.findings.map(f => f.code).join(',') !== 'stage-required') why.push(`demo: exit ${r.status} ${JSON.stringify(r.out && r.out.findings.map(f => f.code))}`);
+  const mu = tourCheck(m, INV_EX, mutant('stage-required'), ['--require-stage', 'app']);
+  if (mu.status !== 0) why.push(`mutant without M:stage-required: exit ${mu.status}`);
+  const u = sh('node', [path.join(TOURS, 'tour-check.mjs'), path.join(TOURS, 'example', 'tours.json'), '--require-stage', 'beta']);
+  if (u.status !== 2) why.push(`--require-stage beta: exit ${u.status}`);
+  // the app's check without --inventory is a usage error, never a pass; without its line it would pass
+  const ni = tourCheck(TOUR_EX, null, undefined, ['--require-stage', 'app']);
+  if (ni.status !== 2 || !ni.out || ni.out.ok !== false || !/--require-stage app needs --inventory/.test(ni.out.error)) why.push(`--require-stage app without --inventory, --json: exit ${ni.status} ${ni.raw}`);
+  const nt = sh('node', [path.join(TOURS, 'tour-check.mjs'), path.join(TOURS, 'example', 'tours.json'), '--require-stage', 'app']);
+  if (nt.status !== 2 || !/--require-stage app needs --inventory/.test(nt.stderr)) why.push(`--require-stage app without --inventory, text: exit ${nt.status} ${nt.stderr.trim()}`);
+  const nim = tourCheck(TOUR_EX, null, mutant('stage-app-inventory'), ['--require-stage', 'app']);
+  if (nim.status !== 0) why.push(`mutant without M:stage-app-inventory: exit ${nim.status}`);
+  const nd = tourCheck(TOUR_EX, null, undefined, ['--require-stage', 'demo']);
+  if (nd.status !== 1 || !nd.out || nd.out.findings.map(x => x.code).join(',') !== 'stage-required') why.push(`--require-stage demo without --inventory: exit ${nd.status}`);
+  return why.join(' · ');
+});
+await test('TOUR-demo','at stage demo, do steps that name no G-20 test are one note with their count, not findings; without the stage line they are findings', async () => {
+  const m = clone(TOUR_EX);
+  m.stage = 'demo';
+  delete tourOf(m, 'book').steps[1].safeTest;
+  delete tourOf(m, 'reminder').steps[2].safeTest;
+  const r = tourCheck(m, INV_EX);
+  const note = '2 do steps name no G-20 test; each needs one before the app runs this tour';
+  if (r.status !== 0 || !r.out || r.out.findings.length || !r.out.notes.some(n => n.check === 'tour-no-commit' && n.message === note)) return `fixture: exit ${r.status} ${JSON.stringify(r.out && { f: r.out.findings.map(f => f.code), n: r.out.notes })}`;
+  const mu = tourCheck(m, INV_EX, mutant('demo-stage'));
+  const got = mu.out ? mu.out.findings.map(f => f.code) : [];
+  if (mu.status !== 1 || got.join(',') !== 'do-no-safe-test,do-no-safe-test') return `mutant without M:demo-stage: exit ${mu.status} ${JSON.stringify(got)}`;
+  return '';
+});
+for (const [n, [code, check, rule, what, change, marker = code]] of TOUR_FIXTURES.entries()) {
+  await test(`TOUR-${n + 1}`, `tour-check: ${what} fails ${check} (${code}) and nothing else; without the line M:${marker} the checker passes it`, async () => {
+    const m = clone(TOUR_EX);
+    const inv = clone(INV_EX);
+    change(m, inv);
+    const r = tourCheck(m, inv);
+    const got = r.out ? r.out.findings.map(f => `${f.check}/${f.code}/${f.rule}`) : [];
+    if (r.status !== 1 || got.length !== 1 || got[0] !== `${check}/${code}/${rule}`) return `fixture: exit ${r.status}, findings ${JSON.stringify(got)} ${r.out ? '' : r.raw}`;
+    const mu = tourCheck(m, inv, mutant(marker));
+    if (mu.status !== 0 || !mu.out || mu.out.findings.length) return `mutant without M:${marker}: exit ${mu.status}, findings ${JSON.stringify(mu.out && mu.out.findings.map(f => f.code))} ${mu.out ? '' : mu.raw}`;
+    return '';
+  });
+}
+
 // ---------------- browser tests (one at a time) ----------------
 if (!noBrowser && pw) {
   await test('H9a+M22', 'shoot blocks remote requests, finds text cut by a clipping ancestor, and shoots every screenful', async () => {
@@ -1406,10 +2105,11 @@ if (!noBrowser && pw) {
   results.push({ id: 'browser', name: 'browser tests (set PLAYWRIGHT_MODULE, drop --no-browser)', ok: true, skip: true, why: 'SKIP: no browser this run' });
 }
 
-for (const r of results) console.log(`${r.skip ? 'SKIP' : r.ok ? 'PASS' : 'FAIL'} ${r.id.padEnd(8)} ${r.name}${r.ok && !r.skip ? '' : `\n         ${r.why}`}`);
+const report = results.map(r => `${r.skip ? 'SKIP' : r.ok ? 'PASS' : 'FAIL'} ${r.id.padEnd(8)} ${r.name}${r.ok && !r.skip ? '' : `\n         ${r.why}`}`);
 const failed = results.filter(r => !r.ok).length;
 const skipped = results.filter(r => r.skip).length;
-console.log(`${results.length - failed - skipped} passed, ${failed} failed, ${skipped} skipped`);
-if (failed) console.log(`the fixture copies are kept in ${TMP}`);
+report.push(`${results.length - failed - skipped} passed, ${failed} failed, ${skipped} skipped`);
+if (failed) report.push(`the fixture copies are kept in ${TMP}`);
 else fs.rmSync(TMP, { recursive: true, force: true });
-process.exit(failed ? 1 : 0);
+// one write, and the exit only after it has drained: process.exit right after console.log can cut a piped stdout short
+process.stdout.write(`${report.join('\n')}\n`, () => process.exit(failed ? 1 : 0));
