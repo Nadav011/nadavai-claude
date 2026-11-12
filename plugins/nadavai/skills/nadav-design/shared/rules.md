@@ -544,12 +544,12 @@ own answer on 11.11.2026: «שניהם ביחד בצורה חכמה שלא נע�
 reading [I]: both are built by this rule; they do not run the same step at the same time, and a fault one finds in
 this rule or its tools is fixed here before the other reaches that step. MediZen's standalone demo predates the rule
 and is not approved yet: it goes on to his approval as the page it is, through the rounds its own exit checklist lists
-(point 1's one-round limit is not applied to it), and is not converted; from that approval on the rule applies (the
-tag, a build plan Nadav approves, the preview as unit 1, the screens the demo did not draw designed in the preview).
-What moves from such a page to the app (its values, its component definitions as a specification, its screens as the
-reference; none of its code) and in what order: `standalone-demo-to-app.md`, which also says what of that path has
-been measured and what nobody has run yet. His decision of 10.11.2026 that its build starts only after everything is
-closed stands.
+(point 1's one-round limit is not applied to it), and is not converted into a preview of the app; from that approval
+on the rule applies (the tag, a build plan Nadav approves, the preview as unit 1, the screens the demo did not draw
+designed in the preview). What moves from such a page to the app (its values, its component definitions as a
+specification, its screens as the reference; none of its code), what runs before the tag and what after it:
+`shared/standalone-demo-to-app.md`, which also says what of that path has been measured and what nobody has run yet.
+His decision of 10.11.2026 that its build starts only after everything is closed stands.
 
 Not covered: track `site`, and track `client-demo` with no app behind it (the page is the product, or no app
 exists); SportChat v4, an app in the middle of a build that started from a standalone demo: its running build keeps
