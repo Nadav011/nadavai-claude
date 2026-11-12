@@ -94,12 +94,17 @@ const GUARD = `<script>(() => {
   const REACT_CLIENT = "javascript:throw new Error('A React form was unexpectedly submitted";
   const REACT_SERVER = "javascript:throw new Error('React form unexpectedly submitted.')";
   const isReact = (raw) => raw.startsWith(REACT_CLIENT) || raw === REACT_SERVER;
-  const LINKS = 'a[href],area[href],math[href],math [href]'; // what the rewrite reaches
+  // A MathML link is matched by its namespace and not by a <math> ancestor: an element made with createElementNS
+  // outside <math> is a link too (Firefox opens it). is() adds it to every selector below.
+  const MATHML = 'http://www.w3.org/1998/Math/MathML';
+  const mathLink = (n) => n.namespaceURI === MATHML && n.hasAttribute('href');
+  const is = (n, sel) => n.matches(sel) || mathLink(n);
+  const LINKS = 'a[href],area[href]'; // what the rewrite reaches (and a MathML link)
   const SEL = LINKS + ',form[action],[formaction]';
-  const LINK = 'a[*|href],area[href],math[href],math [href]'; // what counts as a link in a drag's path
+  const LINK = 'a[*|href],area[href]'; // what counts as a link in a drag's path (and a MathML link)
   // For a click, an auxclick and a context menu the match is wider: an <a> with no href attribute (an SVG animation
   // can give it its address) and an SVG <use> (a link it draws sits in a user-agent tree the path does not show).
-  const CLICKED = 'a,area[href],math[href],math [href],use';
+  const CLICKED = 'a,area[href],use';
   const OPENER = CLICKED + ',button:not([type=button]):not([type=reset]),input[type=submit],input[type=image]';
   const FRAMES = 'iframe,frame';
   const cancel = (e) => e.preventDefault();
@@ -117,7 +122,7 @@ const GUARD = `<script>(() => {
     if (link) el.removeAttribute('target');
   };
   const fix = (el) => {
-    if (el.matches(LINKS)) fixAttr(el, 'href', true);
+    if (is(el, LINKS)) fixAttr(el, 'href', true);
     if (el.matches('form[action]')) fixAttr(el, 'action', false);
     if (el.matches('[formaction]')) fixAttr(el, 'formaction', false);
   };
@@ -127,19 +132,19 @@ const GUARD = `<script>(() => {
     const go = () => { try { const w = fr.contentWindow; if (w && w.document) install(w); } catch { /* another origin */ } };
     go(); fr.addEventListener('load', go);
   };
-  const sweep = (root) => { if (!root.querySelectorAll) return; root.querySelectorAll(SEL).forEach(fix); root.querySelectorAll(FRAMES).forEach(adopt); };
+  const sweep = (root) => { if (!root.querySelectorAll) return; root.querySelectorAll(SEL + ',[href]').forEach((n) => is(n, SEL) && fix(n)); root.querySelectorAll(FRAMES).forEach(adopt); };
   const watch = (root) => {
     new MutationObserver((ms) => ms.forEach((m) => {
-      if (m.type === 'attributes') { if (m.target.matches(SEL)) fix(m.target); } else m.addedNodes.forEach((n) => { if (n.nodeType === 1) { if (n.matches(SEL)) fix(n); if (n.matches(FRAMES)) adopt(n); sweep(n); } });
+      if (m.type === 'attributes') { if (is(m.target, SEL)) fix(m.target); } else m.addedNodes.forEach((n) => { if (n.nodeType === 1) { if (is(n, SEL)) fix(n); if (n.matches(FRAMES)) adopt(n); sweep(n); } });
     })).observe(root, { subtree: true, childList: true, attributes: true, attributeFilter: ['href', 'action', 'formaction'] });
     sweep(root);
   };
   // 2. What the person opens himself (a new tab or window, the context menu, a drag): only the browser's default
   // is cancelled, never the app's own handlers, and only where the event's path holds a link or a submit control.
   const path = (e) => e.composedPath().filter((n) => n.nodeType === 1); // an element of any document
-  const has = (e, sel) => path(e).some((n) => n.matches(sel));
+  const has = (e, sel) => path(e).some((n) => is(n, sel));
   // a drag that the app itself made draggable is the app's own, also inside a link
-  const ownDrag = (e) => { for (const n of path(e)) { if (n.getAttribute('draggable') === 'true') return true; if (n.matches(LINK)) return false; } return false; };
+  const ownDrag = (e) => { for (const n of path(e)) { if (n.getAttribute('draggable') === 'true') return true; if (is(n, LINK)) return false; } return false; };
   const fence = (root) => {
     root.addEventListener('click', (e) => (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) && has(e, OPENER) && cancel(e), true);
     root.addEventListener('auxclick', (e) => has(e, OPENER) && cancel(e), true);
@@ -185,7 +190,7 @@ const GUARD = `<script>(() => {
       if (this && this.nodeType && !this.isConnected) { // a Text node inside a detached link activates the link
         const top = this.getRootNode();
         if (!fenced.has(top)) { fenced.add(top); fence(top); }
-        for (let n = this; n; n = n.parentNode) if (n.nodeType === 1 && n.matches(SEL)) fix(n);
+        for (let n = this; n; n = n.parentNode) if (n.nodeType === 1 && is(n, SEL)) fix(n);
       }
       return dispatch.call(this, ev);
     };
@@ -248,6 +253,9 @@ document.getElementById('card').addEventListener('dragstart', (e) => e.dataTrans
 document.getElementById('drop').addEventListener('dragover', (e) => e.preventDefault());
 document.getElementById('drop').addEventListener('drop', (e) => { e.preventDefault(); window.__drop += 1; });</script>
 <math><mi id="mml" href="https://example.com/mathml">x</mi></math>
+<p id="mbarep" style="margin:0"></p>
+<script>{ const m = document.createElementNS('http://www.w3.org/1998/Math/MathML', 'mtext'); m.id = 'mbare';
+  m.setAttribute('href', 'https://example.com/mathml-bare'); m.textContent = 'a MathML link outside math'; document.getElementById('mbarep').appendChild(m); }</script>
 <svg width="0" height="0" style="position:absolute"><defs><a id="ua" xlink:href="https://example.com/use-xlink" xmlns:xlink="http://www.w3.org/1999/xlink"><rect width="100" height="24" fill="#c9c"/></a><rect id="ico" width="20" height="20" fill="#36c"/></defs></svg>
 <svg id="usew" width="100" height="24"><use href="#ua"/></svg>
 <svg id="smilw" width="100" height="24"><a id="smila"><set attributeName="href" to="https://example.com/smil-href" begin="0s" fill="freeze"/><rect width="100" height="24" fill="#cc9"/></a></svg>
@@ -292,11 +300,10 @@ ${fault ? `<script>{ // a fault on purpose: a root made with the attachShadow of
   const ch = document.createElement('div'); ch.id = 'clonehost'; document.body.appendChild(ch);
   ch.attachShadow({ mode: 'closed', clonable: true }).innerHTML = '<a href="https://example.com/clone">clone</a>';
   const copy = ch.cloneNode(true); copy.id = 'clonecopy'; document.body.appendChild(copy);
-  // and a guarded clonable root whose host a component copies whenever the host's attributes change: a stamp the
-  // check script puts on the host is copied with it
-  const sh = document.createElement('div'); sh.id = 'stamphost'; document.body.appendChild(sh);
-  sh.attachShadow({ mode: 'closed', clonable: true }).innerHTML = '<a href="https://example.com/stamp">stamp</a>';
-  new MutationObserver(() => { const old = document.getElementById('stampcopy'); if (old) old.remove(); const c = sh.cloneNode(true); c.id = 'stampcopy'; sh.after(c); }).observe(sh, { attributes: true }); }</script>` : ''}`;
+  // and a guarded clonable root whose component replaces the host with the host's clone
+  const sh = document.createElement('div'); sh.id = 'replhost'; document.body.appendChild(sh);
+  sh.attachShadow({ mode: 'closed', clonable: true }).innerHTML = '<a href="https://example.com/repl">repl</a>';
+  setTimeout(() => { const c = sh.cloneNode(true); c.id = 'replcopy'; sh.replaceWith(c); }, 0); }</script>` : ''}`;
 const shellHtml = (query) => `<!doctype html><meta charset="utf-8"><title>shell</title>
 <iframe id="app" width="700" height="500" sandbox="${SANDBOX}" src="${APP_ORIGIN}/app${query}"></iframe>`;
 
@@ -344,6 +351,8 @@ const CASES = [
   ['middle click on an SVG link in a child document emptied by document.open', (f) => kid2(f).click('#k2s', { button: 'middle', timeout: 3000 })],
   ['middle click on a MathML element with href', click('#mml', { button: 'middle' })],
   ['Ctrl+click on a MathML element with href', click('#mml', { modifiers: ['Control'] })],
+  ['middle click on a MathML element with href that has no <math> ancestor', click('#mbarep', { button: 'middle', position: { x: 12, y: 8 } })],
+  ['Ctrl+click on that MathML element', click('#mbarep', { modifiers: ['Control'], position: { x: 12, y: 8 } })],
   ['middle click on a <use> of an SVG <a xlink:href> that sits in <defs>', click('#usew', { button: 'middle', position: { x: 10, y: 10 } })],
   ['Ctrl+click on that <use>', click('#usew', { modifiers: ['Control'], position: { x: 10, y: 10 } })],
   ['middle click on an SVG <a> with no href attribute whose address a <set> animation gives', click('#smilw', { button: 'middle', position: { x: 10, y: 10 } })],
@@ -501,13 +510,12 @@ const MODES = [
       // Every author shadow root, read through the DevTools protocol, against the guard's lists. The page's session
       // does not reach a frame that runs in a process of its own, so each such frame's session is read too, and the
       // documents listed are counted against the frames the browser has. A host is matched as an element: the script
-      // stamps the host of every root on a guard list with a token of its own for this pass and reads the stamps back
-      // from the protocol's tree. A root is listed only when its host carries a token issued in this pass that no
-      // other host carries: a host cloned before the stamp carries none or an older one, and a host cloned after the
-      // stamp carries a copy of it.
+      // resolves each host the protocol lists to an object in its own page (DOM.resolveNode) and asks the guard lists
+      // of the app's windows whether one holds a root whose host is that very object. It writes nothing on the page:
+      // a mark on a host is copied or moved with it (a clone kept beside it, a clone that replaces it).
       const RUNS = [
         ['', ''],
-        [", with three roots planted outside the wrapper (one through window.frames[i]'s attachShadow in the task that made the frame, one a clone of a clonable root, one a clone its component makes again whenever its host's attributes change)", '&fault=1'],
+        [", with three roots planted outside the wrapper (one through window.frames[i]'s attachShadow in the task that made the frame, one a clone of a clonable root kept beside its host, one a clone that replaced its host)", '&fault=1'],
         [", the same with the app's frame in a process of its own (Origin-Agent-Cluster)", '&fault=1&oac=1'],
         [", no planted root, the app's frame in a process of its own", '&oac=1'],
       ];
@@ -519,47 +527,52 @@ const MODES = [
         let frame;
         for (let i = 0; i < 20 && !frame; i += 1) { frame = page.frames().find((f) => f.url().startsWith(`${APP_ORIGIN}/app`)); if (!frame) await page.waitForTimeout(100); }
         await page.waitForTimeout(800);
-        const pass = `pass-${Date.now()}`;
-        const issued = new Set();
-        let fi = 0;
-        for (const fr of page.frames()) {
-          fi += 1;
-          try {
-            const got = await fr.evaluate((t) => {
-              if (typeof window.__guardRoots !== 'function') return [];
-              return window.__guardRoots().map((r, i) => { r.host.setAttribute('data-guard-listed', `${t}-${i}`); return `${t}-${i}`; });
-            }, `${pass}-${fi}`);
-            for (const t of got) issued.add(t);
-          } catch { /* a document the script cannot evaluate */ }
-        }
-        await page.waitForTimeout(100); // what the app does on an attribute change has run by now
         const sessions = [await ctx.newCDPSession(page)];
         for (const fr of page.frames()) {
           if (fr === page.mainFrame()) continue;
           try { sessions.push(await ctx.newCDPSession(fr)); } catch { /* this frame is part of its parent's session */ }
         }
         const attr = (n, name) => { const at = n.attributes || []; for (let i = 0; i < at.length; i += 2) if (at[i] === name) return at[i + 1]; return null; };
+        // Asked of the host itself: is it the host of a root on the guard list of its own window, or of any window of
+        // the app that this window can reach (a root made with a child window's attachShadow is on that child's list)?
+        const LISTED = `function () {
+          const own = this.ownerDocument && this.ownerDocument.defaultView;
+          if (!own) return false;
+          let top = own;
+          try { while (top.parent !== top && top.parent.document) top = top.parent; } catch (e) { /* the shell is another origin */ }
+          const wins = [];
+          const walk = (w) => { wins.push(w); for (let i = 0; i < w.frames.length; i += 1) { try { if (w.frames[i].document) walk(w.frames[i]); } catch (e) { /* another origin */ } } };
+          walk(top);
+          return wins.some((w) => typeof w.__guardRoots === 'function' && w.__guardRoots().some((r) => r.host === this));
+        }`;
         const perSession = [];
         const roots = [];
         for (const session of sessions) {
           let docs = 0;
+          const hosts = [];
           const visit = (n) => {
             if (n.nodeName === '#document') docs += 1;
-            for (const r of n.shadowRoots || []) { if (r.shadowRootType !== 'user-agent') roots.push({ id: attr(n, 'id') || `<${n.localName}>`, token: attr(n, 'data-guard-listed') }); visit(r); }
+            for (const r of n.shadowRoots || []) { if (r.shadowRootType !== 'user-agent') hosts.push(n); visit(r); }
             for (const c of n.children || []) visit(c);
             if (n.contentDocument) visit(n.contentDocument);
             if (n.templateContent) visit(n.templateContent);
           };
           visit((await session.send('DOM.getDocument', { depth: -1, pierce: true })).root);
           perSession.push(docs);
+          for (const n of hosts) {
+            let listed = false;
+            try {
+              const { object } = await session.send('DOM.resolveNode', { backendNodeId: n.backendNodeId });
+              const { result } = await session.send('Runtime.callFunctionOn', { objectId: object.objectId, functionDeclaration: LISTED, returnByValue: true });
+              listed = result.value === true;
+            } catch { /* a host that cannot be resolved counts as not listed */ }
+            roots.push({ id: attr(n, 'id') || `<${n.localName}>`, listed });
+          }
         }
         const docsListed = perSession.reduce((x, y) => x + y, 0);
         const frames = page.frames().length;
-        const seen = new Map();
-        for (const r of roots) if (r.token) seen.set(r.token, (seen.get(r.token) || 0) + 1);
-        const none = roots.filter((r) => !r.token || !issued.has(r.token)).map((r) => r.id);
-        const twice = roots.filter((r) => r.token && issued.has(r.token) && seen.get(r.token) > 1).map((r) => r.id);
-        console.log(`-- shadow roots read through the DevTools protocol${label}: ${sessions.length} session(s), the page's own lists ${perSession[0]} document(s), all of them ${docsListed} for ${frames} frame(s)${docsListed < frames ? ' (FEWER: the check fails)' : ''}; ${roots.length} author root(s) [${roots.map((r) => r.id).join(', ')}]; on no guard list: ${none.length ? none.join(', ') : 'none'}; a token found on two hosts: ${twice.length ? twice.join(', ') : 'none'}${none.length || twice.length ? ' (the check fails)' : ''}`);
+        const none = roots.filter((r) => !r.listed).map((r) => r.id);
+        console.log(`-- shadow roots read through the DevTools protocol${label}: ${sessions.length} session(s), the page's own lists ${perSession[0]} document(s), all of them ${docsListed} for ${frames} frame(s)${docsListed < frames ? ' (FEWER: the check fails)' : ''}; ${roots.length} author root(s) [${roots.map((r) => r.id).join(', ')}]; host of no root on a guard list: ${none.length ? none.join(', ') + ' (the check fails)' : 'none'}`);
         await ctx.close();
       }
     }

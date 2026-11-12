@@ -4,7 +4,7 @@ A reading aid for `rules.md`, «An app is built once», point 5: the proofs of t
 each with its pass and fail condition. It adds no rule. Where this list and point 5 differ, point 5 holds and the
 difference is a fault to report («Where a fault goes»). Source: the eleventh independent review of the rule
 (11.11.2026), which wrote the list for a Next app with a Capacitor shell, in Hebrew and RTL, corrected against point 5
-by the twelfth to the seventeenth; a Vite app reads "the root layout's `<head>`" as its `index.html` and skips the
+by the twelfth to the eighteenth; a Vite app reads "the root layout's `<head>`" as its `index.html` and skips the
 lines that name Next. A fail stops the unit. Each planted case is shown failing first, then passing clean.
 
 1. **Start-up environment proof** (5a).
@@ -46,9 +46,11 @@ lines that name Next. A fail stops the unit. Each planted case is shown failing 
    - Pass: one of each kind the app has keeps its effect: a modifier click, a context menu, a drag, and a form whose
      action is a function, rendered in the browser and, where the app renders one on the server, after hydration. The
      expected losses, and only these: a modified or middle click on an app link opens nothing; a modified click on an
-     icon drawn with an SVG `<use>` loses the browser's default for it, while the app's handler runs; a modified click
-     on an app submit, or Shift+Enter in a form that has a submit button (in Chromium), sends no form and runs no form
-     action.
+     icon drawn with an SVG `<use>` loses the browser's default for it, while the app's handler runs; the browser's
+     own menu does not open over a link, an `<a>`, an image or a `<use>` icon; a library's context menu or
+     modified-click action over such an element does not run where the library checks `defaultPrevented` before its
+     own step (Radix does), while a plain click is untouched; a modified click on an app submit, or Shift+Enter in a
+     form that has a submit button (in Chromium), sends no form and runs no form action.
    - Fail: any other effect missing.
 7. **The frame's planted cases, in Chromium and in WebKit** (5c; WebKit in the Playwright image as `working-style.md`
    routes it, with `--network host` so it reaches a preview that listens on loopback, and with every request outside
@@ -82,8 +84,8 @@ lines that name Next. A fail stops the unit. Each planted case is shown failing 
       is rewritten, and a Ctrl click it dispatches on that link comes back cancelled; a document the guard cannot be
       in, one the walk cannot evaluate, and a request or a navigation the walk causes each fail it); in Chromium the
       shadow roots read through the DevTools protocol, on the page's session and on the session of each frame in a
-      process of its own, each have a host that is the host of a root on a guard list (the same element, not the same
-      id or a count; a mark on a host counts only when no other host carries it), and the documents listed, the
+      process of its own, each have a host that is the host of a root on a guard list (the same object, resolved
+      through the protocol and asked of the guard lists; not an id, a count or a mark), and the documents listed, the
       shell's own apart, are not fewer than the documents the walk visited; that check is shown failing on a closed
       root that planted code makes through `window.frames[i]`'s `attachShadow` in the task that made the frame and on
       the clone of a planted `clonable` root, once as the preview runs and once with `Origin-Agent-Cluster: ?1` on the
@@ -113,7 +115,8 @@ lines that name Next. A fail stops the unit. Each planted case is shown failing 
       (`preview-floor-notes.md`, "Unproven until a real unit 1").
 15. **No-demo check** (point 4), locally for unit 1 and in the landing CI after it; for a Capacitor or Expo app also
     in the OTA bundle's build command.
-    - Pass: a planted import from the demo folder fails the web build and the OTA bundle's build; and where the
-      preview shows a frame of the app with `allow-same-origin` or as `srcdoc`, that variant is a component under the
-      demo folder, so the same planted import covers it.
-    - Fail: either builds, or the production component carries a branch for the preview.
+    - Pass: a planted import of a demo-folder module that holds no invented data fails the web build's check and the
+      OTA bundle's (the check reads the build's module list or a source map's `sources`, not only the invented data's
+      markers); where the preview shows a frame of the app with `allow-same-origin` or as `srcdoc`, that variant is
+      such a module.
+    - Fail: either builds, or the production build's module list holds a module of the demo folder.
