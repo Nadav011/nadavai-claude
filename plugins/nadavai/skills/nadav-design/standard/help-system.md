@@ -252,28 +252,34 @@ written for each of them. Two layers:
   control that saves as it changes, a switch or a field with no save button, saves too; `T`
   tells a real person; `P` is permanent or charges); for every do step, `on`: `"sample"` when it
   acts on the sample record, `"none"` when it acts on no person's record (an empty slot, a
-  filter, a settings tab, a field in a form that has its own save); a save of a business-wide
-  setting, including a switch or a field that saves as it changes, is a stop step, never a do
-  step [I]. A practice-only step and a do step that opens a person's record carry
-  `"sample"`, and `"none"` on a control the inventory lists on a person's record or row
+  filter, a settings tab, a field in a settings form that has its own save); a save of a
+  business-wide setting, including a switch or a field that saves as it changes, is a stop
+  step, never a do step [I]. A practice-only step and a do step that opens a person's record
+  carry
+  `"sample"`, and `"none"` on a control the inventory lists as the sample's
   (`recordAnchors`, on any of its screens, since a tour reaches screens it does not list), or
   with a result (`present`, `fieldChanged`) that names one or a container, is a finding; for a
   step at `"none"` that filters a list or opens a window, the result names the state
   (`stateEquals`) or the window (`open`), not a control inside it, and a window only when it is
-  nobody's (a menu, a filter panel); a list or a row of people goes in `containerAnchors` or
-  `recordAnchors`, and the step lights the sample's own row at `"sample"` [I].
-  `recordAnchors` lists every `data-tour` id that one person's record or row carries: the row
-  and each control on it, an
-  appointment (the plain id a resolver picks among, such as `cal.appointment`, as well as the
-  resolver's own id), every control inside a window, card or sheet opened on one person (her
-  appointment, payment, chat, document); an id listed on one screen counts on every screen [I].
-  A control that picks a person in a window opened on nobody (a patient picker) is listed in
-  `recordAnchors`, and its step's result checks that the sample was picked (a `custom` result,
+  nobody's (a menu, a filter panel); a list of people, and the plain id every row in it
+  carries, go in `containerAnchors`, and the step lights the sample's own row at `"sample"`
+  through a resolver's own id [I]. `recordAnchors` holds only ids that resolve to the sample's
+  own record: a resolver's own id that picks her row (`cal.ended-appointment`), and every
+  control inside a window, card or sheet opened on her (her appointment, payment, chat,
+  document); an id listed on one screen counts on every screen [I]. An id that every person's
+  row in a list carries, the row's plain id (`cal.appointment`, `patients.row`) or a control on
+  each row (`patients.charge`), binds the first visible row, a real person's whenever the sample
+  is not first: it is a container and goes in `containerAnchors`, never in `recordAnchors` [I].
+  The one exception: a control that picks a person in a window opened on nobody (a patient
+  picker) is listed in `recordAnchors`, and its step's result checks that the sample was picked
+  (a `custom` result,
   as `appt.sample-picked`) [I]. `containerAnchors` lists every element that holds people's rows
-  or records (a list, a column, the calendar grid): the lit target of a do step is live, so a do
-  step lit on one is a finding at any `on` and any class, and a tour lights the sample's own row
-  or control at `"sample"`, through a resolver that picks it and is listed in `recordAnchors`,
-  or, for an empty slot, the slot through a resolver (`cal.free-slot`) at `"none"` [I].
+  or records (a list, a column, the calendar grid) and every id each row of such a list carries:
+  the lit target of a do step is live, so a do step lit on one is a finding at any `on` and any
+  class, and a tour lights the sample's own row or control at `"sample"`, through a resolver's
+  own id that picks it and is listed in `recordAnchors` (`cal.ended-appointment`, never the
+  plain id every row carries), or, for an empty slot, the slot through a resolver
+  (`cal.free-slot`) at `"none"` [I].
   `bulkAnchors` lists every control that exports, prints, downloads, shares, imports or
   otherwise acts on many people's records at once (select all, a bulk send, a bulk delete, an
   import, `cal.print`): a tour never does one, so a do step on it, or whose result names it, is
@@ -283,13 +289,15 @@ written for each of them. Two layers:
   arg of its family, so a control that exports, prints or acts on many people, or that sits on a
   person's record, gets its own id and is never one arg of a family whose other members differ.
   A filter, a sort or a search acts on no record and is in none of the lists [I]. A step that
-  finds a person (a search) and opens her record is split: it filters at `"none"` with a
-  `stateEquals` result, and the next step lights the sample's own row at `"sample"` through a
-  resolver, with the `recordOpen` result, or is a stop step [I]. A do step
+  finds a person (a search) and opens her record is split: it filters or opens at `"none"`
+  with a `stateEquals` or `open` result (a window that is nobody's), and the next step lights
+  the sample's own row at `"sample"` through a resolver, with the `recordOpen` result, or is a
+  stop step [I]. A do step
   classed `S` (it saves) that does not carry `"sample"` is a finding too, and with the inventory
   so is a do step at `"sample"`, of any class, on a control no `recordAnchors` lists. When the
-  control sits on the sample's record or row, or in a window opened on her, the fix is in the
-  inventory: list it in `recordAnchors` and keep `"sample"`. Only a control that is nobody's
+  control sits in a window opened on her, the fix is in the inventory: list it in
+  `recordAnchors` and keep `"sample"`; when it sits on her row in a list, it is lit through a
+  resolver's own id that picks her row, and that id is listed. Only a control that is nobody's
   record changes the step (a save of a business-wide rule is then a stop step), and this finding
   is never answered by setting `"none"` [I]. Beyond that the checker reads only the flag and
   whether the control is listed: that the bindings then reach the sample's record and no other,
@@ -330,7 +338,9 @@ given key or changed, the window or card of the record behind an anchor is open 
 patient, a customer, an appointment, a document addressed to someone), a wizard reached step N,
 a field changed from its start and is not empty, a state value equals X; anything else is
 `custom`, named in the manifest and written in the bindings. Whose record a do step acts on is
-its `on`, whatever the result kind. The bindings own visibility: a hit on the target, inside it
+its `on`, whatever the result kind; at `"none"` a result of any kind (`open`, `step`, `route`,
+`view`, `custom`) lands only on what is nobody's, never a person's page, card or window [I].
+The bindings own visibility: a hit on the target, inside it
 or on its ancestor counts as covering it, a target clipped by an ancestor's overflow is not on
 screen, and a target inside an inner scroll box is scrolled into that box's view before the step
 shows.

@@ -4,9 +4,9 @@
     "cal-week": {
       "title": "יומן · שבוע",
       "menu": true,
-      "recordAnchors": ["cal.appointment", "cal.ended-appointment", "appt.happened", "appt.note", "appt.paid", "pay.method", "pay.confirm", "pay.practice-receipt"],
+      "recordAnchors": ["cal.ended-appointment", "appt.happened", "appt.note", "appt.paid", "pay.method", "pay.confirm", "pay.practice-receipt"],
       "bulkAnchors": ["cal.print"],
-      "containerAnchors": ["cal.grid"],
+      "containerAnchors": ["cal.grid", "cal.appointment"],
       "tasks": [
         { "text": "לקבוע תור", "tour": "book", "anchors": ["cal.new-appointment", "appt.save"] },
         { "text": "לסגור טיפול שהסתיים", "tour": "close-1", "anchors": ["appt.happened", "appt.note", "appt.paid"] },
@@ -16,9 +16,9 @@
     "cal-day": {
       "title": "יומן · יום",
       "viewOf": "cal-week",
-      "recordAnchors": ["cal.appointment", "cal.ended-appointment", "appt.happened", "appt.note", "appt.paid", "pay.method", "pay.confirm", "pay.practice-receipt"],
+      "recordAnchors": ["cal.ended-appointment", "appt.happened", "appt.note", "appt.paid", "pay.method", "pay.confirm", "pay.practice-receipt"],
       "bulkAnchors": ["cal.print"],
-      "containerAnchors": ["cal.grid"],
+      "containerAnchors": ["cal.grid", "cal.appointment"],
       "menu": true,
       "tasks": [
         { "text": "לקבוע תור", "tour": "book" },
@@ -36,7 +36,7 @@
     "patients": {
       "title": "מטופלים",
       "menu": true,
-      "recordAnchors": ["patients.row", "patients.charge"],
+      "containerAnchors": ["patients.row", "patients.charge"],
       "tasks": [
         { "text": "לגבות ממי שלא שילם", "tour": "pat-debt", "anchors": [{ "anchor": "patients.filter", "arg": "debt" }, "patients.charge"] }
       ]
