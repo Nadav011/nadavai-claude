@@ -19,7 +19,9 @@
 //                      - registers those listeners on the window and on every shadow root made with attachShadow;
 //                      - installs itself in every same-origin child document, when its frame is added, when it
 //                        loads and when the app's code reaches for it, and fences a tree that is not in the
-//                        document before a script dispatches an event in it;
+//                        document before a script dispatches an event at any node of it; its listeners are
+//                        on the window as well as on each document, and window.__guard(win) installs it again
+//                        in a document that document.open emptied;
 //   2. frame only      the same frame with no guard;
 //   3. top level       no frame and no guard (the control).
 // Nothing leaves the machine: the test browser aborts every request that is not to 127.0.0.1 and records it, and
@@ -176,10 +178,10 @@ const GUARD = `<script>(() => {
     // top node gets the same listeners and the target its rewrite.
     const dispatch = win.EventTarget.prototype.dispatchEvent;
     win.EventTarget.prototype.dispatchEvent = function dispatchEventFenced(ev) {
-      if (this && this.nodeType === 1 && !this.isConnected) {
+      if (this && this.nodeType && !this.isConnected) { // a Text node inside a detached link activates the link
         const top = this.getRootNode();
         if (!fenced.has(top)) { fenced.add(top); fence(top); }
-        if (this.matches(SEL)) fix(this);
+        for (let n = this; n; n = n.parentNode) if (n.nodeType === 1 && n.matches(SEL)) fix(n);
       }
       return dispatch.call(this, ev);
     };
@@ -200,13 +202,16 @@ const GUARD = `<script>(() => {
     perWindow(win);
     watch(doc);
     doc.addEventListener('DOMContentLoaded', () => sweep(doc));
+    fence(win); // the guard is the first script, so on the window its listeners run before the app's
     fence(doc);
     try { if (win !== window && doc.documentElement) doc.documentElement.style.setProperty('-webkit-touch-callout', 'none'); } catch { /* not there yet */ }
   };
   install(window);
-  window.__guard = install; // for the app's own code, where a child document is made in a way the guard does not see
+  // For the app's own code, where a child document is made or emptied in a way the guard does not see.
+  // document.open keeps the Document object and removes its listeners, so the document's mark is cleared first.
+  window.__guard = (w) => { try { w.document.__guard = false; } catch { return; } install(w); };
 })();</script><style>:root,a,area,img{-webkit-touch-callout:none}</style>`;
-const appHtml = (guard) => `<!doctype html><meta charset="utf-8"><title>app</title>${guard ? GUARD : ''}
+const appHtml = (guard, fault) => `<!doctype html><meta charset="utf-8"><title>app</title>${guard ? GUARD : ''}
 <a id="tel" href="tel:+12025550123">call</a>
 <a id="mailto" href="mailto:someone@example.com">mail</a>
 <a id="sms" href="sms:+12025550123">sms</a>
@@ -232,6 +237,8 @@ document.getElementById('drop').addEventListener('dragover', (e) => e.preventDef
 document.getElementById('drop').addEventListener('drop', (e) => { e.preventDefault(); window.__drop += 1; });</script>
 <math><mi id="mml" href="https://example.com/mathml">x</mi></math>
 <button type="button" id="synth">a handler dispatches a Ctrl click on a link that is not in the document</button>
+<button type="button" id="synthtext">a handler dispatches a Ctrl click on the text inside such a link</button>
+<iframe id="kid2" width="200" height="40"></iframe>
 <iframe id="kid" width="320" height="70"></iframe><div id="realmhost" style="display:inline-block"></div>
 <script>{ const d = document.getElementById('kid').contentDocument;
   d.body.innerHTML = '<a id="kl" href="https://example.com/kid-link">kid link</a><form action="https://example.com/kid-form" method="post"><input id="kq" name="q" size="4"></form><form id="kg" action="/would-open" method="post"><input id="kgq" name="q" size="4"></form>';
@@ -239,6 +246,11 @@ document.getElementById('drop').addEventListener('drop', (e) => { e.preventDefau
   const rr = d.defaultView.Element.prototype.attachShadow.call(document.getElementById('realmhost'), { mode: 'closed' });
   rr.innerHTML = '<a href="https://example.com/realm-link" style="display:inline-block;padding:6px">realm link</a><form action="https://example.com/realm-form" method="post"><input name="q" size="4"></form>';
   window.__realmInput = rr.querySelector('input'); window.__realmA = rr.querySelector('a');
+  document.getElementById('synthtext').addEventListener('click', () => { const a = document.createElement('a'); a.href = 'https://example.com/synthetic-text'; a.textContent = 'x';
+    a.firstChild.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window, ctrlKey: true })); });
+  { const k2 = document.getElementById('kid2'); const d2 = k2.contentDocument; d2.open();
+    d2.write('<a id="k2l" href="https://example.com/kid2-link">kid2</a> <svg width="60" height="20"><a id="k2s" xlink:href="https://example.com/kid2-svg" xmlns:xlink="http://www.w3.org/1999/xlink"><rect width="60" height="20" fill="#ccc"/></a></svg>');
+    d2.close(); if (window.__guard) window.__guard(k2.contentWindow); }
   document.getElementById('synth').addEventListener('click', () => { const a = document.createElement('a'); a.href = 'https://example.com/synthetic-ctrl';
     a.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window, ctrlKey: true })); }); }</script>
 <svg width="120" height="24"><a id="svga" xlink:href="https://example.com/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><rect width="120" height="24" fill="#ccc"/></a></svg>
@@ -253,14 +265,22 @@ document.getElementById('drop').addEventListener('drop', (e) => { e.preventDefau
   o.innerHTML = '<a href="https://example.com/open">open link</a>';
   window.__openA = o.querySelector('a');
   setTimeout(() => { const late = document.createElement('a'); late.href = 'https://example.com/closed-late'; late.textContent = 'late'; r.appendChild(late); window.__lateA = late; }, 50); }</script>
-${reactBundle ? `<div id="ssr">${ssrHtml}</div><div id="root"></div><script src="/react.js"></script><script src="/react-app.js"></script>` : ''}`;
+${reactBundle ? `<div id="ssr">${ssrHtml}</div><div id="root"></div><script src="/react.js"></script><script src="/react-app.js"></script>` : ''}
+${fault ? `<script>{ // a fault on purpose: a root made with the attachShadow of a frame's window, taken in the task that made the frame
+  const fr = document.createElement('iframe'); fr.width = 10; fr.height = 10; document.body.appendChild(fr);
+  const w = window.frames[window.frames.length - 1];
+  const host = document.createElement('div'); host.id = 'faulthost'; document.body.appendChild(host);
+  const rr = w.Element.prototype.attachShadow.call(host, { mode: 'closed' });
+  rr.innerHTML = '<a href="https://example.com/fault">fault</a>'; }</script>` : ''}`;
 const shellHtml = (query) => `<!doctype html><meta charset="utf-8"><title>shell</title>
 <iframe id="app" width="700" height="500" sandbox="${SANDBOX}" src="${APP_ORIGIN}/app${query}"></iframe>`;
 
 const serve = (port, handler) => new Promise((r) => { const s = http.createServer(handler); s.listen(port, '127.0.0.1', () => r(s)); });
 
 const click = (sel, opts) => (f) => f.click(sel, { timeout: 3000, ...opts });
-const kid = (f) => { const k = f.childFrames()[0]; if (!k) throw new Error('no child frame'); return k; };
+const kidN = (f, i) => { const k = f.childFrames()[i]; if (!k) throw new Error('no child frame ' + i); return k; };
+const kid = (f) => kidN(f, 1); // kid2 comes first in the page
+const kid2 = (f) => kidN(f, 0);
 const CASES = [
   ['click <a href="tel:">', click('#tel')],
   ['click <a href="mailto:">', click('#mailto')],
@@ -295,6 +315,8 @@ const CASES = [
   ["middle click on a link in a closed shadow root made with the child document's attachShadow", click('#realmhost', { button: 'middle', position: { x: 12, y: 10 } })],
   ['Shift+Enter in a one-field form in that shadow root', async (f) => { await f.evaluate(() => window.__realmInput.focus()); await f.page().keyboard.press('Shift+Enter'); }],
   ['a handler dispatches a Ctrl click on a link that is not in the document', click('#synth')],
+  ['a handler dispatches a Ctrl click on the text node inside a link that is not in the document', click('#synthtext')],
+  ['middle click on an SVG link in a child document emptied by document.open', (f) => kid2(f).click('#k2s', { button: 'middle', timeout: 3000 })],
   ['middle click on a MathML element with href', click('#mml', { button: 'middle' })],
   ['Ctrl+click on a MathML element with href', click('#mml', { modifiers: ['Control'] })],
 ];
@@ -327,9 +349,9 @@ const APP_CONTROLS = async (f) => {
   }));
   return { ...r, errors };
 };
-// The walk a check script makes after each screen: in every same-origin document under the app's frame, a link the
-// script plants is rewritten and a Ctrl click it dispatches on that link comes back cancelled. A document where
-// either is missing has no working guard.
+// The walk a check script makes after each screen: in every document under the app's frame, whatever its URL or
+// origin, a link the script plants is rewritten and a Ctrl click it dispatches on that link comes back cancelled.
+// A document where either is missing, or that the walk cannot evaluate, has no working guard.
 const WALK = async (f) => {
   const out = [];
   const visit = async (fr, name) => {
@@ -371,7 +393,7 @@ const MODES = [
     if (u.startsWith('/react-app.js')) { res.writeHead(200, { 'content-type': 'text/javascript' }); return res.end(REACT_APP); }
     if (u.startsWith('/px.svg')) { res.writeHead(200, { 'content-type': 'image/svg+xml' }); return res.end('<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40"><rect width="40" height="40" fill="#89a"/></svg>'); }
     res.writeHead(200, /policy=1/.test(u) ? { 'content-type': 'text/html', 'content-security-policy': APP_POLICY } : { 'content-type': 'text/html' });
-    res.end(u.startsWith('/would-open') ? '<!doctype html><title>would open</title><p id="would">would have opened</p>' : appHtml(/guard=1/.test(u)));
+    res.end(u.startsWith('/would-open') ? '<!doctype html><title>would open</title><p id="would">would have opened</p>' : appHtml(/guard=1/.test(u), /fault=1/.test(u)));
   });
   // Chromium: no name is ever resolved, so not even a DNS lookup for example.com leaves the host.
   const browser = await pw[browserName].launch(browserName === 'chromium' ? { ignoreDefaultArgs: ['--disable-dev-shm-usage'], args: ['--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1'] } : {});
@@ -442,6 +464,37 @@ const MODES = [
       if (external.length) console.log(`-- outside requests during the controls and the walk: ${external.join(', ')}`);
       if (r.errors && r.errors.length) console.log(`-- steps that did not play: ${r.errors.join(' || ')}`);
       await ctx.close();
+    }
+    if (browserName === 'chromium' && policy) {
+      for (const fault of [false, true]) {
+        const ctx = await browser.newContext();
+        await ctx.route('**/*', (route) => (route.request().url().startsWith('http://127.0.0.1:') ? route.continue() : route.abort()));
+        const page = await ctx.newPage();
+        await page.goto(`http://127.0.0.1:${SHELL}/${query}${fault ? '&fault=1' : ''}`);
+        let frame;
+        for (let i = 0; i < 20 && !frame; i += 1) { frame = page.frames().find((f) => f.url().startsWith(`${APP_ORIGIN}/app`)); if (!frame) await page.waitForTimeout(100); }
+        await page.waitForTimeout(800);
+        const cdp = await ctx.newCDPSession(page);
+        const { root } = await cdp.send('DOM.getDocument', { depth: -1, pierce: true });
+        const hosts = [];
+        const idOf = (n) => { const a = n.attributes || []; for (let i = 0; i < a.length; i += 2) if (a[i] === 'id') return a[i + 1]; return `<${n.localName}>`; };
+        const visit = (n) => {
+          for (const r of n.shadowRoots || []) { if (r.shadowRootType !== 'user-agent') hosts.push(idOf(n)); visit(r); }
+          for (const c of n.children || []) visit(c);
+          if (n.contentDocument) visit(n.contentDocument);
+          if (n.templateContent) visit(n.templateContent);
+        };
+        visit(root);
+        const listed = [];
+        const collect = async (fr) => {
+          try { listed.push(...await fr.evaluate(() => (typeof window.__guardRoots === 'function' ? window.__guardRoots().map((r) => r.host.id || `<${r.host.localName}>`) : []))); } catch { /* a document the script cannot evaluate */ }
+          for (const c of fr.childFrames()) await collect(c);
+        };
+        await collect(frame);
+        const none = hosts.filter((h) => !listed.includes(h));
+        console.log(`-- shadow roots read through the DevTools protocol${fault ? ", with a root planted through window.frames[i]'s attachShadow in the task that made the frame" : ''}: ${hosts.length} author root(s) [${hosts.join(', ')}]; on no guard list: ${none.length ? none.join(', ') : 'none'}`);
+        await ctx.close();
+      }
     }
     console.log(`-- ${mode}: ${out} of ${CASES.length} cases attempted a request outside`);
   }

@@ -41,7 +41,7 @@ a loopback address the fence does not allow, so nothing leaves the host and an u
 
 ## The shell frame and the guard (run on 11.11.2026 with Playwright 1.65 and React 19.3.1)
 
-`dev/probes/frame-sandbox/probe.cjs` runs thirty-five ways out of an app page in four set-ups: in a sandboxed frame
+`dev/probes/frame-sandbox/probe.cjs` runs thirty-seven ways out of an app page in four set-ups: in a sandboxed frame
 (`sandbox="allow-scripts allow-same-origin allow-forms allow-modals"`, the shell on a second port with `frame-src` set
 to the app's origin only) with a guard in the app and the app's own policy on its responses (`default-src 'self'`,
 `form-action 'self'`, `base-uri 'none'`, inline script and style allowed), which is the rule's set-up; in the same
@@ -53,39 +53,43 @@ carries `download`). It cancels the browser's default, never the app's handlers,
 another button where the event's path holds a link or a submit control, for the context menu where it holds a link or
 an image, and for a drag of a link the app did not make draggable. It cancels every form submission whose destination
 is outside the two origins, except the two placeholders React writes for a function action (one in the browser, one on
-the server). Through a wrapped `attachShadow` it registers those listeners, and runs the same rewrite with its
-observer, on every shadow root, and through a wrapped `dispatchEvent` on the top node of a tree that is not in a
-document before the page's code dispatches an event there. And it installs itself in every same-origin child document:
-when its frame is added, when the frame loads, and when the app's code reads the frame's `contentWindow` or
-`contentDocument`. What belongs to a window (the wrappers, the list of roots) is set once for the window, and what
-belongs to a document (the rewrite, the listeners) once for each document. The test browser aborts and records every
-request that is not to 127.0.0.1. Cases that attempted a request outside:
+the server). Its listeners are on the window and on each document. Through a wrapped `attachShadow` it registers those
+listeners, and runs the same rewrite with its observer, on every shadow root, and through a wrapped `dispatchEvent` on
+the top node of a tree that is not in a document before the page's code dispatches an event at any node of it. And it
+installs itself in every same-origin child document: when its frame is added, when the frame loads, and when the app's
+code reads the frame's `contentWindow` or `contentDocument`; `window.__guard(win)` installs it again in a document
+that `document.open` emptied. What belongs to a window (the wrappers, the list of roots) is set once for the window,
+and what belongs to a document (the rewrite, the listeners) once for each document. The test browser aborts and
+records every request that is not to 127.0.0.1. Cases that attempted a request outside:
 
 | Browser | frame + guard + app policy | frame + guard | frame only | top level (control) |
 |---|---|---|---|---|
-| Chromium 158 | 0 of 35 | 0 of 35 | 18 of 35 | 26 of 35 |
-| WebKit 27.2 | 0 of 35 | 0 of 35 | 2 of 35 | 18 of 35 |
-| Firefox 159 | 0 of 35 | 1 of 35 | 13 of 35 | 28 of 35 |
+| Chromium 158 | 0 of 37 | 0 of 37 | 19 of 37 | 28 of 37 |
+| WebKit 27.2 | 0 of 37 | 0 of 37 | 2 of 37 | 19 of 37 |
+| Firefox 159 | 0 of 37 | 1 of 37 | 15 of 37 | 30 of 37 |
 
 - Frame only, what went out. Chromium: a middle click, a Ctrl+click and a Shift+click on a link to another origin; a
   middle click on an SVG `<a xlink:href>` and on a link inside a closed shadow root; a Ctrl+click and a Shift+click on
   a form's submit button; Shift+Enter in a form with one field and no button, in the page, inside a closed shadow
   root, and in the two forms whose own `submit` listener sets the destination; a Shift+click on a button whose
   `formaction` is another origin; and all six cases in a child document the page fills and in a closed shadow root
-  made with that document's `attachShadow` (two clicks on a link, two forms, a link and a form in the root). Each form
-  in the page went to the other origin in a new page. A middle click on a submit button sent nothing. Firefox: the
-  three clicks on the link; the middle clicks on the SVG link and on the link in the closed shadow root; the two
-  clicks on the link and the two forms in the child document, and the link in the root made with its `attachShadow`; a
-  Ctrl click that a handler dispatches on a link that is not in the document; and a middle click and a Ctrl+click on a
-  MathML element with `href`. WebKit: the two forms in the child document, which navigated the child in place.
+  made with that document's `attachShadow` (two clicks on a link, two forms, a link and a form in the root); and a
+  middle click on an SVG link in a child document emptied by `document.open`. Each form in the page went to the other
+  origin in a new page. A middle click on a submit button sent nothing. Firefox: the three clicks on the link; the
+  middle clicks on the SVG link and on the link in the closed shadow root; the two clicks on the link and the two
+  forms in the child document, and the link in the root made with its `attachShadow`; a Ctrl click that a handler
+  dispatches on a link that is not in the document, and one it dispatches on the text node inside such a link; the SVG
+  link in the child document emptied by `document.open`; and a middle click and a Ctrl+click on a MathML element with
+  `href`. WebKit: the two forms in the child document, which navigated the child in place.
 - Frame only, what did not go out in any of the three: `location.assign` and `location.replace` to another origin, a
   plain click on a link to another origin, `window.open`, an `<a target="_blank">`, a write to `top.location` (it
   throws `SecurityError`), a plain form post to another origin, and plain clicks on `tel:`, `mailto:` and `sms:` links
   and `location.href = 'tel:…'`.
-- With the guard and the app's policy, none of the thirty-five went out in any of the three. With the guard and no app
-  policy one did, in Firefox: the form in the child document whose `submit` listener sets its destination navigated
-  the child there in place. A child document's navigation is fenced by the app's own policy (`form-action` and
-  `default-src`), not by the shell's `frame-src`, and Firefox reads the destination before the guard's observer runs.
+- With the guard and the app's policy, none of the thirty-seven went out in any of the three. With the guard and no
+  app policy one did, in Firefox: the form in the child document whose `submit` listener sets its destination
+  navigated the child there in place. A child document's navigation is fenced by the app's own policy (`form-action`
+  and `default-src`), not by the shell's `frame-src`, and Firefox reads the destination before the guard's observer
+  runs.
 - A destination set during the submit (the thirteenth review's run in Chromium 158, then this probe). The browser
   reads a form's destination after the `submit` event, so a listener that runs after the guard's own can change it.
   Under a guard that only looked at the destination in its `submit` listener, a one-field form whose own listener set
@@ -101,15 +105,42 @@ request that is not to 127.0.0.1. Cases that attempted a request outside:
   closed shadow root made through that document's `attachShadow` went out in Chromium (7 of 9) and Firefox (4 of 9).
   With the guard installing itself in the child, none did. Chromium gives the frame's window a new document when the
   frame loads and keeps the window, so a guard that kept its list of roots for each document lost the roots made
-  before the load (measured here); the list is kept for each window. A walk over every same-origin document under the
-  frame, which plants a link and dispatches a Ctrl click on it, found the link rewritten and the click cancelled in
-  the page and in the child with the guard, and neither without it. Not run: a child document rewritten by
-  `document.open`, which removes a document's listeners, and a frame reached as `window.frames[i]` in the task that
-  created it.
+  before the load (measured here); the list is kept for each window. A walk over every document under the frame, which
+  plants a link and dispatches a Ctrl click on it, found the link rewritten and the click cancelled in the page and in
+  each child with the guard, and neither without it (with the frame alone in Chromium the walk's own click sends the
+  frame to an error page, after which the children cannot be evaluated; in Firefox it sends a request).
+- A child document emptied by `document.open` (the fifteenth review's run, then this probe). `document.open` keeps the
+  Document object and removes its listeners; the guard's observer survived, so links written afterwards were
+  rewritten, but an SVG link there, which the rewrite does not reach, went out on a middle click in Chromium and
+  Firefox, and the walk reported the click not cancelled. An installer that skipped a document it had seen did nothing
+  when the app called it. With the installer clearing the document's mark first, the walk found the click cancelled
+  there and the SVG link went nowhere, in all three.
+- A shadow root the guard never wrapped (the fifteenth review's run, then this probe in Chromium). In one task a
+  script appended a frame, took `attachShadow` from `window.frames[i].Element.prototype` (a read that goes through no
+  getter the guard wraps, before its observer has run) and made a closed root with it on an element of the page: a
+  middle and a Ctrl click on a link in that root went out in Chromium and Firefox, and a Shift+Enter in a form there
+  in Chromium, while the walk passed in every document. Read through the DevTools protocol (`DOM.getDocument` with
+  `pierce`), the page's author roots were four, each on a guard list; with such a root planted they were five, and the
+  planted one was on none. The probe matches hosts by their ids; a project's script resolves each host or compares
+  counts. The protocol check exists in Chromium only.
+- A document the guard cannot be in (the fifteenth review's run, not part of this probe): an `<iframe
+  sandbox="allow-scripts allow-forms" srcdoc>` has an opaque origin, and installing the guard there throws. A middle
+  click, a Ctrl click and a Shift+Enter there went out in Chromium under the rule's set-up, the two clicks in Firefox,
+  none in WebKit. The walk reaches that document and reports the link not rewritten and the click not cancelled; a
+  walk that skipped documents by URL or by `location.origin` would miss it, since both read `about:blank` or `null` in
+  every such child. An `<object>` of a same-origin page that does not carry the guard went out in Chromium and Firefox
+  too, and the walk failed on it in all three.
+- A listener of the app's on the window (the fifteenth review's run, not part of this probe): a capture listener on
+  `window` that stops a modified or middle click ran before a guard that listened on the document only, and an SVG
+  link went out in Chromium and Firefox. With the guard's listeners on the window as well, registered first, it did
+  not, in all three.
 - A click the page dispatches itself (the fourteenth review's run, then this probe). In Firefox a click with `ctrlKey`
-  that a handler dispatched on a link that is not in the document opened a new page from the sandboxed frame (frame
-  only: out); Chromium and WebKit opened nothing. With the guard's `dispatchEvent` wrapper it went nowhere in any of
-  the three.
+  that a handler dispatched on a link opened a new page from the sandboxed frame, whether the link was in the document
+  (the walk's own click, in the fifteenth review's run) or not (frame only: out); Chromium and WebKit opened nothing.
+  With the guard's `dispatchEvent` wrapper the detached case went nowhere in any of the three. A wrapper that fenced
+  only an element target let a Ctrl click dispatched on the text node inside a detached link out in Firefox under the
+  rule's set-up (the fifteenth review's run); the wrapper here fences any node, and that case went nowhere in any of
+  the three (with the frame alone it went out in Firefox only).
 - MathML (the fourteenth review's run, then this probe). In Firefox a MathML element with `href` is a link: a middle
   click and a Ctrl+click on one went out with the frame only, and not with the guard. Chromium and WebKit made no
   request for it in any set-up.
@@ -232,6 +263,13 @@ report as not shown.
 - Next: that the guard runs before every chunk on a cold and a warm load; how React treats an `href` the guard
   rewrote, at hydration and on a later render (a mismatch line in the console is expected and was neither measured nor
   cited); a Next server action (a form whose `action` is empty) after hydration.
+- A PDF the app shows in a frame (the clinic app frames a document from its invoicing provider): plug-ins are off in a
+  sandboxed frame, so it is probably blocked or downloaded, and the guard cannot be in a PDF viewer.
+- Desktop: "Go to …" on selected text that reads as an address, and a drag of selected text to the tab bar.
+- `HTMLElement.prototype.click()` on a link that is not in the document does not pass through `dispatchEvent`; with a
+  key held on the button that ran it, it opened nothing in the three browsers (the fifteenth review's run), which is
+  today's engines and not a rule.
+- An `<embed>` document, which has no `contentDocument` for the guard to wrap; the walk is what shows it.
 - Firefox: its own context menu on Shift+right-click, which a cancelled `contextmenu` does not stop; "Open Link in New
   Tab" there uses the link's current address, which the guard rewrote for an `<a>` and not for an SVG `<a>` or a
   MathML `href`.

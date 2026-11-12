@@ -4,9 +4,8 @@ A reading aid for `rules.md`, «An app is built once», point 5: the proofs of t
 each with its pass and fail condition. It adds no rule. Where this list and point 5 differ, point 5 holds and the
 difference is a fault to report («Where a fault goes»). Source: the eleventh independent review of the rule
 (11.11.2026), which wrote the list for a Next app with a Capacitor shell, in Hebrew and RTL, corrected against point 5
-by the twelfth, the thirteenth and the fourteenth; a Vite app reads "the root layout's `<head>`" as its `index.html`
-and skips the lines that name Next. A fail stops the unit. Each planted case is shown failing first, then passing
-clean.
+by the twelfth to the fifteenth; a Vite app reads "the root layout's `<head>`" as its `index.html` and skips the lines
+that name Next. A fail stops the unit. Each planted case is shown failing first, then passing clean.
 
 1. **Start-up environment proof** (5a).
    - Pass: the server refuses to serve with one planted variable that is not on the allowlist, and with one planted
@@ -76,12 +75,15 @@ clean.
     - Fail: one of them passes.
 11. **Scripted journey** (5b, 5c).
     - Pass: the recorded requests include no other origin; the walk after each screen finds the guard working in every
-      same-origin document under the frame (a link the script plants is rewritten, and a Ctrl click it dispatches on
-      that link comes back cancelled); the scan after each screen finds no link or form destination outside the two
-      origins in any document of the frame or any shadow root on the guard's list, no rewritten destination whose
-      first address is neither inert on the ledger nor invented, and no contact the ledger marks as replaced; no
-      `Location` header outside the two origins comes from the app's server or the fake backend; and the app's port
-      opened at top level, without the check script's flag, renders only the notice.
+      document under the frame, whatever its URL or origin (a link the script plants is rewritten, and a Ctrl click it
+      dispatches on that link comes back cancelled; a document the guard cannot be in, one the walk cannot evaluate,
+      and a request or a navigation the walk causes each fail it); in Chromium the shadow roots read through the
+      DevTools protocol are each on a guard list; the scan after each screen finds no link or form destination outside
+      the two origins in any document of the frame or any shadow root on the guard's list, no link or form to the
+      local page, the guard's or the app's own, whose first address is neither inert on the ledger nor invented, and
+      no contact the ledger marks as replaced, read as the destination scan reads; no `Location` header outside the
+      two origins comes from the app's server or the fake backend; and the app's port opened at top level, without the
+      check script's flag, renders only the notice.
     - Fail: any of these.
 12. **Data** (5c).
     - Pass: every email address in the fake data and in the fake backend's recorded responses is `.invalid` or
