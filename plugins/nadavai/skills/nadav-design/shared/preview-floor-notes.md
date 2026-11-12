@@ -233,8 +233,21 @@ records every request that is not to 127.0.0.1. Cases that attempted a request o
   its `load` late) was unguarded until then: a middle and a Ctrl click on its link went out under the rule's set-up in
   Chromium and Firefox, not in WebKit, and the walk run after `load` passed. Reached through the `src` of a new frame
   the same page did not go out. With the guard as that page's first script it went nowhere in any of the three. So
-  every HTML file the preview serves starts with the guard, the local page included (this probe's local page carries
-  it).
+  every HTML file the preview serves carries the guard, the local page included (this probe's local page carries it).
+  Where it can sit (the twentieth review's run, not part of this probe): Next 16.4 with Turbopack writes four `async`
+  chunk tags before the root layout's `<head>` children, so a guard placed first in that `<head>` is the fifth script
+  tag of `index.html` and of `_not-found.html`, and `_global-error.html`, which Next renders without the root layout,
+  held no guard at all; Vite 8's dev server puts its module client before the guard unless a plugin injects the guard
+  with `transformIndexHtml` ordered `post` and `head-prepend`, and `vite build` keeps the guard first. So the static
+  check accepts `async`, `defer` and module scripts before the guard, and that the guard runs first stays a run-time
+  proof. Other same-origin documents the guard reaches only at their frame's `load` (the same run): with a late
+  `load`, a middle and a Ctrl click on a link went out under the rule's set-up from a `srcdoc` set on a frame that
+  already held a document (Chromium and Firefox), from a `javascript:` URL document (Chromium; Firefox hung and was
+  not measured), from a `blob:` page reached by the frame's navigation once the policy allowed `frame-src blob:`
+  (Chromium and Firefox; the policy as committed blocks it) and from an SVG file of the public folder opened as a page
+  (Chromium and Firefox). WebKit kept each of them in, `blob:` not measured there. A `srcdoc` or a `blob:` page set as
+  the `src` of a new frame did not go out. In an SVG document `a.href = …` sets a property and no attribute, so a walk
+  plants its link with `setAttribute`.
 - Keyboard activation (the nineteenth review's run, not part of this probe): Ctrl+Enter and Shift+Enter on a focused
   `<a>`, and Ctrl+Enter on a focused SVG `<a tabindex="0">`, went out with the frame alone in Chromium and Firefox and
   nowhere under the rule's set-up in any of the three. A MathML element with `xlink:href` and no `href` is not a link
@@ -384,6 +397,12 @@ report as not shown.
   key held on the button that ran it, it opened nothing in the three browsers (the fifteenth review's run), which is
   today's engines and not a rule.
 - An `<embed>` document, which has no `contentDocument` for the guard to wrap; the walk is what shows it.
+- Other same-origin documents the guard's own install reaches only at their frame's `load` (beyond a `srcdoc` set
+  later, a `javascript:` URL, a `blob:` page and an SVG file): the destination rules stand behind them.
+- The root listing still reports one guarded arrangement as unlisted, which fails closed (the twentieth review's run):
+  a frame inside a shadow root navigates to a served page, which runs a guard of its own, and that child window's
+  `attachShadow` is used on an element of the page; the function reaches windows through `window.frames`, which does
+  not count a frame inside a shadow root. An app that does this stops at «Where a fault goes».
 - The app's frame in a process of its own in a person's own Chrome, which may key processes by origin with no header
   at all: the check script reads every frame's session, and nobody has run it against a real preview.
 - A drag of an SVG link that `<use>` draws, or of an SVG `<a>` whose address an animation gives, and any other element

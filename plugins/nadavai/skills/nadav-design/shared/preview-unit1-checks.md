@@ -4,9 +4,9 @@ A reading aid for `rules.md`, «An app is built once», point 5: the proofs of t
 each with its pass and fail condition. It adds no rule. Where this list and point 5 differ, point 5 holds and the
 difference is a fault to report («Where a fault goes»). Source: the eleventh independent review of the rule
 (11.11.2026), which wrote the list for a Next app with a Capacitor shell, in Hebrew and RTL, corrected against point 5
-by the twelfth to the nineteenth; a Vite app reads "the root layout's `<head>`" as its `index.html` and skips the
-lines that name Next. A fail stops the unit. Each proof is shown failing first, through the planted cases its browser
-can show going out, then passing clean.
+by the twelfth to the twentieth; a Vite app reads "the root layout's `<head>`" as its `index.html` and skips the lines
+that name Next. A fail stops the unit. Each proof is shown failing first, through the planted cases its browser can
+show going out, then passing clean.
 
 1. **Start-up environment proof** (5a).
    - Pass: the server refuses to serve with one planted variable that is not on the allowlist, and with one planted
@@ -42,8 +42,10 @@ can show going out, then passing clean.
      11 is what shows it there, and what fails on a document it is not in), and runs before any other script on a cold
      load and on a warm one (one way to show it: a test script that records `attachShadow` calls and link creation
      finds none before the guard). Every HTML response the journey records and every HTML file in the public folder
-     starts with it too.
-   - Fail: a script, a shadow root or a link before it, or an HTML document the preview serves without it.
+     holds it before any script that is not `async`, `defer` or a module (the framework's own chunk tags may come
+     first in the file); on Next `app/global-error` carries it as well.
+   - Fail: a script that ran, a shadow root or a link made before it; or an HTML document the preview serves without
+     it, or with a script before it that is not `async`, `defer` or a module.
 6. **The app's own forms and controls inside the frame, effect checked** (5c).
    - Pass: one of each kind the app has keeps its effect: a modifier click, a context menu, a drag, and a form whose
      action is a function, rendered in the browser and, where the app renders one on the server, after hydration. The
@@ -78,8 +80,9 @@ can show going out, then passing clean.
 10. **Static fault checks** (5c).
     - Pass: a planted `shadowrootmode` and a planted `shadowrootclonable` in served HTML and in a served script file,
       a planted `setHTMLUnsafe` and `parseHTMLUnsafe` call and a planted `clonable` option of `attachShadow` in the
-      client code, a planted `document.open`, `document.write` or `document.writeln` in the app's own code, and a
-      planted HTML file in the public folder that does not start with the guard each fail the check.
+      client code, a planted `document.open`, `document.write` or `document.writeln` in the app's own code, a planted
+      HTML file in the public folder that holds no guard, and a planted SVG file there that holds a link each fail the
+      check.
     - Fail: one of them passes.
 11. **Scripted journey** (5b, 5c).
     - Pass: the recorded requests include no other origin; the walk after each screen visits at least one document and
@@ -123,5 +126,5 @@ can show going out, then passing clean.
       the OTA bundle's build (the check reads the build's module list or its source maps' `sources`, the server's as
       well as the browser's, not only the invented data's markers); where the preview shows a frame of the app with
       `allow-same-origin` or as `srcdoc`, that variant is such a module.
-    - Fail: the check passes with that import, the OTA bundle builds with it, or the production build's module list or
-      any of its source maps, the server's included, names a module of the demo folder.
+    - Fail: the check passes with that import, the OTA bundle builds with it, or, on the clean build, the production
+      build's module list or any of its source maps, the server's included, names a module of the demo folder.

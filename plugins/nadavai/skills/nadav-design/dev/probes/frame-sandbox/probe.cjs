@@ -169,7 +169,7 @@ const GUARD = `<script>(() => {
   // it whole, because a frame inside a shadow root is not in window.frames and a helper frame can be gone by the
   // time the check script asks.
   const roots = [];
-  // Once per window: the wrappers and the list of roots. A window can get a new document and keeps both.
+  // Once per window: the wrappers. A window can get a new document and keeps them; the list of roots is the guard's.
   const perWindow = (win) => {
     const had = Object.getOwnPropertyDescriptor(win, '__guardRoots');
     if (had && had.writable === false) return; // a guard already holds this window
