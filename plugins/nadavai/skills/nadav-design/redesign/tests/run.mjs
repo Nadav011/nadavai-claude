@@ -1406,6 +1406,12 @@ const TOUR_FIXTURES = [
   ['article-anchor', 'help-refs', 'G-02, G-19', 'an article names a control nothing knows', (m, i) => { i.screens['cal-day'].tasks[0].anchors = ['cal.no-such-button']; }],
   ['article-tour', 'help-refs', 'G-02, G-19', 'an article names a tour that does not list its task', (m, i) => { i.screens['cal-day'].tasks[0].tour = 'close-1'; }],
   ['article-tour', 'help-refs', 'G-02, G-19', 'an article names a tour that does not exist', (m, i) => { i.screens['cal-day'].tasks[0].tour = 'no-such-tour'; }],
+  ['do-on-container', 'tour-no-commit', 'G-08', 'the tenth review\'s P: a practice-only step classed P at on: sample lit on the calendar grid, which the inventory lists on cal-day only', (m, i) => { delete i.screens['cal-week'].containerAnchors; m.anchors['appt.paid'] = { screens: ['cal-week'], what: 'שולם' }; tourOf(m, 'close-3').steps[1].anchor = 'cal.grid'; }],
+  ['do-on-container', 'tour-no-commit', 'G-08', 'the tenth review\'s W: a do step at on: none lit on the calendar grid, shown on the computer only (when)', m => { m.tours.push({ id: 'w', title: 'x', screens: ['cal-week'], area: 'יומן', where: 'יומן', tasks: [], steps: [{ kind: 'do', act: 'open', on: 'none', when: 'desktop', anchor: 'cal.grid', result: { kind: 'open', arg: 'appt.drawer' }, safeTest: 'e2e/x.spec.ts: y', text: 'פותחים תור.' }], finish: 'סוף.' }); }],
+  ['do-on-container', 'tour-no-commit', 'G-08', 'the tenth review\'s S2: a do step at on: none lit on the calendar grid, which the inventory lists on cal-day (the second screen) only', (m, i) => { delete i.screens['cal-week'].containerAnchors; m.tours.push({ id: 's2', title: 'x', screens: ['cal-week'], area: 'יומן', where: 'יומן', tasks: [], steps: [{ kind: 'do', act: 'open', on: 'none', anchor: 'cal.grid', result: { kind: 'open', arg: 'appt.drawer' }, safeTest: 'e2e/x.spec.ts: y', text: 'פותחים תור.' }], finish: 'סוף.' }); }],
+  ['do-on-container', 'tour-no-commit', 'G-08', 'the tenth review\'s S1: a do step at on: none lit on the calendar grid, which the inventory lists on cal-week (the first screen) only', (m, i) => { delete i.screens['cal-day'].containerAnchors; m.tours.push({ id: 's1', title: 'x', screens: ['cal-week'], area: 'יומן', where: 'יומן', tasks: [], steps: [{ kind: 'do', act: 'open', on: 'none', anchor: 'cal.grid', result: { kind: 'open', arg: 'appt.drawer' }, safeTest: 'e2e/x.spec.ts: y', text: 'פותחים תור.' }], finish: 'סוף.' }); }],
+  ['do-on-container', 'tour-no-commit', 'G-08', 'the tenth review\'s A: a do step at on: none that picks (act pick) on the calendar grid', m => { m.tours.push({ id: 'a', title: 'x', screens: ['cal-week'], area: 'יומן', where: 'יומן', tasks: [], steps: [{ kind: 'do', act: 'pick', on: 'none', anchor: 'cal.grid', result: { kind: 'open', arg: 'appt.drawer' }, safeTest: 'e2e/x.spec.ts: y', text: 'בוחרים תור.' }], finish: 'סוף.' }); }],
+  ['none-on-record', 'tour-no-commit', 'G-08', 'the tenth review\'s R: a do step at on: none whose result names the calendar grid with an arg ({ anchor, arg })', m => { tourOf(m, 'book').steps[1].result = { kind: 'present', arg: { anchor: 'cal.grid', arg: 'week' } }; }],
 ];
 await test('TOUR-0', 'tour-check passes the example manifest clean, with and without the inventory, its bindings cover every id that is not a data-tour anchor, a reopen puts back the sample\'s record, and a resolver of a step marked "sample" selects by the sample\'s id', async () => {
   const why = [];
@@ -1668,6 +1674,33 @@ await test('TOUR-bulk-show', 'a showing step and a stop step on a bulk control (
   m.tours.push({ id: 'cal-print', title: 'הדפסה', screens: ['cal-week'], area: 'יומן', where: 'יומן', tasks: [], steps: [{ kind: 'next', anchor: 'cal.print', text: 'כאן מדפיסים את היומן.' }, { kind: 'stop', class: 'T', anchor: 'cal.print', text: '"הדפסה" מוציאה את תורי כולם.' }], finish: 'סוף.' });
   const r = tourCheck(m, INV_EX, undefined, ['--require-stage', 'app']);
   return r.status === 0 && r.out && !r.out.findings.length ? '' : `exit ${r.status} ${JSON.stringify(r.out && r.out.findings.map(f => f.code))}`;
+});
+await test('TOUR-container-show', 'the tenth review\'s N: a showing step and a stop step lit on the calendar grid (a container) pass: only a do step lit on one is a finding', async () => {
+  const m = clone(TOUR_EX);
+  m.tours.push({ id: 'n', title: 'x', screens: ['cal-week'], area: 'יומן', where: 'יומן', tasks: [], steps: [{ kind: 'next', anchor: 'cal.grid', text: 'זה היומן.' }, { kind: 'stop', class: 'S', anchor: 'cal.grid', text: 'גרירה ביומן מזיזה תור.' }], finish: 'סוף.' });
+  const r = tourCheck(m, INV_EX, undefined, ['--require-stage', 'app']);
+  return r.status === 0 && r.out && !r.out.findings.length ? '' : `exit ${r.status} ${JSON.stringify(r.out && r.out.findings.map(f => f.code))}`;
+});
+await test('TOUR-save-stop-message', 'the tenth review\'s K5d: the reminder save at on: sample with no class fails sample-not-record only, and its message, like the S and the practice-only one, says a save on a control that is nobody\'s record is a stop step, so following it ends at the example\'s own stop step', async () => {
+  const why = [];
+  const clause = 'a save there (a business-wide setting) is a stop step, never a do step';
+  const save = { kind: 'do', act: 'open', on: 'sample', anchor: 'settings.save', result: { kind: 'present', arg: 'settings.saved-toast' }, safeTest: 'e2e/x.spec.ts: saving the rule sends nothing', text: 'לוחצים "שמירה".' };
+  const cases = [
+    ['no class (K5d)', m => { tourOf(m, 'reminder').steps[3] = { ...save }; }],
+    ['classed S (K5)', m => { tourOf(m, 'reminder').steps[3] = { ...save, class: 'S' }; }],
+    ['practice-only', m => { tourOf(m, 'close-3').steps[3].anchor = 'pay.month-close'; }],
+  ];
+  for (const [what, change] of cases) {
+    const m = clone(TOUR_EX);
+    change(m);
+    const r = tourCheck(m, INV_EX, undefined, ['--require-stage', 'app']);
+    const f = r.out ? r.out.findings : [];
+    if (r.status !== 1 || f.length !== 1 || f[0].code !== 'sample-not-record' || !f[0].message.includes(clause)) why.push(`${what}: exit ${r.status} ${JSON.stringify(f.map(x => [x.code, x.message]))}`);
+  }
+  // the step the clause leads to is the example's own: the reminder save as a stop step classed S, which passes
+  const stop = tourOf(TOUR_EX, 'reminder').steps[3];
+  if (stop.kind !== 'stop' || stop.anchor !== 'settings.save') why.push(`the example's reminder step 4 is no longer the stop step on settings.save (${JSON.stringify(stop)})`);
+  return why.join(' · ');
 });
 await test('TOUR-stage', 'with --require-stage app the example passes and a manifest at demo fails with stage-required only; without its line it passes; another value is a usage error, and so is app without --inventory (without that line it passes)', async () => {
   const why = [];

@@ -256,14 +256,20 @@ written for each of them. Two layers:
   (`recordAnchors`, on any of its screens, since a tour reaches screens it does not list), or
   with a result (`present`, `fieldChanged`) that names one or a container, is a finding; for a
   step that filters a list or opens a window, the result names the state (`stateEquals`) or the
-  window (`open`), not a control inside it [I]. `recordAnchors` lists every `data-tour` id that
-  one person's record or row carries: the row and each control on it, an appointment (the plain
-  id a resolver picks among, such as `cal.appointment`, as well as the resolver's own id), every
-  control inside a window, card or sheet opened on one person (her appointment, payment, chat,
-  document); an id listed on one screen counts on every screen [I]. `containerAnchors` lists
-  every element that holds people's rows or records (a list, a column, the calendar grid): the
-  lit target of a do step is live, so a do step lit on one is a finding at any `on` and any
-  class, and a tour lights the sample's own row or control through a resolver that picks it [I].
+  window (`open`), not a control inside it, and a window only when it is nobody's (a menu, a
+  filter panel); a list or a row of people goes in `containerAnchors` or `recordAnchors`, and
+  the step lights the sample's own row at `"sample"` [I]. `recordAnchors` lists every
+  `data-tour` id that one person's record or row carries: the row and each control on it, an
+  appointment (the plain id a resolver picks among, such as `cal.appointment`, as well as the
+  resolver's own id), every control inside a window, card or sheet opened on one person (her
+  appointment, payment, chat, document); an id listed on one screen counts on every screen [I].
+  A control that picks a person in a window opened on nobody (a patient picker) is listed in
+  `recordAnchors`, and its step's result checks that the sample was picked (a `custom` result,
+  as `appt.sample-picked`) [I]. `containerAnchors` lists every element that holds people's rows
+  or records (a list, a column, the calendar grid): the lit target of a do step is live, so a do
+  step lit on one is a finding at any `on` and any class, and a tour lights the sample's own row
+  or control through a resolver that picks it, or, for an empty slot, the slot through a resolver
+  (`cal.free-slot`) [I].
   `bulkAnchors` lists every control that exports, prints, downloads, shares or otherwise acts on
   many people's records at once (select all, a bulk send, a bulk delete, `cal.print`): a tour
   never does one, so a do step on it, or whose result names it, is a finding at any `on` and any
@@ -325,8 +331,8 @@ file; a later change to a tour is a change to the file, made once. The app's man
 same file with `stage` changed from `demo` to `app` and every do step's test named, and the
 app's own check run always passes `--inventory inventory.json --require-stage app`, so a
 manifest still at `demo` fails there; `--require-stage app` without `--inventory` is a usage
-error (exit 2), because the check of `on: "none"` against `recordAnchors`, `tour-inventory` and
-`help-refs` all read the inventory [I]. In an app whose demo lives in the app's own preview,
+error (exit 2), because the checks against `recordAnchors`, `bulkAnchors` and
+`containerAnchors`, `tour-inventory` and `help-refs` all read the inventory [I]. In an app whose demo lives in the app's own preview,
 tours are authored once, in the app, against this format.
 
 A help article is data keyed by the screen key. Each numbered task names the tour that shows it
