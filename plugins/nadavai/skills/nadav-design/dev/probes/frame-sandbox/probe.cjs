@@ -165,11 +165,14 @@ const GUARD = `<script>(() => {
     return d.__guardSheet;
   };
   const fenced = new WeakSet();
+  // One list for the guard: every root its wrappers made, in whichever window. Each window the guard holds returns
+  // it whole, because a frame inside a shadow root is not in window.frames and a helper frame can be gone by the
+  // time the check script asks.
+  const roots = [];
   // Once per window: the wrappers and the list of roots. A window can get a new document and keeps both.
   const perWindow = (win) => {
     const had = Object.getOwnPropertyDescriptor(win, '__guardRoots');
     if (had && had.writable === false) return; // a guard already holds this window
-    const roots = [];
     // The list is for the check script, which cannot reach a closed root by itself. The page's code cannot replace it.
     Object.defineProperty(win, '__guardRoots', { value: () => roots.map((w) => w.deref()).filter((r) => r && r.host.isConnected), writable: false, configurable: false });
     // Every shadow root gets the same listeners and the same rewrite: a closed root hides its path and its links.
@@ -433,7 +436,7 @@ const MODES = [
     const head = /policy=1/.test(u) ? { 'content-type': 'text/html', 'content-security-policy': APP_POLICY } : { 'content-type': 'text/html' };
     if (/oac=1/.test(u)) head['origin-agent-cluster'] = '?1'; // Chromium then gives the app's frame its own process
     res.writeHead(200, head);
-    res.end(u.startsWith('/would-open') ? '<!doctype html><title>would open</title><p id="would">would have opened</p>' : appHtml(/guard=1/.test(u), /fault=1/.test(u)));
+    res.end(u.startsWith('/would-open') ? `<!doctype html><title>would open</title>${GUARD}<p id="would">would have opened</p>` : appHtml(/guard=1/.test(u), /fault=1/.test(u)));
   });
   // Chromium: no name is ever resolved, so not even a DNS lookup for example.com leaves the host.
   const browser = await pw[browserName].launch(browserName === 'chromium' ? { ignoreDefaultArgs: ['--disable-dev-shm-usage'], args: ['--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1'] } : {});
@@ -534,13 +537,13 @@ const MODES = [
         }
         const attr = (n, name) => { const at = n.attributes || []; for (let i = 0; i < at.length; i += 2) if (at[i] === name) return at[i + 1]; return null; };
         // Asked of the host itself: is it the host of a root on the guard list of its own window, or of any window of
-        // the app that this window can reach (a root made with a child window's attachShadow is on that child's list)?
+        // the app that this window can reach (a document that runs a guard script of its own keeps its own list)?
         const LISTED = `function () {
           const own = this.ownerDocument && this.ownerDocument.defaultView;
           if (!own) return false;
           let top = own;
           try { while (top.parent !== top && top.parent.document) top = top.parent; } catch (e) { /* the shell is another origin */ }
-          const wins = [];
+          const wins = [own];
           const walk = (w) => { wins.push(w); for (let i = 0; i < w.frames.length; i += 1) { try { if (w.frames[i].document) walk(w.frames[i]); } catch (e) { /* another origin */ } } };
           walk(top);
           return wins.some((w) => typeof w.__guardRoots === 'function' && w.__guardRoots().some((r) => r.host === this));

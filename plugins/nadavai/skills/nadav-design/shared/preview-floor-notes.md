@@ -67,9 +67,9 @@ calls on a live document and 12 by the first call after `document.open`, and fou
 the ping's name made it skip, which the walk caught). In a document that runs a guard script of its own (a frame that
 loads one of the app's pages) the first call adds one more set of listeners, because that guard's flag is in another
 closure, and later calls add none (the eighteenth review: 12 on the first of 20 calls, then 0; the click there stayed
-cancelled). What belongs to a window (the wrappers, the list of roots) is set once for the window, and what belongs to
-a document (the rewrite, the listeners) once for each document. The test browser aborts and records every request that
-is not to 127.0.0.1. Cases that attempted a request outside:
+cancelled). What belongs to a window (the wrappers) is set once for the window, the list of roots once for the guard,
+and what belongs to a document (the rewrite, the listeners) once for each document. The test browser aborts and
+records every request that is not to 127.0.0.1. Cases that attempted a request outside:
 
 | Browser | frame + guard + app policy | frame + guard | frame only | top level (control) |
 |---|---|---|---|---|
@@ -115,11 +115,12 @@ is not to 127.0.0.1. Cases that attempted a request outside:
   closed shadow root made through that document's `attachShadow` went out in Chromium (7 of 9) and Firefox (4 of 9).
   With the guard installing itself in the child, none did. Chromium gives the frame's window a new document when the
   frame loads and keeps the window, so a guard that kept its list of roots for each document lost the roots made
-  before the load (measured here); the list is kept for each window. A walk over every document under the frame, which
-  plants a link and dispatches a Ctrl click on it, found the link rewritten and the click cancelled in the page and in
-  each child with the guard, and neither without it (with the frame alone in Chromium the walk's own click sends the
-  frame to an error page, after which the children cannot be evaluated; in WebKit and Firefox the probe recorded the
-  request for the walk's own link, which the test browser aborted).
+  before the load (measured here); the list was then kept for each window, and is now one list for the guard (below).
+  A walk over every document under the frame, which plants a link and dispatches a Ctrl click on it, found the link
+  rewritten and the click cancelled in the page and in each child with the guard, and neither without it (with the
+  frame alone in Chromium the walk's own click sends the frame to an error page, after which the children cannot be
+  evaluated; in WebKit and Firefox the probe recorded the request for the walk's own link, which the test browser
+  aborted).
 - A child document emptied by `document.open` (the fifteenth review's run, then this probe). `document.open` keeps the
   Document object and removes its listeners; the guard's observer survived, so links written afterwards were
   rewritten, but an SVG link there, which the rewrite does not reach, went out on a middle click in Chromium and
@@ -135,19 +136,25 @@ is not to 127.0.0.1. Cases that attempted a request outside:
   a closed `clonable` root kept beside its host, and a clone that replaced its guarded host, both below) they were
   eight, and each of the three planted ones was the host of no root on a guard list. A host is matched as an element:
   the probe resolves each host the protocol lists to an object in its own page (`DOM.resolveNode`) and calls a
-  function on it (`Runtime.callFunctionOn`) that asks the guard lists of the app's windows, its own and every one it
-  can reach, whether one holds a root whose host is that very object (a root made with a child window's `attachShadow`
-  on an element of the page is on the child's list). It writes nothing on the page. A mark on the host did not work,
-  because the app can copy or move it with the host: one token for the whole pass passed a clone made after the stamp
-  in all 18 of the seventeenth review's runs, and a token for each host passed a clone that replaced its host and so
-  carried the only copy (the eighteenth review's run, in the page's process and out of it); each of those clones'
-  links went out in Chromium and Firefox. The guard defines its list of roots as a property the page's code cannot
-  replace; code written to deceive the check can still feed the list (the eighteenth review patched
-  `Array.prototype.filter`), which is not what the guard is for. Matching by id passed a clone made a task later,
-  which keeps its host's id; comparing counts passes an unguarded root when a guarded one is missing from the listing,
-  and passes 0 against 0, so a count is only ever an extra check (the sixteenth review). The protocol check exists in
-  Chromium only. A root is made by the app's code, which is the same in every engine, so Chromium's listing stands for
-  the other two, except for code that branches on the engine (unproven list).
+  function on it (`Runtime.callFunctionOn`) that asks the guard list of its own window, and of every window it can
+  reach from the top of the app, whether one holds a root whose host is that very object. The guard keeps one list of
+  the roots it wrapped and every window it holds returns it whole. With a list for each window, a guarded root was
+  reported as the host of no listed root when its frame sat inside a shadow root (`window.frames` does not count such
+  a frame) and when a helper frame was removed before or after its wrapped `attachShadow` was used (the nineteenth
+  review's run, in the page's process and out of it): the check failed closed and would have stopped a legitimate app.
+  With one list, each of those passed and the planted roots still failed; nested frames and a host adopted into
+  another document passed either way. The other windows are still asked, because a document that runs a guard script
+  of its own keeps its own list. It writes nothing on the page. A mark on the host did not work, because the app can
+  copy or move it with the host: one token for the whole pass passed a clone made after the stamp in all 18 of the
+  seventeenth review's runs, and a token for each host passed a clone that replaced its host and so carried the only
+  copy (the eighteenth review's run, in the page's process and out of it); each of those clones' links went out in
+  Chromium and Firefox. The guard defines its list of roots as a property the page's code cannot replace; code written
+  to deceive the check can still feed the list (the eighteenth review patched `Array.prototype.filter`), which is not
+  what the guard is for. Matching by id passed a clone made a task later, which keeps its host's id; comparing counts
+  passes an unguarded root when a guarded one is missing from the listing, and passes 0 against 0, so a count is only
+  ever an extra check (the sixteenth review). The protocol check exists in Chromium only. A root is made by the app's
+  code, which is the same in every engine, so Chromium's listing stands for the other two, except for code that
+  branches on the engine (unproven list).
 - The app's frame in a process of its own (the sixteenth review's run, then this probe in Chromium). With
   `Origin-Agent-Cluster: ?1` on the app's responses (the sixteenth review also ran it together with
   `--isolate-origins`; the seventeenth found that the flag alone, on two ports of one host, did not move the frame,
@@ -184,11 +191,12 @@ is not to 127.0.0.1. Cases that attempted a request outside:
   guard cancels (the eighteenth review's run in three browsers, with React 19.3.1 and Radix's `composeEventHandlers`
   copied from the clinic app's dependencies; not part of this probe): a Ctrl click on a trigger's `<use>` icon ran the
   app's handler and skipped the library's step, and a right click on a `<use>` icon or on an image inside a
-  context-menu trigger did not open the library's menu, while on the trigger's text both ran and a plain click was
-  never affected. Base UI's button does not gate its click that way (read, not run). The drag layer keeps the narrower
-  match, so that a draggable card with such an icon keeps its drag. The scan after each screen reads an animation's
-  `to`, `from` and `values` for those two attributes, which the earlier scan of `href` and `xlink:href` attributes
-  missed.
+  context-menu trigger did not open the library's menu (the same holds, read and not run, for a modified click on a
+  submit control, which the guard cancels outside a form too), while on the trigger's text both ran and a plain click
+  was never affected. Base UI's button does not gate its click that way (read, not run). The drag layer keeps the
+  narrower match, so that a draggable card with such an icon keeps its drag. The scan after each screen reads an
+  animation's `to`, `from` and `values` for those two attributes, which the earlier scan of `href` and `xlink:href`
+  attributes missed.
 - A native taken from a frame's window (the sixteenth review's run, not part of this probe). In the task that appended
   a frame, a script read `window.frames[n].EventTarget.prototype.dispatchEvent`, which the guard had not reached; a
   button's handler later dispatched a Ctrl click with it on a link to another origin that was not in the document.
@@ -212,7 +220,25 @@ is not to 127.0.0.1. Cases that attempted a request outside:
   folds, a demo module with no side effect left nothing in the build; one with a top-level statement left that
   statement; a run-time switch left the whole variant, `allow-same-origin` and `srcdoc` included. The check, a scan
   for the invented data's markers and the folder's name, printed clean on all three, while the source map's `sources`
-  named the demo module in the last two. So the rule has the check read the build's module list.
+  named the demo module in the last two. So the rule has the check read the build's module list. The nineteenth review
+  ran that check too. On Vite 8 the bundler's module ids and the source map's `sources` agreed and both named the demo
+  module for the run-time switch; Vite's manifest names no inner module; and a planted import that the code does not
+  use was dropped by the bundler, bare or named, so a planted case has to be used by production code to be found. On
+  Next 16.4, with Turbopack and with webpack, a server component under the demo folder was named in a server source
+  map only (`experimental.serverSourceMaps`) and in no browser map, while `allow-same-origin` sat in the prerendered
+  `server/app/index.html`; a client component showed in both sets of maps.
+- A child page that loads without the guard script (the nineteenth review's run, not part of this probe). The guard's
+  own install reaches a child frame's new document when the frame is added and at its `load`. A child frame that
+  another same-origin page navigated to a page with no guard script of its own (a static file, with an image that kept
+  its `load` late) was unguarded until then: a middle and a Ctrl click on its link went out under the rule's set-up in
+  Chromium and Firefox, not in WebKit, and the walk run after `load` passed. Reached through the `src` of a new frame
+  the same page did not go out. With the guard as that page's first script it went nowhere in any of the three. So
+  every HTML file the preview serves starts with the guard, the local page included (this probe's local page carries
+  it).
+- Keyboard activation (the nineteenth review's run, not part of this probe): Ctrl+Enter and Shift+Enter on a focused
+  `<a>`, and Ctrl+Enter on a focused SVG `<a tabindex="0">`, went out with the frame alone in Chromium and Firefox and
+  nowhere under the rule's set-up in any of the three. A MathML element with `xlink:href` and no `href` is not a link
+  in Firefox 159.
 - A listener of the app's on the window (the fifteenth review's run, not part of this probe): a capture listener on
   `window` that stops a modified or middle click ran before a guard that listened on the document only, and an SVG
   link went out in Chromium and Firefox. With the guard's listeners on the window as well, registered first, it did
