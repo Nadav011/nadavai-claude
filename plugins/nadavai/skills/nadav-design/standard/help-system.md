@@ -266,10 +266,19 @@ written for each of them. Two layers:
   through a resolver's own id [I]. `recordAnchors` holds only ids that resolve to the sample's
   own record: a resolver's own id that picks her row (`cal.ended-appointment`), and every
   control inside a window, card or sheet opened on her (her appointment, payment, chat,
-  document); an id listed on one screen counts on every screen [I]. An id that every person's
-  row in a list carries, the row's plain id (`cal.appointment`, `patients.row`) or a control on
-  each row (`patients.charge`), binds the first visible row, a real person's whenever the sample
-  is not first: it is a container and goes in `containerAnchors`, never in `recordAnchors` [I].
+  document); an id listed on one screen counts on every screen [I]. The inventory's
+  `anchorWindows`, at its root, names for each id `recordAnchors` lists the window its control
+  sits in: the window id a need reopens to reach it, or `"screen"` for a resolver's own control
+  on the screen itself (`cal.ended-appointment`); an id that sits in two windows (the same
+  control in her drawer and in a sheet) gets its own id in each. The checker requires an entry
+  for every listed id and none for another, and, for a control a do step at `"sample"` points
+  at, a window some tour opens or reopens (`window-missing`, `window-extra`, `window-unknown`);
+  it trusts the map: the inventory's reviewer opens each listed control in the running app and
+  confirms the window it sits in, or that it sits on the screen itself [I]. An id that every
+  person's row in a list carries, the row's plain id (`cal.appointment`, `patients.row`) or a
+  control on each row (`patients.charge`), binds the first visible row, a real person's whenever
+  the sample is not first: it is a container and goes in `containerAnchors`, never in
+  `recordAnchors` [I].
   The one exception: a control that picks a person in a window opened on nobody (a patient
   picker), where picking saves and sends nothing by itself, is listed in `recordAnchors`; its do
   step carries no class, and its result checks that the sample was picked (a `custom` result, as
@@ -327,15 +336,18 @@ written for each of them. Two layers:
   shows; a reopen of a window that picks a person closes any other window of that kind (an
   existing appointment's edit form included) and opens the tour's own afresh with every person
   field empty, so `isOpen` holds after it; the tour's own is the new window the tour's step
-  opened, never an existing record's window at the same slot; from the picker on, the picker's
-  own step and every later do step on a control `recordAnchors` lists reopen the window the step
-  before the picker opened; `selectSample` runs only in the tour's own window, the one the
-  step's reopen just opened or found open on her, and only where that window picks a person: the
-  engine passes it the id of the window the need's last reopen names, and it picks her there,
-  asks nothing, never runs in a window that holds an existing record, and reports whether the
-  sample is now picked in the tour's own window. The need asks one thing: before a reopen closes
-  a form that holds her input, it asks, saying her changes there will be lost; when she
-  declines, nothing is closed and `selectSample` does not run; when she declines, or
+  opened, never an existing record's window at the same slot; the need's last reopen names the
+  window the inventory's `anchorWindows` gives for the step's control; a control `anchorWindows`
+  marks `screen`, a resolver's own control on the screen itself, is acted on only by the step
+  that opens her record through it; the do step before the picker opened the window
+  `anchorWindows` gives for the picker's control, and every later do step's control sits in that
+  window until a step that opens her record; `selectSample` runs only in the tour's own window,
+  the one the step's reopen just opened or found open on her, and only where that window picks a
+  person: the engine passes it the id of the window the need's last reopen names, and it picks
+  her there, asks nothing, never runs in a window that holds an existing record, and reports
+  whether the sample is now picked in the tour's own window. The need asks one thing: before a
+  reopen closes a form that holds her input, it asks, saying her changes there will be lost;
+  when she declines, nothing is closed and `selectSample` does not run; when she declines, or
   `selectSample` does not report the sample picked, the step only shows, and every later do step
   of the tour only shows too, never pressing, across a resume and on another device, until a
   later reopen she accepts opens the tour's own afresh (and, where the need names
