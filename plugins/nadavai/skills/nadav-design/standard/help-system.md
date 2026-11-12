@@ -317,34 +317,40 @@ written for each of them. Two layers:
   picker's own step names the reopen too); the engine runs that need each time the run reaches
   the step: a reopen is skipped only when its window is already open on her (`isOpen`; a window
   that picks a person counts as open only while it is the tour's own and every person field it
-  has holds the sample or is empty (a person field names whose record the step acts on, a
-  patient or a client, a second one such as a family member or a referrer included; a field that
+  has holds only the sample, or is empty (a person field names whose record the step acts on, a
+  patient or a client, a second one such as a family member or a referrer included, and a field
+  that lists several people holds only the sample when she is the only one in it; a field that
   names staff, such as the therapist, is not one, and a binding that counts it anyway only makes
-  the reopen run more often)), and `selectSample` always runs, asking first whenever the window
-  holds anyone but the sample (someone she picked, or an existing record she opened); the reopen
-  runs before `selectSample`, and the need lists them in that order; a reopen of a window that
-  picks a person closes any other window of that kind (an existing appointment's edit form
-  included, asking first when it holds her input) and opens the tour's own afresh with every
-  person field empty, so `isOpen` holds after it, and `selectSample` then picks her; the tour's
-  own is the new window the tour's step opened, never an existing record's window at the same
-  slot; a resume or a skip can reach it without the opener, or after she opened another record
-  at an earlier step; with no sample record, or when she declines, the step only shows [I].
-  Beyond that the checker reads only the flag and whether the control is listed: that the
-  bindings then reach the sample's record and no other, and that the three lists are complete,
-  is judged in the running app. Then the anchor of its control; what she reads, and the text
-  when it only shows; a do step's action (open, pick, select, type), its result, the G-20 test
-  it names (`safeTest`) and, for a practice-only step, `practiceOnly` (only a step classed `P`:
-  a step with no class, classed `S` or classed `T` is never practice-only) with the mode's test
-  for that action and the test that it is a stop step outside the mode (at stage `demo` it may
-  be `{}` and name them later; at stage `app` both are named); and `need`, how the run puts her
-  back at the step, which is only one of the two G-08 allows (reopen a window, select the sample
-  record again). A reopen puts back the tour's own record, the sample's, never the last one
-  open, since she may have opened a real person's since, and a window opened on one person
-  counts as open (`isOpen`) only while it shows the sample's record [I]; with no sample record
-  it does nothing and the step only shows; the bindings do it, and only the running app shows it
-  (`tour-anchors`). The file's `stage` (`demo` or `app`), the core screens, the anchors that no
-  step points at (each with its screens), the written reason for a screen or a task with no
-  tour, and the important actions beyond an article's tasks are in the same file.
+  the reopen run more often)), and `selectSample` runs after the reopen, and the need lists them
+  in that order: a reopen of a window that picks a person closes any other window of that kind
+  without saving it, through that window's own close (an existing appointment's edit form
+  included), and opens the tour's own afresh with every person field empty, so `isOpen` holds
+  after it; the tour's own is the new window the tour's step opened, never an existing record's
+  window at the same slot; `selectSample` runs only in the tour's own window, the one the step's
+  reopen just opened or found open on her, and only where that window picks a person: it picks
+  her there, asks nothing, and never runs in a window that holds an existing record. The need
+  asks one thing: before the reopen closes a form that holds her input, it asks, saying her
+  changes there will be lost; when she declines, nothing is closed, `selectSample` does not run,
+  the step only shows, and every later do step of the tour in that window only shows too, never
+  pressing, until a later reopen she accepts opens the tour's own afresh; a resume or a skip can
+  reach it without the opener, or after she opened another record at an earlier step; with no
+  sample record the step only shows [I]. Beyond that the checker reads only the flag and whether
+  the control is listed: that the bindings then reach the sample's record and no other, and that
+  the three lists are complete, is judged in the running app. Then the anchor of its control;
+  what she reads, and the text when it only shows; a do step's action (open, pick, select,
+  type), its result, the G-20 test it names (`safeTest`) and, for a practice-only step,
+  `practiceOnly` (only a step classed `P`: a step with no class, classed `S` or classed `T` is
+  never practice-only) with the mode's test for that action and the test that it is a stop step
+  outside the mode (at stage `demo` it may be `{}` and name them later; at stage `app` both are
+  named); and `need`, how the run puts her back at the step, which is only one of the two G-08
+  allows (reopen a window, select the sample record again). A reopen puts back the tour's own
+  record, the sample's, never the last one open, since she may have opened a real person's
+  since, and a window opened on one person counts as open (`isOpen`) only while it shows the
+  sample's record [I]; with no sample record it does nothing and the step only shows; the
+  bindings do it, and only the running app shows it (`tour-anchors`). The file's `stage` (`demo`
+  or `app`), the core screens, the anchors that no step points at (each with its screens), the
+  written reason for a screen or a task with no tour, and the important actions beyond an
+  article's tasks are in the same file.
 - A bindings file for each environment, which is not portable: anchor id to element (`anchors`,
   for a target that depends on state), the record behind an anchor (`records`, for
   `recordOpen`), a `custom` result to a predicate (`results`), and each condition, window and

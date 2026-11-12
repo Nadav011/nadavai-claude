@@ -50,9 +50,9 @@ export default {
     // a window that picks a person counts as open only while it is the tour's own and every person field it has holds
     // the sample or is empty (this booking has one, the patient; the therapist is staff, not a person field). The tour's
     // own is the new booking the tour's step opened at its slot, never an existing appointment's edit form at that slot
-    // (it has a record). Its reopen closes every open booking form, an existing appointment's edit form included (the
-    // engine asks first when one holds her input), and opens the tour's own afresh with the patient empty, so isOpen
-    // holds after it and selectSample then picks her
+    // (it has a record). Its reopen closes every open booking form without saving it, an existing appointment's edit form
+    // included (the engine asks first when one holds her input, and on a no runs nothing here), and opens the tour's own
+    // afresh with the patient empty, so isOpen holds after it and selectSample then picks her
     'appt.create': { isOpen: x => x.app.booking.open && !!x.app.booking.atTourSlot && !x.app.booking.record && (!x.app.booking.patient || !!x.app.booking.patient.sample), reopen: x => { x.app.booking.closeAll(); x.app.booking.openNewAtTourSlot(); }, step: x => x.app.booking.step },
     // a window opened on one person counts as open only while it shows the sample's record, so a resume over a real
     // person's open drawer or sheet reopens the sample's instead of leaving hers in place
@@ -70,7 +70,8 @@ export default {
   // result route and view: the keys the app is on now
   route: x => x.app.route.key,
   view: x => x.app.route.key,
-  // need: selectSample, which the engine runs each time it reaches the step, after the step's reopen, asking first whenever
-  // the window holds anyone but the sample; here it picks her as the booking's patient
-  selectSample: x => x.app.booking.pickSample(),
+  // need: selectSample, which the engine runs each time it reaches the step, after the step's reopen, only in the tour's own
+  // window; here it picks her as the booking's patient, and refuses a form that holds an existing record or is not the
+  // tour's own at its slot (a reopen she declined leaves such a form open)
+  selectSample: x => (x.app.booking.open && !!x.app.booking.atTourSlot && !x.app.booking.record ? x.app.booking.pickSample() : undefined),
 };
