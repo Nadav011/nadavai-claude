@@ -35,6 +35,7 @@ Traps already paid for on 7.11 (each cost a failed run):
 | `tsc -b` ran out of memory at Node's default heap on the 8 GB machine. | `NODE_OPTIONS=--max-old-space-size=6144`. |
 | The Mac's disk is case-insensitive: two paths differing only in case broke the clone. | Rename, and keep a guard test that fails on any case-only collision. |
 | The build-number `sed` and `use-profiles` edit `project.pbxproj`, a fingerprint input. | Bake the OTA runtime right after `cap sync` on the clean tree, pass `OTA_RUNTIME` through `--archive-xcargs`, and restore `project.pbxproj` before reading the runtime back from the IPA. |
+| A plugin that brings its own SwiftPM dependency (therapy-flow-v2's `@aparajita/capacitor-secure-storage` needs `keychain-swift`) leaves the committed `Package.resolved` short; SwiftPM rewrites it on the Mac and the clean-tree check refuses the IPA (2026-11-12, MediZen run 6af5b9d54d758506493319a3). | Commit `Package.resolved` as the run resolved it (check the revision against the upstream tag with `git ls-remote`) in the same change that adds the plugin; it is a fingerprint input, so it changes the iOS runtime. |
 
 A simulator workflow (no signing, no upload) doubles as the iOS compile check of a native branch
 and as the App Review screen recording: Cash's `cash-ios-review-recording` builds the shell for the
@@ -64,6 +65,8 @@ universal APK, and the bundle check. Upload with `scripts/play.mjs` (store-apis.
 
 `node scripts/native/fingerprint.mjs --all` on the base and on the branch tells which platforms
 changed.
+
+A store build from a native branch must carry everything main ships natively: when main gained a native plugin (therapy-flow-v2 513's secure storage, 2026-11-12), the builds in review from the native branch matched no runtime main could publish, and the deploy's OTA read "store build needed" on every shell. Before a store build, merge main into the native branch and compare `fingerprint.mjs --all` with the live commit.
 
 A native change stays on its branch until its store build is ready to submit, and merges with
 that build in the same step (as PR 198 in therapy-flow-v2 waits). Batch every native change of an
