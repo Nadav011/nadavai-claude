@@ -546,7 +546,10 @@ this rule or its tools is fixed here before the other reaches that step. MediZen
 and is not approved yet: it goes on to his approval as the page it is, through the rounds its own exit checklist lists
 (point 1's one-round limit is not applied to it), and is not converted; from that approval on the rule applies (the
 tag, a build plan Nadav approves, the preview as unit 1, the screens the demo did not draw designed in the preview).
-His decision of 10.11.2026 that its build starts only after everything is closed stands.
+What moves from such a page to the app (its values, its component definitions as a specification, its screens as the
+reference; none of its code) and in what order: `standalone-demo-to-app.md`, which also says what of that path has
+been measured and what nobody has run yet. His decision of 10.11.2026 that its build starts only after everything is
+closed stands.
 
 Not covered: track `site`, and track `client-demo` with no app behind it (the page is the product, or no app
 exists); SportChat v4, an app in the middle of a build that started from a standalone demo: its running build keeps
