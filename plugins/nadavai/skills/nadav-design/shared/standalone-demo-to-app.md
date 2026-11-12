@@ -32,8 +32,9 @@ tagged, the build plan is approved, and only then does a build session start, wi
   its uses are mapped to the new name in part C.
 - **The tag freezes all of it.** The tagged page, its token file and its specimen pages are read-only reference from
   then on (point 3; `modes/screen.md`: the demo at its tag is never edited). No part of this path edits the page after
-  the tag, and the tagged page never reads a file that can change later: the app gets a copy of the token file as it
-  is at the tag, and from then on the app's copy is the one that changes.
+  the tag, and the tagged page never reads a file that can change later: the app keeps a copy of the token file as it
+  is at the tag as its reference, imported by nothing, and part C fills the app's own token file from it; from then on
+  the app's own file is the one that changes.
 - **After the tag, in the app, as units of the build plan Nadav approved.** Unit 1 is the preview (point 4;
   `modes/redesign.md` step 8). Part C comes after it, in that step's order: the token file, then the shared
   components, then the screens. A plan that puts the token file or the components before the preview is corrected
@@ -70,9 +71,12 @@ tagged, the build plan is approved, and only then does a build session start, wi
   minutes. The pair of proofs is run on the whole page once, and again when the tool, the list of states or the setup
   changes; a replacement unit records, before and after, every state its changed rules can draw: a unit that changes
   the token file or a rule used outside its own area records the whole page (through `heavy-slot --`, about 55
-  minutes), and `--only` is for a unit whose changed selectors, found by a search, are drawn only in its area. The
-  tool names Playwright by a path inside one machine's checkout of the app (`style-identity.mjs:27`), so on another
-  machine that path is set first.
+  minutes), and `--only` is for a unit whose changed selectors, found by a search of the markup and the scripts, are
+  drawn only in its area. A class that a script builds by joining strings is not found by a search (that demo's
+  scripts do so), so a selector with such a class, or any case the search does not settle, records the whole page. A
+  unit's "before" may be the previous unit's "after" when both were recorded on the same commit. The tool names
+  Playwright by a path inside one machine's checkout of the app (`style-identity.mjs:27`), so on another machine that
+  path is set first.
 - **What that check cannot see is listed in the unit's report, found by a search and not from memory.** It records the
   53 properties named in the tool (`PROPS` in `style-identity.mjs`) and nothing else. Every other property is outside
   it, and the rule is that one, not the examples here: offsets (`top`, `right`, `bottom`, `left`, `inset`), `min-*`
@@ -84,10 +88,11 @@ tagged, the build plan is approved, and only then does a build session start, wi
   `animation` shorthands that carry the curve token and 15 `accent-color`). It also cannot see hover and pressed,
   focus that no state's script leaves, a declaration that never wins or that no state draws, and pseudo-elements other
   than `::before` and `::after`. The report lists every replaced declaration whose property, after shorthands are
-  expanded and logical properties are mapped to their physical sides, is not one of the 53, found by comparing each
-  replaced property with `PROPS` and not from the examples above, and every one in a state the check does not reach;
-  each is marked "read by a person, not checked". That list is read, and anything it shows moved is reported, before
-  the commit goes to Nadav for approval.
+  expanded and logical properties and sizes are mapped to their physical forms (`inline-size` to `width`), is not one
+  of the 53, found by comparing each replaced property with `PROPS` and not from the examples above, and every one in
+  a state the check does not reach; each is marked "read by a person, not checked". That list is read before the
+  commit goes to Nadav for approval, and anything it shows moved is put back, or, when the move is meant, offered to
+  him as a numbered question like a near-duplicate and named in what he approves.
 
 ## B. Components (before the tag, in the demo)
 
@@ -123,26 +128,27 @@ tagged, the build plan is approved, and only then does a build session start, wi
 
 - **The token file.** The app's token file is filled from the token file at the tag, not replaced by it: a name both
   have takes the tag's value (under the decision line below), a name only the app has is kept, a name only the tag has
-  is added, and the tag's theme selector is mapped to the app's (that demo switches themes with a selector of its own,
-  the app with `.dark`). MediZen: 40 rows of the map, on 23 of the app's names (20 colour names, 3 motion names),
-  carry another value in the app (34 colour rows, for example `--primary` `#6A7B60` in the app and `#1F6B4F` in the
-  demo; 6 motion rows).
+  is added (an alias of part A excepted: its uses take the new name), and the tag's theme selector is mapped to the
+  app's (that demo switches themes with a selector of its own, the app with `.dark`). MediZen: 40 rows of the map, on
+  23 of the app's names (20 colour names, 3 motion names), carry another value in the app (34 colour rows, for example
+  `--primary` `#6A7B60` in the app and `#1F6B4F` in the demo; 6 motion rows).
 - **Nothing reaches customers unit by unit.** In an app with live users, the token file and every change to a
   component that users' screens already use reach users only as point 2 says (the preview's mode, a flag that is off
   for users, or the long branch the plan names with its reason) until the plan's cut-over unit. Landing a token file
   or a restyled shared component for everyone as "values only" is the fault this line exists to stop (there, 31 of the
-  51 components map to an existing app file, most of them used by live screens: `button.tsx` is imported by 437
-  files).
+  51 components map to an existing app file, most of them used by live screens: `button.tsx` is imported by more than
+  400 files).
 - **Whose decision a differing value is** [I, recommended, not decided by Nadav]: a value the tagged page draws (a
   colour) is settled by his approval of the tag, since that is the look he approved; a pair the tag does not show at a
   glance (a timing, a curve) goes to him as a numbered question and is not settled by whichever side is built first;
   while it is open the unit uses the tag's value and its report marks it open, which is safe because of the line
-  above. The cut-over unit does not run while such a pair is open unless its `go` question to him lists each open
-  pair, and a pair he already answered (before the tag, or to the lane's questions) is not asked again. A name the
-  page draws with two values (there, before ordering: `--primary-hover` and `--muted-foreground-subtle`, main page
-  against kit) is settled before the tag by "one name, one value" in part A, and goes to him where the page was tagged
-  as written. There the lane sent him three such motion pairs; the 40 rows above and each entry's "demo has, app
-  lacks" list are the differences in all.
+  above. The cut-over unit does not run while such a pair is open unless its `go` question to him lists each open pair
+  as a numbered question and says that a pair left unanswered ships with the tag's value. A pair he already answered,
+  before the tag or to the lane's questions, is recorded in the project's DECISIONS-ANSWERED.md and is not asked
+  again. A name the page draws with two values (there, before ordering: `--primary-hover` and
+  `--muted-foreground-subtle`, main page against kit) is settled before the tag by "one name, one value" in part A,
+  and goes to him where the page was tagged as written. There the lane sent him three such motion pairs; the 40 rows
+  above and each entry's "demo has, app lacks" list are the differences in all.
 - **Components.** Each is built once, in the app's own code, against its specimen at the tag, in the order the build
   plan gives. Nothing judges a component unit against its specimen by machine, and step 8b compares screens with
   phones, not a component with a specimen: until a check exists, the unit draws each variant and state of the specimen
