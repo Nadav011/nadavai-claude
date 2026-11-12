@@ -42,7 +42,8 @@ export default {
     'settings.msgs-closed': x => x.app.route.key !== 'settings-msgs',
   },
   // window id -> whether it is open (results open and step) and how the run reopens it (need: reopen). A reopen
-  // puts back the tour's own record, the sample's, never the last one open: she may have opened a real person's since.
+  // puts back the tour's own record, the sample's, never the last one open: she may have opened a real person's since,
+  // and closes what it replaces without saving it, through that window's own close.
   // With no sample record (removed, or its appointment closed) a reopen does nothing and the step only shows; inside
   // practice mode the sample's record is its copy. The engine asks her before it runs a need over something she chose
   // or typed since (G-08); the bindings only do it
@@ -71,7 +72,12 @@ export default {
   route: x => x.app.route.key,
   view: x => x.app.route.key,
   // need: selectSample, which the engine runs each time it reaches the step, after the step's reopen, only in the tour's own
-  // window; here it picks her as the booking's patient, and refuses a form that holds an existing record or is not the
-  // tour's own at its slot (a reopen she declined leaves such a form open)
-  selectSample: x => (x.app.booking.open && !!x.app.booking.atTourSlot && !x.app.booking.record ? x.app.booking.pickSample() : undefined),
+  // window, passing the id of the window the need's last reopen names; here it picks her as the booking's patient in
+  // appt.create only, refuses a form that holds an existing record or is not the tour's own at its slot (a reopen she
+  // declined leaves such a form open) and any other window, and reports true only when the sample is then picked there
+  selectSample: (x, window) => {
+    if (window !== 'appt.create' || !x.app.booking.open || !x.app.booking.atTourSlot || x.app.booking.record) return false;
+    x.app.booking.pickSample();
+    return !!x.app.booking.patient && !!x.app.booking.patient.sample;
+  },
 };
