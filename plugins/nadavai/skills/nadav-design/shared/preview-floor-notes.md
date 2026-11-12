@@ -234,20 +234,32 @@ records every request that is not to 127.0.0.1. Cases that attempted a request o
   Chromium and Firefox, not in WebKit, and the walk run after `load` passed. Reached through the `src` of a new frame
   the same page did not go out. With the guard as that page's first script it went nowhere in any of the three. So
   every HTML file the preview serves carries the guard, the local page included (this probe's local page carries it).
-  Where it can sit (the twentieth review's run, not part of this probe): Next 16.4 with Turbopack writes four `async`
-  chunk tags before the root layout's `<head>` children, so a guard placed first in that `<head>` is the fifth script
-  tag of `index.html` and of `_not-found.html`, and `_global-error.html`, which Next renders without the root layout,
-  held no guard at all; Vite 8's dev server puts its module client before the guard unless a plugin injects the guard
-  with `transformIndexHtml` ordered `post` and `head-prepend`, and `vite build` keeps the guard first. So the static
-  check accepts `async`, `defer` and module scripts before the guard, and that the guard runs first stays a run-time
-  proof. Other same-origin documents the guard reaches only at their frame's `load` (the same run): with a late
-  `load`, a middle and a Ctrl click on a link went out under the rule's set-up from a `srcdoc` set on a frame that
-  already held a document (Chromium and Firefox), from a `javascript:` URL document (Chromium; Firefox hung and was
-  not measured), from a `blob:` page reached by the frame's navigation once the policy allowed `frame-src blob:`
-  (Chromium and Firefox; the policy as committed blocks it) and from an SVG file of the public folder opened as a page
-  (Chromium and Firefox). WebKit kept each of them in, `blob:` not measured there. A `srcdoc` or a `blob:` page set as
-  the `src` of a new frame did not go out. In an SVG document `a.href = …` sets a property and no attribute, so a walk
-  plants its link with `setAttribute`.
+  Where it can sit (the twentieth review's run, not part of this probe): Next 16.4 with Turbopack writes its `async`
+  chunk tags before the root layout's `<head>` children (four in that fixture; five and six in the twenty-first
+  review's `next start` builds, fifteen under `next dev`), so a guard placed first in that `<head>` comes after them
+  in `index.html` and in `_not-found.html`, and `_global-error.html`, which Next renders without the root layout, held
+  no guard at all; Vite 8's dev server puts its module client before the guard unless a plugin injects the guard with
+  `transformIndexHtml` ordered `post` and `head-prepend`, and `vite build` keeps the guard first. So the static check
+  accepts external `async` and `defer` scripts and modules before the guard, and that the guard runs first stays a
+  run-time proof; an inline script marked `async` or `defer` runs where it stands, and one placed before the guard ran
+  before it in all three browsers (the twenty-first review's run). Next's error document (the same review, Next 16.4.1
+  with Turbopack, not part of this probe): a page whose render fails on the server is served as `<html
+  id="__next_error__">` with status 500, under `next start` and `next dev`, with and without `app/error`; it held no
+  script of the app's and no guard, whatever the root layout, `app/error` or `app/global-error` rendered, because
+  React renders them in the browser, where a `<script>` it renders does not run; the built `_global-error.html` was
+  Next's own page even with a guard in `app/global-error`. Under the rule's set-up a middle and a Ctrl click on a link
+  `app/error` rendered opened it in Chromium, while a planted link on the app's normal page was rewritten. With a
+  local layer in front of the app's port that wrote the guard as the first child of `<head>` in every HTML response,
+  the error document held the guard, its link was rewritten, the clicks went nowhere and the normal page hydrated
+  without error. Other same-origin documents the guard reaches only at their frame's `load` (the same run): with a
+  late `load`, a middle and a Ctrl click on a link went out under the rule's set-up from a `srcdoc` set on a frame
+  that already held a document (Chromium and Firefox), from an XHTML page (Chromium and Firefox) and from an XML file
+  that XSLT turns into HTML (Firefox; both the twenty-first review's run), from a `javascript:` URL document
+  (Chromium; Firefox hung and was not measured), from a `blob:` page reached by the frame's navigation once the policy
+  allowed `frame-src blob:` (Chromium and Firefox; the policy as committed blocks it) and from an SVG file of the
+  public folder opened as a page (Chromium and Firefox). WebKit kept each of them in, `blob:` not measured there. A
+  `srcdoc` or a `blob:` page set as the `src` of a new frame did not go out. In an SVG document `a.href = …` sets a
+  property and no attribute, so a walk plants its link with `setAttribute`.
 - Keyboard activation (the nineteenth review's run, not part of this probe): Ctrl+Enter and Shift+Enter on a focused
   `<a>`, and Ctrl+Enter on a focused SVG `<a tabindex="0">`, went out with the frame alone in Chromium and Firefox and
   nowhere under the rule's set-up in any of the three. A MathML element with `xlink:href` and no `href` is not a link
@@ -387,9 +399,12 @@ report as not shown.
 - Android: whether a cancelled `contextmenu` suppresses the long-press menu on a link, and whether selecting a number
   shown as text offers to call it.
 - Desktop: the Cmd key, the browser's own context-menu items on a link, and a drag of a link to the tab bar.
-- Next: that the guard runs before every chunk on a cold and a warm load; how React treats an `href` the guard
-  rewrote, at hydration and on a later render (a mismatch line in the console is expected and was neither measured nor
-  cited); a Next server action (a form whose `action` is empty) after hydration.
+- Next: that the guard runs before every chunk on a cold and a warm load (from `next start` on loopback a guard in the
+  root layout ran before every chunk on 30 of 30 loads; with the HTML arriving in two writes split just before that
+  guard, the chunks ran first on 30 of 30; the twenty-first review's run; the start script's layer puts the guard
+  before the chunk tags, which was not timed); how React treats an `href` the guard rewrote, at hydration and on a
+  later render (a mismatch line in the console is expected and was neither measured nor cited); a Next server action
+  (a form whose `action` is empty) after hydration.
 - A PDF the app shows in a frame (the clinic app frames a document from its invoicing provider): plug-ins are off in a
   sandboxed frame, so it is probably blocked or downloaded, and the guard cannot be in a PDF viewer.
 - Desktop: "Go to …" on selected text that reads as an address, and a drag of selected text to the tab bar.

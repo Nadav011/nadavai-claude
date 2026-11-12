@@ -4,9 +4,9 @@ A reading aid for `rules.md`, «An app is built once», point 5: the proofs of t
 each with its pass and fail condition. It adds no rule. Where this list and point 5 differ, point 5 holds and the
 difference is a fault to report («Where a fault goes»). Source: the eleventh independent review of the rule
 (11.11.2026), which wrote the list for a Next app with a Capacitor shell, in Hebrew and RTL, corrected against point 5
-by the twelfth to the twentieth; a Vite app reads "the root layout's `<head>`" as its `index.html` and skips the lines
-that name Next. A fail stops the unit. Each proof is shown failing first, through the planted cases its browser can
-show going out, then passing clean.
+by the twelfth to the twenty-first; a Vite app reads "the root layout's `<head>`" as its `index.html` and skips the
+lines that name Next. A fail stops the unit. Each proof is shown failing first, through the planted cases its browser
+can show going out, then passing clean.
 
 1. **Start-up environment proof** (5a).
    - Pass: the server refuses to serve with one planted variable that is not on the allowlist, and with one planted
@@ -42,20 +42,22 @@ show going out, then passing clean.
      11 is what shows it there, and what fails on a document it is not in), and runs before any other script on a cold
      load and on a warm one (one way to show it: a test script that records `attachShadow` calls and link creation
      finds none before the guard). Every HTML response the journey records and every HTML file in the public folder
-     holds it before any script that is not `async`, `defer` or a module (the framework's own chunk tags may come
-     first in the file); on Next `app/global-error` carries it as well.
-   - Fail: a script that ran, a shadow root or a link made before it; or an HTML document the preview serves without
-     it, or with a script before it that is not `async`, `defer` or a module.
+     holds it before any script that is not an external one (with `src`) marked `async` or `defer`, or a module (the
+     framework's own chunk tags may come first in the file); on Next the start script's layer writes it first in
+     `<head>` of every HTML response, Next's own error document (`__next_error__`) included.
+   - Fail: a script that ran, a shadow root or a link made before it; or an HTML document the journey records or the
+     public folder holds without it, or with a script before it that is not an external one marked `async` or `defer`,
+     or a module; or, on Next, a 500 error document without it.
 6. **The app's own forms and controls inside the frame, effect checked** (5c).
    - Pass: one of each kind the app has keeps its effect: a modifier click, a context menu, a drag, and a form whose
      action is a function, rendered in the browser and, where the app renders one on the server, after hydration. The
-     expected losses, and only these: a modified or middle click on an app link opens nothing; a modified click on an
-     icon drawn with an SVG `<use>` loses the browser's default for it, while the app's handler runs; the browser's
-     own menu does not open over a link, an `<a>`, an image or a `<use>` icon; a library's context menu or
-     modified-click action over such an element, or a modified click on a submit control, does not run where the
-     library checks `defaultPrevented` before its own step (Radix does), while a plain click is untouched; a modified
-     click on an app submit, or Shift+Enter in a form that has a submit button (in Chromium), sends no form and runs
-     no form action.
+     expected losses, and only these (unit 1 lists where the app has them): a modified or middle click on an app link
+     opens nothing; a modified click on an icon drawn with an SVG `<use>` loses the browser's default for it, while
+     the app's handler runs; the browser's own menu does not open over a link, an `<a>`, an image or a `<use>` icon; a
+     library's context menu or modified-click action over such an element, or a modified click on a submit control,
+     does not run where the library checks `defaultPrevented` before its own step (Radix does), while a plain click is
+     untouched; a modified click on an app submit, or Shift+Enter in a form that has a submit button (in Chromium),
+     sends no form and runs no form action.
    - Fail: any other effect missing.
 7. **The frame's planted cases, in Chromium and in WebKit** (5c; WebKit in the Playwright image as `working-style.md`
    routes it, with `--network host` so it reaches a preview that listens on loopback, and with every request outside
