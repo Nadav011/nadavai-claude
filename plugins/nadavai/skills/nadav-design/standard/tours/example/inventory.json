@@ -12,6 +12,11 @@
     "appt.service": "appt.create",
     "appt.save": "appt.create"
   },
+  "pickingWindows": {
+    "appt.create": true,
+    "appt.drawer": false,
+    "pay.sheet": false
+  },
   "screens": {
     "cal-week": {
       "title": "יומן · שבוע",
