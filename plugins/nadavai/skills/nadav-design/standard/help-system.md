@@ -266,31 +266,33 @@ written for each of them. Two layers:
   through a resolver's own id [I]. `recordAnchors` holds only ids that resolve to the sample's
   own record: a resolver's own id that picks her row (`cal.ended-appointment`), and every
   control inside a window, card or sheet opened on her (her appointment, payment, chat,
-  document); an id listed on one screen counts on every screen [I]. The inventory's
-  `anchorWindows`, at its root, names for each id `recordAnchors` lists the window its control
-  sits in: the window id a need reopens to reach it, or `"screen"` for a resolver's own control
-  on the screen itself (`cal.ended-appointment`); an id that sits in two windows (the same
-  control in her drawer and in a sheet) gets its own id in each, and a form on its own page is
-  mapped as a window id whose reopen the bindings implement by opening the new form afresh. The
-  checker requires an entry for every listed id and none for another (`window-missing`,
-  `window-extra`); it trusts the map: the inventory's reviewer opens each listed control in the
-  running app and confirms the window it sits in, or that it sits on the screen itself [I]; a
-  wrong `"screen"` entry, on a control that sits in a window, lets the step that opens her
-  record through it name no need and press in whatever window is open. Beside it,
-  `pickingWindows` says, for every window `anchorWindows` names, whether it picks a person:
-  true for a window opened on nobody with a person field (a booking form, which a person picker
+  document), and every control of a window that picks a person (the picker and that window's
+  other controls, as `appt.service` and `appt.save`); an id listed on one screen counts on every
+  screen [I]. The inventory's `anchorWindows`, at its root, names for each id `recordAnchors`
+  lists the window its control sits in: the window id a need reopens to reach it, or `"screen"`
+  for a resolver's own control on the screen itself (`cal.ended-appointment`); an id that sits
+  in two windows (the same control in her drawer and in a sheet) gets its own id in each, and a
+  form on its own page is mapped as a window id whose reopen the bindings implement by opening
+  the new form afresh. The checker requires an entry for every listed id and none for another
+  (`window-missing`, `window-extra`); it trusts the map: the inventory's reviewer opens each
+  listed control in the running app and confirms the window it sits in, or that it sits on the
+  screen itself [I]; a wrong `"screen"` entry, on a control that sits in a window, lets the step
+  that opens her record through it name no need and press in whatever window is open. Beside it,
+  `pickingWindows` says, for every window `anchorWindows` names, whether it picks a person: true
+  for a window opened on nobody with a person field (a booking form, which a person picker
   fills), false for a window opened on one person (her drawer, her payment sheet). With
-  `--inventory` the checker requires a mark for every window `anchorWindows` names
-  (`picking-missing`), `selectSample` after the reopen in the need of every do step at
-  `"sample"` whose control sits in a window marked true, the picker's own step excepted
-  (`sample-no-need`), and no `selectSample` in a need whose last reopen names a window not
-  marked true (`select-window`). It takes the mark from here, never from the manifest's picker
-  steps, and trusts it: the inventory's reviewer opens each window in the running app and
-  confirms its mark; a window wrongly marked false lets a step there name no `selectSample` [I].
-  An id that every person's row in a list carries, the row's plain id (`cal.appointment`,
-  `patients.row`) or a control on each row (`patients.charge`), binds the first visible row, a
-  real person's whenever the sample is not first: it is a container and goes in
-  `containerAnchors`, never in `recordAnchors` [I].
+  `--inventory` the checker requires a mark for every window `anchorWindows` names and none for
+  another (`picking-missing`, `picking-extra`), the mark true on the window of every step the
+  picker exception takes as a picker (`picker-mark`), `selectSample` after the reopen in the
+  need of every do step at `"sample"` whose control sits in a window marked true, the picker's
+  own step excepted (`sample-no-need`), and no `selectSample` in a need whose last reopen names
+  a window not marked true (`select-window`). It takes the mark from here, never from the
+  manifest's picker steps, and trusts it: the inventory's reviewer opens each window in the
+  running app and confirms its mark; a window wrongly marked false lets a step there name no
+  `selectSample` where no picker step sits in it [I]. An id that every person's row in a list
+  carries, the row's plain id (`cal.appointment`, `patients.row`) or a control on each row
+  (`patients.charge`), binds the first visible row, a real person's whenever the sample is not
+  first: it is a container and goes in `containerAnchors`, never in `recordAnchors` [I].
   The one exception: a control that picks a person in a window opened on nobody (a patient
   picker), where picking saves and sends nothing by itself, is listed in `recordAnchors`; its do
   step carries no class, and its result checks that the sample was picked (a `custom` result, as
