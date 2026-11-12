@@ -42,15 +42,19 @@ export default {
     'settings.msgs-closed': x => x.app.route.key !== 'settings-msgs',
   },
   // window id -> whether it is open (results open and step) and how the run reopens it (need: reopen). A reopen
-  // puts back the tour's own record, the sample's, never the last one open: she may have opened a real person's since.
+  // puts back the tour's own record, the sample's, never the last one open: she may have opened a real person's since,
+  // and closes what it replaces without saving it, through that window's own close.
   // With no sample record (removed, or its appointment closed) a reopen does nothing and the step only shows; inside
   // practice mode the sample's record is its copy. The engine asks her before it runs a need over something she chose
   // or typed since (G-08); the bindings only do it
   windows: {
-    // a window that picks a person counts as open only while it is the tour's own (at the tour's slot) and every person
-    // field it has holds the sample or is empty (this booking has one, the patient), so a resume after she picked a real
-    // patient there reopens it; selectSample always runs as well
-    'appt.create': { isOpen: x => x.app.booking.open && !!x.app.booking.atTourSlot && (!x.app.booking.patient || !!x.app.booking.patient.sample), reopen: x => x.app.booking.reopenAtTourSlot(), step: x => x.app.booking.step },
+    // a window that picks a person counts as open only while it is the tour's own and every person field it has holds
+    // the sample or is empty (this booking has one, the patient; the therapist is staff, not a person field). The tour's
+    // own is the new booking the tour's step opened at its slot, never an existing appointment's edit form at that slot
+    // (it has a record). Its reopen closes every open booking form without saving it, an existing appointment's edit form
+    // included (the engine asks first when one holds her input, and on a no runs nothing here), and opens the tour's own
+    // afresh with the patient empty, so isOpen holds after it and selectSample then picks her
+    'appt.create': { isOpen: x => x.app.booking.open && !!x.app.booking.atTourSlot && !x.app.booking.record && (!x.app.booking.patient || !!x.app.booking.patient.sample), reopen: x => { x.app.booking.closeAll(); x.app.booking.openNewAtTourSlot(); }, step: x => x.app.booking.step },
     // a window opened on one person counts as open only while it shows the sample's record, so a resume over a real
     // person's open drawer or sheet reopens the sample's instead of leaving hers in place
     'appt.drawer': { isOpen: x => x.app.drawer.open && !!x.app.drawer.record && !!x.app.drawer.record.sample, reopen: x => x.app.drawer.openFor(x.app.calendar.sampleEndedNotClosed()) },
@@ -67,6 +71,13 @@ export default {
   // result route and view: the keys the app is on now
   route: x => x.app.route.key,
   view: x => x.app.route.key,
-  // need: selectSample, which the engine runs each time it reaches the step (asking first when she picked someone since)
-  selectSample: x => x.app.booking.pickSample(),
+  // need: selectSample, which the engine runs each time it reaches the step, after the step's reopen, only in the tour's own
+  // window, passing the id of the window the need's last reopen names; here it picks her as the booking's patient in
+  // appt.create only, refuses a form that holds an existing record or is not the tour's own at its slot (a reopen she
+  // declined leaves such a form open) and any other window, and reports true only when the sample is then picked there
+  selectSample: (x, window) => {
+    if (window !== 'appt.create' || !x.app.booking.open || !x.app.booking.atTourSlot || x.app.booking.record) return false;
+    x.app.booking.pickSample();
+    return !!x.app.booking.patient && !!x.app.booking.patient.sample;
+  },
 };

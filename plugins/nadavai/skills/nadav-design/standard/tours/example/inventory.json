@@ -1,5 +1,22 @@
 {
   "$schema": "../inventory.schema.json",
+  "anchorWindows": {
+    "cal.ended-appointment": "screen",
+    "appt.happened": "appt.drawer",
+    "appt.note": "appt.drawer",
+    "appt.paid": "appt.drawer",
+    "pay.method": "pay.sheet",
+    "pay.confirm": "pay.sheet",
+    "pay.practice-receipt": "pay.sheet",
+    "appt.patient-picker": "appt.create",
+    "appt.service": "appt.create",
+    "appt.save": "appt.create"
+  },
+  "pickingWindows": {
+    "appt.create": true,
+    "appt.drawer": false,
+    "pay.sheet": false
+  },
   "screens": {
     "cal-week": {
       "title": "יומן · שבוע",

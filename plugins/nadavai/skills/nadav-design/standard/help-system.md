@@ -266,10 +266,31 @@ written for each of them. Two layers:
   through a resolver's own id [I]. `recordAnchors` holds only ids that resolve to the sample's
   own record: a resolver's own id that picks her row (`cal.ended-appointment`), and every
   control inside a window, card or sheet opened on her (her appointment, payment, chat,
-  document); an id listed on one screen counts on every screen [I]. An id that every person's
-  row in a list carries, the row's plain id (`cal.appointment`, `patients.row`) or a control on
-  each row (`patients.charge`), binds the first visible row, a real person's whenever the sample
-  is not first: it is a container and goes in `containerAnchors`, never in `recordAnchors` [I].
+  document); an id listed on one screen counts on every screen [I]. The inventory's
+  `anchorWindows`, at its root, names for each id `recordAnchors` lists the window its control
+  sits in: the window id a need reopens to reach it, or `"screen"` for a resolver's own control
+  on the screen itself (`cal.ended-appointment`); an id that sits in two windows (the same
+  control in her drawer and in a sheet) gets its own id in each, and a form on its own page is
+  mapped as a window id whose reopen the bindings implement by opening the new form afresh. The
+  checker requires an entry for every listed id and none for another (`window-missing`,
+  `window-extra`); it trusts the map: the inventory's reviewer opens each listed control in the
+  running app and confirms the window it sits in, or that it sits on the screen itself [I]; a
+  wrong `"screen"` entry, on a control that sits in a window, lets the step that opens her
+  record through it name no need and press in whatever window is open. Beside it,
+  `pickingWindows` says, for every window `anchorWindows` names, whether it picks a person:
+  true for a window opened on nobody with a person field (a booking form, which a person picker
+  fills), false for a window opened on one person (her drawer, her payment sheet). With
+  `--inventory` the checker requires a mark for every window `anchorWindows` names
+  (`picking-missing`), `selectSample` after the reopen in the need of every do step at
+  `"sample"` whose control sits in a window marked true, the picker's own step excepted
+  (`sample-no-need`), and no `selectSample` in a need whose last reopen names a window not
+  marked true (`select-window`). It takes the mark from here, never from the manifest's picker
+  steps, and trusts it: the inventory's reviewer opens each window in the running app and
+  confirms its mark; a window wrongly marked false lets a step there name no `selectSample` [I].
+  An id that every person's row in a list carries, the row's plain id (`cal.appointment`,
+  `patients.row`) or a control on each row (`patients.charge`), binds the first visible row, a
+  real person's whenever the sample is not first: it is a container and goes in
+  `containerAnchors`, never in `recordAnchors` [I].
   The one exception: a control that picks a person in a window opened on nobody (a patient
   picker), where picking saves and sends nothing by itself, is listed in `recordAnchors`; its do
   step carries no class, and its result checks that the sample was picked (a `custom` result, as
@@ -312,31 +333,63 @@ written for each of them. Two layers:
   condition, that opened its window), unless it is that step itself; a control in a window acts
   on whichever record the window shows, a real person's when the tour starts over it, and a step
   that breaks this order is a finding with the inventory. Such a step that is not itself the
-  opener names a `need` that reopens the window its control sits in, and a step after the picker
-  names `selectSample` as well (the picker's own step names the reopen too); the engine runs
-  that need each time the run reaches the step: a reopen is skipped only when its window is
-  already open on her (`isOpen`; a window that picks a person counts as open only while it is
-  the tour's own and every person field it has (a second person, such as a family member or a
-  referrer, included) holds the sample or is empty), and `selectSample` always runs, asking
-  first when she picked someone since; a resume or a skip can reach it without the opener, or
-  after she opened another record at an earlier step; with no sample record, or when she
-  declines, the step only shows [I]. Beyond that the checker reads only the flag and whether the
-  control is listed: that the bindings then reach the sample's record and no other, and that the
-  three lists are complete, is judged in the running app. Then the anchor of its control; what
-  she reads, and the text when it only shows; a do step's action (open, pick, select, type), its
-  result, the G-20 test it names (`safeTest`) and, for a practice-only step, `practiceOnly`
-  (only a step classed `P`: a step with no class, classed `S` or classed `T` is never
-  practice-only) with the mode's test for that action and the test that it is a stop step
-  outside the mode (at stage `demo` it may be `{}` and name them later; at stage `app` both are
-  named); and `need`, how the run puts her back at the step, which is only one of the two G-08
-  allows (reopen a window, select the sample record again). A reopen puts back the tour's own
-  record, the sample's, never the last one open, since she may have opened a real person's
-  since, and a window opened on one person counts as open (`isOpen`) only while it shows the
-  sample's record [I]; with no sample record it does nothing and the step only shows; the
-  bindings do it, and only the running app shows it (`tour-anchors`). The file's `stage` (`demo`
-  or `app`), the core screens, the anchors that no step points at (each with its screens), the
-  written reason for a screen or a task with no tour, and the important actions beyond an
-  article's tasks are in the same file.
+  opener names a `need` that reopens the window its control sits in, with `selectSample` as well
+  where that window picks a person (the checker requires it on every step whose control sits in
+  a window the inventory's `pickingWindows` marks as picking a person, the picker's own step
+  excepted, and on every step after the picker; the picker's own step names the reopen too, and
+  so does an opener whose control `anchorWindows` puts in a window: only the opener on the
+  screen itself, a control `anchorWindows` marks `screen`, names no need); the engine runs that
+  need each time the run reaches the step: a reopen is skipped only when its window is already
+  open on her (`isOpen`; a window that picks a person counts as open only while it is the tour's
+  own and every person field it has holds only the sample, or is empty (a person field names
+  whose record the step acts on, a patient or a client, a second one such as a family member or
+  a referrer included, and a field that lists several people holds only the sample when she is
+  the only one in it; a field that names staff, such as the therapist, is not one, and a binding
+  that counts it anyway only makes the reopen run more often)), and `selectSample` runs after
+  the reopen, and the need lists them in that order: every reopen closes what it replaces
+  without saving it, through that window's own close, and where a window's own close saves, its
+  reopen is not a need and the step only shows; a reopen of a window that picks a person closes
+  any other window of that kind (an existing appointment's edit form included) and opens the
+  tour's own afresh with every person field empty, so `isOpen` holds after it; the tour's own is
+  the new window the tour's step opened, never an existing record's window at the same slot; the
+  need's last reopen names the window the inventory's `anchorWindows` gives for the step's
+  control; a control `anchorWindows` marks `screen`, a resolver's own control on the screen
+  itself, is acted on only by the step that opens her record through it; a step that opens her
+  record through a control inside a window reopens that window on her first, as every other step
+  there does (a window opened on one person, such as a patient card, counts as open only while
+  it shows the sample's record); the do step before the picker opened the window `anchorWindows`
+  gives for the picker's control, and every later do step's control sits in that window until a
+  step that opens her record; `selectSample` runs only in the tour's own window, the one the
+  step's reopen just opened or found open on her, and only where that window picks a person (the
+  inventory's `pickingWindows` marks it true): the engine passes it the id of the window the
+  need's last reopen names, and it picks her there, asks nothing, never runs in a window that
+  holds an existing record, and reports whether the sample is now picked in the tour's own
+  window. After the need's reopens the engine checks the last reopen's window with `isOpen`:
+  when the bindings have no such window, or it is not open on her, the step and every later do
+  step of the tour only show, as after a decline. The need asks one thing: before a reopen
+  closes a form that holds her input, it asks, saying her changes there will be lost; when she
+  declines, nothing is closed and `selectSample` does not run; when she declines, or
+  `selectSample` does not report the sample picked, the step only shows, and every later do step
+  of the tour only shows too, never pressing, across a resume and on another device, until a
+  later reopen she accepts opens the tour's own afresh (and, where the need names
+  `selectSample`, it reports her picked); a resume or a skip can reach it without the opener, or
+  after she opened another record at an earlier step; with no sample record the step only shows
+  [I]. Beyond that the checker reads only the flag and whether the control is listed: that the
+  bindings then reach the sample's record and no other, and that the three lists are complete,
+  is judged in the running app. Then the anchor of its control; what she reads, and the text
+  when it only shows; a do step's action (open, pick, select, type), its result, the G-20 test
+  it names (`safeTest`) and, for a practice-only step, `practiceOnly` (only a step classed `P`:
+  a step with no class, classed `S` or classed `T` is never practice-only) with the mode's test
+  for that action and the test that it is a stop step outside the mode (at stage `demo` it may
+  be `{}` and name them later; at stage `app` both are named); and `need`, how the run puts her
+  back at the step, which is only one of the two G-08 allows (reopen a window, select the sample
+  record again). A reopen puts back the tour's own record, the sample's, never the last one
+  open, since she may have opened a real person's since, and a window opened on one person
+  counts as open (`isOpen`) only while it shows the sample's record [I]; with no sample record
+  it does nothing and the step only shows; the bindings do it, and only the running app shows it
+  (`tour-anchors`). The file's `stage` (`demo` or `app`), the core screens, the anchors that no
+  step points at (each with its screens), the written reason for a screen or a task with no
+  tour, and the important actions beyond an article's tasks are in the same file.
 - A bindings file for each environment, which is not portable: anchor id to element (`anchors`,
   for a target that depends on state), the record behind an anchor (`records`, for
   `recordOpen`), a `custom` result to a predicate (`results`), and each condition, window and
