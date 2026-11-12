@@ -36,6 +36,8 @@ any design change after it is made in the app's preview (`shared/rules.md` of na
 - A screen the demo drew keeps every control and state on its phones at the tag, one it did not draw every control,
   state and role variant of its INVENTORY.md row, unless a numbered answer removes it (`screen` steps 1 and 8b).
 - Units land as «An app is built once», point 2, says; a long branch is named here with its reason.
+- For a standalone demo that predates that section, what the token and component units take from the tag and what
+  reaches users when: nadav-design `shared/standalone-demo-to-app.md`.
 - One unit per branch and PR; the order below; shared components before screens.
 - What needs Nadav's go before it runs (migrations, auth, payments, store publishing, paid services) is marked `go`.
 
