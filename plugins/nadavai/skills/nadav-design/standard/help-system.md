@@ -316,13 +316,14 @@ written for each of them. Two layers:
   names `selectSample` as well (the picker's own step names the reopen too); the engine runs
   that need each time the run reaches the step: a reopen is skipped only when its window is
   already open on her (`isOpen`; a window that picks a person counts as open only while it is
-  the tour's own and holds the sample or no one), and `selectSample` always runs, asking first
-  when she picked someone since; a resume or a skip can reach it without the opener, or after
-  she opened another record at an earlier step; with no sample record, or when she declines, the
-  step only shows [I]. Beyond that the checker reads only the flag and whether the control is
-  listed: that the bindings then reach the sample's record and no other, and that the three
-  lists are complete, is judged in the running app. Then the anchor of its control; what she
-  reads, and the text when it only shows; a do step's action (open, pick, select, type), its
+  the tour's own and every person field it has (a second person, such as a family member or a
+  referrer, included) holds the sample or is empty), and `selectSample` always runs, asking
+  first when she picked someone since; a resume or a skip can reach it without the opener, or
+  after she opened another record at an earlier step; with no sample record, or when she
+  declines, the step only shows [I]. Beyond that the checker reads only the flag and whether the
+  control is listed: that the bindings then reach the sample's record and no other, and that the
+  three lists are complete, is judged in the running app. Then the anchor of its control; what
+  she reads, and the text when it only shows; a do step's action (open, pick, select, type), its
   result, the G-20 test it names (`safeTest`) and, for a practice-only step, `practiceOnly`
   (only a step classed `P`: a step with no class, classed `S` or classed `T` is never
   practice-only) with the mode's test for that action and the test that it is a stop step
