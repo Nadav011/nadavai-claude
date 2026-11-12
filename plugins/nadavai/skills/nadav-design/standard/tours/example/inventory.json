@@ -6,6 +6,7 @@
       "menu": true,
       "recordAnchors": ["cal.appointment", "cal.ended-appointment", "appt.happened", "appt.note", "appt.paid", "pay.method", "pay.confirm", "pay.practice-receipt"],
       "bulkAnchors": ["cal.print"],
+      "containerAnchors": ["cal.grid"],
       "tasks": [
         { "text": "לקבוע תור", "tour": "book", "anchors": ["cal.new-appointment", "appt.save"] },
         { "text": "לסגור טיפול שהסתיים", "tour": "close-1", "anchors": ["appt.happened", "appt.note", "appt.paid"] },
@@ -17,6 +18,7 @@
       "viewOf": "cal-week",
       "recordAnchors": ["cal.appointment", "cal.ended-appointment", "appt.happened", "appt.note", "appt.paid", "pay.method", "pay.confirm", "pay.practice-receipt"],
       "bulkAnchors": ["cal.print"],
+      "containerAnchors": ["cal.grid"],
       "menu": true,
       "tasks": [
         { "text": "לקבוע תור", "tour": "book" },

@@ -13,20 +13,20 @@
 //                   inventory, more than five entries), a viewOf that names itself, a screen the inventory
 //                   lacks or a view, and a core key's viewOf that names a screen outside its core entry; it
 //                   notes every tour of more than six steps with no chapter break, which is never a finding
-//   tour-no-commit  the part read from data: a do step that does not say on: "sample" or on: "none", a
-//                   do step at on: "none" on a control the inventory lists in recordAnchors (on any of its
-//                   screens), or whose result names one, a do step classed S (it saves) without on: "sample",
-//                   with --inventory a do step on a control the inventory lists in bulkAnchors, or whose
-//                   result names one (at any on and any class), and an id in both recordAnchors and
-//                   bulkAnchors (manifest), a do step at on: "sample" on a control no recordAnchors lists (a save
-//                   of a business-wide rule marked "sample", among others), a do step classed T (in practice
-//                   mode too) or P that is not practice-only, a practice-only step that is not classed P, a
-//                   practice-only step without on: "sample" or
-//                   (at stage "app") without both tests, a do step that opens a record (result recordOpen)
-//                   without on: "sample", a do step with no G-20 test named (at stage "demo" these, and a
-//                   practice-only step's missing tests, are notes with the count instead), a resume action
-//                   other than reopening a window or selecting the sample record again, a `start` key
-//                   other than screen, record, view, date and close
+//   tour-no-commit  the part read from data: a do step that does not say on: "sample" or on: "none"; a
+//                   do step classed T (in practice mode too) or P that is not practice-only, a practice-only
+//                   step that is not classed P, and at stage "app" one without both tests; a practice-only
+//                   step without on: "sample"; a do step classed S without on: "sample"; a do step that opens
+//                   a record (result recordOpen) without on: "sample"; a do step with no G-20 test named (at
+//                   stage "demo" these, and a practice-only step's missing tests, are notes with the count);
+//                   a resume action other than reopening a window or selecting the sample record again; a
+//                   `start` key other than screen, record, view, date and close. With --inventory, which
+//                   holds recordAnchors (one person's controls), bulkAnchors (many at once) and
+//                   containerAnchors (elements that hold people's rows): a do step at on: "none" on a record
+//                   control, or whose result names a record control or a container; a do step at
+//                   on: "sample" on a control no list holds; a do step on a bulk control, or whose result
+//                   names one; a do step lit on a container (each at any on and any class); and an id in
+//                   two of the lists (manifest). Without --inventory a note counts the do steps not judged
 //   tour-inventory  with --inventory: a screen the menu reaches, or a numbered task of an article, with
 //                   no tour and no written reason (an extra task of the manifest too); a tour whose screens
 //                   name a screen the inventory does not have, or that stands on no screen of its own or of
@@ -35,13 +35,8 @@
 //                   screen points at or names as a result and no `anchors` entry for that screen lists, or
 //                   naming a tour that does not exist or does not list that task there
 //
-// Not covered here, because it needs the running app or the project's suite: that the engine itself
-// never dispatches a click, a submit or a key on a step target; that every anchor (the `anchors`
-// entries and the articles' too), result, condition, window and state id resolves on its screen
-// (`tour-anchors`); that a step's class is right; that recordAnchors and bulkAnchors are complete
-// (and, without --inventory, any on: "none" step); a stop step followed by a step that
-// depends on that control having been pressed; that the named tests exist and pass; that a showing or
-// stop step's lit control does not respond; and whether a chapter break sits at a real result.
+// Not covered here: every item of NOT_COVERED below, which each run prints after its findings (the
+// running app's, the project suite's and the reviewer's), so the two never drift apart.
 //
 // usage: node tour-check.mjs <tours.json> [--inventory <inventory.json>] [--require-stage demo|app] [--json]
 // The app's own check: node tour-check.mjs tours.json --inventory inventory.json --require-stage app
@@ -61,28 +56,28 @@ const NOT_COVERED = [
   'tour-no-commit: whether a step\'s class is right (a numbered document, a payment and a close for good are always P, a send is T, a save is S); the manifest\'s class is taken as written, so a save or a send written as an unclassed do step passes (the reviewer, and the step\'s safeTest, which performs the action on the sample record); a practice-only step is always classed P, so an unclassed do step always names a safeTest',
   'tour-no-commit: a step classed P that also tells someone (a practice receipt that is also sent) carries one class, P; that its mode test also shows the message is held is the project\'s suite\'s (the checker reads one class)',
   'tour-no-commit: that the practice mode\'s test covers every outbound path (no document number; no documents, payment or messaging provider; no calendar or webhook call): the test is named, not read',
-  'tour-no-commit: a do step lit on a container of people\'s rows (a list, a column, the calendar grid) at on: "none", where the inventory does not list the container and the result names no record control (the running app)',
   'tour-shape: a device run left empty, every step of a tour marked for the other device (the reviewer)',
   'tour-shape: two tours that open by themselves on one core screen, or a later chapter that opens by itself (the reviewer)',
   'tour-no-commit: a step sentence that says nothing goes out, or that no one is told, where no test shows it (the reviewer, against the G-20 test or the practice mode\'s test)',
   'tour-no-commit: an inventory that declares no recordAnchors, or too few, leaves on: "none" unjudged with no note (the running app)',
   'tour-inventory: a result that routes to a screen the inventory does not have (only the screens a tour lists are read)',
   'tour-no-commit: that a do step at on: "sample" on a control recordAnchors lists changes only the sample\'s record (a save that also changes a business-wide rule): the running app (tour-anchors); the checker requires only that the control is a record control, and the step\'s safeTest shows that nothing leaves, not what changed',
-  'tour-no-commit: without --inventory, whether a do step at on: "sample" sits on a control the sample\'s record carries (recordAnchors are in the inventory)',
   'tour-no-commit: a stop step followed by a step that depends on that control having been pressed (the manifest does not record what a control opens)',
   'tour-no-commit: that the named tests exist and pass (the project\'s own suite)',
-  'tour-no-commit: without --inventory, whether a do step at on: "none" sits on a control of a person\'s record or row (recordAnchors are in the inventory; the run notes how many such steps it did not judge)',
+  'tour-no-commit: without --inventory, none-on-record, sample-not-record, do-on-bulk, do-on-container and anchor-both: the three lists are in the inventory (the run notes how many do steps it did not judge)',
+  'tour-no-commit: an anchor family whose members differ (one exports or sits on a person\'s record, another only shows): a listed id covers every arg of its family, so a member that was not given its own id passes; such a control gets its own id (the reviewer)',
   'tour-no-commit: that a step marked on: "sample" really reaches the sample\'s record and no other (the bindings, in the running app: they select by the sample\'s record id, never the first visible row); only the flag, and whether the control is one recordAnchors lists, are read',
   'tour-shape: that a key marked viewOf really is a view of that screen (the reviewer)',
   'tour-no-commit: that a need of reopen puts back the tour\'s own record, the sample\'s, and not the last one open (the bindings, in the running app)',
   'tour-anchors: every anchor (the anchors entries and the articles\' too), result, condition, window and state id resolving on its screen, and a step marked on: "sample" resolving to the sample\'s record and no other (the running app)',
   'tour-shape: whether a chapter break sits at a real result (the reviewer)',
   'tour-anchors: a showing or stop step whose lit control responds; a test of the built engine presses the lit control of a stop step and shows that nothing happens (the running app)',
-  'tour-no-commit: that the inventory\'s recordAnchors list every control on a person\'s record or row and every container of people\'s rows, and its bulkAnchors every control that acts on many people\'s records at once; an unlisted one lets the step pass (the running app)',
+  'tour-no-commit: that the inventory\'s three lists are complete: recordAnchors every control on one person\'s record or row, bulkAnchors every control that acts on many people\'s records at once, containerAnchors every element that holds people\'s rows; an unlisted one lets the step pass (the running app)',
 ];
 
 function die(msg) {
-  console.error(`tour-check: ${msg}\n${USAGE}`);
+  if (asJson) console.log(JSON.stringify({ ok: false, error: msg, usage: USAGE, findings: [], notes: [] }, null, 2));
+  else console.error(`tour-check: ${msg}\n${USAGE}`);
   process.exit(2);
 }
 // a file that cannot be read or is not JSON: exit 2, said as JSON under --json
@@ -141,11 +136,11 @@ function validate(root, value) {
 const argv = process.argv.slice(2);
 let manifestFile = null;
 let inventoryFile = null;
-let asJson = false;
+let asJson = argv.includes('--json'); // known before any usage error, so that one is JSON too
 let requireStage = null;
 for (let i = 0; i < argv.length; i++) {
   const a = argv[i];
-  if (a === '--json') asJson = true;
+  if (a === '--json') continue;
   else if (a === '--inventory') { inventoryFile = argv[++i]; if (!inventoryFile) die('--inventory needs a file'); }
   else if (a === '--require-stage') { requireStage = argv[++i]; if (requireStage !== 'demo' && requireStage !== 'app') die('--require-stage needs demo or app'); }
   else if (a === '-h' || a === '--help') { console.log(USAGE); process.exit(0); }
@@ -154,7 +149,7 @@ for (let i = 0; i < argv.length; i++) {
   else manifestFile = a;
 }
 if (!manifestFile) die('no manifest given');
-if (requireStage === 'app' && !inventoryFile) die('--require-stage app needs --inventory: the app\'s check judges on: "none" against recordAnchors and runs tour-inventory and help-refs, and none of that runs without it'); // M:stage-app-inventory
+if (requireStage === 'app' && !inventoryFile) die('--require-stage app needs --inventory: the app\'s check judges every do step against recordAnchors, bulkAnchors and containerAnchors and runs tour-inventory and help-refs, and none of that runs without it'); // M:stage-app-inventory
 
 const M = readJson(manifestFile, 'manifest');
 const INV = inventoryFile ? readJson(inventoryFile, 'inventory') : null;
@@ -194,9 +189,12 @@ const atPath = p => {
 // ---------- manifest: the format ----------
 for (const e of validate(TOURS_SCHEMA, M)) add('manifest', null, 'schema', atPath(e.path), `${e.path || '/'}: ${e.message}`); // M:schema
 if (INV) for (const e of validate(INV_SCHEMA, INV)) add('manifest', null, 'schema-inventory', { path: `inventory${e.path}` }, `inventory ${e.path || '/'}: ${e.message}`); // M:schema-inventory
-const bulkIds = new Set(Object.values(obj(INV && INV.screens)).flatMap(sc => arr(obj(sc).bulkAnchors)));
-const recordIds = new Set(Object.values(obj(INV && INV.screens)).flatMap(sc => arr(obj(sc).recordAnchors)));
-for (const id of bulkIds) if (recordIds.has(id)) add('manifest', null, 'anchor-both', { path: 'inventory/screens' }, `"${id}" is in both recordAnchors and bulkAnchors of the inventory: a control acts on one person's record or on many at once, not both`); // M:anchor-both
+// an id is one person's control, a control that acts on many at once, or an element that holds people's rows: one list,
+// on whichever screens it appears
+const LISTS = ['recordAnchors', 'bulkAnchors', 'containerAnchors'];
+const listed = Object.fromEntries(LISTS.map(k => [k, new Set(Object.values(obj(INV && INV.screens)).flatMap(sc => arr(obj(sc)[k])))]));
+const listsOf = id => LISTS.filter(k => listed[k].has(id));
+for (const id of new Set(LISTS.flatMap(k => [...listed[k]]))) if (listsOf(id).length > 1) add('manifest', null, 'anchor-both', { path: 'inventory/screens' }, `"${id}" is in ${listsOf(id).join(' and ')} of the inventory: a control is one person's, many people's at once, or a container of people's rows, never two of these`); // M:anchor-both
 
 // a tour's screens; a chapter also stands on the screens of its job's other chapters
 const screensOf = t => [...new Set([...arr(t.screens), ...(t.job ? tours.filter(x => x.job === t.job).flatMap(x => arr(x.screens)) : [])])];
@@ -241,11 +239,13 @@ const demoPractice = []; // practice-only steps at stage demo that name their te
 const isRecordAnchor = id => !!id && Object.values(obj(INV && INV.screens)).some(sc => arr(obj(sc).recordAnchors).includes(id));
 // a control that exports, prints, downloads, shares or otherwise acts on many people's records at once (bulkAnchors)
 const isBulkAnchor = id => !!id && Object.values(obj(INV && INV.screens)).some(sc => arr(obj(sc).bulkAnchors).includes(id));
+// an element that holds people's rows or records (containerAnchors: a list, a column, the calendar grid)
+const isContainerAnchor = id => !!id && Object.values(obj(INV && INV.screens)).some(sc => arr(obj(sc).containerAnchors).includes(id));
 // the anchor a result names (present, fieldChanged, recordOpen), or undefined
 const resultAnchor = s => (plain(s.result) && ['present', 'fieldChanged', 'recordOpen'].includes(s.result.kind) ? (typeof s.result.arg === 'string' ? s.result.arg : obj(s.result.arg).anchor) : undefined);
-// the step's own control, or the control its result names (present, fieldChanged): a do step lit on a list or the grid
-// whose result is a person's control has let her reach that person's record
-const onRecord = s => isRecordAnchor(s.anchor) || (plain(s.result) && ['present', 'fieldChanged'].includes(s.result.kind) && isRecordAnchor(typeof s.result.arg === 'string' ? s.result.arg : obj(s.result.arg).anchor));
+// the step's own control, or the control its result names (present, fieldChanged): a do step whose result is a person's
+// control, or a container of people's rows, has let her reach a person's record
+const onRecord = s => isRecordAnchor(s.anchor) || (plain(s.result) && ['present', 'fieldChanged'].includes(s.result.kind) && (isRecordAnchor(typeof s.result.arg === 'string' ? s.result.arg : obj(s.result.arg).anchor) || isContainerAnchor(typeof s.result.arg === 'string' ? s.result.arg : obj(s.result.arg).anchor)));
 const START_KEYS = [
   'screen',
   'record', // M:start-record
@@ -296,10 +296,11 @@ tours.forEach((t, ti) => {
     if (s.kind === 'do' && ((tp && !s.practiceOnly) || (!!s.practiceOnly && s.class !== 'P') || (practiceGap && M.stage !== 'demo'))) add('tour-no-commit', 'G-20', 'do-class', at, s.class === 'T' && s.practiceOnly ? 'a do step classed T tells a real person: it is a stop step, in practice mode too (the mode is for a numbered document, a payment and a close for good, classed P)' : s.practiceOnly && s.class !== 'P' ? `a practice-only do step ${s.class ? `classed ${s.class}` : 'with no class'}: practice mode is only for a numbered document, a payment and a close for good (classed P); any other do step names its G-20 safeTest` : s.practiceOnly ? `a practice-only do step without ${missing.join(' and ')}: it is a stop step in the mode too` : `a do step classed ${s.class} is not practice-only: it is a stop step`); // M:do-class
     if (s.kind === 'do' && practiceGap && M.stage === 'demo') demoPractice.push(at); // M:demo-practice
     if (s.kind === 'do' && s.on === undefined) add('tour-no-commit', 'G-08', 'do-no-on', at, 'a do step that does not say whose record it acts on: on: "sample", or on: "none" when it acts on no person\'s record (an empty slot, a filter, a settings tab)'); // M:do-no-on
-    if (s.kind === 'do' && s.on === 'none' && onRecord(s)) add('tour-no-commit', 'G-08', 'none-on-record', at, isRecordAnchor(s.anchor) ? `a do step with on: "none" on "${s.anchor}", which the inventory lists as a control on a person's record or row` : `a do step with on: "none" whose result names a control the inventory lists on a person's record or row, so its lit target reaches that record; for a step that filters a list or opens a window, name the state (stateEquals) or the window (open) as the result, not a control inside it`); // M:none-on-record
+    if (s.kind === 'do' && s.on === 'none' && onRecord(s)) add('tour-no-commit', 'G-08', 'none-on-record', at, isRecordAnchor(s.anchor) ? `a do step with on: "none" on "${s.anchor}", which the inventory lists as a control on a person's record or row` : `a do step with on: "none" whose result names a control the inventory lists on a person's record or row, or a container of people's rows, so its lit target reaches a person's record; for a step that filters a list or opens a window, name the state (stateEquals) or the window (open) as the result, not a control inside it`); // M:none-on-record
     if (s.kind === 'do' && s.class === 'S' && s.on !== 'sample') add('tour-no-commit', 'G-20', 'save-not-sample', at, 'a do step classed S (it saves) that does not carry on: "sample": a save done in a tour is done on the sample\'s record, on a control that record carries; saving a business-wide rule or a real person\'s record is a stop step'); // M:save-not-sample
-    if (INV && s.kind === 'do' && (isBulkAnchor(s.anchor) || isBulkAnchor(resultAnchor(s)))) add('tour-no-commit', 'G-20', 'do-on-bulk', at, `a do step ${isBulkAnchor(s.anchor) ? `on "${s.anchor}"` : `whose result names "${resultAnchor(s)}"`}, which the inventory lists in bulkAnchors (an export, a print, a download or share, or an action on many people's records at once): a tour never does one, whatever its on and its class; it shows that control or stops at it`); // M:do-on-bulk
-    if (INV && s.kind === 'do' && s.on === 'sample' && !isRecordAnchor(s.anchor) && !isBulkAnchor(s.anchor)) add('tour-no-commit', s.class === 'S' || s.practiceOnly ? 'G-20' : 'G-08', 'sample-not-record', at, `a do step at on: "sample" on "${s.anchor}", which no recordAnchors lists, so the sample's record does not carry it: ${s.class === 'S' ? 'the save is a real one (a business-wide setting, another record); saving that is a stop step' : s.practiceOnly ? 'the practice copy of the sample does not carry it either' : 'the step acts on something that is not the sample\'s record'}`); // M:sample-not-record
+    if (INV && s.kind === 'do' && (isBulkAnchor(s.anchor) || isBulkAnchor(resultAnchor(s)))) add('tour-no-commit', 'G-20', 'do-on-bulk', at, `a do step ${isBulkAnchor(s.anchor) ? `on "${s.anchor}"` : `whose result names "${resultAnchor(s)}"`}, which the inventory lists in bulkAnchors (an export, a print, a download or share, or an action on many people's records at once): a tour never does one, whatever its on and its class; it shows that control or stops at it (a stop step there is classed T); for a step that opens a menu or a window, name the window (open) as the result, not a control inside it`); // M:do-on-bulk
+    if (INV && s.kind === 'do' && isContainerAnchor(s.anchor)) add('tour-no-commit', 'G-08', 'do-on-container', at, `a do step lit on "${s.anchor}", which the inventory lists in containerAnchors (a list, a column, the calendar grid): the lit target of a do step is live, so she could press any person's row inside it, whatever its on and its class; light the sample's own row or control, through a resolver that picks it`); // M:do-on-container
+    if (INV && s.kind === 'do' && s.on === 'sample' && !isRecordAnchor(s.anchor) && !isBulkAnchor(s.anchor) && !isContainerAnchor(s.anchor)) add('tour-no-commit', s.class === 'S' || s.practiceOnly ? 'G-20' : 'G-08', 'sample-not-record', at, `a do step at on: "sample" on "${s.anchor}", which no recordAnchors lists. If it sits on the sample's record or row, or in a window opened on her, list it in recordAnchors and keep on: "sample"; only a control that is nobody's record (a tab, a filter, a business-wide setting) changes the step, to on: "none"; never answer this finding by setting on: "none" on a person's control${s.class === 'S' ? '; a save of a business-wide setting is a stop step, never a do step' : s.practiceOnly ? '; a practice-only step stays on the sample\'s copy' : ''}`); // M:sample-not-record
     if (s.practiceOnly && s.on !== 'sample') add('tour-no-commit', 'G-20', 'practice-not-sample', at, 'a practice-only step without on: "sample": inside the mode the tour runs on the sample record\'s copy, never on a real person\'s'); // M:practice-not-sample
     if (s.kind === 'do' && plain(s.result) && s.result.kind === 'recordOpen' && s.on !== 'sample') add('tour-no-commit', 'G-08', 'record-not-sample', at, 'a do step opens a person\'s record (recordOpen) and does not carry on: "sample": tours run on the sample record, never on real data'); // M:record-not-sample
     if (s.kind === 'do' && !s.practiceOnly && !s.safeTest) noTest.push(at);
@@ -325,8 +326,8 @@ tours.forEach((t, ti) => {
   if (steps.length > 6 && !t.chapter) notes.push({ check: 'tour-shape', tour: t.id, message: `${steps.length} steps and no chapter break; the reviewer checks only that a chapter break, if there is one, sits at a real result, and length alone is never a finding` });
 });
 if (demoPractice.length) notes.push({ check: 'tour-no-commit', message: `${demoPractice.length} practice-only steps name no mode test or stop test yet; each needs both before the app runs this tour` });
-const noneSteps = INV ? 0 : tours.reduce((n, t) => n + arr(plain(t) && t.steps).filter(s => plain(s) && s.kind === 'do' && s.on === 'none').length, 0);
-if (noneSteps) notes.push({ check: 'tour-no-commit', message: `${noneSteps} do steps at on: "none" were not judged against recordAnchors: that needs --inventory` }); // M:none-no-inventory
+const unjudged = INV ? 0 : tours.reduce((n, t) => n + arr(plain(t) && t.steps).filter(s => plain(s) && s.kind === 'do').length, 0);
+if (unjudged) notes.push({ check: 'tour-no-commit', message: `${unjudged} do steps were not judged against the inventory (recordAnchors, bulkAnchors, containerAnchors: none-on-record, sample-not-record, do-on-bulk, do-on-container): that needs --inventory` }); // M:none-no-inventory
 if (requireStage && M.stage !== requireStage) add('manifest', null, 'stage-required', { path: '/stage' }, `the manifest is at stage "${M.stage}", and this run requires "${requireStage}"`); // M:stage-required
 if (M && M.stage === 'demo' && noTest.length) { notes.push({ check: 'tour-no-commit', message: `${noTest.length} do steps name no G-20 test; each needs one before the app runs this tour` }); noTest.length = 0; } // M:demo-stage
 for (const at of noTest) add('tour-no-commit', 'G-20', 'do-no-safe-test', at, 'a do step names no test of G-20 (safeTest, or the practice mode\'s modeTest): it is a stop step'); // M:do-no-safe-test

@@ -254,40 +254,50 @@ written for each of them. Two layers:
   settings tab). A practice-only step and a do step that opens a person's record carry
   `"sample"`, and `"none"` on a control the inventory lists on a person's record or row
   (`recordAnchors`, on any of its screens, since a tour reaches screens it does not list), or
-  with a result (`present`, `fieldChanged`) that names one, is a finding; for a step that
-  filters a list or opens a window, the result names the state (`stateEquals`) or the window
-  (`open`), not a control inside it [I]. `recordAnchors` lists every `data-tour` id that one
-  person's record or row carries: the row and each control on it, an appointment (the plain id a
-  resolver picks among, such as `cal.appointment`, as well as the resolver's own id), every
+  with a result (`present`, `fieldChanged`) that names one or a container, is a finding; for a
+  step that filters a list or opens a window, the result names the state (`stateEquals`) or the
+  window (`open`), not a control inside it [I]. `recordAnchors` lists every `data-tour` id that
+  one person's record or row carries: the row and each control on it, an appointment (the plain
+  id a resolver picks among, such as `cal.appointment`, as well as the resolver's own id), every
   control inside a window, card or sheet opened on one person (her appointment, payment, chat,
-  document), and every id whose element holds people's rows or records (a list, a column, the
-  calendar grid), since a do step lit on it lets her press any of them; an id listed on one
-  screen counts on every screen [I]. `bulkAnchors` lists every control that exports, prints,
-  downloads, shares or otherwise acts on many people's records at once (select all, a bulk send,
-  a bulk delete, `cal.print`): a tour never does one, so a do step on it, or whose result names
-  it, is a finding at any `on` and any class, and the tour shows it or stops at it; an id is
-  never in both lists [I]. A do step classed `S` (it saves) that does not carry `"sample"` is a
-  finding too, and with the inventory so is a do step at `"sample"`, of any class, on a control
-  no `recordAnchors` lists: the sample's record does not carry it, so a save there is a real one
-  (a business-wide rule is a stop step) [I]. Beyond that the checker reads only the flag and
+  document); an id listed on one screen counts on every screen [I]. `containerAnchors` lists
+  every element that holds people's rows or records (a list, a column, the calendar grid): the
+  lit target of a do step is live, so a do step lit on one is a finding at any `on` and any
+  class, and a tour lights the sample's own row or control through a resolver that picks it [I].
+  `bulkAnchors` lists every control that exports, prints, downloads, shares or otherwise acts on
+  many people's records at once (select all, a bulk send, a bulk delete, `cal.print`): a tour
+  never does one, so a do step on it, or whose result names it, is a finding at any `on` and any
+  class, and the tour shows it or stops at it; a stop step on an export or a print is classed
+  `T`, since data leaves. An id is in at most one of the three lists. A listed id covers every
+  arg of its family, so a control that exports, prints or acts on many people, or that sits on a
+  person's record, gets its own id and is never one arg of a family whose other members differ.
+  A filter, a sort or a search acts on no record and is in none of the lists [I]. A do step
+  classed `S` (it saves) that does not carry `"sample"` is a finding too, and with the inventory
+  so is a do step at `"sample"`, of any class, on a control no `recordAnchors` lists. When the
+  control sits on the sample's record or row, or in a window opened on her, the fix is in the
+  inventory: list it in `recordAnchors` and keep `"sample"`. Only a control that is nobody's
+  record changes the step (a save of a business-wide rule is then a stop step), and this finding
+  is never answered by setting `"none"` [I]. Beyond that the checker reads only the flag and
   whether the control is listed: that the bindings then reach the sample's record and no other,
-  and that `recordAnchors` lists every such control, is judged in the running app. Then the
-  anchor of its control; what she reads, and the text when it only shows; a do step's action
-  (open, pick, select, type), its result, the G-20 test it names (`safeTest`) and, for a
-  practice-only step, `practiceOnly` (only a step classed `P`: a step with no class, classed `S`
-  or classed `T` is never practice-only) with the mode's test for that action and the test that
-  it is a stop step outside the mode (at stage `demo` it may be `{}` and name them later; at
-  stage `app` both are named); and `need`, how a resumed run puts her back, which is only one of
-  the two G-08 allows (reopen a window, select the sample record again). A reopen puts back the
-  tour's own record, the sample's, never the last one open, since she may have opened a real
-  person's since; with no sample record it does nothing and the step only shows; the bindings do
-  it, and only the running app shows it (`tour-anchors`). The file's `stage` (`demo` or `app`),
-  the core screens, the anchors that no step points at (each with its screens), the written
-  reason for a screen or a task with no tour, and the important actions beyond an article's
-  tasks are in the same file.
-- A bindings file for each environment, which is not portable: anchor id to element, a `custom`
-  result to a predicate, and each window, condition and state value named in the manifest to
-  that environment's way of reading it.
+  and that the three lists are complete, is judged in the running app. Then the anchor of its
+  control; what she reads, and the text when it only shows; a do step's action (open, pick,
+  select, type), its result, the G-20 test it names (`safeTest`) and, for a practice-only step,
+  `practiceOnly` (only a step classed `P`: a step with no class, classed `S` or classed `T` is
+  never practice-only) with the mode's test for that action and the test that it is a stop step
+  outside the mode (at stage `demo` it may be `{}` and name them later; at stage `app` both are
+  named); and `need`, how a resumed run puts her back, which is only one of the two G-08 allows
+  (reopen a window, select the sample record again). A reopen puts back the tour's own record,
+  the sample's, never the last one open, since she may have opened a real person's since; with
+  no sample record it does nothing and the step only shows; the bindings do it, and only the
+  running app shows it (`tour-anchors`). The file's `stage` (`demo` or `app`), the core screens,
+  the anchors that no step points at (each with its screens), the written reason for a screen or
+  a task with no tour, and the important actions beyond an article's tasks are in the same file.
+- A bindings file for each environment, which is not portable: anchor id to element (`anchors`,
+  for a target that depends on state), the record behind an anchor (`records`, for
+  `recordOpen`), a `custom` result to a predicate (`results`), and each condition, window and
+  state value named in the manifest (`conditions`, `windows`, `state`), the route and the view
+  the app is on (`route`, `view`) and how a resume selects the sample record again
+  (`selectSample`), each in that environment's way of reading it.
 
 An anchor is a stable dot-separated id (`cal.new-appointment`), with an optional argument for a
 family of controls (`{ "anchor": "settings.tab", "arg": "messages" }`: a tab, a row, a field).

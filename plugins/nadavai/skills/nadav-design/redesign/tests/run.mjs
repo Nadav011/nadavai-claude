@@ -1372,6 +1372,20 @@ const TOUR_FIXTURES = [
   ['do-on-bulk', 'tour-no-commit', 'G-20', 'a do step whose result names the calendar\'s print', m => { tourOf(m, 'book').steps[1].result = { kind: 'present', arg: 'cal.print' }; }],
   ['do-on-bulk', 'tour-no-commit', 'G-20', 'a do step whose result is a changed field of the calendar\'s print (fieldChanged)', m => { tourOf(m, 'book').steps[1].result = { kind: 'fieldChanged', arg: 'cal.print' }; }],
   ['anchor-both', 'manifest', null, 'an id listed in both recordAnchors and bulkAnchors', (m, i) => { i.screens['cal-week'].recordAnchors.push('cal.print'); }],
+  ['anchor-both', 'manifest', null, 'an id in bulkAnchors of one screen and recordAnchors of another, not the first bulk id', (m, i) => { i.screens['cal-day'].bulkAnchors.push('pay.month-close'); i.screens.patients.recordAnchors.push('pay.month-close'); }],
+  ['anchor-both', 'manifest', null, 'an id in both bulkAnchors and containerAnchors', (m, i) => { i.screens['cal-week'].containerAnchors.push('cal.print'); }],
+  ['do-on-bulk', 'tour-no-commit', 'G-20', 'the ninth review\'s B5: a do step classed S at on: sample on the calendar\'s print', m => { m.tours.push({ id: 'b5', title: 'x', screens: ['cal-week'], area: 'יומן', where: 'יומן', tasks: [], steps: [{ kind: 'do', act: 'open', class: 'S', on: 'sample', anchor: 'cal.print', result: { kind: 'open', arg: 'cal.print-sheet' }, safeTest: 'e2e/x.spec.ts: y', text: 'לוחצים "הדפסה".' }], finish: 'סוף.' }); }],
+  ['do-on-bulk', 'tour-no-commit', 'G-20', 'the ninth review\'s B6: a practice-only P step on a bulk control listed on the second screen', (m, i) => { i.screens['cal-day'].bulkAnchors.push('pay.month-close'); tourOf(m, 'close-3').steps[3].anchor = 'pay.month-close'; }],
+  ['do-on-bulk', 'tour-no-commit', 'G-20', 'the ninth review\'s B7: a do step at on: sample whose result (recordOpen) names the calendar\'s print', m => { tourOf(m, 'book').steps[2].result = { kind: 'recordOpen', arg: 'cal.print' }; }],
+  ['do-on-bulk', 'tour-no-commit', 'G-20', 'the ninth review\'s B8: a result that names the calendar\'s print with an arg', m => { tourOf(m, 'book').steps[1].result = { kind: 'present', arg: { anchor: 'cal.print', arg: 'week' } }; }],
+  ['do-on-container', 'tour-no-commit', 'G-08', 'the ninth review\'s C1: a do step at on: sample lit on the calendar grid, a container', m => { m.tours.push({ id: 'c1', title: 'x', screens: ['cal-week'], area: 'יומן', where: 'יומן', tasks: [], steps: [{ kind: 'do', act: 'open', on: 'sample', anchor: 'cal.grid', result: { kind: 'recordOpen', arg: 'cal.appointment' }, safeTest: 'e2e/x.spec.ts: y', text: 'פותחים תור ביומן.' }], finish: 'סוף.' }); }],
+  ['do-on-container', 'tour-no-commit', 'G-08', 'a do step at on: none lit on the calendar grid', m => { m.tours.push({ id: 'c2', title: 'x', screens: ['cal-week'], area: 'יומן', where: 'יומן', tasks: [], steps: [{ kind: 'do', act: 'open', on: 'none', anchor: 'cal.grid', result: { kind: 'open', arg: 'appt.drawer' }, safeTest: 'e2e/x.spec.ts: y', text: 'פותחים תור ביומן.' }], finish: 'סוף.' }); }],
+  ['do-on-container', 'tour-no-commit', 'G-08', 'a do step classed S at on: sample lit on the calendar grid', m => { m.tours.push({ id: 'c3', title: 'x', screens: ['cal-week'], area: 'יומן', where: 'יומן', tasks: [], steps: [{ kind: 'do', act: 'open', class: 'S', on: 'sample', anchor: 'cal.grid', result: { kind: 'open', arg: 'appt.drawer' }, safeTest: 'e2e/x.spec.ts: y', text: 'לוחצים על תור.' }], finish: 'סוף.' }); }],
+  ['do-on-bulk', 'tour-no-commit', 'G-20', 'a do step on the calendar\'s print shown on the computer only (when)', m => { m.tours.push({ id: 'b9', title: 'x', screens: ['cal-week'], area: 'יומן', where: 'יומן', tasks: [], steps: [{ kind: 'do', act: 'open', on: 'none', when: 'desktop', anchor: 'cal.print', result: { kind: 'open', arg: 'cal.print-sheet' }, safeTest: 'e2e/x.spec.ts: y', text: 'לוחצים "הדפסה".' }], finish: 'סוף.' }); }],
+  ['none-on-record', 'tour-no-commit', 'G-08', 'a do step at on: none whose result names a container', m => { tourOf(m, 'book').steps[1].result = { kind: 'present', arg: 'cal.grid' }; }],
+  ['sample-not-record', 'tour-no-commit', 'G-08', 'a do step at on: sample with act type on a field no recordAnchors lists', m => { tourOf(m, 'reminder').steps[2].on = 'sample'; }],
+  ['do-class', 'tour-no-commit', 'G-20', 'a do step classed P, not practice-only, shown on the computer only (when)', m => { tourOf(m, 'pat-debt').steps[3] = { kind: 'do', act: 'open', class: 'P', on: 'sample', when: 'desktop', anchor: 'patients.charge', result: { kind: 'open', arg: 'pay.charge-sheet' }, safeTest: 'e2e/x.spec.ts: y', text: 'לוחצים "חיוב".' }; }],
+  ['record-not-sample', 'tour-no-commit', 'G-08', 'a do step that opens a record that is not the sample\'s, shown on the computer only (when)', m => { Object.assign(tourOf(m, 'close-1').steps[0], { on: 'none', when: 'desktop', anchor: 'cal.card', result: { kind: 'recordOpen', arg: 'cal.card' } }); }],
   ['do-class', 'tour-no-commit', 'G-20', 'at stage demo, a practice-only step with both tests and no class', m => { m.stage = 'demo'; delete tourOf(m, 'close-3').steps[1].class; }],
   ['none-on-record', 'tour-no-commit', 'G-08', 'a do step at on: none whose result is a changed field on a person\'s record (fieldChanged)', m => { tourOf(m, 'reminder').steps[2].result = { kind: 'fieldChanged', arg: 'appt.note' }; }],
   ['none-on-record', 'tour-no-commit', 'G-08', 'a do step at on: none whose result names a record control with an arg ({ anchor, arg })', m => { tourOf(m, 'book').steps[1].result = { kind: 'present', arg: { anchor: 'appt.service', arg: 'first' } }; }],
@@ -1444,7 +1458,7 @@ await test('TOUR-0', 'tour-check passes the example manifest clean, with and wit
   }
   return why.join(' · ');
 });
-await test('TOUR-usage', 'tour-check exits 2 with no manifest, a missing file, a file that is not JSON and an unknown option', async () => {
+await test('TOUR-usage', 'tour-check exits 2 with no manifest, a missing file, a file that is not JSON and an unknown option, and under --json says so as JSON', async () => {
   const why = [];
   const bad = path.join(TMP, 'tours-bad.json');
   fs.writeFileSync(bad, '{ not json');
@@ -1452,6 +1466,11 @@ await test('TOUR-usage', 'tour-check exits 2 with no manifest, a missing file, a
   for (const [args, re] of cases) {
     const r = sh('node', [path.join(TOURS, 'tour-check.mjs'), ...args]);
     if (r.status !== 2 || !r.stderr.includes(re)) why.push(`${args.join(' ') || '(none)'}: exit ${r.status} ${r.stderr.trim()}`);
+  }
+  for (const args of [['--strict', '--json'], ['--json', path.join(TOURS, 'example', 'tours.json'), '--inventory']]) {
+    const r = sh('node', [path.join(TOURS, 'tour-check.mjs'), ...args]);
+    let o = null; try { o = JSON.parse(r.stdout); } catch { /* reported below */ }
+    if (r.status !== 2 || !o || o.ok !== false || !o.error) why.push(`${args.join(' ')}: exit ${r.status} ${r.stdout.trim()} ${r.stderr.trim()}`);
   }
   for (const [file, re] of [[path.join(TMP, 'tours-missing.json'), /cannot read/], [bad, /not JSON/]]) {
     const r = sh('node', [path.join(TOURS, 'tour-check.mjs'), file, '--json']);
@@ -1626,10 +1645,10 @@ await test('TOUR-demo-practice', 'at stage demo a practice-only step may name no
   if (!mu.out || mu.out.notes.some(n => n.message === note)) why.push('mutant without M:demo-practice still prints the note');
   return why.join(' · ');
 });
-await test('TOUR-none-no-inventory', 'without --inventory the example\'s on: "none" steps are counted in a note, since recordAnchors are not read; with it there is no such note; without the line M:none-no-inventory the note is gone', async () => {
+await test('TOUR-none-no-inventory', 'without --inventory every do step of the example is counted in a note, since the three lists are not read; with it there is no such note; without the line M:none-no-inventory the note is gone', async () => {
   const why = [];
-  const n = TOUR_EX.tours.flatMap(t => t.steps).filter(s => s.kind === 'do' && s.on === 'none').length;
-  const note = `${n} do steps at on: "none" were not judged against recordAnchors: that needs --inventory`;
+  const n = TOUR_EX.tours.flatMap(t => t.steps).filter(s => s.kind === 'do').length;
+  const note = `${n} do steps were not judged against the inventory (recordAnchors, bulkAnchors, containerAnchors: none-on-record, sample-not-record, do-on-bulk, do-on-container): that needs --inventory`;
   const r = tourCheck(TOUR_EX, null);
   if (r.status !== 0 || !r.out || !r.out.notes.some(x => x.message === note)) why.push(`no inventory: exit ${r.status} ${JSON.stringify(r.out && r.out.notes)}`);
   const w = tourCheck(TOUR_EX, INV_EX);
@@ -1637,6 +1656,12 @@ await test('TOUR-none-no-inventory', 'without --inventory the example\'s on: "no
   const mu = tourCheck(TOUR_EX, null, mutant('none-no-inventory'));
   if (!mu.out || mu.out.notes.some(x => x.message === note)) why.push('mutant without M:none-no-inventory still prints the note');
   return why.join(' · ');
+});
+await test('TOUR-container-resolver', 'the same do step as the ninth review\'s C1, lit on the sample\'s own appointment through the resolver instead of the grid, passes', async () => {
+  const m = clone(TOUR_EX);
+  m.tours.push({ id: 'c1', title: 'x', screens: ['cal-week'], area: 'יומן', where: 'יומן', tasks: [], steps: [{ kind: 'do', act: 'open', on: 'sample', anchor: 'cal.ended-appointment', result: { kind: 'recordOpen', arg: 'cal.ended-appointment' }, safeTest: 'e2e/x.spec.ts: y', text: 'פותחים את התור של נועה לדוגמה.' }], finish: 'סוף.' });
+  const r = tourCheck(m, INV_EX, undefined, ['--require-stage', 'app']);
+  return r.status === 0 && r.out && !r.out.findings.length ? '' : `exit ${r.status} ${JSON.stringify(r.out && r.out.findings.map(f => f.code))}`;
 });
 await test('TOUR-bulk-show', 'a showing step and a stop step on a bulk control (cal.print) pass: only a do step on one is a finding', async () => {
   const m = clone(TOUR_EX);
@@ -1658,7 +1683,9 @@ await test('TOUR-stage', 'with --require-stage app the example passes and a mani
   if (u.status !== 2) why.push(`--require-stage beta: exit ${u.status}`);
   // the app's check without --inventory is a usage error, never a pass; without its line it would pass
   const ni = tourCheck(TOUR_EX, null, undefined, ['--require-stage', 'app']);
-  if (ni.status !== 2 || !/--require-stage app needs --inventory/.test(ni.raw)) why.push(`--require-stage app without --inventory: exit ${ni.status} ${ni.raw}`);
+  if (ni.status !== 2 || !ni.out || ni.out.ok !== false || !/--require-stage app needs --inventory/.test(ni.out.error)) why.push(`--require-stage app without --inventory, --json: exit ${ni.status} ${ni.raw}`);
+  const nt = sh('node', [path.join(TOURS, 'tour-check.mjs'), path.join(TOURS, 'example', 'tours.json'), '--require-stage', 'app']);
+  if (nt.status !== 2 || !/--require-stage app needs --inventory/.test(nt.stderr)) why.push(`--require-stage app without --inventory, text: exit ${nt.status} ${nt.stderr.trim()}`);
   const nim = tourCheck(TOUR_EX, null, mutant('stage-app-inventory'), ['--require-stage', 'app']);
   if (nim.status !== 0) why.push(`mutant without M:stage-app-inventory: exit ${nim.status}`);
   const nd = tourCheck(TOUR_EX, null, undefined, ['--require-stage', 'demo']);
