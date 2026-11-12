@@ -4,7 +4,7 @@ A reading aid for `rules.md`, «An app is built once», point 5: the proofs of t
 each with its pass and fail condition. It adds no rule. Where this list and point 5 differ, point 5 holds and the
 difference is a fault to report («Where a fault goes»). Source: the eleventh independent review of the rule
 (11.11.2026), which wrote the list for a Next app with a Capacitor shell, in Hebrew and RTL, corrected against point 5
-by the twelfth to the twenty-second; a Vite app reads "the root layout's `<head>`" as its `index.html` and skips the
+by the twelfth to the twenty-third; a Vite app reads "the root layout's `<head>`" as its `index.html` and skips the
 lines that name Next. A fail stops the unit. Each proof is shown failing first, through the planted cases its browser
 can show going out, then passing clean.
 
@@ -17,11 +17,11 @@ can show going out, then passing clean.
      a value.
 2. **Server fence** (5b).
    - Pass: one planted request per transport the server code uses (fetch, `node:http(s)`, the database driver, a
-     WebSocket client) and one to a loopback port that is neither the preview's nor the fake backend's, each refused,
-     from inside the running server and from inside each process it or the start script starts (one request only when
-     the fence is a network namespace or a container). A preview that runs no server code says so in the plan, and
-     this step is `n/a` with that reason. The process list after the scripted journey holds no Node process without a
-     planted-request result and no other process the plan does not name.
+     WebSocket client) and one to a loopback port that is neither the preview's, the fake backend's nor, on Next,
+     Next's own, each refused, from inside the running server and from inside each process it or the start script
+     starts (one request only when the fence is a network namespace or a container). A preview that runs no server
+     code says so in the plan, and this step is `n/a` with that reason. The process list after the scripted journey
+     holds no Node process without a planted-request result and no other process the plan does not name.
    - Fail: any answer, or a process with no result.
 3. **Browser policy** (5b).
    - Pass: every response, worker scripts included, carries `default-src 'self'`, `form-action 'self'` and `base-uri
@@ -37,7 +37,8 @@ can show going out, then passing clean.
      Sign-in reaches only the fake backend.
    - Fail: a provider with no line, a key present, or an answer from a provider's host.
 5. **Where the guard loads** (5c).
-   - Pass: the guard is the first script in the root layout's `<head>`, installs itself in every other same-origin
+   - Pass: the guard is the first script in the root layout's `<head>` (on Next the layer's copy comes first in every
+     HTML response, and the root layout's copy after it does nothing), installs itself in every other same-origin
      `<iframe>` or `<frame>` document of the frame (a `srcdoc`, `about:blank` or other child frame; the walk of step
      11 is what shows it there, and what fails on a document it is not in), and runs before any other script on a cold
      load and on a warm one (one way to show it: a test script that records `attachShadow` calls and link creation
@@ -103,8 +104,8 @@ can show going out, then passing clean.
       document of the frame or any shadow root on the guard's list, no link or form to the local page, the guard's or
       the app's own, whose first address is neither inert on the ledger nor invented, and no contact the ledger marks
       as replaced, read as the destination scan reads; no `Location` header outside the two origins comes from the
-      app's server or the fake backend; and the app's port opened at top level, without the check script's flag,
-      renders only the notice.
+      app's server or the fake backend (on Next, as the layer passes it on); and the app's port opened at top level,
+      without the check script's flag, renders only the notice.
     - Fail: any of these.
 12. **Data** (5c).
     - Pass: every email address in the fake data and in the fake backend's recorded responses is `.invalid` or

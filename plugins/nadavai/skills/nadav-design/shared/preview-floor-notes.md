@@ -263,15 +263,25 @@ records every request that is not to 127.0.0.1. Cases that attempted a request o
   for `<head>` in the first write only (the static check fails on it), one that did not pass the WebSocket upgrade on
   (no hot reload). `HEAD`, 304, a client navigation's payload and the app's policy header passed through unchanged,
   and a 10 KB guard ahead of `<meta charset>` showed Hebrew correctly in the three browsers. On Vite the dev server's
-  own error and 404 pages carry no guard and hold no outside link. Other same-origin documents the guard reaches only
-  at their frame's `load` (the same run): with a late `load`, a middle and a Ctrl click on a link went out under the
-  rule's set-up from a `srcdoc` set on a frame that already held a document (Chromium and Firefox), from an XHTML page
-  (Chromium and Firefox) and from an XML file that XSLT turns into HTML (Firefox; both the twenty-first review's run),
-  from a `javascript:` URL document (Chromium; Firefox hung and was not measured), from a `blob:` page reached by the
-  frame's navigation once the policy allowed `frame-src blob:` (Chromium and Firefox; the policy as committed blocks
-  it) and from an SVG file of the public folder opened as a page (Chromium and Firefox). WebKit kept each of them in,
-  `blob:` not measured there. A `srcdoc` or a `blob:` page set as the `src` of a new frame did not go out. In an SVG
-  document `a.href = …` sets a property and no attribute, so a walk plants its link with `setAttribute`.
+  own error and 404 pages carry no guard and hold no outside link. The twenty-third review ran the layer with the
+  `Location` rewrite as the rule words it (Next 16.4.1, `next start` and `next dev`, Chromium): a route handler's
+  redirect, `proxy.js` and a server action's `redirect` each landed on the right page and nothing left 127.0.0.1; with
+  the shell framing Next's own port, the planted throwing page's link went out, the walk failed on that page and the
+  static check failed on it. Also measured there: Next sent a route handler's HTML returned as bytes with no
+  `Content-Type`, a layer that knew HTML by its content type passed it unguarded, the browser read it as HTML and a
+  middle click on its link went out, while the walk failed on it; a page with a relative social image and no
+  `metadataBase` was served with `og:image` naming Next's own port; once it listens, Next sets `PORT` and
+  `__NEXT_PRIVATE_ORIGIN` to its own address and fetches that origin from server code on a server action's redirect
+  (read in its source); and with the notice in the root layout, the layer's port and Next's own port each showed only
+  the notice at top level, on a normal page and on the error document. Other same-origin documents the guard reaches
+  only at their frame's `load` (the same run): with a late `load`, a middle and a Ctrl click on a link went out under
+  the rule's set-up from a `srcdoc` set on a frame that already held a document (Chromium and Firefox), from an XHTML
+  page (Chromium and Firefox) and from an XML file that XSLT turns into HTML (Firefox; both the twenty-first review's
+  run), from a `javascript:` URL document (Chromium; Firefox hung and was not measured), from a `blob:` page reached
+  by the frame's navigation once the policy allowed `frame-src blob:` (Chromium and Firefox; the policy as committed
+  blocks it) and from an SVG file of the public folder opened as a page (Chromium and Firefox). WebKit kept each of
+  them in, `blob:` not measured there. A `srcdoc` or a `blob:` page set as the `src` of a new frame did not go out. In
+  an SVG document `a.href = …` sets a property and no attribute, so a walk plants its link with `setAttribute`.
 - Keyboard activation (the nineteenth review's run, not part of this probe): Ctrl+Enter and Shift+Enter on a focused
   `<a>`, and Ctrl+Enter on a focused SVG `<a tabindex="0">`, went out with the frame alone in Chromium and Firefox and
   nowhere under the rule's set-up in any of the three. A MathML element with `xlink:href` and no `href` is not a link
