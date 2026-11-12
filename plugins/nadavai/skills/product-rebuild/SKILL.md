@@ -9,7 +9,7 @@ metadata:
 
 The method that rebuilt MediZen (therapy-flow-v2, 31.10-7.11.2026), merged with the social studio lane (`~/social`, same days). Nothing is built until every row of the exit gate is closed and Nadav approves the build plan.
 
-This skill owns evidence, research, specs, decisions and closing. It calls `nadavai:nadav-design` mode `redesign` for the design brief, the demo, the demo rounds and the build-plan format, and `nadavai:action-safety new` for every action with an outside effect. It never restates those skills. Read `${NADAVAI_HOME:-$HOME/nadavai}/plugins/nadavai/skills/nadav-design/redesign/README.md` before stage 5.
+This skill owns evidence, research, specs, decisions and closing. It calls `nadavai:nadav-design` mode `redesign` for the design brief, the direction demo, its review round and the build-plan format, and `nadavai:action-safety new` for every action with an outside effect. It never restates those skills. Read `${NADAVAI_HOME:-$HOME/nadavai}/plugins/nadavai/skills/nadav-design/redesign/README.md` before stage 5.
 
 ## Invocation
 
@@ -133,8 +133,8 @@ Follow `references/decisions.md`.
 
 ### 5. Design and demo (nadav-design redesign)
 - Before the brief, read Nadav's own earlier demos as the taste reference (what recurs, what not to copy).
-- Run `nadav-design` redesign steps 1-7: BRIEF, inventory, demo "today" against "after" per screen and state, rounds, and CHANGES files with an empty column for Nadav's mark.
-- Each round adds a completeness critic and a look critic. Every finding is fixed, or listed as `need` with the reason.
+- Run `nadav-design` redesign steps 1-8 as that README orders them: BRIEF, inventory, the direction demo of the main journey ("today" against "after" for the screens it draws), one review round with CHANGES files that have an empty column for Nadav's mark, the tag, the plan. The other screens and states are designed in the app's preview during the build (`nadav-design/shared/rules.md`, «An app is built once», which also says how MediZen and SHIFTS are built under it).
+- The round adds a completeness critic and a look critic. Every finding is fixed, or listed as `need` with the reason.
 - The verify matrix adds:
   - 4 widths, light and dark, axe
   - Firefox, and WebKit in Docker

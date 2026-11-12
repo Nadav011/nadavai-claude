@@ -12,18 +12,25 @@ Nadav approves the plan with AskUserQuestion. Nothing else goes on that line.)
 ```
 You are the build session for the <App> redesign. The approved package lives in <out> (its own git repo):
 plan/build-plan.md (the units, in order), plan/START-BUILD-CHECKLIST.md (the pre-start gate), the demo
-(<out>/<output>, published at <link>), BRIEF.md, DECISIONS-ANSWERED.md, FEATURES-PROPOSED.md, INVENTORY.md.
+(<out>/<output>, published at <link>, approved as tag demo-approved-<date>), BRIEF.md, DECISIONS-ANSWERED.md,
+FEATURES-PROPOSED.md, INVENTORY.md. The demo at that tag is read-only: a design change is made in the app's preview.
 
 1. Check that this file's status line reads `Status: OWNER-APPROVED answer <N> commit <sha>`. Then run every item of
    <out>/plan/START-BUILD-CHECKLIST.md and show its result. Start nothing while an item fails.
-2. Build the units in plan order, one branch and PR per unit. Each screen goes through the nadav-design `screen`
-   mode gates: DoD 100 on every route the change touches, the visual change gate with the demo's phone for that
-   label next to the real screen at 375 and 1440, dark and light.
+2. Build the units in plan order; before each, re-read nadav-design's «An app is built once» in the installed skill,
+   and land it as point 2 there says. Unit 1 is the app's preview on invented data, isolated and checked as
+   `shared/rules.md`, «An app is built once», point 5, says. Nobody plays the preview, on any machine, before its
+   check script passes there; until then only you run it, to run the checks. Every later screen is designed and
+   shown to Nadav in that preview, and no screen is built a second time. Each screen goes through
+   the nadav-design `screen` mode gates: DoD 100 on every route the change touches, the visual change gate with the
+   demo's phone for that label (or, for a screen the demo did not draw, today's screen) next to the screen in the
+   preview at 375 and 1440, dark and light.
 3. Never re-decide an answer. A question the package does not answer goes to Nadav with AskUserQuestion,
    recommendation first, and its answer is appended to DECISIONS-ANSWERED.md.
 4. Anything marked `go` (migrations, auth, payments, store publishing, paid services) waits for Nadav's explicit go.
 5. Every unit ends with a reviewer that is not its author (a fresh Opus, or Codex via `omc ask codex` on the config
-   default for auth, data or money) and a dated line in the app's STATUS.md.
+   default for auth, data or money) and a dated line in the app's STATUS.md. For a screen the tagged demo drew, that
+   reviewer is the `screen` step 8b verifier, given that screen's phones at the tag, as that step says.
 ```
 
 ## The checklist (plan/START-BUILD-CHECKLIST.md)
@@ -36,3 +43,4 @@ Every item is a command or a file check with its expected result; the build sess
 | 3 | The app is where the plan assumed | `git -C <app> fetch && git -C <app> log -1 origin/main` | the base named in the plan, or a reviewed rebase |
 | 4 | Today's screens are there for the visual gate | `ls "<out>/today/"` and redesign.json `today_missing` | one file per INVENTORY.md screen, or the screen in `today_missing` with its row in INVENTORY.md «Screens that could not be captured» |
 | 5 | Every Nadav action the plan needs is done | «מה רק נדב עושה» | each row marked done |
+| 6 | The approved demo is the tag the plan names | `git -C "<out>" rev-parse demo-approved-<date>^{commit}` and `git -C "<out>" diff --stat demo-approved-<date> HEAD -- sections css parts proto` | the commit the plan names, and no change to the page since the tag |

@@ -9,6 +9,12 @@ A demo of a product he is building for himself (a redesign demo, a store demo) i
 track; that is `redesign` or `site`. This track is declared in the first step of the mode. Its
 tempo is `flow`.
 
+When an app stands behind the demo (the client's app exists in a repo of ours and its build was
+decided), the demo after the first direction round is built inside that app's code on invented
+data, only as unit 1 of a build plan Nadav approved (`shared/rules.md`, «An app is built once»,
+point 2); approving the direction never starts work in the client's app repo. With no app behind
+it, the page is the deliverable. A client demo at the prospect stage never starts the client's app.
+
 ## Rules
 
 1. **Keep the design he approved.** A request to change content is not a request to redesign:

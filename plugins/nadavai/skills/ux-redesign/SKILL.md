@@ -1,6 +1,6 @@
 ---
 name: ux-redesign
-description: "Redesign a whole existing app, demo first: today vs after for every screen and state, numbered decisions, verify rounds and a checked build plan, with no app code (the `redesign` mode of nadav-design). Use when Nadav types /ux-redesign or asks to redesign or renovate the whole app."
+description: "Redesign a whole existing app: the direction as a demo of the main journey, one review round, numbered decisions and a checked build plan whose first unit is the app's own preview, with no app code (the `redesign` mode of nadav-design). Use when Nadav types /ux-redesign or asks to redesign or renovate the whole app."
 ---
 # ux-redesign
 
