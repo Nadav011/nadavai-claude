@@ -41,7 +41,7 @@ a loopback address the fence does not allow, so nothing leaves the host and an u
 
 ## The shell frame and the guard (last run on 12.11.2026 with Playwright 1.65 and React 19.3.1)
 
-`dev/probes/frame-sandbox/probe.cjs` runs thirty-seven ways out of an app page in four set-ups: in a sandboxed frame
+`dev/probes/frame-sandbox/probe.cjs` runs forty ways out of an app page in four set-ups: in a sandboxed frame
 (`sandbox="allow-scripts allow-same-origin allow-forms allow-modals"`, the shell on a second port with `frame-src` set
 to the app's origin only) with a guard in the app and the app's own policy on its responses (`default-src 'self'`,
 `form-action 'self'`, `base-uri 'none'`, inline script and style allowed), which is the rule's set-up; in the same
@@ -51,48 +51,52 @@ The guard does five things. It points every `<a href>`, `<area href>` and MathML
 `javascript:` destination, React's two placeholders, and a `blob:` link of the two origins or a `data:` link when it
 carries `download`). It cancels the browser's default, never the app's handlers, for a click with a modifier key or
 another button where the event's path holds a link or a submit control, for the context menu where it holds a link or
-an image, and for a drag of a link the app did not make draggable. It cancels every form submission whose destination
-is outside the two origins, except the two placeholders React writes for a function action (one in the browser, one on
-the server). Its listeners are on the window and on each document. Through a wrapped `attachShadow` it registers those
-listeners, and runs the same rewrite with its observer, on every shadow root, and through a wrapped `dispatchEvent` on
-the top node of a tree that is not in a document before the page's code dispatches an event at any node of it. And it
-installs itself in every same-origin `<iframe>` or `<frame>` document: when its frame is added, when the frame loads,
-and when the app's code reads the frame's `contentWindow` or `contentDocument`; `window.__guard(win)` installs it
-again in a document that `document.open` emptied: it first sends the document an event that a living guard listener
-cancels and installs only when none answers, so an app that calls it on every render adds nothing (the sixteenth
-review found the earlier installer adding an observer and a set of listeners on each call). What belongs to a window
-(the wrappers, the list of roots) is set once for the window, and what belongs to a document (the rewrite, the
-listeners) once for each document. The test browser aborts and records every request that is not to 127.0.0.1. Cases
-that attempted a request outside:
+an image (for these two a link is also any `<a>` and any SVG `<use>`), and for a drag of a link the app did not make
+draggable. It cancels every form submission whose destination is outside the two origins, except the two placeholders
+React writes for a function action (one in the browser, one on the server). Its listeners are on the window and on
+each document. Through a wrapped `attachShadow` it registers those listeners, and runs the same rewrite with its
+observer, on every shadow root, and through a wrapped `dispatchEvent` on the top node of a tree that is not in a
+document before the page's code dispatches an event at any node of it. And it installs itself in every same-origin
+`<iframe>` or `<frame>` document: when its frame is added, when the frame loads, and when the app's code reads the
+frame's `contentWindow` or `contentDocument`; `window.__guard(win)` installs it again in a document that
+`document.open` emptied: it first sends the document an event that a living guard listener answers by setting a flag
+in the guard's own closure, and installs only when none answers, so an app that calls it on every render adds nothing
+(the sixteenth review found the earlier installer adding an observer and a set of listeners on each call; on the next
+one, which read the event's cancelled state, the seventeenth counted 0 listeners added by 20 calls on a live document
+and 12 by the first call after `document.open`, and found that a listener of the page's with the ping's name made it
+skip, which the walk caught). What belongs to a window (the wrappers, the list of roots) is set once for the window,
+and what belongs to a document (the rewrite, the listeners) once for each document. The test browser aborts and
+records every request that is not to 127.0.0.1. Cases that attempted a request outside:
 
 | Browser | frame + guard + app policy | frame + guard | frame only | top level (control) |
 |---|---|---|---|---|
-| Chromium 158 | 0 of 37 | 0 of 37 | 19 of 37 | 28 of 37 |
-| WebKit 27.2 | 0 of 37 | 0 of 37 | 2 of 37 | 19 of 37 |
-| Firefox 159 | 0 of 37 | 1 of 37 | 15 of 37 | 30 of 37 |
+| Chromium 158 | 0 of 40 | 0 of 40 | 22 of 40 | 31 of 40 |
+| WebKit 27.2 | 0 of 40 | 0 of 40 | 2 of 40 | 19 of 40 |
+| Firefox 159 | 0 of 40 | 1 of 40 | 17 of 40 | 32 of 40 |
 
 - Frame only, what went out. Chromium: a middle click, a Ctrl+click and a Shift+click on a link to another origin; a
   middle click on an SVG `<a xlink:href>` and on a link inside a closed shadow root; a Ctrl+click and a Shift+click on
   a form's submit button; Shift+Enter in a form with one field and no button, in the page, inside a closed shadow
   root, and in the two forms whose own `submit` listener sets the destination; a Shift+click on a button whose
   `formaction` is another origin; and all six cases in a child document the page fills and in a closed shadow root
-  made with that document's `attachShadow` (two clicks on a link, two forms, a link and a form in the root); and a
-  middle click on an SVG link in a child document emptied by `document.open`. Each form in the page went to the other
-  origin in a new page. A middle click on a submit button sent nothing. Firefox: the three clicks on the link; the
-  middle clicks on the SVG link and on the link in the closed shadow root; the two clicks on the link and the two
+  made with that document's `attachShadow` (two clicks on a link, two forms, a link and a form in the root); a middle
+  click on an SVG link in a child document emptied by `document.open`; a middle and a Ctrl click on a `<use>` of an
+  SVG link; and a middle click on an SVG `<a>` whose address only a `<set>` gives. Each form in the page went to the
+  other origin in a new page. A middle click on a submit button sent nothing. Firefox: the three clicks on the link;
+  the middle clicks on the SVG link and on the link in the closed shadow root; the two clicks on the link and the two
   forms in the child document, and the link in the root made with its `attachShadow`; a Ctrl click that a handler
   dispatches on a link that is not in the document, and one it dispatches on the text node inside such a link; the SVG
-  link in the child document emptied by `document.open`; and a middle click and a Ctrl+click on a MathML element with
-  `href`. WebKit: the two forms in the child document, which navigated the child in place.
+  link in the child document emptied by `document.open`; a middle click and a Ctrl+click on a MathML element with
+  `href`; and a middle and a Ctrl click on a `<use>` of an SVG link. WebKit: the two forms in the child document,
+  which navigated the child in place.
 - Frame only, what did not go out in any of the three: `location.assign` and `location.replace` to another origin, a
   plain click on a link to another origin, `window.open`, an `<a target="_blank">`, a write to `top.location` (it
   throws `SecurityError`), a plain form post to another origin, and plain clicks on `tel:`, `mailto:` and `sms:` links
   and `location.href = 'tel:…'`.
-- With the guard and the app's policy, none of the thirty-seven went out in any of the three. With the guard and no
-  app policy one did, in Firefox: the form in the child document whose `submit` listener sets its destination
-  navigated the child there in place. A child document's navigation is fenced by the app's own policy (`form-action`
-  and `default-src`), not by the shell's `frame-src`, and Firefox reads the destination before the guard's observer
-  runs.
+- With the guard and the app's policy, none of the forty went out in any of the three. With the guard and no app
+  policy one did, in Firefox: the form in the child document whose `submit` listener sets its destination navigated
+  the child there in place. A child document's navigation is fenced by the app's own policy (`form-action` and
+  `default-src`), not by the shell's `frame-src`, and Firefox reads the destination before the guard's observer runs.
 - A destination set during the submit (the thirteenth review's run in Chromium 158, then this probe). The browser
   reads a form's destination after the `submit` event, so a listener that runs after the guard's own can change it.
   Under a guard that only looked at the destination in its `submit` listener, a one-field form whose own listener set
@@ -124,30 +128,53 @@ that attempted a request outside:
   getter the guard wraps, before its observer has run) and made a closed root with it on an element of the page: a
   middle and a Ctrl click on a link in that root went out in Chromium and Firefox, and a Shift+Enter in a form there
   in Chromium, while the walk passed in every document. Read through the DevTools protocol (`DOM.getDocument` with
-  `pierce`), the page's author roots were four, each on a guard list. With two roots planted (that one, and the clone
-  of a closed `clonable` root, below) they were seven, and the two planted ones were on none. A host is matched as an
-  element: the probe stamps the host of every root on a guard list with an attribute that carries a token of that pass
-  and reads the stamp back from the protocol's tree. Matching by id passed a clone made a task later, which keeps its
-  host's id; comparing counts passes an unguarded root when a guarded one is missing from the listing, and passes 0
-  against 0, so a count is only ever an extra check (the sixteenth review). The protocol check exists in Chromium
-  only. A root is made by the app's code, which is the same in every engine, so Chromium's listing stands for the
-  other two, except for code that branches on the engine (unproven list).
+  `pierce`), the page's author roots were four, each on a guard list. With three roots planted (that one, the clone of
+  a closed `clonable` root, and a clone that a component makes again whenever its host's attributes change, both
+  below) they were nine: the first two planted ones were on no guard list, and the third carried the token of the host
+  it was copied from. A host is matched as an element: the probe stamps the host of every root on a guard list with a
+  token of its own for that pass, reads the stamps back from the protocol's tree, and fails on a root whose host
+  carries no token of this pass or one that another host also carries (a host cloned after the stamp carries a copy:
+  with one token for the whole pass the check passed such a clone in all 18 of the seventeenth review's runs, and that
+  clone's link went out in Chromium and Firefox). The guard defines its list of roots as a property the page's code
+  cannot replace. Matching by id passed a clone made a task later, which keeps its host's id; comparing counts passes
+  an unguarded root when a guarded one is missing from the listing, and passes 0 against 0, so a count is only ever an
+  extra check (the sixteenth review). The protocol check exists in Chromium only. A root is made by the app's code,
+  which is the same in every engine, so Chromium's listing stands for the other two, except for code that branches on
+  the engine (unproven list).
 - The app's frame in a process of its own (the sixteenth review's run, then this probe in Chromium). With
-  `Origin-Agent-Cluster: ?1` on the app's responses, or Chromium started with `--isolate-origins`, the page's protocol
-  session listed one document, the shell's, and no author root, so a check on that session alone passed with an
-  unguarded root in place; the walk passed too. `newCDPSession(frame)` on the app's frame listed its documents and
-  every root. Without the header that call throws ("This frame does not have a separate CDP session, it is a part of
-  the parent frame's session"), so a script tries it for each frame and keeps the page's session where it throws. In
-  this probe, with the header and the two planted roots: two sessions, the page's own listing 1 document and the two
-  together 5 for the browser's 5 frames, 7 author roots, the two planted ones on no guard list. The probe counts the
-  documents listed against the frames the test browser has; the rule counts them, the shell's own apart, against the
-  documents the walk visited, which is the same number here.
+  `Origin-Agent-Cluster: ?1` on the app's responses (the sixteenth review also ran it together with
+  `--isolate-origins`; the seventeenth found that the flag alone, on two ports of one host, did not move the frame,
+  and that `OriginKeyedProcessesByDefault` changed nothing on 127.0.0.1), the page's protocol session listed one
+  document, the shell's, and no author root, so a check on that session alone passed with an unguarded root in place;
+  the walk passed too. `newCDPSession(frame)` on the app's frame listed its documents and every root. Without the
+  header that call throws ("This frame does not have a separate CDP session, it is a part of the parent frame's
+  session"), so a script tries it for each frame and keeps the page's session where it throws. In this probe, with the
+  header and the three planted roots: two sessions, the page's own listing 1 document and the two together 5 for the
+  browser's 5 frames, 9 author roots, two of the planted ones on no guard list and the third sharing its token with
+  its host, the same as with the frame in the page's process; with the header and nothing planted, 4 documents for 4
+  frames and 4 roots, each listed. The seventeenth review found no arrangement in which the count passed with a
+  document missing (an app with no child document, a sandboxed opaque child, the header, three launch configurations).
+  The probe counts the documents listed against the frames the test browser has; the rule counts them, the shell's own
+  apart, against the documents the walk visited, which is the same number here.
 - Clones of a `clonable` root (the sixteenth review's run; this probe plants one for the protocol check only). A root
   made through the wrapped `attachShadow` with `clonable: true` is copied by the browser when its host is cloned, and
   no wrapper sees the copy. Under the rule's set-up a middle click and a Ctrl click on a link in a closed clone, a
   middle click on an SVG link in it, a Shift+Enter in a form in an open clone and an SVG link in a clone made a task
   later went out in Chromium (5 of 5) and, the form apart, in Firefox (4 of 5); none did in WebKit. The walk passed.
   The protocol check, matching hosts as elements, fails on every clone.
+- Links the event's path does not show (the seventeenth review's run, then this probe). With a click layer that
+  matched a link as `a[*|href]`, under the rule's set-up, a middle, a Ctrl and a Shift click on a `<use>` whose target
+  is an SVG `<a xlink:href>` in `<defs>` opened a new page to it in Chromium and Firefox: the link the person clicks
+  is a copy in a user-agent shadow tree, and from the document the path ends at the `<use>`. A `<use>` of a link in a
+  same-origin sprite file went out in Firefox. A middle and a Ctrl click on an SVG `<a>` with no `href` attribute,
+  whose address a `<set>` animation gives (`href` or `xlink:href`), went out in Chromium. WebKit refused all of them,
+  and the walk passed everywhere. With any `<a>` and any `<use>` counted as a link for a click, an `auxclick` and a
+  context menu, the review's eight cases and this probe's three went nowhere in any of the three. What that costs: a
+  Shift click on an icon drawn with `<use>` inside a label left the label's checkbox unchanged under the guard in all
+  three; without the guard WebKit toggles it and Chromium and Firefox do not; the label's own handler ran each time.
+  The drag layer keeps the narrower match, so that a draggable card with such an icon keeps its drag. The scan after
+  each screen reads an animation's `to`, `from` and `values` for those two attributes, which the earlier scan of
+  `href` and `xlink:href` attributes missed.
 - A native taken from a frame's window (the sixteenth review's run, not part of this probe). In the task that appended
   a frame, a script read `window.frames[n].EventTarget.prototype.dispatchEvent`, which the guard had not reached; a
   button's handler later dispatched a Ctrl click with it on a link to another origin that was not in the document.
@@ -308,6 +335,8 @@ report as not shown.
 - An `<embed>` document, which has no `contentDocument` for the guard to wrap; the walk is what shows it.
 - The app's frame in a process of its own in a person's own Chrome, which may key processes by origin with no header
   at all: the check script reads every frame's session, and nobody has run it against a real preview.
+- A drag of an SVG link that `<use>` draws, or of an SVG `<a>` whose address an animation gives, and any other element
+  that opens as a link while the event's path does not show one.
 - Other natives taken from a frame's window before the guard reached it (`addEventListener`, `click`, `submit`):
   `attachShadow` and `dispatchEvent` were measured, and the destination rules stand behind the rest.
 - Shadow roots the engine makes without a call the guard wraps, beyond the clone of a `clonable` root: the protocol

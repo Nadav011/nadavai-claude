@@ -4,8 +4,8 @@ A reading aid for `rules.md`, «An app is built once», point 5: the proofs of t
 each with its pass and fail condition. It adds no rule. Where this list and point 5 differ, point 5 holds and the
 difference is a fault to report («Where a fault goes»). Source: the eleventh independent review of the rule
 (11.11.2026), which wrote the list for a Next app with a Capacitor shell, in Hebrew and RTL, corrected against point 5
-by the twelfth to the sixteenth; a Vite app reads "the root layout's `<head>`" as its `index.html` and skips the lines
-that name Next. A fail stops the unit. Each planted case is shown failing first, then passing clean.
+by the twelfth to the seventeenth; a Vite app reads "the root layout's `<head>`" as its `index.html` and skips the
+lines that name Next. A fail stops the unit. Each planted case is shown failing first, then passing clean.
 
 1. **Start-up environment proof** (5a).
    - Pass: the server refuses to serve with one planted variable that is not on the allowlist, and with one planted
@@ -46,7 +46,8 @@ that name Next. A fail stops the unit. Each planted case is shown failing first,
    - Pass: one of each kind the app has keeps its effect: a modifier click, a context menu, a drag, and a form whose
      action is a function, rendered in the browser and, where the app renders one on the server, after hydration. The
      expected losses, and only these: a modified or middle click on an app link opens nothing; a modified click on an
-     app submit, or Shift+Enter in a form that has a submit button (in Chromium), sends no form and runs no form
+     icon drawn with an SVG `<use>` loses the browser's default for it, while the app's handler runs; a modified click
+     on an app submit, or Shift+Enter in a form that has a submit button (in Chromium), sends no form and runs no form
      action.
    - Fail: any other effect missing.
 7. **The frame's planted cases, in Chromium and in WebKit** (5c; WebKit in the Playwright image as `working-style.md`
@@ -76,20 +77,21 @@ that name Next. A fail stops the unit. Each planted case is shown failing first,
       fail the check.
     - Fail: one of them passes.
 11. **Scripted journey** (5b, 5c).
-    - Pass: the recorded requests include no other origin; the walk after each screen finds the guard working in every
-      document under the frame, whatever its URL or origin (a link the script plants is rewritten, and a Ctrl click it
-      dispatches on that link comes back cancelled; a document the guard cannot be in, one the walk cannot evaluate,
-      and a request or a navigation the walk causes each fail it); in Chromium the shadow roots read through the
-      DevTools protocol, on the page's session and on the session of each frame in a process of its own, each have a
-      host that is the host of a root on a guard list (the same element, not the same id), and the documents listed,
-      the shell's own apart, are not fewer than the documents the walk visited; that check is shown failing on a
-      closed root that planted code makes through `window.frames[i]`'s `attachShadow` in the task that made the frame
-      and on the clone of a planted `clonable` root, once as the preview runs and once with `Origin-Agent-Cluster: ?1`
-      on the app's responses; the scan after each screen finds no link or form destination outside the two origins in
-      any document of the frame or any shadow root on the guard's list, no link or form to the local page, the guard's
-      or the app's own, whose first address is neither inert on the ledger nor invented, and no contact the ledger
-      marks as replaced, read as the destination scan reads; no `Location` header outside the two origins comes from
-      the app's server or the fake backend; and the app's port opened at top level, without the check script's flag,
+    - Pass: the recorded requests include no other origin; the walk after each screen visits at least one document and
+      finds the guard working in every document under the frame, whatever its URL or origin (a link the script plants
+      is rewritten, and a Ctrl click it dispatches on that link comes back cancelled; a document the guard cannot be
+      in, one the walk cannot evaluate, and a request or a navigation the walk causes each fail it); in Chromium the
+      shadow roots read through the DevTools protocol, on the page's session and on the session of each frame in a
+      process of its own, each have a host that is the host of a root on a guard list (the same element, not the same
+      id or a count; a mark on a host counts only when no other host carries it), and the documents listed, the
+      shell's own apart, are not fewer than the documents the walk visited; that check is shown failing on a closed
+      root that planted code makes through `window.frames[i]`'s `attachShadow` in the task that made the frame and on
+      the clone of a planted `clonable` root, once as the preview runs and once with `Origin-Agent-Cluster: ?1` on the
+      app's responses; the scan after each screen finds no link or form destination outside the two origins in any
+      document of the frame or any shadow root on the guard's list, no link or form to the local page, the guard's or
+      the app's own, whose first address is neither inert on the ledger nor invented, and no contact the ledger marks
+      as replaced, read as the destination scan reads; no `Location` header outside the two origins comes from the
+      app's server or the fake backend; and the app's port opened at top level, without the check script's flag,
       renders only the notice.
     - Fail: any of these.
 12. **Data** (5c).
@@ -112,6 +114,6 @@ that name Next. A fail stops the unit. Each planted case is shown failing first,
 15. **No-demo check** (point 4), locally for unit 1 and in the landing CI after it; for a Capacitor or Expo app also
     in the OTA bundle's build command.
     - Pass: a planted import from the demo folder fails the web build and the OTA bundle's build; and where the
-      preview's mode adds `allow-same-origin` to a frame of the app, a production build planted with that frame
-      carrying the flag fails the check.
-    - Fail: either builds, or the planted flag passes.
+      preview shows a frame of the app with `allow-same-origin` or as `srcdoc`, that variant is a component under the
+      demo folder, so the same planted import covers it.
+    - Fail: either builds, or the production component carries a branch for the preview.

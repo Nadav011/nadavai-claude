@@ -96,8 +96,11 @@ const GUARD = `<script>(() => {
   const isReact = (raw) => raw.startsWith(REACT_CLIENT) || raw === REACT_SERVER;
   const LINKS = 'a[href],area[href],math[href],math [href]'; // what the rewrite reaches
   const SEL = LINKS + ',form[action],[formaction]';
-  const LINK = 'a[*|href],area[href],math[href],math [href]'; // what counts as a link in an event's path
-  const OPENER = LINK + ',button:not([type=button]):not([type=reset]),input[type=submit],input[type=image]';
+  const LINK = 'a[*|href],area[href],math[href],math [href]'; // what counts as a link in a drag's path
+  // For a click, an auxclick and a context menu the match is wider: an <a> with no href attribute (an SVG animation
+  // can give it its address) and an SVG <use> (a link it draws sits in a user-agent tree the path does not show).
+  const CLICKED = 'a,area[href],math[href],math [href],use';
+  const OPENER = CLICKED + ',button:not([type=button]):not([type=reset]),input[type=submit],input[type=image]';
   const FRAMES = 'iframe,frame';
   const cancel = (e) => e.preventDefault();
   // 1. Destinations that leave point at a local page, in every document and every shadow root: a link's href, a
@@ -140,7 +143,7 @@ const GUARD = `<script>(() => {
   const fence = (root) => {
     root.addEventListener('click', (e) => (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) && has(e, OPENER) && cancel(e), true);
     root.addEventListener('auxclick', (e) => has(e, OPENER) && cancel(e), true);
-    root.addEventListener('contextmenu', (e) => has(e, LINK + ',img') && cancel(e), true);
+    root.addEventListener('contextmenu', (e) => has(e, CLICKED + ',img') && cancel(e), true);
     root.addEventListener('dragstart', (e) => has(e, LINK) && !ownDrag(e) && cancel(e), true);
     // 3. A form is fenced by where it goes, whatever key or click sent it. submit does not leave a shadow root.
     root.addEventListener('submit', (e) => {
@@ -159,10 +162,11 @@ const GUARD = `<script>(() => {
   const fenced = new WeakSet();
   // Once per window: the wrappers and the list of roots. A window can get a new document and keeps both.
   const perWindow = (win) => {
-    if (win.__guardRoots) return;
+    const had = Object.getOwnPropertyDescriptor(win, '__guardRoots');
+    if (had && had.writable === false) return; // a guard already holds this window
     const roots = [];
-    // The list is for the check script, which cannot reach a closed root by itself.
-    win.__guardRoots = () => roots.map((w) => w.deref()).filter((r) => r && r.host.isConnected);
+    // The list is for the check script, which cannot reach a closed root by itself. The page's code cannot replace it.
+    Object.defineProperty(win, '__guardRoots', { value: () => roots.map((w) => w.deref()).filter((r) => r && r.host.isConnected), writable: false, configurable: false });
     // Every shadow root gets the same listeners and the same rewrite: a closed root hides its path and its links.
     const proto = win.Element.prototype;
     const attach = proto.attachShadow;
@@ -204,16 +208,18 @@ const GUARD = `<script>(() => {
     doc.addEventListener('DOMContentLoaded', () => sweep(doc));
     fence(win); // the guard is the first script, so on the window its listeners run before the app's
     fence(doc);
-    doc.addEventListener('guard-ping', cancel); // answers the installer below while this document's listeners live
+    doc.addEventListener('guard-ping', () => { answered = true; }); // answers the installer below while this document's listeners live
     try { if (win !== window && doc.documentElement) doc.documentElement.style.setProperty('-webkit-touch-callout', 'none'); } catch { /* not there yet */ }
   };
+  let answered = false;
   install(window);
   // For the app's own code, where a child document is made or emptied in a way the guard does not see.
   // document.open keeps the Document object and removes its listeners, so the document's mark is cleared first.
   window.__guard = (w) => {
-    let alive = false;
-    try { alive = !w.document.dispatchEvent(new w.Event('guard-ping', { cancelable: true })); } catch { return; }
-    if (alive) return;
+    // Alive means a listener of this guard answered; a listener of the page's with the same event name cannot.
+    answered = false;
+    try { w.document.dispatchEvent(new w.Event('guard-ping')); } catch { return; }
+    if (answered) return;
     w.document.__guard = false; install(w);
   };
 })();</script><style>:root,a,area,img{-webkit-touch-callout:none}</style>`;
@@ -242,6 +248,11 @@ document.getElementById('card').addEventListener('dragstart', (e) => e.dataTrans
 document.getElementById('drop').addEventListener('dragover', (e) => e.preventDefault());
 document.getElementById('drop').addEventListener('drop', (e) => { e.preventDefault(); window.__drop += 1; });</script>
 <math><mi id="mml" href="https://example.com/mathml">x</mi></math>
+<svg width="0" height="0" style="position:absolute"><defs><a id="ua" xlink:href="https://example.com/use-xlink" xmlns:xlink="http://www.w3.org/1999/xlink"><rect width="100" height="24" fill="#c9c"/></a><rect id="ico" width="20" height="20" fill="#36c"/></defs></svg>
+<svg id="usew" width="100" height="24"><use href="#ua"/></svg>
+<svg id="smilw" width="100" height="24"><a id="smila"><set attributeName="href" to="https://example.com/smil-href" begin="0s" fill="freeze"/><rect width="100" height="24" fill="#cc9"/></a></svg>
+<label id="icolabel" style="display:inline-block"><svg id="icosvg" width="20" height="20"><use href="#ico"/></svg><input type="checkbox" id="cb2"></label>
+<script>window.__ico = 0; document.getElementById('icolabel').addEventListener('click', (e) => { if (e.target.id !== 'cb2') window.__ico += 1; });</script>
 <button type="button" id="synth">a handler dispatches a Ctrl click on a link that is not in the document</button>
 <button type="button" id="synthtext">a handler dispatches a Ctrl click on the text inside such a link</button>
 <iframe id="kid2" width="200" height="40"></iframe>
@@ -280,7 +291,12 @@ ${fault ? `<script>{ // a fault on purpose: a root made with the attachShadow of
   rr.innerHTML = '<a href="https://example.com/fault">fault</a>';
   const ch = document.createElement('div'); ch.id = 'clonehost'; document.body.appendChild(ch);
   ch.attachShadow({ mode: 'closed', clonable: true }).innerHTML = '<a href="https://example.com/clone">clone</a>';
-  const copy = ch.cloneNode(true); copy.id = 'clonecopy'; document.body.appendChild(copy); }</script>` : ''}`;
+  const copy = ch.cloneNode(true); copy.id = 'clonecopy'; document.body.appendChild(copy);
+  // and a guarded clonable root whose host a component copies whenever the host's attributes change: a stamp the
+  // check script puts on the host is copied with it
+  const sh = document.createElement('div'); sh.id = 'stamphost'; document.body.appendChild(sh);
+  sh.attachShadow({ mode: 'closed', clonable: true }).innerHTML = '<a href="https://example.com/stamp">stamp</a>';
+  new MutationObserver(() => { const old = document.getElementById('stampcopy'); if (old) old.remove(); const c = sh.cloneNode(true); c.id = 'stampcopy'; sh.after(c); }).observe(sh, { attributes: true }); }</script>` : ''}`;
 const shellHtml = (query) => `<!doctype html><meta charset="utf-8"><title>shell</title>
 <iframe id="app" width="700" height="500" sandbox="${SANDBOX}" src="${APP_ORIGIN}/app${query}"></iframe>`;
 
@@ -328,6 +344,9 @@ const CASES = [
   ['middle click on an SVG link in a child document emptied by document.open', (f) => kid2(f).click('#k2s', { button: 'middle', timeout: 3000 })],
   ['middle click on a MathML element with href', click('#mml', { button: 'middle' })],
   ['Ctrl+click on a MathML element with href', click('#mml', { modifiers: ['Control'] })],
+  ['middle click on a <use> of an SVG <a xlink:href> that sits in <defs>', click('#usew', { button: 'middle', position: { x: 10, y: 10 } })],
+  ['Ctrl+click on that <use>', click('#usew', { modifiers: ['Control'], position: { x: 10, y: 10 } })],
+  ['middle click on an SVG <a> with no href attribute whose address a <set> animation gives', click('#smilw', { button: 'middle', position: { x: 10, y: 10 } })],
 ];
 // The app's own controls must keep working under the guard. Each step is tried by itself, so one that a browser
 // cannot play does not hide the others.
@@ -336,6 +355,7 @@ const APP_CONTROLS = async (f) => {
   const step = async (name, act) => { try { await act(); } catch (e) { errors.push(`${name}: ${String(e.message).split('\n')[0].slice(0, 70)}`); } };
   await step('checkbox', () => f.click('#cb', { modifiers: ['Shift'], timeout: 3000 }));
   await step('cell', () => f.click('#cell', { button: 'right', timeout: 3000 }));
+  await step('icon label', () => f.click('#icosvg', { modifiers: ['Shift'], timeout: 3000 }));
   await step('drag', () => f.dragAndDrop('#cardimg', '#drop', { timeout: 3000 }));
   if (reactBundle) {
     await step('react action', async () => { await f.waitForSelector('#rab', { timeout: 5000 }); await f.click('#rab', { timeout: 3000 }); });
@@ -351,7 +371,7 @@ const APP_CONTROLS = async (f) => {
     react: window.__react || null,
     reactAttr: document.getElementById('ra') ? document.getElementById('ra').getAttribute('action').slice(0, 44) : null,
     ssrAttr: document.getElementById('sa') ? document.getElementById('sa').getAttribute('action') : null,
-    js: window.__js, at: location.pathname,
+    js: window.__js, at: location.pathname, ico: window.__ico, cb2: document.getElementById('cb2').checked,
     listed: window.__guardRoots ? window.__guardRoots().map((r) => [...r.querySelectorAll('a[href],form[action]')].map((a) => a.getAttribute(a.matches('form') ? 'action' : 'href'))) : null,
     roots: [window.__openA.getAttribute('href'), window.__closedA.getAttribute('href'), window.__lateA ? window.__lateA.getAttribute('href') : '(not added yet)'],
     realm: window.__realmA.getAttribute('href'),
@@ -467,6 +487,7 @@ const MODES = [
       console.log(`-- React ${reactVersion || '(not found)'}, rendered in the browser: ${r.react ? `a form whose action is a function ran it ${r.react.action} time(s), a button whose formAction is a function ran it ${r.react.formAction} time(s); the action attribute React wrote starts "${r.reactAttr}"` : 'not run'}`);
       console.log(`-- React ${reactVersion || '(not found)'}, rendered on the server and hydrated: ${r.react ? `a form whose action is a function ran it ${r.react.ssrAction} time(s), a button whose formAction is a function ran it ${r.react.ssrFormAction} time(s); the action attribute after hydration is "${r.ssrAttr}"; recoverable hydration error: ${r.react.recover || 'none'}` : 'not run'}`);
       console.log(`-- a plain click on <a href="javascript:void(0)"> ran the app's handler ${r.js} time(s); the frame is at ${r.at}`);
+      console.log(`-- Shift+click on an icon drawn with <use> inside a label: the label's own handler ran ${r.ico} time(s); the label's checkbox is checked ${r.cb2}`);
       console.log(`-- href of the links inside shadow roots after load: open root ${r.roots && r.roots[0]} | closed root ${r.roots && r.roots[1]} | added later to the closed root ${r.roots && r.roots[2]}`);
       console.log(`-- href of the link in the closed root made with the child document's attachShadow: ${r.realm}`);
       console.log(`-- read through the guard's own list of roots: ${r.listed ? `${r.listed.length} root(s), link and form destinations ${JSON.stringify(r.listed)}` : 'no guard, no list'}`);
@@ -479,13 +500,16 @@ const MODES = [
     if (browserName === 'chromium' && policy) {
       // Every author shadow root, read through the DevTools protocol, against the guard's lists. The page's session
       // does not reach a frame that runs in a process of its own, so each such frame's session is read too, and the
-      // documents listed are counted against the frames the browser has. A host is matched by identity: the script
-      // stamps the host of every root on a guard list with a token of this pass and reads the stamp back from the
-      // protocol's tree (a clone made earlier carries no stamp, or an older one).
+      // documents listed are counted against the frames the browser has. A host is matched as an element: the script
+      // stamps the host of every root on a guard list with a token of its own for this pass and reads the stamps back
+      // from the protocol's tree. A root is listed only when its host carries a token issued in this pass that no
+      // other host carries: a host cloned before the stamp carries none or an older one, and a host cloned after the
+      // stamp carries a copy of it.
       const RUNS = [
         ['', ''],
-        [", with two roots planted outside the wrapper (one through window.frames[i]'s attachShadow in the task that made the frame, one a clone of a clonable root)", '&fault=1'],
+        [", with three roots planted outside the wrapper (one through window.frames[i]'s attachShadow in the task that made the frame, one a clone of a clonable root, one a clone its component makes again whenever its host's attributes change)", '&fault=1'],
         [", the same with the app's frame in a process of its own (Origin-Agent-Cluster)", '&fault=1&oac=1'],
+        [", no planted root, the app's frame in a process of its own", '&oac=1'],
       ];
       for (const [label, extra] of RUNS) {
         const ctx = await browser.newContext();
@@ -495,10 +519,20 @@ const MODES = [
         let frame;
         for (let i = 0; i < 20 && !frame; i += 1) { frame = page.frames().find((f) => f.url().startsWith(`${APP_ORIGIN}/app`)); if (!frame) await page.waitForTimeout(100); }
         await page.waitForTimeout(800);
-        const token = `pass-${Date.now()}`;
+        const pass = `pass-${Date.now()}`;
+        const issued = new Set();
+        let fi = 0;
         for (const fr of page.frames()) {
-          try { await fr.evaluate((t) => { if (typeof window.__guardRoots === 'function') for (const r of window.__guardRoots()) r.host.setAttribute('data-guard-listed', t); }, token); } catch { /* a document the script cannot evaluate */ }
+          fi += 1;
+          try {
+            const got = await fr.evaluate((t) => {
+              if (typeof window.__guardRoots !== 'function') return [];
+              return window.__guardRoots().map((r, i) => { r.host.setAttribute('data-guard-listed', `${t}-${i}`); return `${t}-${i}`; });
+            }, `${pass}-${fi}`);
+            for (const t of got) issued.add(t);
+          } catch { /* a document the script cannot evaluate */ }
         }
+        await page.waitForTimeout(100); // what the app does on an attribute change has run by now
         const sessions = [await ctx.newCDPSession(page)];
         for (const fr of page.frames()) {
           if (fr === page.mainFrame()) continue;
@@ -511,7 +545,7 @@ const MODES = [
           let docs = 0;
           const visit = (n) => {
             if (n.nodeName === '#document') docs += 1;
-            for (const r of n.shadowRoots || []) { if (r.shadowRootType !== 'user-agent') roots.push({ id: attr(n, 'id') || `<${n.localName}>`, listed: attr(n, 'data-guard-listed') === token }); visit(r); }
+            for (const r of n.shadowRoots || []) { if (r.shadowRootType !== 'user-agent') roots.push({ id: attr(n, 'id') || `<${n.localName}>`, token: attr(n, 'data-guard-listed') }); visit(r); }
             for (const c of n.children || []) visit(c);
             if (n.contentDocument) visit(n.contentDocument);
             if (n.templateContent) visit(n.templateContent);
@@ -521,8 +555,11 @@ const MODES = [
         }
         const docsListed = perSession.reduce((x, y) => x + y, 0);
         const frames = page.frames().length;
-        const none = roots.filter((r) => !r.listed).map((r) => r.id);
-        console.log(`-- shadow roots read through the DevTools protocol${label}: ${sessions.length} session(s), the page's own lists ${perSession[0]} document(s), all of them ${docsListed} for ${frames} frame(s)${docsListed < frames ? ' (FEWER: the check fails)' : ''}; ${roots.length} author root(s) [${roots.map((r) => r.id).join(', ')}]; on no guard list: ${none.length ? none.join(', ') : 'none'}`);
+        const seen = new Map();
+        for (const r of roots) if (r.token) seen.set(r.token, (seen.get(r.token) || 0) + 1);
+        const none = roots.filter((r) => !r.token || !issued.has(r.token)).map((r) => r.id);
+        const twice = roots.filter((r) => r.token && issued.has(r.token) && seen.get(r.token) > 1).map((r) => r.id);
+        console.log(`-- shadow roots read through the DevTools protocol${label}: ${sessions.length} session(s), the page's own lists ${perSession[0]} document(s), all of them ${docsListed} for ${frames} frame(s)${docsListed < frames ? ' (FEWER: the check fails)' : ''}; ${roots.length} author root(s) [${roots.map((r) => r.id).join(', ')}]; on no guard list: ${none.length ? none.join(', ') : 'none'}; a token found on two hosts: ${twice.length ? twice.join(', ') : 'none'}${none.length || twice.length ? ' (the check fails)' : ''}`);
         await ctx.close();
       }
     }
