@@ -48,6 +48,40 @@ needs an element the earlier steps scrolled away fails, so scroll back to it; de
 on the iOS 26 home screen does not open the quick-action menu; trim the idle start with ffmpeg
 and label the file a simulator recording in the notes.
 
+## Real-iPhone tests (Firebase Test Lab) and Xcode Cloud
+
+Firebase Test Lab runs XCUITests on real iPhones. On the Spark plan (no billing account) it cannot
+charge, and it gives 5 physical-device runs a day. A refused run says `TEST_QUOTA_EXCEEDED` and runs
+nothing; at 01:00 Israel time the quota had not reset yet. Test Lab shuts down on 2027-09-30, and
+Google Cloud's Developer Device Platform replaces it. therapy-flow-v2 `native/device-tests/` is the
+reference (2026-11-13):
+- Add the UI-test target on the build machine only, after the OTA runtime is baked
+  (`scripts/native/add-device-test-target.rb`, xcodeproj gem). The committed project and the runtime
+  then stay unchanged.
+- Build with `build-for-testing` for `iphoneos` with `CODE_SIGNING_ALLOWED=NO`. Then ad-hoc codesign
+  and zip the `Debug-iphoneos` products with the `.xctestrun` file; Test Lab re-signs the zip. One
+  Codemagic run takes about 15 minutes.
+- Robo (`--type robo` with the store IPA) only proves that the app installs and opens. On iOS it
+  cannot see inside the WebView.
+- A test against the live server only reads the screen. Write each expectation for the signed-out
+  state: RetroBarber's first run failed because its test expected the native tab bar, which shows to
+  signed-in customers only.
+
+Xcode Cloud (25 free compute hours a month with the developer program) needs a Mac for the first
+setup. The App Store Connect API has no call that creates a `ciProduct`; Xcode, signed in to the
+account holder's Apple ID, creates it under Integrate → Create Workflow.
+- Codemagic can lend that Mac for one run: a workflow that sleeps, plus "Enable remote access". The
+  run gives VNC and SSH, and its minutes are a money question when the month is nearly spent.
+- Over SSH, `screencapture` and osascript UI scripting fail (no screen-recording or accessibility
+  grant), so the setup goes through VNC.
+- The Apple ID sign-in on that Mac failed with "An unknown error occurred" (2026-11-13). The Apple ID
+  had been typed as a local phone number. Try the account email, or `+972…`, before deciding that
+  Apple blocks data-center Macs.
+- The web half runs in `ci_scripts/ci_post_clone.sh` next to each `.xcodeproj`. Its client keys come
+  from the workflow's environment variables, which the owner pastes. Adding `ci_scripts` changes the
+  iOS runtime, because it is a tracked file under the native project. Start Xcode Cloud's build number
+  above the last Codemagic one.
+
 ## Android locally
 
 JDK 21 and the Android SDK, run through `heavy-slot --` (`rules/machine-load.md`). The signed-AAB
@@ -66,7 +100,7 @@ universal APK, and the bundle check. Upload with `scripts/play.mjs` (store-apis.
 `node scripts/native/fingerprint.mjs --all` on the base and on the branch tells which platforms
 changed.
 
-A store build from a native branch must carry everything main ships natively: when main gained a native plugin (therapy-flow-v2 513's secure storage, 2026-11-12), the builds in review from the native branch matched no runtime main could publish, and the deploy's OTA read "store build needed" on every shell. Before a store build, merge main into the native branch and compare `fingerprint.mjs --all` with the live commit.
+A store build from a native branch must carry everything main ships natively: when main gained a native plugin (therapy-flow-v2 513's secure storage, 2026-11-12), the builds in review from the native branch matched no runtime main could publish, and the deploy's OTA read "store build needed" on every shell. Before a store build, merge main into the native branch and compare `fingerprint.mjs --all` with the live commit. If an app's Capacitor config lists `includePlugins`, add the merged plugin to that list too: `cap sync` silently drops a plugin missing from it. MediZen lost secure storage from three generated files that way (Grok review, 2026-11-13). Keep a test that requires each native plugin in each app's list.
 
 A native change stays on its branch until its store build is ready to submit, and merges with
 that build in the same step (as PR 198 in therapy-flow-v2 waits). Batch every native change of an
