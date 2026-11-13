@@ -79,6 +79,8 @@ const CASES = [
   ["text-reflow", "text-reflow-cut", { unreachable: 1 }],
   ["text-reflow", "text-reflow-ltr", { unreachable: 1 }],
   ["text-reflow", "text-reflow-table", {}],
+  // WCAG's Understanding Reflow, Figure 9: paragraphs widened to a table's width are not the exception.
+  ["text-reflow", "text-reflow-fig9", { sideways: 1 }],
   ["text-reflow", "pass", {}],
   ["text-reflow", "clean", {}],
   ["text-spacing", "text-spacing", { clipped: 2, overlap: 2 }],
@@ -300,6 +302,7 @@ async function browserTests() {
       const why = differs(r, kase, posts);
       ok(!why, `${id} on ${page}.html finds ${JSON.stringify(kinds)}${notes ? ` and ${notes} note` : ""}`, `${why}; ${JSON.stringify(r)}`);
       console.log(`       ${id} on ${page}.html: ${JSON.stringify({ kinds: r.kinds, notes: r.notes, samples: r.samples.slice(0, 3) })}${posts.length ? ` posts ${posts.join(", ")}` : ""}`);
+      if (id === "text-reflow" && page === "text-reflow-fig9") ok(r.samples.some((s) => /sideways: .*widest <p> /.test(s)), "Figure 9: the sideways finding names the widened paragraph, not the table", JSON.stringify(r.samples));
       if (id === "text-reflow" && page === "text-reflow") ok(r.samples.some((s) => /sideways: .*widest <div> "טבלה רחבה" 500px/.test(s)), "the sideways finding names the widest element", JSON.stringify(r.samples));
     }
     const mutants = [

@@ -67,7 +67,7 @@ night of logs, worktrees and shots). Its own git repo with a checkpoint commit a
 ```
 redesign.json  BRIEF.md  INVENTORY.md  STORY.md  DECISIONS-OPEN.md  DECISIONS-ANSWERED.md  FEATURES-PROPOSED.md
 CHANGES-<date>.md  START-BUILD.md  RUN-LOG.md (the mode's checklist, one evidence line per step)
-MEASURES.md (step 2b's baseline and the owner catches, until build-plan unit 1 moves them into the app)
+MEASURES.md (step 2b's baseline and the owner catches, until build-plan unit 1 appends them to the app's file; this copy then keeps a last line pointing there)
 NAV-TEST-<date>.md (step 2c, a large app only)
 state/<round>/ (each round's open findings, rejections, plan items, needs and work gates: committed, read by a
 continuation and by the plan session)
