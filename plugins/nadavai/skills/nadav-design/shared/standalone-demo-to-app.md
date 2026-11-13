@@ -91,26 +91,31 @@ tagged, the build plan is approved, and only then does a build session start, wi
   last pressed, so a snapshot may hold the hover look of whatever lies under that point when it is taken, and the
   focus look of whatever holds focus then. That is chance, not a check: every hover, pressed and focus declaration a
   unit replaces stays on the list below.) It reads the values the browser resolved at the recorded widths (1440 and
-  390 unless `--widths` names others). For `width` and `height`, the paddings and the margins, `font-size` and
-  `line-height`, the browser gives pixels where the property applies, so a length rewritten in another unit or kind
-  that gives the same pixels at the recorded widths compares equal, and that shows nothing about another width, another
-  parent size or another root font size. A token holds the value as written, so no replacement should change a
-  value's unit or kind; the report lists every replaced declaration whose written value differs in unit or kind
-  before and after, whatever its property, found by reading the two written values and not from the compare. And the
-  compare covers only the snapshots that both recordings hold. One that is in a single recording is printed
-  (`STATE <path>: only in A` or `only in B`); a state that left the state files before both recordings were made is in
-  neither, and nothing reports it. So the unit's report gives two numbers: the count the compare printed
-  ("compared N snapshots"), and the number of `.json.gz` files in the folder of the last whole-page recording made before this unit's own, for a
-  unit recorded with `--only` those whose state name the `--only` pattern matches (a file is named by its state, with
-  every character other than a letter, a digit, `_`, `.` or `-` written as `_`). When the first number is the smaller,
-  the report names every snapshot path that is in that folder and in neither recording, and the unit goes no further
-  until each of those states is recorded in both again, or the report names the commit that took the state out and
-  why. The first whole-page recording has no earlier folder: its count is the base the later ones are held to, and
-  its report says so. The report lists every replaced declaration whose property, after shorthands are
+  390 unless `--widths` names others). For many of the 53 the browser often gives pixels whatever unit was
+  written: sizes, paddings and margins (not on an element the property does not apply to, nor on one with
+  `display: contents`), `font-size`, `line-height` (the keyword `normal` stays `normal`), border and outline widths,
+  `outline-offset`, a length in `letter-spacing`, the lengths inside a shadow. So a length rewritten in another unit
+  or kind that gives the same pixels at the recorded widths can compare equal, and an equal compare shows nothing
+  about another width, another parent size or another root font size. A token holds the value as written, so no
+  replacement should change a value's unit or kind; the report lists every replaced declaration, whatever its
+  property, where the raw value that stood there before and the value written on the token that replaced it differ
+  in unit or kind (the `var()` at the place of use is not one of the two), found by reading those two values and not
+  from the compare. And the compare covers only the snapshots that both recordings hold. One that is in a single
+  recording is printed (`STATE <path>: only in A` or `only in B`); a state that left the state files before both
+  recordings were made is in neither, and nothing reports it. So on every unit the report names the snapshot paths
+  (`<width>-<theme>/<file>.json.gz`, one level below the recording's folder, the files `--compare` itself lists) that
+  the last whole-page recording made before this unit's own holds and that are in neither of this unit's recordings;
+  for a unit recorded with `--only`, of the earlier recording only the snapshots whose state the `--only` pattern
+  matches (the state's name is the `state` field inside each snapshot; for the names the tool builds today it is also
+  the file's name). An empty list is written as empty. A list that is not empty stops the unit until each of those
+  states is recorded in both again, or the report names the commit that took the state out and why. Two numbers stand
+  beside the list as a check on it, not in its place: the count the compare printed ("compared N snapshots") and the
+  number of those earlier snapshots. The first whole-page recording has no earlier folder: its count is the base the
+  later ones are held to, and its report says so. The report also lists every replaced declaration whose property, after shorthands are
   expanded and logical properties and sizes are mapped to their physical forms (`inline-size` to `width`), is not one
   of the 53, found by comparing each replaced property with `PROPS` and not from the examples above, and every one in
-  a state the check does not reach; each is marked "read by a person, not checked". That list is read before the
-  commit goes to Nadav for approval, and anything it shows moved is put back, or, when the move is meant, offered to
+  a state the check does not reach; each is marked "read by a person, not checked". These lists, the changes of unit
+  or kind among them, are read before the commit goes to Nadav for approval, and anything it shows moved is put back, or, when the move is meant, offered to
   him as a numbered question like a near-duplicate and named in what he approves.
 
 ## B. Components (before the tag, in the demo)
