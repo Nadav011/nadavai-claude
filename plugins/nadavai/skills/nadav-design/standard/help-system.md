@@ -250,7 +250,10 @@ written for each of them. Two layers:
   `date: "today"`; `close`; and nothing else), the article tasks it shows, its steps and its
   closing sentence. Per step: `do`, `next` or `stop`; a stop step's class (`S` saves, and a
   control that saves as it changes, a switch or a field with no save button, saves too; `T`
-  tells a real person; `P` is permanent or charges); for every do step, `on`: `"sample"` when it
+  tells a real person; `P` is permanent or charges; a control's class is what pressing it does,
+  the same in every tour, so a do step on a control (and arg) that another step stops at classed
+  `T` or `P` is a finding (`stopped-elsewhere`), except a practice-only step classed `P`); for
+  every do step, `on`: `"sample"` when it
   acts on the sample record, `"none"` when it acts on no person's record (an empty slot, a
   filter, a settings tab, a field in a settings form that has its own save); a save of a
   business-wide setting, including a switch or a field that saves as it changes, is a stop
@@ -278,27 +281,28 @@ written for each of them. Two layers:
   in a sheet) gets its own id in each, and a form on its own page is mapped as a window id whose
   reopen the bindings implement by opening the new form afresh. The checker requires an entry
   for every listed id and none for another (`window-missing`, `window-extra`); it trusts the
-  map: the inventory's reviewer opens each listed control in the running app and confirms the
-  window it sits in, or that it sits on the screen itself [I]; a wrong `"screen"` entry, on a
-  control that sits in a window, lets the step that opens her record through it name no need and
-  press in whatever window is open. Beside it, `pickingWindows` says, for every window
-  `anchorWindows` names, whether it picks a person: true for a window opened on nobody with a
-  person field (a booking form, which a person picker fills), false for a window opened on one
-  person (her drawer, her payment sheet). With `--inventory` the checker requires a mark for
-  every window `anchorWindows` names and none for another (`picking-missing`, `picking-extra`),
-  the mark true on the window of every step the picker exception takes as a picker
-  (`picker-mark`), no do step at `"none"` whose open or step result names a window marked false
-  (`none-window`), `selectSample` after the reopen in the need of every do step at `"sample"`
-  whose control sits in a window marked true, the picker's own step excepted (`sample-no-need`),
-  and no `selectSample` in a need whose last reopen names a window not marked true
-  (`select-window`). It takes the mark from here, never from the manifest's picker steps, and
-  trusts it: the inventory's reviewer opens each window in the running app and confirms its
-  mark; a window wrongly marked false lets a step there name no `selectSample` where no step at
-  `"none"` names it in an open or step result (`none-window`) and no picker step sits in it
-  (`picker-mark`) [I]. An id that every person's row in a list carries, the row's plain id
-  (`cal.appointment`, `patients.row`) or a control on each row (`patients.charge`), binds the
-  first visible row, a real person's whenever the sample is not first: it is a container and
-  goes in `containerAnchors`, never in `recordAnchors` [I].
+  map: the inventory's reviewer opens each listed control in a preview or staging copy of the
+  app on invented data, never in the live app, and confirms the window it sits in, or that it
+  sits on the screen itself [I]; a wrong `"screen"` entry, on a control that sits in a window,
+  lets the step that opens her record through it name no need and press in whatever window is
+  open. Beside it, `pickingWindows` says, for every window `anchorWindows` names, whether it
+  picks a person: true for a window opened on nobody with a person field (a booking form, which
+  a person picker fills), false for a window opened on one person (her drawer, her payment
+  sheet). With `--inventory` the checker requires a mark for every window `anchorWindows` names
+  and none for another (`picking-missing`, `picking-extra`), the mark true on the window of
+  every step the picker exception takes as a picker (`picker-mark`), no do step at `"none"`
+  whose open or step result names a window marked false (`none-window`), `selectSample` after
+  the reopen in the need of every do step at `"sample"` whose control sits in a window marked
+  true, the picker's own step excepted (`sample-no-need`), and no `selectSample` in a need whose
+  last reopen names a window not marked true (`select-window`). It takes the mark from here,
+  never from the manifest's picker steps, and trusts it: the inventory's reviewer opens each
+  window in a preview or staging copy of the app on invented data, never in the live app, and
+  confirms its mark; a window wrongly marked false lets a step there name no `selectSample`
+  where no step at `"none"` names it in an open or step result (`none-window`) and no picker
+  step sits in it (`picker-mark`) [I]. An id that every person's row in a list carries, the
+  row's plain id (`cal.appointment`, `patients.row`) or a control on each row
+  (`patients.charge`), binds the first visible row, a real person's whenever the sample is not
+  first: it is a container and goes in `containerAnchors`, never in `recordAnchors` [I].
   The one exception: a control that picks a person in a window opened on nobody (a patient
   picker), where picking saves and sends nothing by itself, is listed in `recordAnchors`; its do
   step carries no class, and its result checks that the sample was picked (a `custom` result, as
@@ -387,8 +391,11 @@ written for each of them. Two layers:
   step only shows [I]. Beyond that the checker reads only the flag and whether the control is
   listed: that the bindings then reach the sample's record and no other, that the three lists
   are complete, and that each control `recordAnchors` lists changes only the sample's own
-  record, never a business-wide rule or many people's records (the inventory's reviewer presses
-  each one), is judged in the running app. Then the anchor of its control; what she
+  record, never a business-wide rule or many people's records (the inventory's reviewer runs
+  each tour's do steps in order, on the sample, in a preview or staging copy of the app on
+  invented data, never in the live app: a save's effect can depend on a field an earlier step
+  set, and a wrongly listed control pressed in the live app would itself do the harm), is judged
+  in the running app. Then the anchor of its control; what she
   reads, and the text when it only shows; a do step's action (open, pick, select, type), its
   result, the G-20 test it names (`safeTest`) and, for a practice-only step, `practiceOnly`
   (only a step classed `P`: a step with no class, classed `S` or classed `T` is never
@@ -463,7 +470,11 @@ of a web app; and `tour-check.mjs`, which runs `tour-shape`, `tour-inventory`, `
 the part of `tour-no-commit` that data can show, with no browser (`node tour-check.mjs
 tours.json --inventory inventory.json`, exit 1 on a finding; the app's own run adds
 `--require-stage app`). Whether each anchor and result resolves on its screen needs the running
-app (`tour-anchors`). Seventeen of MediZen's demo tours were converted into the format on
+app (`tour-anchors`). The running app, for `tour-anchors` and for every reviewer who opens,
+presses or runs something to check the manifest or the inventory, is a preview or staging copy
+of the app on invented data, never the live app: a wrongly listed control pressed there would
+itself save a business-wide rule or act on real people's records. Seventeen of MediZen's demo
+tours were converted into the format on
 11.11.2026 to test it. Against `start` as first written (screen, view, close), 5 of the 17
 start-ups did not fit, in three kinds: the calendar's start (three tours) puts it on this week
 and today, sets the view by device and closes windows without checking for unsaved input; the
