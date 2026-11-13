@@ -87,7 +87,16 @@ tagged, the build plan is approved, and only then does a build session start, wi
   offset declarations with a px or rem length, 99 of background position, background size or grid templates, 24
   `animation` shorthands that carry the curve token and 15 `accent-color`). It also cannot see hover and pressed,
   focus that no state's script leaves, a declaration that never wins or that no state draws, and pseudo-elements other
-  than `::before` and `::after`. The report lists every replaced declaration whose property, after shorthands are
+  than `::before` and `::after`. (Where a state's script presses a control with the real pointer, the pointer stays on
+  that control, so that one control is recorded hovered and focused, the same way in both recordings; that is not a
+  check of hover.) It reads the values the browser resolved at the two recorded widths (1440 and 390), so a length
+  written in another unit that resolves to the same pixels there (a percentage replaced by the pixels it gave)
+  compares equal and differs at every other width; a replacement that changes the unit or kind of a value is listed
+  like a property outside the 53. And it compares only the snapshots that both recordings hold: a state that left the
+  state files before both recordings were made is in neither, and nothing reports it. So the unit's report gives the
+  count the compare printed ("compared N snapshots") beside the number of snapshots the last whole-page
+  recording holds for the same states (for a unit that records the whole page, all of them), and a count that fell is
+  explained before the commit goes on. The report lists every replaced declaration whose property, after shorthands are
   expanded and logical properties and sizes are mapped to their physical forms (`inline-size` to `width`), is not one
   of the 53, found by comparing each replaced property with `PROPS` and not from the examples above, and every one in
   a state the check does not reach; each is marked "read by a person, not checked". That list is read before the
