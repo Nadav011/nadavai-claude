@@ -31,7 +31,6 @@
 #   heavy_mem_min_gb=8     # GB available under which they wait (default 8)
 #   heavy_swap_max=80      # percent of swap used at which they wait (default 80)
 #   pg_pool_leases=12      # live pg-pool databases at once (pg-pool)
-#   browser_agents=3       # browser-driving subagents at once (rules/machine-load.md)
 # --slots N is a strict count for one call: N at once, no load check and no queue.
 #
 # Slot files live in ~/.cache/heavy-slot/ for every caller, so all of them share one pool, and

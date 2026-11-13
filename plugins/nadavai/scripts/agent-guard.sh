@@ -48,9 +48,11 @@
 #   Bash:  a command that calls Supabase Auth's admin generate_link (a sign-in link minted with the
 #          service role, so it opens any account without its password) must name its target email
 #          literally, and every email in the command must end in @therapyflow.test, unless the command
-#          carries `# genlink-checked: <reason>`. Why: Nadav, 2026-11-07: password-free live checks are
-#          for QA accounts only, never a client's or a patient's account. Not seen: a script file or a
-#          heredoc body that calls it.
+#          carries `# genlink-checked: <the task that needs this account>`. Why: the QA account comes
+#          first (Nadav, 2026-11-07); since 2026-11-14 he lets an agent sign in as a real user when the
+#          task needs it (rules/acting-on-behalf.md), so the tag is the agent's own stated reason, kept
+#          in the transcript, and not his approval. Not seen: a script file or a heredoc body that
+#          calls it.
 #   Bash:  `orca worktree rm|remove|delete --worktree <selector>` or `git worktree remove <path>` of a
 #          worktree that a process runs in or that a Claude, Codex or Grok transcript touched within
 #          sessionActiveDays (config/worktree-clean.json, 3), unless the command carries
@@ -798,11 +800,11 @@ genlink_guard() {
   [[ $cmd == *'# genlink-checked:'* ]] && return 0
   while IFS= read -r e; do [ -n "$e" ] && found+=("$e"); done < <(grep -oiE '[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]+' <<<"$cmd")
   if [ "${#found[@]}" -eq 0 ]; then
-    deny "This command mints a password-free sign-in link (generate_link) without naming the account. Name the QA address literally in the command (…@therapyflow.test), so the guard can see it is a test account. If Nadav approved this for another account, add '# genlink-checked: <reason>' to the command."
+    deny "This command mints a password-free sign-in link (generate_link) without naming the account. Name the QA address literally in the command (…@therapyflow.test), so the guard can see it is a test account. If the task needs a real user's account (rules/acting-on-behalf.md), add '# genlink-checked: <the task that needs this account>' to the command."
   fi
   for e in "${found[@]}"; do [[ ${e,,} == *@therapyflow.test ]] || bad+=("$e"); done
   if [ "${#bad[@]}" -gt 0 ]; then
-    deny "generate_link opens an account without its password, so it is for QA accounts (@therapyflow.test) only, never a client's or a patient's account. This command names: ${bad[*]}. If Nadav approved this for that account, add '# genlink-checked: <reason>' to the command."
+    deny "generate_link opens an account without its password, so the QA accounts (@therapyflow.test) come first. This command names: ${bad[*]}. If the QA account does not show what the task needs and it has to be this account (rules/acting-on-behalf.md), add '# genlink-checked: <the task that needs this account>' to the command and say in the report what was read and changed there."
   fi
 }
 

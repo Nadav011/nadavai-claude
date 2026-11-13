@@ -36,7 +36,7 @@ A tool is not "studied" until its depth row is filled.
 - `research/ACCOUNTS.md` lists every account opened: the identity, the date and its state.
 - `research/TRIALS-TO-CANCEL.md` lists every trial: the plan, the charge if it is not cancelled, the date, the cancel rule, the cancel time and the proof shot. The orchestrating session checks every row before the day ends.
 - **Card trials.** Cancel first, before any use. Some vendors end access when you cancel; in that case the rule cannot hold, so ask Nadav before you open the trial. Any card screen stops the agent: money is asked every time (`acting-on-behalf.md`).
-- **Sign-ups and logins** follow `acting-on-behalf.md`: agent-browser with the vault, never a typed password. A CAPTCHA, an SMS code or a phone check goes to Nadav.
+- **Sign-ups and logins** follow `acting-on-behalf.md`: agent-browser with the vault, never a typed password. The agent passes a CAPTCHA itself; an SMS code or a phone check goes to Nadav.
 - **One account per site,** even when Nadav offers more emails.
 - **Changes on the vendor account:** record every change a research pass makes there. A wizard pass can overwrite the test brand you set up.
 

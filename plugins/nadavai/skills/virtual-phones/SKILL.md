@@ -113,13 +113,22 @@ agent-device close
 | Logs and a crash | `$D logcat -c`, then `$D shell am crash <package>` and `$D logcat -d` |
 | The page inside a WebView (google_apis image) | `$D forward tcp:<free local port> localabstract:webview_devtools_remote_$($D shell pidof <package>)`, then `node scripts/webview-eval.mjs <port> "document.title"`. Pick your own port, forward again after every relaunch (a stale forward fails with "fetch failed"), and `$D forward --remove tcp:<port>` at the end. Read with it; never call the app's backend through it |
 
-### A live app: nothing is sent, nobody signs in
+### A live app: signing in and sending forms
 
-No form of a live app is sent to its server from a phone image, and no password is typed into one
-(`rules/virtual-phones.md`). A snapshot, and the diff `--settle` prints, show a password field's
-content in clear text, which lands in the transcript (checked with a made-up value,
-`~/Documents/mobile-lab/android/commands.md`). Until a path exists in which the password does not
-pass through the agent, a signed-in screen is not available here: say so.
+A live app is used here like anywhere else: forms are sent and signed-in screens are checked
+(`rules/virtual-phones.md`), with the app's QA account first and a real user's account when the
+task needs it (`rules/acting-on-behalf.md`).
+
+A snapshot, and the diff `--settle` prints, show a password field's content in clear text, which
+lands in the transcript (checked with a made-up value,
+`~/Documents/mobile-lab/android/commands.md`). So a vault login of Nadav's is never typed into a
+phone image. Two ways in, neither run end to end on these machines yet; the first session that
+uses one records what happened in that `commands.md`:
+
+- A password-free sign-in link for the account, opened on the phone (`$D shell am start -a
+  android.intent.action.VIEW -d '<link>'`), when the app's sign-in accepts one.
+- The QA account's own test password, typed from the project's env file by variable name and
+  submitted in the same command, with no snapshot and no `--settle` between typing and sending.
 
 To press a form's button without sending it, go offline first and see all three:
 

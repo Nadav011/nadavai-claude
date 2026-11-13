@@ -6,8 +6,9 @@ description: "Do web tasks in Nadav's name end to end: sign up and open accounts
 # Act on Nadav's behalf
 
 `rules/acting-on-behalf.md` holds what is pre-approved and what is gated. This skill holds the
-commands only. Do the task, don't ask about it. Stop only at the money gate and the other gates
-the rule lists, and at the hand-offs at the bottom of this skill.
+commands only. Do the task, don't ask about it: for Nadav, his businesses, or a client when the
+work needs an account there. Stop only at the money gate and the other gates the rule lists, and
+at the hand-offs at the bottom of this skill.
 
 ## The tool
 
@@ -80,13 +81,20 @@ Chrome refuses passwords and sign-ups, so don't start there, and switch here whe
 - Never put a password in `fill`, `type`, `auth save --password`, a command or the output.
 - Never read a `login-*.env` file. `agent-guard.sh` denies it.
 
+## Bot checks
+
+Pass a CAPTCHA or bot check yourself: reopen the page with `--headed` when the check wants a
+visible window, take a screenshot, and click or type what it asks. A solving service that costs
+money is the money gate.
+
 ## Hand-offs
 
-- **CAPTCHA or bot check:** reopen the page with `--headed`, ask Nadav to solve it, then go on.
-  Never solve or bypass one.
-- **SMS or authenticator code:** ask Nadav for it.
-- **A site that blocks automated browsers** (Google sign-in often does): ask Nadav to log in once
-  in the `--headed` profile window. The session then stays in the profile.
+Only what he alone can supply:
+
+- **SMS or authenticator code:** ask Nadav for it once the code screen is open.
+- **A bot check that failed twice, or a site that blocks automated browsers** (Google sign-in
+  often does): leave the `--headed` profile window open and ask Nadav to finish that one step.
+  The session then stays in the profile.
 
 ## Money
 
