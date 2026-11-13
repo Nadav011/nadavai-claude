@@ -267,31 +267,35 @@ written for each of them. Two layers:
   own record: a resolver's own id that picks her row (`cal.ended-appointment`), and every
   control inside a window, card or sheet opened on her (her appointment, payment, chat,
   document), and every control of a window that picks a person (the picker and that window's
-  other controls, as `appt.service` and `appt.save`); an id listed on one screen counts on every
-  screen [I]. The inventory's `anchorWindows`, at its root, names for each id `recordAnchors`
-  lists the window its control sits in: the window id a need reopens to reach it, or `"screen"`
-  for a resolver's own control on the screen itself (`cal.ended-appointment`); an id that sits
-  in two windows (the same control in her drawer and in a sheet) gets its own id in each, and a
-  form on its own page is mapped as a window id whose reopen the bindings implement by opening
-  the new form afresh. The checker requires an entry for every listed id and none for another
-  (`window-missing`, `window-extra`); it trusts the map: the inventory's reviewer opens each
-  listed control in the running app and confirms the window it sits in, or that it sits on the
-  screen itself [I]; a wrong `"screen"` entry, on a control that sits in a window, lets the step
-  that opens her record through it name no need and press in whatever window is open. Beside it,
-  `pickingWindows` says, for every window `anchorWindows` names, whether it picks a person: true
-  for a window opened on nobody with a person field (a booking form, which a person picker
-  fills), false for a window opened on one person (her drawer, her payment sheet). With
-  `--inventory` the checker requires a mark for every window `anchorWindows` names and none for
-  another (`picking-missing`, `picking-extra`), the mark true on the window of every step the
-  picker exception takes as a picker (`picker-mark`), no do step at `"none"` whose open or step
-  result names a window marked false (`none-window`), `selectSample` after the reopen in the
-  need of every do step at `"sample"` whose control sits in a window marked true, the picker's
-  own step excepted (`sample-no-need`), and no `selectSample` in a need whose last reopen names
-  a window not marked true (`select-window`). It takes the mark from here, never from the
-  manifest's picker steps, and trusts it: the inventory's reviewer opens each window in the
-  running app and confirms its mark; a window wrongly marked false lets a step there name no
-  `selectSample` where no step at `"none"` opens it (`none-window`) and no picker step sits in
-  it (`picker-mark`) [I]. An id that every person's row in a list carries, the row's plain id
+  other controls, as `appt.service` and `appt.save`), except, in either window, a control that
+  acts on many people at once (a print of the day's list), which is in `bulkAnchors`, and one
+  that saves a business-wide rule (a service's default duration), which is in none of the three
+  lists and at which a tour stops: neither is ever in `recordAnchors`; an id listed on one
+  screen counts on every screen [I]. The inventory's `anchorWindows`, at its root, names for
+  each id `recordAnchors` lists the window its control sits in: the window id a need reopens to
+  reach it, or `"screen"` for a resolver's own control on the screen itself
+  (`cal.ended-appointment`); an id that sits in two windows (the same control in her drawer and
+  in a sheet) gets its own id in each, and a form on its own page is mapped as a window id whose
+  reopen the bindings implement by opening the new form afresh. The checker requires an entry
+  for every listed id and none for another (`window-missing`, `window-extra`); it trusts the
+  map: the inventory's reviewer opens each listed control in the running app and confirms the
+  window it sits in, or that it sits on the screen itself [I]; a wrong `"screen"` entry, on a
+  control that sits in a window, lets the step that opens her record through it name no need and
+  press in whatever window is open. Beside it, `pickingWindows` says, for every window
+  `anchorWindows` names, whether it picks a person: true for a window opened on nobody with a
+  person field (a booking form, which a person picker fills), false for a window opened on one
+  person (her drawer, her payment sheet). With `--inventory` the checker requires a mark for
+  every window `anchorWindows` names and none for another (`picking-missing`, `picking-extra`),
+  the mark true on the window of every step the picker exception takes as a picker
+  (`picker-mark`), no do step at `"none"` whose open or step result names a window marked false
+  (`none-window`), `selectSample` after the reopen in the need of every do step at `"sample"`
+  whose control sits in a window marked true, the picker's own step excepted (`sample-no-need`),
+  and no `selectSample` in a need whose last reopen names a window not marked true
+  (`select-window`). It takes the mark from here, never from the manifest's picker steps, and
+  trusts it: the inventory's reviewer opens each window in the running app and confirms its
+  mark; a window wrongly marked false lets a step there name no `selectSample` where no step at
+  `"none"` names it in an open or step result (`none-window`) and no picker step sits in it
+  (`picker-mark`) [I]. An id that every person's row in a list carries, the row's plain id
   (`cal.appointment`, `patients.row`) or a control on each row (`patients.charge`), binds the
   first visible row, a real person's whenever the sample is not first: it is a container and
   goes in `containerAnchors`, never in `recordAnchors` [I].
@@ -299,37 +303,38 @@ written for each of them. Two layers:
   picker), where picking saves and sends nothing by itself, is listed in `recordAnchors`; its do
   step carries no class, and its result checks that the sample was picked (a `custom` result, as
   `appt.sample-picked`). That window's other controls (`appt.service`, `appt.save`) are listed
-  with it, and a do step on one of them comes only after the picker's step. A picker that saves
-  or sends as it picks (it adds the person to a list, assigns or invites her) is a stop step,
-  never a do step, and the rows of a picker's list are containers [I]. `containerAnchors` lists
-  every element that holds people's rows
-  or records (a list, a column, the calendar grid) and every id each row of such a list carries:
-  the lit target of a do step is live, so a do step lit on one is a finding at any `on` and any
-  class, and a tour lights the sample's own row or control at `"sample"`, through a resolver's
-  own id that picks it and is listed in `recordAnchors` (`cal.ended-appointment`, never the
-  plain id every row carries), or, for an empty slot, the slot through a resolver
-  (`cal.free-slot`) at `"none"` [I].
+  with it, except one that acts on many people at once or saves a business-wide rule (above),
+  and a do step on one of them comes only after the picker's step. A picker that saves or sends
+  as it picks (it adds the person to a list, assigns or invites her) is a stop step, never a do
+  step, and the rows of a picker's list are containers [I]. `containerAnchors` lists every
+  element that holds people's rows or records (a list, a column, the calendar grid) and every id
+  each row of such a list carries: the lit target of a do step is live, so a do step lit on one
+  is a finding at any `on` and any class, and a tour lights the sample's own row or control at
+  `"sample"`, through a resolver's own id that picks it and is listed in `recordAnchors`
+  (`cal.ended-appointment`, never the plain id every row carries), or, for an empty slot, the
+  slot through a resolver (`cal.free-slot`) at `"none"` [I].
   `bulkAnchors` lists every control that exports, prints, downloads, shares, imports or
   otherwise acts on many people's records at once (select all, a bulk send, a bulk delete, an
   import, `cal.print`): a tour never does one, so a do step on it, or whose result names it, is
-  a finding at any `on` and any
-  class, and the tour shows it or stops at it; a stop step on an export or a print is classed
-  `T`, since data leaves. An id is in at most one of the three lists. A listed id covers every
-  arg of its family, so a control that exports, prints or acts on many people, or that sits on a
-  person's record, gets its own id and is never one arg of a family whose other members differ.
-  A filter, a sort or a search acts on no record and is in none of the lists [I]. A step that
-  finds a person (a search) and opens her record is split: it filters or opens at `"none"`
-  with a `stateEquals` or `open` result (a window that is nobody's), and the next step lights
-  the sample's own row at `"sample"` through a resolver, with the `recordOpen` result, or is a
-  stop step [I]. A do step
-  classed `S` (it saves) that does not carry `"sample"` is a finding too, and with the inventory
-  so is a do step at `"sample"`, of any class, on a control no `recordAnchors` lists. When the
-  control sits in a window opened on her (a step before it in the tour opened it on her), the
-  fix is in the inventory: list it in `recordAnchors` and keep `"sample"`; when it sits on her
-  row in a list, it is lit through a
-  resolver's own id that picks her row, and that id is listed. Only a control that is nobody's
-  record changes the step (a save of a business-wide rule is then a stop step), and this finding
-  is never answered by setting `"none"` [I]. A do step at `"sample"` on a control
+  a finding at any `on` and any class, and the tour shows it or stops at it; a stop step on an
+  export or a print is classed `T`, since data leaves. An id is in at most one of the three
+  lists. A listed id covers every arg of its family, so a control that exports, prints or acts
+  on many people, or that sits on a person's record, gets its own id and is never one arg of a
+  family whose other members differ. A filter, a sort or a search acts on no record and is in
+  none of the lists [I]. A step that finds a person (a search) and opens her record is split: it
+  filters or opens at `"none"` with a `stateEquals` or `open` result (a window that is
+  nobody's), and the next step lights the sample's own row at `"sample"` through a resolver,
+  with the `recordOpen` result, or is a stop step [I]. A do step classed `S` (it saves) that
+  does not carry `"sample"` is a finding too, and with the inventory so is a do step at
+  `"sample"`, of any class, on a control no `recordAnchors` lists. A control that acts on many
+  people at once or saves a business-wide rule is never listed in `recordAnchors`, wherever it
+  sits: the tour shows it or stops at it. Otherwise, when the control sits in a window opened on
+  her (a step before it in the tour opened it on her), or is a control of a window that picks a
+  person, the fix is in the inventory: list it in `recordAnchors` and keep `"sample"`; when it
+  sits on her row in a list, it is lit through a resolver's own id that picks her row, and that
+  id is listed. Only a control that is nobody's record changes the step (a save of a
+  business-wide rule is then a stop step), and this finding is never answered by setting
+  `"none"` [I]. A do step at `"sample"` on a control
   `recordAnchors` lists comes after an earlier do step at `"sample"` in the same tour, on the
   same device, that opened her record (a `recordOpen` result that names the step's own
   control, a resolver's own id) or picked her (the picker exception: an unclassed `pick` step
@@ -380,8 +385,10 @@ written for each of them. Two layers:
   the need names `selectSample`, it reports her picked); a resume or a skip can reach it without
   the opener, or after she opened another record at an earlier step; with no sample record the
   step only shows [I]. Beyond that the checker reads only the flag and whether the control is
-  listed: that the bindings then reach the sample's record and no other, and that the three
-  lists are complete, is judged in the running app. Then the anchor of its control; what she
+  listed: that the bindings then reach the sample's record and no other, that the three lists
+  are complete, and that each control `recordAnchors` lists changes only the sample's own
+  record, never a business-wide rule or many people's records (the inventory's reviewer presses
+  each one), is judged in the running app. Then the anchor of its control; what she
   reads, and the text when it only shows; a do step's action (open, pick, select, type), its
   result, the G-20 test it names (`safeTest`) and, for a practice-only step, `practiceOnly`
   (only a step classed `P`: a step with no class, classed `S` or classed `T` is never
