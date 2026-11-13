@@ -81,6 +81,8 @@ const MUTANTS = {
   // Without "only what the overrides made new", clean.html's badge (over its label on purpose,
   // before any override) would be reported.
   "spacing-new": ["text-spacing", "clean"],
+  // Without the 1.4.10 exception, clean.html's wide table in its own scroller would count as out of reach.
+  scroller: ["text-reflow", "clean"],
   prechecked: ["consent", "consent"],
   "no-refuse": ["consent", "consent"],
   "weak-refuse": ["consent", "consent"],

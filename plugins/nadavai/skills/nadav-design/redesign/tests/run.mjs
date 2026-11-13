@@ -2995,35 +2995,42 @@ if (!noBrowser && pw) {
 }
 
 // ---------------- owner-catches (tools/owner-catches.mjs): ids OC… ----------------
-// One fixture ledger: seven good rows, and one malformed row for each condition that rejects a row. Each condition of
-// the tool is one line marked `// M:<code>`; deleting that line must change what the fixture prints.
+// One fixture ledger: eleven good rows (each one problem), one row that repeats a gate finding of an earlier run, and
+// one malformed row for each condition that rejects a row. Each condition of the tool is one line marked
+// `// M:<code>`; deleting that line must change what the fixture prints.
 const OC = path.join(T, 'owner-catches.mjs');
-const OC_HEAD = '| date | screen | class | found by | when | count | gate | words |\n|---|---|---|---|---|---|---|---|\n';
+const OC_HEAD = '| date | screen | class | found by | when | gate | ref | words |\n|---|---|---|---|---|---|---|---|\n';
 const OC_GOOD = [
-  '| 2026-10-03 | booking | look | gate | before | 4 | dod:one-primary | |',
-  '| 2026-10-05 | booking | comfort | owner | before | 1 | walkthrough | שזה גלילה ולא כפתור מסך פכתור מסך |',
-  '| 2026-10-20 | booking | look | owner | after | 1 | reviewer | גרועה |',
-  '| 2026-11-02 | clients | dropped | gate | before | 2 | ledger | two controls of the inventory row missing |',
-  '| 2026-11-03 | clients | reference | owner | before | 1 | none | לא כמו שם |',
-  '| 2026-11-10 | clients | copy | user | after | 1 | forbidden-words | «אופס» על המסך |',
-  '| 2026-11-11 | clients | look | gate | after | 1 | dod:probe | |',
+  '| 2026-10-03 | booking | look | gate | before | dod:one-primary | one-primary: <button> "שמירה" | reports/dod/dod.json |',
+  '| 2026-10-03 | booking | look | gate | before | dod:probe | probe: 320x700: sideways scroll 340>320 | reports/dod/dod.json |',
+  '| 2026-10-03 | booking | look | gate | before | verifier | F2 the summary card is cut at 320 | reviews/booking-8b.md |',
+  '| 2026-10-04 | booking | look | gate | before | reviewer | the date chips are 28px high | reviews/booking-critique.md |',
+  '| 2026-10-05 | booking | comfort | owner | before | walkthrough | chat 2026-10-05 | שזה גלילה ולא כפתור מסך פכתור מסך |',
+  '| 2026-10-20 | booking | look | owner | after | reviewer | chat 2026-10-20 | גרועה |',
+  '| 2026-11-02 | clients | dropped | gate | before | ledger | export to Excel missing | INVENTORY.md row clients |',
+  '| 2026-11-02 | clients | dropped | gate | before | ledger | bulk tag missing | INVENTORY.md row clients |',
+  '| 2026-11-03 | clients | reference | owner | before | none | CHANGES-2026-11-03.md 4 | לא כמו שם |',
+  '| 2026-11-10 | clients | copy | user | after | forbidden-words | SESSIONS-2026-11-10.md P2 | «אופס» על המסך |',
+  '| 2026-11-11 | clients | look | gate | after | dod:probe | probe: 390x844: text under 12px | reports/dod/dod.json |',
 ];
+// The same finding as the first row, found again when the screen was measured again: counted once.
+const OC_REPEAT = ['| 2026-10-06 | booking | look | gate | before | dod:one-primary | one-primary: <button> "שמירה" | reports/dod/dod.json |'];
 // [code of the condition that rejects it, row]
 const OC_BAD = [
-  ['cells', '| 2026-11-12 | clients | look | gate | before | 1 | dod:probe |'],
-  ['date', '| 2026-02-30 | clients | look | gate | before | 1 | dod:probe | |'],
-  ['screen', '| 2026-11-12 | | look | gate | before | 1 | dod:probe | |'],
-  ['class', '| 2026-11-12 | clients | colour | owner | before | 1 | reviewer | הצבע לא נכון |'],
-  ['finder', '| 2026-11-12 | clients | look | nadav | before | 1 | reviewer | קטן מדי |'],
-  ['when', '| 2026-11-12 | clients | look | owner | during | 1 | reviewer | קטן מדי |'],
-  ['count', '| 2026-11-12 | clients | look | gate | before | 0 | dod:probe | |'],
-  ['one-per-row', '| 2026-11-12 | clients | look | owner | before | 2 | reviewer | שני דברים |'],
-  ['gate', '| 2026-11-12 | clients | look | owner | before | 1 | | לא קריא |'],
-  ['gate-none', '| 2026-11-12 | clients | look | gate | before | 1 | none | |'],
-  ['words', '| 2026-11-12 | clients | look | owner | before | 1 | reviewer | |'],
+  ['cells', '| 2026-11-12 | clients | look | gate | before | dod:probe | probe: x | reports/dod/dod.json | extra |'],
+  ['date', '| 2026-02-30 | clients | look | gate | before | dod:probe | probe: y | reports/dod/dod.json |'],
+  ['screen', '| 2026-11-12 | | look | gate | before | dod:probe | probe: z | reports/dod/dod.json |'],
+  ['class', '| 2026-11-12 | clients | colour | owner | before | reviewer | chat 2026-11-12 | הצבע לא נכון |'],
+  ['finder', '| 2026-11-12 | clients | look | nadav | before | reviewer | chat 2026-11-12 | קטן מדי |'],
+  ['when', '| 2026-11-12 | clients | look | owner | during | reviewer | chat 2026-11-12 | קטן מדי |'],
+  ['gate', '| 2026-11-12 | clients | look | owner | before | | chat 2026-11-12 | לא קריא |'],
+  ['gate-none', '| 2026-11-12 | clients | look | gate | before | none | probe: w | reports/dod/dod.json |'],
+  ['ref', '| 2026-11-12 | clients | look | owner | before | reviewer | | צפוף מדי |'],
+  ['source', '| 2026-11-12 | clients | look | gate | before | dod:probe | probe: v | |'],
+  ['words', '| 2026-11-12 | clients | look | owner | before | reviewer | chat 2026-11-12 | |'],
 ];
 const OC_EXPECT = {
-  rows: 7,
+  rows: 11,
   total: { gate_before: 6, owner_before: 2, after: 3, after_owner: 1, after_user: 1, after_gate: 1, share: 54.5 },
   periods: {
     '2026-10': { gate_before: 4, owner_before: 1, after: 1, share: 66.7, look: [4, 0, 1], comfort: [0, 1, 0] },
@@ -3031,13 +3038,15 @@ const OC_EXPECT = {
   },
   screens: { booking: [4, 1, 1], clients: [2, 1, 2] },
   escaped: { count: 4, no_gate: 1, by_gate: { walkthrough: 1, reviewer: 1, 'forbidden-words': 1 } },
+  // lines 1-6 are the title, a blank line, the heading, a blank line, the header and the separator
+  repeats: [{ line: 7 + 11, same_as: 7 }],
 };
 const ocLedger = (rows, name) => {
   const f = path.join(fs.mkdtempSync(path.join(TMP, `oc-${name}-`)), 'MEASURES.md');
   fs.writeFileSync(f, `# מדידות\n\n## Owner catches\n\n${OC_HEAD}${rows.join('\n')}\n\nאחרי הטבלה.\n`);
   return f;
 };
-const OC_FIXTURE = ocLedger([...OC_GOOD, ...OC_BAD.map(([, r]) => r)], 'fixture');
+const OC_FIXTURE = ocLedger([...OC_GOOD, ...OC_REPEAT, ...OC_BAD.map(([, r]) => r)], 'fixture');
 const ocRun = (file, tool = OC, extra = ['--json']) => {
   const r = sh('node', [tool, file, ...extra]);
   let out = null; try { out = JSON.parse(r.stdout); } catch { /* the caller reports raw */ }
@@ -3061,6 +3070,7 @@ function ocDiff(r, badCodes) {
   }
   want(Object.fromEntries(Object.entries(o.screens || {}).map(([s, t]) => [s, tri(t)])), OC_EXPECT.screens, 'screens');
   want(o.escaped, OC_EXPECT.escaped, 'escaped');
+  want(o.repeats, OC_EXPECT.repeats, 'repeats');
   want((o.malformed || []).length, badCodes.length, 'malformed count');
   return why;
 }
@@ -3072,31 +3082,33 @@ function ocMutant(code) {
   fs.writeFileSync(f, keep.join('\n'));
   return f;
 }
-await test('OC-fixture', 'owner-catches counts the fixture ledger: per period, class and screen, the share the gates caught, the escapes, and every malformed row', async () => {
+await test('OC-fixture', 'owner-catches counts the fixture ledger: per period, class and screen, the share the gates caught, the escapes, the repeat counted once, and every malformed row', async () => {
   const why = ocDiff(ocRun(OC_FIXTURE), OC_BAD);
   return why.join('; ');
 });
 await test('OC-malformed', 'owner-catches names each malformed row by its line and why, and counts none of them', async () => {
   const r = ocRun(OC_FIXTURE);
   if (!r.out) return `no JSON: ${r.raw}`;
-  const first = OC_GOOD.length + 7; // lines 1-6: the title, a blank line, the heading, a blank line, the header, the separator
+  const first = 7 + OC_GOOD.length + OC_REPEAT.length;
   const lines = r.out.malformed.map(m => m.line);
   const exp = OC_BAD.map((_, i) => first + i);
   return JSON.stringify(lines) === JSON.stringify(exp) && r.out.malformed.every(m => m.why) ? '' : `lines ${JSON.stringify(lines)} != ${JSON.stringify(exp)}`;
 });
-await test('OC-clean', 'a ledger with only well-formed rows exits 0 and prints the counts as text', async () => {
-  const r = sh('node', [OC, ocLedger(OC_GOOD, 'clean')]);
-  return r.status === 0 && /7 rows counted, 0 malformed/.test(r.stdout) && /the gates caught 54\.5%/.test(r.stdout) ? '' : `exit ${r.status}: ${r.stdout.slice(0, 300)}`;
+await test('OC-clean', 'a ledger with only well-formed rows exits 0, prints the counts as text, and prints what the share may and may not be read as', async () => {
+  const r = sh('node', [OC, ocLedger([...OC_GOOD, ...OC_REPEAT], 'clean')]);
+  const ok = r.status === 0 && /11 problems counted, 1 repeated rows counted once, 0 malformed/.test(r.stdout) && /the gates caught 54\.5%/.test(r.stdout)
+    && /repeated rows, counted once: line 18 \(as line 7\)/.test(r.stdout) && /May be read as:/.test(r.stdout) && /May not be read as:/.test(r.stdout);
+  return ok ? '' : `exit ${r.status}: ${r.stdout.slice(0, 600)}`;
 });
-await test('OC-no-table', 'a file with no "Owner catches" table, and an unknown period, are usage errors (exit 2), never a count of zero', async () => {
+await test('OC-no-table', 'a file with no "Owner catches" table, the old eight-cell format with count, and an unknown period, are usage errors (exit 2), never a count of zero', async () => {
   const f = path.join(fs.mkdtempSync(path.join(TMP, 'oc-none-')), 'MEASURES.md');
-  fs.writeFileSync(f, '# מדידות\n\n| date | task |\n|---|---|\n');
+  fs.writeFileSync(f, '# מדידות\n\n| date | screen | class | found by | when | count | gate | words |\n|---|---|---|---|---|---|---|---|\n');
   const a = ocRun(f);
   const b = ocRun(OC_FIXTURE, OC, ['--period', 'year']);
   return a.status === 2 && b.status === 2 ? '' : `no table: exit ${a.status}; --period year: exit ${b.status}`;
 });
 await test('OC-pipe', 'a pipe written as \\| inside his words stays in the words and does not split the row', async () => {
-  const r = ocRun(ocLedger(['| 2026-11-01 | clients | look | owner | before | 1 | reviewer | כמו שם \\| לא כמו פה |'], 'pipe'));
+  const r = ocRun(ocLedger(['| 2026-11-01 | clients | look | owner | before | reviewer | chat 2026-11-01 | כמו שם \\| לא כמו פה |'], 'pipe'));
   return r.status === 0 && r.out && r.out.rows === 1 ? '' : `exit ${r.status}: ${r.raw}`;
 });
 await test('OC-quarter', 'owner-catches --period quarter folds October and November into one quarter', async () => {
@@ -3104,7 +3116,11 @@ await test('OC-quarter', 'owner-catches --period quarter folds October and Novem
   const q = r.out && r.out.periods['2026-Q4'];
   return q && Object.keys(r.out.periods).length === 1 && q.gate_before === 6 && q.after === 3 ? '' : `periods ${JSON.stringify(r.out && Object.keys(r.out.periods))}`;
 });
-for (const code of ['cells', 'date', 'screen', 'class', 'finder', 'when', 'count', 'one-per-row', 'gate', 'gate-none', 'words', 'count-gate', 'count-owner', 'count-after', 'share', 'escapes']) {
+await test('OC-template', 'the empty MEASURES.md template is a ledger the tool reads: 0 problems, exit 0', async () => {
+  const r = ocRun(path.join(SK, 'templates', 'MEASURES.md'));
+  return r.status === 0 && r.out && r.out.rows === 0 ? '' : `exit ${r.status}: ${r.raw}`;
+});
+for (const code of ['cells', 'date', 'screen', 'class', 'finder', 'when', 'gate', 'gate-none', 'ref', 'source', 'words', 'dedupe', 'count-gate', 'count-owner', 'count-after', 'share', 'escapes']) {
   await test(`OC-M-${code}`, `without the line M:${code} owner-catches prints something else for the fixture`, async () => {
     const why = ocDiff(ocRun(OC_FIXTURE, ocMutant(code)), OC_BAD);
     return why.length ? '' : `the mutant without M:${code} prints the same counts: the line is untested`;

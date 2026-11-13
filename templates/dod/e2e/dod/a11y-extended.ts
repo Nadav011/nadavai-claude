@@ -243,7 +243,7 @@ export function a11yInPage(arg: InPageArg): Item[] | { key: string; rect: { x: n
       const clipY = oy === "hidden" || oy === "clip";
       if (!clipX && !clipY) {
         if (["auto", "scroll"].includes(ox) || ["auto", "scroll"].includes(oy)) {
-          scrolls = true; // reachable by scrolling its box (a wide table in its own scroller)
+          scrolls = true; // reachable by scrolling its box: a wide table in its own scroller, the 1.4.10 exception // M:scroller
           break;
         }
         continue;
