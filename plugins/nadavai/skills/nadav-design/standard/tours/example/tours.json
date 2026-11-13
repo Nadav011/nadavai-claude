@@ -3,7 +3,7 @@
   "version": "2026-11-11",
   "stage": "app",
   "tag": "demo-r3-approved",
-  "inOrderRun": { "copy": "the app's preview (pnpm dev:preview)", "date": "2026-11-13" },
+  "inOrderRun": { "copy": "the app's recording copy (pnpm dev:recording)", "date": "2026-11-13", "key": "b8119d856c8ea6f0f5cce7f95d014a9b769a1dbf92595ca0b7a79d998abdc99d" },
   "core": [
     { "id": "calendar", "screens": ["cal-week", "cal-day"] },
     { "id": "patients", "screens": ["patients"] }
