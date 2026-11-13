@@ -106,7 +106,12 @@ sample in the clinic's real books. So in the real clinic each of the three chapt
 through the steps she can do and ends at "הבנתי" on its button, with the sentence of what
 pressing it does. MediZen's sample patient has no payments and no receipts (#391), and nobody
 adds one to make a chapter work: where the control does not exist on the sample, the step is a
-centred card. To do the job to its end she goes into practice mode. Asked on 11.11.2026 whether
+centred card. A line drawn only so that a tour has something to point at is not a payment and
+is not a receipt, on three conditions the project's spec has to state and its tests hold: it is
+kept outside every table that money, documents or reports read, it is counted in no total, and
+nothing can be done to it that is done to a real one (no receipt, no refund, no send). Whether
+the sample carries such a line is the project's decision, not this file's (MediZen's spec holds
+one as #685; recommended there, not decided by Nadav when this was written, 13.11.2026). To do the job to its end she goes into practice mode. Asked on 11.11.2026 whether
 she should practise these to the end somewhere safe, Nadav picked "כן, בתוך מצב התרגול" [A]:
 MediZen's spec has a practice mode (HL-12) in which every message lands in a "היה נשלח" tray,
 every payment is pretend, no provider is called and no document number is taken, so there the
