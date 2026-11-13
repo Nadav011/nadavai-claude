@@ -126,8 +126,10 @@ lands in the transcript (checked with a made-up value,
 phone image. Two ways in, neither run end to end on these machines yet; the first session that
 uses one records what happened in that `commands.md`:
 
-- A password-free sign-in link for the account, opened on the phone (`$D shell am start -a
-  android.intent.action.VIEW -d '<link>'`), when the app's sign-in accepts one.
+- A password-free sign-in link for the account, when the app's sign-in accepts one. The link
+  opens the account like a password, so it is never printed or pasted into a command: the
+  command that makes it pipes it straight into `$D shell am start -a android.intent.action.VIEW
+  -d "$(cat)"`, and nothing else of its output is shown.
 - The QA account's own test password, typed from the project's env file by variable name and
   submitted in the same command, with no snapshot and no `--settle` between typing and sending.
 

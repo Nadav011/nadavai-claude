@@ -1,8 +1,8 @@
 # Store listing: facts, keywords, copy, screenshots, video, upload
 
 Companion: `promotion.md`. Sources read 2026-11-07. Labels: **Verified** = an official page says it; **Measured** =
-our own call on 7.11; **Vendor** = a third-party blog says it; **House rule** = our choice, not a store's. Tags such as (A1, G3) point to Sources. Every text,
-graphic, video or upload to a store is store publishing: ask Nadav at that moment (the build upload that runs without asking, `rules/working-style.md`, Approval gates, does not cover listing text, graphics or video); show him the full listing before upload. **MONEY GATE** = charges or can bill: stop and ask
+our own call on 7.11; **Vendor** = a third-party blog says it; **House rule** = our choice, not a store's. Tags such as (A1, G3) point to Sources. A change to
+a live listing (its text, graphics or video), and making the first listing public, is store publishing: ask Nadav at that moment and show him the full listing first (`rules/working-style.md`, Approval gates). Text and graphics for a listing that is not public yet are uploaded without asking and named in the report. **MONEY GATE** = charges or can bill: stop and ask
 (`rules/acting-on-behalf.md`).
 
 ## Limits and sizes
@@ -84,7 +84,7 @@ graphic, video or upload to a store is store publishing: ask Nadav at that momen
    - The Play video is a YouTube upload in the business's name: ask Nadav first. Why: it is a public post in his name.
    Done when the file fits the video row, was watched muted end to end, and Nadav approved the upload.
 
-7. **Upload** (store publishing: show Nadav the contact sheet and the copy, then ask).
+7. **Upload.** To a live listing, or to make the first one public, it is store publishing: show Nadav the contact sheet and the copy, then ask. To a listing that is not public yet, upload and name it in the report.
    - Apple, API first (`scripts/asc.mjs`): text as in `references/store-apis.md` plus `/v1/appInfoLocalizations`; `en-GB` is a new localization. Screenshots and
      previews use the App Asset Library, since Apple deprecated `appScreenshotSets` and `appScreenshots` (A20): `appAssetLibraryImages` (reserve, `PUT`,
      `uploaded: true`, wait for `PREPARE_FOR_SUBMISSION`), read `specId`, `appAssetLibraryPlacements`, then a placement ordering request; videos use

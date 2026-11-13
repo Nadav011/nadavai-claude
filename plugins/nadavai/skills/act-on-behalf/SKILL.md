@@ -92,7 +92,7 @@ money is the money gate.
 Only what he alone can supply:
 
 - **SMS or authenticator code:** ask Nadav for it once the code screen is open.
-- **A bot check that failed twice, or a site that blocks automated browsers** (Google sign-in
+- **A bot check that failed twice or that you could not attempt, or a site that blocks automated browsers** (Google sign-in
   often does): leave the `--headed` profile window open and ask Nadav to finish that one step.
   The session then stays in the profile.
 

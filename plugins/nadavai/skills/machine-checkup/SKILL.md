@@ -25,8 +25,9 @@ per-round logs and lessons), `msi-thermal-diagnosis-2026-10.md`,
    newer than the scan or receipt); when ownership is in doubt, skip it and list it for Nadav.
 4. **Ask only what only Nadav knows** (does he use an app, keep a backup, want a trade-off), in
    AskUserQuestion batches of up to four questions, each option with size and evidence. Never ask
-   about something that is provably regenerable or orphaned; delete it. Approval gates still
-   apply: firewall/SSH/auth changes, DB deletions and paid items need his yes.
+   about something that is provably regenerable or orphaned; delete it. Paid items are the
+   money gate. This skill's own stops, pending Nadav's decision (listed for him 2026-11-14):
+   firewall/SSH/auth changes and DB deletions need his yes.
 5. **Folders owned by a running session are cleaned by that session.** Find the owner with
    ListAgents (and by checking which session's cwd or recent commits live there), send it a
    SendMessage with the size and what to drop, and archive only what it hands back. Why: on
