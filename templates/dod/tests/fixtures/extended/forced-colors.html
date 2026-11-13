@@ -6,9 +6,17 @@
 <title>forced-colors</title>
 <style>
   body { margin: 0; padding: 16px; font-family: sans-serif; font-size: 16px; background: #fff; color: #111; }
+  :focus-visible { outline: 3px solid #111; outline-offset: 2px; }
   /* boundary: a filled button with no border; forced colours paint its fill the page colour. */
   .flat { font: inherit; border: none; border-radius: 8px; padding: 8px 12px; background: #2563eb; color: #fff; }
-  /* focus: the only focus sign is a box shadow, which forced colours remove. */
+  /* boundary: a border of width 0 is no border, whatever its style. */
+  .zero { font: inherit; border: 0 solid #111; padding: 8px 12px; background: #2563eb; color: #fff; }
+  /* boundary: two ghost buttons with the same words are two findings, not one. */
+  .ghost { font: inherit; border: none; padding: 8px 12px; background: #eef2ff; color: #111; }
+  /* boundary: a field with no border, in a bordered wrapper too far from it (20px) to read as its edge. */
+  .roomy { display: inline-block; border: 1px solid #888; padding: 20px; }
+  .roomy input { font: inherit; border: none; background: #f3f4f6; }
+  /* focus: the only focus sign is a box shadow, which forced colours remove. It is the second Tab stop. */
   .ring { color: #1d4ed8; }
   .ring:focus-visible { outline: none; box-shadow: 0 0 0 3px #2563eb; }
   /* state: the selected tab differs only by its background. */
@@ -22,8 +30,13 @@
 <body>
 <main>
   <h1>הגדרות</h1>
+  <p><a href="#help">עזרה</a></p>
   <p><a class="ring" href="#details">פרטים</a></p>
   <button type="button" class="flat">שמירה</button>
+  <button type="button" class="zero">שליחה</button>
+  <button type="button" class="ghost">עריכה</button>
+  <button type="button" class="ghost">עריכה</button>
+  <span class="roomy"><input type="text" aria-label="חיפוש"></span>
   <div class="tabs" role="tablist" aria-label="תצוגה">
     <span role="tab" aria-selected="true">יום</span>
     <span role="tab" aria-selected="false">שבוע</span>

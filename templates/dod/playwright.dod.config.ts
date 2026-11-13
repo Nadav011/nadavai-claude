@@ -6,14 +6,26 @@ import { STORAGE_STATE } from "./e2e/dod/dod-shared";
 // runs, or is run by, the project's own Playwright suite. Two phases, two runs of this config:
 // DOD_PHASE unset runs the scored phase (dod.spec.ts) alone; DOD_PHASE=checks runs every other spec
 // of e2e/dod (the experience standard's checks, standard.spec.ts) after it. Adjust `port` and `webServer.command` per project.
+// In the checks phase, the extended checks (extended-checks.spec.ts, report only) are their own project,
+// the teardown of the project that runs every other check: they start only after those have finished,
+// so they never take those checks' share of the phase's deadline (checksMinutes).
 // Run it from the project root: e2e/dod/dod-shared.ts finds routes.json and reports/
 // from the working directory (or DOD_ROOT), which works in ESM and CommonJS projects alike.
 const port = process.env.PORT ?? "3000";
 const baseURL = `http://localhost:${port}`;
+const SCORED = /[\\/]dod\.spec\.ts$/;
+const EXTENDED = /[\\/]extended-checks\.spec\.ts$/;
 
 export default defineConfig({
   testDir: "./e2e/dod",
-  ...(process.env.DOD_PHASE === "checks" ? { testIgnore: /[\\/]dod\.spec\.ts$/ } : { testMatch: /[\\/]dod\.spec\.ts$/ }),
+  ...(process.env.DOD_PHASE === "checks"
+    ? {
+        projects: [
+          { name: "checks", testIgnore: [SCORED, EXTENDED], teardown: "extended" },
+          { name: "extended", testMatch: EXTENDED },
+        ],
+      }
+    : { testMatch: SCORED }),
   timeout: 120_000,
   expect: { timeout: 10_000 },
   // Every entry writes its own result file, so workers are safe. All routes x 2 viewports x 2 schemes

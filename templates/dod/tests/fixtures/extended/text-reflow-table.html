@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>text-reflow-table</title>
+<style>
+  /* A data table wider than a 320px window, with no scroller of its own, in a wrapper as wide as it:
+     the page scrolls sideways, but only for a part that needs two dimensions (the 1.4.10 exception). */
+  body { margin: 0; font-family: sans-serif; font-size: 16px; background: #fff; color: #111; }
+  .sheet { width: max-content; }
+  table { border-collapse: collapse; min-width: 600px; }
+  td, th { border: 1px solid #ccc; padding: 4px 8px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>תורים</h1>
+  <div class="sheet">
+    <table>
+      <tr><th>שעה</th><th>לקוחה</th><th>טיפול</th><th>הערה</th></tr>
+      <tr><td>09:00</td><td>מיכל ברק</td><td>תספורת</td><td>מגיעה עם הבת שלה</td></tr>
+      <tr><td>10:30</td><td>נועה לוי</td><td>צבע</td><td>רגישה לחומרים</td></tr>
+    </table>
+  </div>
+</main>
+</body>
+</html>

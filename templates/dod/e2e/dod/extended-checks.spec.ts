@@ -2,12 +2,17 @@
 // result: accessibility beyond axe (a11y-extended.ts: forced-colors, text-reflow, text-spacing) and
 // honest choices (consent-checks.ts: consent-prechecked, consent-refuse). They report only: one
 // file per route, results/extended/<slug>.json, and one line per route in the log.
-// Nothing here reaches dod.json or a score. Each check loads the route again, as the scored phase's
-// light 1440 entry did, and judges nothing until the access check and the scored page's
-// fingerprint show it is the page the scored phase measured.
+// Nothing here reaches dod.json or a score. They run last: playwright.dod.config.ts puts this file in
+// its own project (`extended`), the teardown of the project that runs every other check, so it starts
+// only after those have finished and never takes their share of the phase's deadline; and each check
+// starts only while more than DEADLINE_MARGIN_MS of that deadline is left ("not checked: out of time").
+// Each check opens a new page of the route, as the scored phase's light 1440 entry did, and judges
+// nothing until the access check and the scored page's fingerprint show it is the page the scored
+// phase measured. From the moment a check starts, the page's writes (any request that is not GET,
+// HEAD or OPTIONS) are held and reported as `write-held` (a11y-extended.ts, installWriteGuard).
 import fs from "node:fs";
 import path from "node:path";
-import { test, type Page } from "@playwright/test";
+import { test, type BrowserContext, type Page } from "@playwright/test";
 import {
   CHECKS_SIGNIN_FILE,
   fingerprintDiff,
@@ -25,16 +30,20 @@ import {
   type RouteEntry,
 } from "./dod-shared";
 import { accessCheck, pageFingerprint, settle, type AccessContext } from "./dod-page";
-import { A11Y_CHECK_IDS, forcedColorsCheck, textReflowCheck, textSpacingCheck, type A11yResult } from "./a11y-extended";
+import { A11Y_CHECK_IDS, forcedColorsCheck, installWriteGuard, textReflowCheck, textSpacingCheck, withHeld, type A11yResult, type WriteGuard } from "./a11y-extended";
 import { CONSENT_CHECK_IDS, consentChecks } from "./consent-checks";
 
 const EXTENDED_CHECK_IDS = [...A11Y_CHECK_IDS, ...CONSENT_CHECK_IDS] as const;
 type ExtendedId = (typeof EXTENDED_CHECK_IDS)[number];
-/** What every extended check writes: a count, the findings by kind, the first samples, or why it could not judge. */
-type ExtendedResult = Omit<A11yResult, "error"> & { error?: string };
+/** What every extended check writes: a count, the findings by kind, the first samples, notes, or why it could not judge. */
+type ExtendedResult = A11yResult;
 
 /** Where each route's result is written; the scored phase's global-setup empties `results/`. */
 const EXTENDED_DIR = path.join(RESULTS_DIR, "extended");
+/** A check starts only while more than this is left of the checks phase's deadline. */
+const DEADLINE_MARGIN_MS = 20_000;
+/** After a check's page is closed, how long a write it sent on the way out has to reach the guard. */
+const SETTLE_WRITES_MS = 300;
 const routes = loadRoutes();
 const standard = loadStandard();
 const ACCESS: AccessContext = {
@@ -53,16 +62,23 @@ function scoredResult(name: string): EntryResult | null {
   }
 }
 
-/** Loads the route and throws unless it is the page the scored phase measured. */
-async function loadScoredPage(page: Page, entry: RouteEntry, scored: EntryResult) {
-  await page.setViewportSize({ width: WIDE.width, height: WIDE.height });
-  const resp = await page.goto(entry.route, { waitUntil: "domcontentloaded" });
-  await settle(page);
-  const access = await accessCheck(page, entry.route, resp?.status() ?? null, ACCESS);
-  if (access.unreachable_reason) throw new Error(`not checked: ${access.unreachable_reason}`);
-  if (!scored.fingerprint) throw new Error("not checked: the scored phase recorded no fingerprint of this page");
-  const diff = fingerprintDiff(scored.fingerprint, await pageFingerprint(page), entry.fingerprint);
-  if (diff) throw new Error(`not checked: not the page the scored phase measured (${diff})`);
+/** Opens a new page of the route and throws unless it is the page the scored phase measured. */
+async function openScoredPage(context: BrowserContext, entry: RouteEntry, scored: EntryResult): Promise<Page> {
+  const page = await context.newPage();
+  try {
+    await page.setViewportSize({ width: WIDE.width, height: WIDE.height });
+    const resp = await page.goto(entry.route, { waitUntil: "domcontentloaded" });
+    await settle(page);
+    const access = await accessCheck(page, entry.route, resp?.status() ?? null, ACCESS);
+    if (access.unreachable_reason) throw new Error(`not checked: ${access.unreachable_reason}`);
+    if (!scored.fingerprint) throw new Error("not checked: the scored phase recorded no fingerprint of this page");
+    const diff = fingerprintDiff(scored.fingerprint, await pageFingerprint(page), entry.fingerprint);
+    if (diff) throw new Error(`not checked: not the page the scored phase measured (${diff})`);
+    return page;
+  } catch (err) {
+    await page.close().catch(() => {});
+    throw err;
+  }
 }
 
 const merge = (parts: [string, A11yResult][]): ExtendedResult => {
@@ -84,41 +100,58 @@ if (standard)
         colorScheme: "light",
         ...(entry.audience === "anonymous" ? { storageState: { cookies: [], origins: [] } } : {}),
       });
-      test(`extended ${slug}`, async ({ page }) => {
+      test(`extended ${slug}`, async ({ context }) => {
         const scored = scoredResult(`${slug}__${WIDE.width}__light`);
         // Only a page the scored phase reached is checked, as in standard.spec.ts.
         if (!scored || !scored.reached || scored.unreachable) return;
         test.setTimeout(180_000);
         const checks = {} as Record<ExtendedId, ExtendedResult>;
         const failed = (err: unknown): ExtendedResult => ({ count: 0, kinds: {}, samples: [], error: redact(err, routeQuery(entry.route)).slice(0, 300) });
+        const deadlineAt = Number(process.env.DOD_CHECKS_DEADLINE_AT ?? 0);
+        const outOfTime = () => !!deadlineAt && Date.now() > deadlineAt - DEADLINE_MARGIN_MS;
+        const OUT_OF_TIME = "not checked: out of time (less than 20 s left of the checks phase's checksMinutes)";
         if (entry.audience !== "anonymous" && fs.existsSync(CHECKS_SIGNIN_FILE)) {
           for (const id of EXTENDED_CHECK_IDS) checks[id] = failed("not checked: the checks phase could not sign in");
         } else {
-          const run = async (id: ExtendedId, fn: () => Promise<ExtendedResult>) => {
+          const guard: WriteGuard = await installWriteGuard(context);
+          // One new page per check: load, check, close, then add the writes the guard held on it.
+          const run = async (ids: ExtendedId[], fn: (page: Page) => Promise<Partial<Record<ExtendedId, ExtendedResult>>>) => {
+            if (outOfTime()) {
+              for (const id of ids) checks[id] = failed(OUT_OF_TIME);
+              return;
+            }
+            let page: Page | null = null;
             try {
-              await loadScoredPage(page, entry, scored);
-              checks[id] = await fn();
+              page = await openScoredPage(context, entry, scored);
+              const got = await fn(page);
+              await page.close();
+              await new Promise((r) => setTimeout(r, SETTLE_WRITES_MS));
+              const held = guard.take(page);
+              for (const id of ids) checks[id] = withHeld(got[id] as ExtendedResult, id === ids[0] ? held : []);
             } catch (err) {
-              checks[id] = failed(err);
+              for (const id of ids) checks[id] = failed(err);
+            } finally {
+              if (page && !page.isClosed()) await page.close().catch(() => {});
             }
           };
-          // Both consent checks read the page as it loaded, so one load serves them.
-          try {
-            await loadScoredPage(page, entry, scored);
-            Object.assign(checks, await consentChecks(page));
-          } catch (err) {
-            for (const id of CONSENT_CHECK_IDS) checks[id] = failed(err);
-          }
-          await run("forced-colors", () => forcedColorsCheck(page));
-          await run("text-reflow", () => textReflowCheck(page));
-          await run("text-spacing", async () => {
-            const wide = await textSpacingCheck(page);
+          // Both consent checks read the page as it loaded, so one page serves them.
+          await run([...CONSENT_CHECK_IDS], async (page) => {
+            guard.watch(page, "the page was read");
+            return consentChecks(page);
+          });
+          await run(["forced-colors"], async (page) => ({ "forced-colors": await forcedColorsCheck(page, guard) }));
+          await run(["text-reflow"], async (page) => ({ "text-reflow": await textReflowCheck(page, guard) }));
+          await run(["text-spacing"], async (page) => {
+            const wide = await textSpacingCheck(page, guard);
+            guard.moment(page, `the window was resized to ${PHONE.width}x${PHONE.height}`);
             await page.setViewportSize({ width: PHONE.width, height: PHONE.height });
             await settle(page);
-            return merge([
-              [`${WIDE.width}x${WIDE.height}`, wide],
-              [`${PHONE.width}x${PHONE.height}`, await textSpacingCheck(page)],
-            ]);
+            return {
+              "text-spacing": merge([
+                [`${WIDE.width}x${WIDE.height}`, wide],
+                [`${PHONE.width}x${PHONE.height}`, await textSpacingCheck(page, guard)],
+              ]),
+            };
           });
         }
         fs.mkdirSync(EXTENDED_DIR, { recursive: true });

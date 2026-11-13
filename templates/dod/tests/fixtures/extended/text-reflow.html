@@ -9,6 +9,12 @@
   main { padding-block: 16px; }
   /* clipped: one line that never wraps, in a box that hides what does not fit. */
   .box { width: 600px; max-width: 100%; overflow: hidden; white-space: nowrap; border: 1px solid #ccc; }
+  /* clipped at 320 only, and by about 10px: a 340px box that narrows to the window, holding a line
+     sized by the script below to 330px. Fits at 360 and at 640. */
+  .fit { width: 340px; max-width: 100%; overflow: hidden; white-space: nowrap; }
+  /* clipped at 640 only: a line sized to 700px that does not wrap above 400px, and wraps below it. */
+  .mid { overflow: hidden; white-space: nowrap; }
+  @media (max-width: 400px) { .mid { white-space: normal; } }
   /* unreachable: pushed past the right edge of a right-to-left page, where no scroll reaches. */
   .peek { margin-inline-start: -40px; }
   /* sideways: wider than a 320px window, so the page scrolls both ways. */
@@ -19,8 +25,17 @@
 <main>
   <h1>דוח חודשי</h1>
   <div class="box">סיכום החודש: שלושים ושניים תורים, ארבעה ביטולים ושני לקוחות חדשים שהצטרפו השבוע</div>
+  <div class="fit"><span id="fit">תורים שנקבעו החודש בסניף</span></div>
+  <div class="mid"><span id="mid">הלקוחות שהגיעו החודש לפי סניף ולפי סוג טיפול</span></div>
   <p class="peek">התאריך של הדוח</p>
   <div class="wide">טבלה רחבה</div>
 </main>
+<script>
+  // Size each line to an exact width at the page's own font, so the fixture does not depend on it.
+  for (const [id, px] of [["fit", 330], ["mid", 700]]) {
+    const el = document.getElementById(id);
+    el.style.fontSize = `${(16 * px) / el.getBoundingClientRect().width}px`;
+  }
+</script>
 </body>
 </html>

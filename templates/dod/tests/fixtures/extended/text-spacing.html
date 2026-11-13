@@ -12,6 +12,12 @@
   .card { position: relative; width: 260px; height: 80px; margin-block-start: 24px; }
   .title { margin: 0; font-size: 16px; line-height: 18px; }
   .meta { position: absolute; inset-block-start: 40px; inset-inline-start: 0; font-size: 14px; line-height: 16px; }
+  /* clipped by letter spacing alone: one word in a box 5% wider than the word (set by the script). */
+  .word { display: inline-block; overflow: hidden; white-space: nowrap; font-size: 16px; margin-block-start: 16px; }
+  /* overlap by paragraph spacing alone: two paragraphs in a box of fixed height, the next line right
+     after the box; only the 2em after each paragraph pushes the second one into it. */
+  .paras { height: 60px; margin-block-start: 16px; }
+  .paras p, .after { margin: 0; font-size: 14px; line-height: 16px; }
 </style>
 </head>
 <body>
@@ -22,6 +28,13 @@
     <p class="title">מיכל ברק<br>לקוחה מאז 2024</p>
     <span class="meta">עודכן היום</span>
   </div>
+  <div><span class="word" id="word">התחייבויות</span></div>
+  <div class="paras"><p>ביקור אחרון</p><p>תור הבא</p></div>
+  <p class="after">אין הערות</p>
 </main>
+<script>
+  const w = document.getElementById("word");
+  w.style.width = `${w.getBoundingClientRect().width * 1.05}px`;
+</script>
 </body>
 </html>

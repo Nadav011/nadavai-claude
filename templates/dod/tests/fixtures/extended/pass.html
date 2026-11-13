@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pass</title>
+<!-- Every case here is one that a check must NOT report: each exemption and each pass case of the five
+     checks, so a mutant that drops an exemption or moves a threshold makes this page fail. The consent
+     cases sit directly in the body, each its own box, so no case reads another's words or buttons. -->
+<style>
+  body { margin: 0; padding: 8px; font-family: sans-serif; font-size: 16px; background: #fff; color: #111; }
+  button, .field { font: inherit; border: 1px solid transparent; border-radius: 8px; padding: 8px 12px; }
+  button { background: #2563eb; color: #fff; }
+  :focus-visible { outline: 3px solid #111; outline-offset: 2px; }
+  section { border: 1px solid #ccc; padding: 12px; margin-block: 12px; }
+  .row { margin-block: 12px; }
+  /* forced-colors: a filled button that keeps its own colours there. */
+  .fca { border: none; forced-color-adjust: none; }
+  /* forced-colors: a field with no border, in a bordered wrapper that hugs it. */
+  .tight { display: inline-block; border: 1px solid #888; padding: 2px; }
+  .tight input { font: inherit; border: none; background: #fff; }
+  /* forced-colors: a control whose boundary is a 1px outline. */
+  .ol { border: none; outline: 1px solid #888; background: #fff; color: #111; }
+  /* forced-colors: tabs told apart by background, keeping their own colours. */
+  .keep [role="tab"] { forced-color-adjust: none; padding: 4px 8px; background: #eee; }
+  .keep [aria-selected="true"] { background: #2563eb; color: #fff; }
+  /* forced-colors: tabs that look the same in normal colours too (nothing to lose). */
+  .alike [role="tab"] { padding: 4px 8px; background: #eee; }
+  /* forced-colors: marks that are not lost: painted like what is behind them, too small to mean
+     anything, a bar wider than a mark, and a dot whose meaning is in the words beside it. */
+  .ground { background: #f3f4f6; padding: 8px; }
+  .same { display: inline-block; width: 10px; height: 10px; background: #f3f4f6; }
+  .speck { display: inline-block; width: 2px; height: 2px; background: #dc2626; }
+  .bar { width: 700px; max-width: 100%; height: 8px; background: #2563eb; }
+  .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #16a34a; }
+  .gone { border: none; opacity: 0; }
+  /* text-reflow: a carousel whose next slide peeks in, a closed accordion, visually hidden text, and a
+     wide table in its own scroller. */
+  .carousel { width: 300px; overflow: hidden; }
+  .track { display: flex; gap: 8px; width: 600px; }
+  .slide { flex: 0 0 280px; }
+  .closed { height: 0; overflow: hidden; }
+  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .table-wrap { overflow-x: auto; }
+  table { border-collapse: collapse; min-width: 520px; }
+  td, th { border: 1px solid #ccc; padding: 4px 8px; }
+  /* text-spacing: a count badge over the corner of its label, overlapping before any override. */
+  .labelled { position: relative; display: inline-block; padding: 4px 8px; }
+  .badge { position: absolute; inset-block-start: -4px; inset-inline-end: 0; background: #dc2626; color: #fff; border-radius: 999px; font-size: 12px; line-height: 1; padding: 2px 5px; }
+  /* consent: a weak "no" beside a strong one; colours in oklch; a translucent card on a dark overlay;
+     a gradient banner (contrast not judged). */
+  .tiny { font-size: 11px; padding: 0; background: none; color: #bbb; }
+  .ok-dark { background: oklch(0.205 0 0); color: oklch(0.985 0 0); }
+  .ok-light { background: oklch(1 0 0); color: oklch(0.145 0 0); border-color: oklch(0.145 0 0); }
+  .overlay { background: rgba(0, 0, 0, 0.85); padding: 16px; }
+  .glass { background: rgba(255, 255, 255, 0.08); color: #fff; padding: 12px; }
+  .glass .yes { background: #fff; color: #111; }
+  .glass .no { background: transparent; color: #fff; border-color: #fff; }
+  .gradient { background-image: linear-gradient(#1e3a8a, #1e40af); color: #fff; }
+  .gradient .no { background: transparent; color: #fff; border-color: #fff; }
+</style>
+</head>
+<body>
+<main>
+  <h1>מה שעובר</h1>
+  <div class="row">
+    <button type="button" class="fca">קביעת תור</button>
+    <span class="tight"><input type="text" aria-label="שם"></span>
+    <button type="button" class="ol">ייצוא</button>
+    <input type="checkbox" aria-label="סימון">
+    <select aria-label="סניף"><option>תל אביב</option><option>חיפה</option></select>
+    <button type="button" class="gone" tabindex="-1">מוסתר</button>
+  </div>
+  <div><div class="row keep" role="tablist" aria-label="תצוגה"><span role="tab" aria-selected="true">יום</span><span role="tab" aria-selected="false">שבוע</span></div></div>
+  <div><div class="row alike" role="tablist" aria-label="סינון"><span role="tab" aria-selected="true">הכול</span><span role="tab" aria-selected="false">פתוחים</span></div></div>
+  <div class="row ground"><span class="same"></span></div>
+  <div class="row"><span class="speck"></span></div>
+  <div class="row"><div class="bar"></div></div>
+  <p><span class="dot"></span> היומן מחובר</p>
+  <p><span class="labelled">הודעות<span class="badge">3</span></span><span class="sr-only">תפריט ראשי</span></p>
+  <div class="carousel" aria-roledescription="carousel" aria-label="מבצעים">
+    <div class="track">
+      <div class="slide" aria-roledescription="slide">שקופית ראשונה</div>
+      <div class="slide" aria-roledescription="slide">שקופית שנייה</div>
+    </div>
+  </div>
+  <div class="closed"><p>התוכן של שאלה סגורה</p></div>
+  <div class="table-wrap">
+    <table>
+      <tr><th>שעה</th><th>לקוח</th><th>טיפול</th><th>הערה</th></tr>
+      <tr><td colspan="4" style="white-space: nowrap">סיכום היום: שמונה תורים, שני ביטולים ותור אחד שמחכה לאישור של הלקוחה</td></tr>
+    </table>
+  </div>
+  <p><label><input type="checkbox" checked> עדכונים אוטומטיים של האפליקציה</label></p>
+  <p><label><input type="checkbox" checked disabled> עוגיות הכרחיות (תמיד פועלות)</label></p>
+</main>
+<section>
+  <p>האתר משתמש בעוגיות.</p>
+  <button type="button">אישור הכול</button>
+  <button type="button">דחיית הכול</button>
+  <button type="button" class="tiny">לא תודה</button>
+</section>
+<section>
+  <p>רוצים להמשיך?</p>
+  <button type="button">הסכמה</button>
+</section>
+<section>
+  <h2>הגדרות מיקום</h2>
+  <label>עיר <input class="field" type="text" value="חיפה"></label>
+  <button type="button">אישור</button>
+</section>
+<section>
+  <p>האתר משתמש בעוגיות לניתוח שימוש.</p>
+  <button type="button" class="ok-dark">אישור הכול</button>
+  <button type="button" class="ok-light">דחיית הכול</button>
+</section>
+<section class="overlay">
+  <div class="glass">
+    <p>האתר משתמש בעוגיות שיווק.</p>
+    <button type="button" class="yes">אישור הכול</button>
+    <button type="button" class="no">דחיית הכול</button>
+  </div>
+</section>
+<section class="gradient">
+  <p>האתר משתמש בעוגיות פרסום.</p>
+  <button type="button" class="yes" style="background: #fff; color: #111">אישור הכול</button>
+  <button type="button" class="no">דחיית הכול</button>
+</section>
+<section>
+  <p>לאפשר לאפליקציה לשלוח התראות?</p>
+  <button type="button">אישור</button>
+  <button type="button">ביטול</button>
+</section>
+<section lang="en" dir="ltr">
+  <p>We use cookies to remember your settings.</p>
+  <button type="button">Accept all</button>
+  <button type="button">Decline all</button>
+</section>
+<section lang="en" dir="ltr">
+  <p>Allow notifications about your bookings?</p>
+  <button type="button">Allow</button>
+  <button type="button">Don’t allow</button>
+</section>
+</body>
+</html>

@@ -10,27 +10,62 @@
   section, .ask { border: 1px solid #ccc; padding: 12px; margin-block: 16px; }
   /* weak-refuse: the "no" is small, borderless and pale. */
   .ask .tiny { font-size: 11px; padding: 0; background: none; color: #bbb; }
+  /* weak-refuse by one measure each: area only, text size only, contrast only. */
+  .ask .yes-big { padding: 14px 32px; }
+  .ask .small-area { padding: 0; background: none; color: #111; }
+  .ask .small-font { font-size: 12px; padding: 12px 20px; background: #fff; color: #111; border-color: #111; }
+  .ask .pale { background: #fff; color: #999; border-color: #999; }
+  /* a native box hidden and drawn by its label */
+  .drawn input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+  .drawn span { display: inline-block; width: 16px; height: 16px; border: 1px solid #111; background: #2563eb; }
+  [role="switch"] { background: #fff; color: #111; border-color: #111; }
 </style>
 </head>
 <body>
 <main>
   <h1>הפרופיל שלי</h1>
-  <!-- prechecked: mailing consent ticked before she chose. -->
+  <!-- prechecked: mailing consent on when the page loads. -->
   <form>
     <label><input type="checkbox" name="news" checked> אני רוצה לקבל עדכונים ומבצעים במייל</label>
     <button type="submit">שמירה</button>
   </form>
+  <!-- prechecked: a native box hidden and drawn by its label. -->
+  <label class="drawn"><input type="checkbox" checked><span></span> אני מסכים לקבל דיוור שבועי</label>
+  <!-- prechecked: a switch that only aria-checked says is on (shadcn's Switch). -->
+  <p><button type="button" role="switch" aria-checked="true" aria-label="שיתוף מידע עם צד שלישי">פעיל</button></p>
+  <!-- prechecked: a box that mentions necessary cookies but is not locked, so she can untick it. -->
+  <p><label><input type="checkbox" checked> עוגיות הכרחיות ועוגיות שיווק</label></p>
   <!-- no-refuse: a cookie request that can only be accepted, or opened. -->
   <section aria-label="עוגיות">
     <p>האתר משתמש בעוגיות כדי לזכור את ההעדפות שלך.</p>
     <button type="button">אישור הכול</button>
     <a href="#cookie-settings">הגדרות</a>
   </section>
+  <!-- no-refuse: the accept button four boxes deep inside the request. -->
+  <section>
+    <p>נשמח לשלוח לך דיוור שבועי עם מבצעים.</p>
+    <div><div><div><div><button type="button">מאשר</button></div></div></div></div>
+  </section>
   <!-- weak-refuse: a location permission whose "no" is much less prominent than its "yes". -->
   <div class="ask">
     <p>לאפשר גישה למיקום כדי להציג סניפים קרובים?</p>
     <button type="button">לאפשר</button>
     <button type="button" class="tiny">לא עכשיו</button>
+  </div>
+  <div class="ask">
+    <p>לאפשר התראות על תורים?</p>
+    <button type="button" class="yes-big">לאפשר</button>
+    <button type="button" class="small-area">לא עכשיו</button>
+  </div>
+  <div class="ask">
+    <p>לאפשר התראות על מבצעים?</p>
+    <button type="button">לאפשר</button>
+    <button type="button" class="small-font">לא עכשיו</button>
+  </div>
+  <div class="ask">
+    <p>האתר משתמש בעוגיות שיווק.</p>
+    <button type="button">אישור הכול</button>
+    <button type="button" class="pale">דחיית הכול</button>
   </div>
 </main>
 </body>
