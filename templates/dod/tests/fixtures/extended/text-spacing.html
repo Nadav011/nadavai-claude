@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>text-spacing</title>
+<style>
+  body { margin: 0; padding: 16px; font-family: sans-serif; background: #fff; color: #111; }
+  /* clipped: three lines in a box of fixed height that fits them only at their own line height. */
+  .note { font-size: 14px; line-height: 16px; height: 52px; overflow: hidden; width: 240px; border: 1px solid #ccc; }
+  /* overlap: a line placed by hand just below a two-line title; taller lines run into it. */
+  .card { position: relative; width: 260px; height: 80px; margin-block-start: 24px; }
+  .title { margin: 0; font-size: 16px; line-height: 18px; }
+  .meta { position: absolute; inset-block-start: 40px; inset-inline-start: 0; font-size: 14px; line-height: 16px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>כרטיס לקוח</h1>
+  <div class="note">הערה ראשונה<br>הערה שנייה<br>הערה שלישית</div>
+  <div class="card">
+    <p class="title">מיכל ברק<br>לקוחה מאז 2024</p>
+    <span class="meta">עודכן היום</span>
+  </div>
+</main>
+</body>
+</html>

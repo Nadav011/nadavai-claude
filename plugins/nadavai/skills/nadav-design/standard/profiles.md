@@ -20,6 +20,8 @@ back office and the page its customers book on.
 | 5 States | all | all |
 | 6 Words | all | all |
 | 7 Brand and second language | all | all |
+| 8 Honest choices | all | all |
+| 9 Accessibility beyond axe | all | all |
 
 A consumer app is not held to less: it is held to fewer words. Where a work tool explains, a
 consumer app makes the step obvious, and the walkthrough check carries more of the weight.
@@ -30,7 +32,8 @@ A portfolio, a marketing site or a scroll film (nadavc.ai, Camstore's home film,
 site) is judged by other things: the reference it follows, its motion, its bytes on a phone.
 Those live in the `site` track of nadav-design (`tracks/site.md`). From this standard a showcase site takes only
 the states and the errors of anything in it that loads data or submits a form: T-01, T-02, E-01,
-E-04, E-05. The moment a site has a shop or an account, those screens are a consumer app.
+E-04, E-05, and, wherever it asks for a consent (a cookie banner, a mailing sign-up), the honest
+choices of group 8 [I]. The moment a site has a shop or an account, those screens are a consumer app.
 
 ## An app that is mid-release
 

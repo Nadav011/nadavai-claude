@@ -330,6 +330,41 @@ reason, and what is not built) and `totals.standard_findings` (all findings),
 `totals.standard_failures` (check ids with findings), `totals.standard_errored` (check ids that
 errored) and `totals.standard_scored` (the enforced ones among both, which cost points).
 
+## The extended checks (report only)
+
+Five checks the experience standard lists that axe and the checks above do not cover
+(`standard/experience.md`, rules A-01 to A-03, H-02 and H-03). `e2e/dod/extended-checks.spec.ts`
+runs them in the checks phase, so only when `standard.json` exists, once per route that the
+scored phase reached, on the light 1440 entry's page: each check loads the route again and judges
+nothing until the access check and the scored page's fingerprint show it is that page. They only
+report: one file per route, `reports/dod/results/extended/<slug>.json` (`{ route, mode: "report",
+checks: { <id>: { count, kinds, samples, error? } } }`), and one line per route in the log
+(`[dod] extended /calendar: forced-colors found 3, text-reflow clean, ...`). Nothing of them
+reaches `dod.json`, the score or the exit code, and none of them can be put under `enforce` yet:
+moving them into `dod.json`'s `standard` block is a change to the teardown, kept for when the kit's
+other open branch has landed.
+
+| Check | Where | Fires on |
+|---|---|---|
+| `forced-colors` (A-01) | 1440x900, Chromium's forced colours (`forcedColors: "active"`, which paints the forced palette, not only the media query) | `boundary`: a button, field, select, switch, checkbox or slider with no border on any side and no outline, and no wrapper within 8px of it that has one (a native checkbox, radio or select, and anything under `forced-color-adjust: none`, are drawn by the system or the page and not judged); `focus`: one of the first 25 elements Tab reaches whose picture, 6px around it, is the same focused and not (a focus ring made of `box-shadow` alone, which forced colours remove); `state`: a selected, current, pressed or checked item that in normal colours looks different from an unselected one of the same kind beside it and in forced colours looks the same (it was told apart by a background or a shadow only); `mark`: an element 3px to 600px with no words in it or beside it, painted only by its background colour (a status dot, a progress fill), which forced colours paint the page colour |
+| `text-reflow` (A-02) | 640x512 and 320x256: the 1280x1024 window at 200% and at 400% zoom | `clipped`: text partly outside a box that hides its overflow (`overflow: hidden` or `clip`, an ellipsis, a line clamp), unless a box that scrolls holds it first; text wholly outside its box is a closed panel and is not judged, nor is a slide of a carousel (`aria-roledescription`); `unreachable`: text partly beside the window on a side no scroll reaches (the right of a right-to-left page, the left of a left-to-right one, either side when the page does not scroll sideways); `sideways` (320 only): the page scrolls sideways, so it scrolls both ways |
+| `text-spacing` (A-03) | 1440x900 and 375x812 | with the four overrides of 1.4.12 (`TEXT_SPACING_CSS`: line height 1.5, paragraph spacing 2em, letter spacing 0.12em, word spacing 0.16em), text `clipped` or `unreachable` as above, or two texts that `overlap`, that were not before the overrides (a badge over its label on purpose is not a finding) |
+| `consent-prechecked` (H-02) | the page as it loaded | a checkbox or switch that is on, whose label speaks of consent (mailing, updates, offers, marketing, cookies, sharing, third parties, privacy, "מסכים", "מאשר", Hebrew or English), other than a disabled one labelled necessary ("הכרחיות", "necessary") |
+| `consent-refuse` (H-03) | the page as it loaded | an accept control ("אישור הכול", "לאפשר", "מסכים", "Accept all", ...) inside a box whose words are a consent request (cookies, mailing, marketing, consent, a permission, location, notifications): `no-refuse` when no refuse control ("דחיית הכול", "לא תודה", "לא עכשיו", "Reject all", ...) is in the box; `weak-refuse` when none is as prominent, the stated rule being: a button or link like the accept control, at least half its area, its text at least 85% of the accept text's size, and at least 4.5:1 against its own background (`PROMINENCE` in `consent-checks.ts`) |
+
+What they cannot see, and the reviewer of each rule reads instead: a consent box or banner in
+other words than the lists hold; a focus ring on an element past the first 25 Tab stops; text
+spacing inside a shadow root (the overrides are a page stylesheet); a state told apart by a
+background inside `forced-color-adjust: none`; and what a forced-colours user can do with a
+control, beyond seeing its edge. Each is a heuristic in report mode, held, like the checks above,
+to a page that fails it and a clean page that passes them all (`tests/fixtures/extended/`), and
+each condition to a test that fails without it:
+
+```bash
+heavy-slot -- node ~/nadavai/templates/dod/tests/extended-checks.mjs               # tsc, fixtures, condition tests, one run-dod.mjs
+node ~/nadavai/templates/dod/tests/extended-checks.mjs --skip-browser              # tsc only
+```
+
 ## Moving a project to this template
 
 Five projects run an older copy. What changes for each, in the order it bites:

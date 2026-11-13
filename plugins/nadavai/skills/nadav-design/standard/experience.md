@@ -46,7 +46,10 @@ Checks:
 - **none** nothing checks it yet.
 A rule without an automated check erodes: in SportChat v4, 24 of 183 must-fix findings were
 checks that could not fail. So `audit`, `screen` and `ship` print how many rules of this file
-were checked by `reviewer` or `none` on the screens they covered.
+were checked by `reviewer` or `none` on the screens they covered. The count of the file itself
+(13.11.2026; recount when a row is added or its check changes): 78 rules, 25 with an `auto:`
+check (some of them half, as the table at the end says), 53 without one (46 `reviewer`, 2
+`walkthrough`, 1 `ledger`, 1 `action-safety`, 3 `none`).
 
 Which rules apply depends on the project's profile: [profiles.md](profiles.md). Rules marked
 *(work tool)* apply to that profile only.
@@ -175,6 +178,38 @@ in each project and by the `hebrew-i18n` and `hebrew-rtl-best-practices` skills;
 | B-02 | An app in Hebrew and English is designed and checked in both directions: every screen in the walkthrough and the mechanical probe runs once per language. | [B] | auto: `both-directions` |
 | B-03 | One look: every screen of an app, its sign-in and first screens included, is in the app's own colours and the same as the rest of the app. A prototype or demo of a screen shown to Nadav is drawn in the app's approved look too, meaning the look as he last chose it (its tokens, font and real logo: C-05, B-01), never in another look (an older demo's colours or font, a repo's default tokens), except a showing that is itself a choice of look (setup step 11b's candidates, a redesign's direction demo, the three colour options of `shared/rules.md`, «His words»). An entry screen built by `entry-hero.md` draws its sky from the app's own palette, and that is what is checked there. | the first sentence: Nadav on the SHIFTS sign-in prototype, 14.11.2026, as typed: "שיתאים לעמרכת" (round 2), and, when it was drawn in the old demo's teal, "זה לא הצבע של האפליקצתיה" and "והכל יהי זהה" (round 7) [N]; the second sentence, the font, the default tokens and the exemption: this skill's reading, after round 0 of the same screen (`rejected.md`) [I]; "as he last chose it": in round 9 he picked deep teal and orange from three options, over the app's earlier approved forest green, which means repainting the app [I]; the last sentences of this rule and of S-15: this skill's reading of his approval of MediZen's sign-in screen, 14.11.2026 (`examples.md`), a forest and gold sky with five films over a cream app [I] | reviewer |
 
+## 8. Honest choices: nothing pushes a person
+
+Nadav picked this group on 13.11.2026, as the option «בדיקת דפוסים מטעים והסכמה»: "no trick that
+pushes a user (a hidden cancel, a pre-ticked consent), and consent requests (cookies, mailing,
+privacy) are clear". The Intent plugin's anti-pattern catalog is the long list
+(`skills/intent/references/ethical-design.md`, run by `/intent:evaluate`); these rows are what
+his work needs on top of it: the Israeli sources and Hebrew wording. A source marked "law" is a
+reading of the official text at the URL, not legal advice; where a rule needs more than that
+reading, it says "needs a professional" and why.
+
+| Id | Rule | Source | Check |
+|---|---|---|---|
+| H-01 | Leaving is as easy as joining: cancelling a subscription, a recurring service or an account takes no more steps than starting it, through the same channel, with no call, form or "are you sure" chain that joining did not have. Where people can join online, they can cancel online, by a link of its own on the site's main page, placed where it is seen. | his words of 13.11.2026 ("a hidden cancel") [N]; "no more steps, the same channel": [I]; law: the Consumer Protection Law, section 14ט(a)(5) and (b), added by amendment 52 (2017), gives cancellation over the internet for a transaction that can be made there and requires a dedicated, prominent cancellation link on the main page of the business's site, https://fs.knesset.gov.il/20/law/20_lsr_390329.pdf; later amendments were not read, so whether the section reads the same today needs a professional | reviewer |
+| H-02 | Nothing is chosen for her that she did not choose: a box or switch that gives consent (mailing, offers, sharing her details, cookies beyond what the site needs to work) starts off, and nothing enters a basket, a plan or an order without her own tap. A box that is locked on because the service cannot work without it says so ("הכרחיות, תמיד פועלות"). | his words of 13.11.2026 ("a pre-ticked consent") [N]; law: the Privacy Protection Authority's position that consent to direct mailing in a standard contract is an active, separate opt-in, not a passive one (consent statement of 25.2.2026, paragraphs 49 and 74), https://www.gov.il/BlobFolder/legalinfo/consent-2026/he/cpncent-2025.pdf; the Communications Law, section 30A: no advertisement by email, SMS, fax or automatic dialling without the recipient's express prior consent in writing, https://www.gov.il/he/departments/faq/17052018_7 | auto: `consent-prechecked` (consent boxes, by their words); reviewer (a basket or plan, and wording the check does not know) |
+| H-03 | Refusing is as visible as accepting: where a screen asks for a yes (cookies, mailing, a permission, an offer), a refuse control sits beside the accept control, of the same kind and as prominent, and says what it does ("דחיית הכול", "לא עכשיו"). Closing the box is not the refusal. | his words of 13.11.2026 ("consent requests are clear") [N]; what "as prominent" measures (a button or link like the accept control, at least half its area, at least 85% of its text size, text at least 4.5:1): [I]; law: the Authority's statement of 25.2.2026, paragraph 30: design tactics ("dark patterns") that make it hard to understand a consent or that sway the decision may mean the consent was not informed or free, same URL as H-02 | auto: `consent-refuse` (half: the accept and refuse words it knows) |
+| H-04 | No invented urgency or scarcity: a countdown, "נשארו 2", "5 אנשים צופים עכשיו" appear only when the number is real and comes from the data, and a deadline only when it is real. | the Intent catalog's "urgency fabrication" rows [I]; whether a given urgency claim is misleading under the Consumer Protection Law needs a professional, because I did not read its prohibition on misleading in an official text | reviewer |
+| H-05 | The price is on the screen before the commit: the total, and for a recurring charge how much, how often and until when, sit on the screen with the button that commits, never only after it. | the Intent catalog's "hidden costs" and "forced continuity" rows [I]; E-08 shows the exact preview; the disclosure duties for a continuing transaction (section 13ג, changed by amendment 52) need a professional, because I read only the amendment, not the section as it stands | reviewer |
+| H-06 | No confirm-shaming: a refuse option says what it does in neutral words ("לא, תודה", "בלי עדכונים במייל", "להמשיך בלי ההטבה"), never a line that shames ("לא, אני לא רוצה לחסוך", "אני מוותר על ההנחה", "אני לא אוהב מבצעים"). | the Intent catalog's "confirmshaming" row, the Hebrew examples [I] | reviewer |
+| H-07 | Consent is asked per purpose, in plain words, and can be taken back: cookies beyond what the site needs to work, mailing, and each other use of personal details get a choice of their own, each in one plain sentence of what is collected, for what and who receives it; she can change each choice later, in one place she can find, with no more effort than she gave it. A marketing message (email, SMS) opens with "פרסומת" (in an email, in its subject) and carries the sender's name, contact details and a simple way to refuse. | his words of 13.11.2026 ("consent requests (cookies, mailing, privacy) are clear") [N]; law: the Authority's statement of 25.2.2026: consent and what goes with it are shown clearly, accessibly, simply and understandably (paragraph 19), mailing gets a separate active consent (paragraphs 49 and 74), and a request to withdraw a consent should be accepted where possible (paragraph 75), same URL as H-02; the Communications Law, section 30A: express prior consent, refusal at any time in a simple way, "פרסומת" at the start and in an email's subject, the sender's name and contact details, https://www.gov.il/he/departments/faq/17052018_7; cookies: needs a professional, because I found no Israeli statute or Authority guidance that names cookies, so a cookie banner's legal duties are not read from a source here | reviewer; the message part also `standard/off-screen.md`'s reviewer |
+
+## 9. Accessibility beyond axe
+
+Nadav picked this group on 13.11.2026, as the option «נגישות מורחבת»: three states the automated
+checks did not test. axe and the probe run in normal colours, at normal text, with the page's own
+spacing; these rules hold in the other three.
+
+| Id | Rule | Source | Check |
+|---|---|---|---|
+| A-01 | In the operating system's high-contrast mode (forced colours), every control keeps a visible edge and a visible focus indicator, and nothing is told apart by a background colour or a shadow alone (a selected tab, a status dot, a progress fill). The usual fix is a transparent border, which forced colours draw. | his words of 13.11.2026 [N] | auto: `forced-colors` (report only) |
+| A-02 | Text enlarged to 200%, and the page at a 320px-wide window (the 1280px window at 400%), loses nothing: no text is cut by a box that hides its overflow, none is pushed where no scroll reaches, and the page scrolls in one direction only. Right to left included. | his words of 13.11.2026 [N]; WCAG 2.2 1.4.4 Resize Text and 1.4.10 Reflow, https://www.w3.org/TR/WCAG22/#resize-text and https://www.w3.org/TR/WCAG22/#reflow | auto: `text-reflow` (report only; enlarged text is measured as zoom, the way 1.4.4 allows) |
+| A-03 | With text spacing enlarged (line height 1.5, paragraph spacing 2, letter spacing 0.12, word spacing 0.16, each times the font size), no text is cut and no two texts overlap. | his words of 13.11.2026 [N]; WCAG 2.2 1.4.12 Text Spacing, https://www.w3.org/TR/WCAG22/#text-spacing | auto: `text-spacing` (report only) |
+
 ## What does not transfer from MediZen
 
 Its calendar anatomy, clinical privacy rules, tax documents, the light default (chosen for a
@@ -188,7 +223,9 @@ walkthrough). Until a check exists, its rules count as `none`. The built checks 
 template (`templates/dod`): the page checks run in every DoD entry once a project has
 `e2e/dod/standard.json`, the file checks in `routes.mjs --check`; its README says how each is
 configured. A condition marked deferred below is not measured, and its rules count as `none`
-for that part. The tour checks that need no browser are this skill's
+for that part. A check marked "report only" (groups 8 and 9) runs in the same checks phase, writes
+its own file per route and never moves a score or the exit code; it cannot be enforced yet [I].
+The tour checks that need no browser are this skill's
 `standard/tours/tour-check.mjs` ([help-system.md](help-system.md), "The tour manifest"), run on
 a project's `tours.json` [I].
 
@@ -218,3 +255,8 @@ a project's `tours.json` [I].
 | `brand-assets` | PRODUCT.md without the Brand section, or the section pointing at a file that does not exist | B-01 | yes |
 | `both-directions` | a bilingual app whose measured routes cover one language only | B-02 | yes |
 | `probe` | sideways scroll, text under the project's floor, a word broken mid-word, an icon covered by its badge, a touch target under 44px, at 320, 390, 768, 1024 and 1280x648 | the mechanical floor under every rule above | yes, except an icon covered by its badge (deferred); touch targets at 320, 390 and 768 |
+| `forced-colors` | with Chromium's forced colours: a control with no border, outline or hugging wrapper that has one; one of the first 25 Tab stops that looks the same focused and not; a selected, current, pressed or checked item that looks like its unselected neighbour there but not in normal colours; a small mark with no words, painted only by its background | A-01 | yes, report only (`extended-checks.spec.ts`; the DoD README, "The extended checks", says what it cannot see) |
+| `text-reflow` | at 640x512 and 320x256: text partly cut by a box that hides its overflow, or partly beside the window where no scroll reaches; at 320 also a sideways scroll of the page | A-02 | yes, report only; enlarged text measured as zoom |
+| `text-spacing` | with the 1.4.12 overrides, at 1440 and 375 wide: text cut, out of reach or overlapping that was not before them | A-03 | yes, report only; text inside a shadow root is not reached |
+| `consent-prechecked` | a box or switch that is on when the page loads and whose label speaks of consent, other than a locked one labelled necessary | H-02 | half, report only: by its words, Hebrew and English; a basket or plan add-on is not read |
+| `consent-refuse` | an accept control in a consent request with no refuse control beside it, or none as prominent (a button or link like it, at least half its area, 85% of its text size, text at 4.5:1) | H-03 | half, report only: by the accept, refuse and request words it knows |
