@@ -166,7 +166,9 @@ shows it [I]; otherwise it says what the control does in the real app.
 **Safe to do is proven, never assumed (G-20).** The built demo held the notice back in the
 browser only. In a real app the sample patient has the therapist's own phone (#93), and
 MediZen's spec records nine automatic senders that fire on a future sample appointment. So a
-step is "do it yourself" only with a test on the real app showing that nothing leaves for that
+step is "do it yourself" only with a test of the real app (its build, run in a preview or
+staging copy on invented data with its outbound effects off, never against the live account; the
+live app then does for the sample what the test showed) showing that nothing leaves for that
 action on the sample record, now or later, and that it is held on the server by the sample
 flag. "Nothing, from any sender" can be shown only where every outbound effect (messages,
 charges, calendar sync, webhooks, scheduled jobs) passes through one place that checks the
@@ -215,7 +217,9 @@ card does (the built version made the target inert on those steps too [B]). So a
 step may light a control on a real person's row: it acts on nobody. Where the sample record
 carries the same control, the step lights the sample's. A test of the built engine shows it:
 pressing the lit control of a stop step does nothing, no click reaches the app and the step does
-not move on (`tour-anchors`). This is done with the platform's own mechanism (`inert`, or
+not move on (`tour-anchors`, run in a preview or staging copy of the app on invented data with
+its outbound effects off, never in the live app). This is done with the platform's own mechanism
+(`inert`, or
 `aria-hidden` on the siblings), which also stops the app's keyboard shortcuts and a screen
 reader's activation; see-through blocks over the page stop a finger only. The tour's card is not
 `aria-modal` over the control it points at, or a screen-reader user cannot do the step. The
@@ -252,7 +256,9 @@ written for each of them. Two layers:
   control that saves as it changes, a switch or a field with no save button, saves too; `T`
   tells a real person; `P` is permanent or charges; a control's class is what pressing it does,
   the same in every tour, so a do step on a control (and arg) that another step stops at classed
-  `T` or `P` is a finding (`stopped-elsewhere`), except a practice-only step classed `P`); for
+  `T` or `P` is a finding (`stopped-elsewhere`), except a practice-only step classed `P` on a
+  control no step stops at classed `T`; a stop with no arg covers every arg of its id, and a do
+  step with no arg meets every stop on its id); for
   every do step, `on`: `"sample"` when it
   acts on the sample record, `"none"` when it acts on no person's record (an empty slot, a
   filter, a settings tab, a field in a settings form that has its own save); a save of a
@@ -282,7 +288,7 @@ written for each of them. Two layers:
   reopen the bindings implement by opening the new form afresh. The checker requires an entry
   for every listed id and none for another (`window-missing`, `window-extra`); it trusts the
   map: the inventory's reviewer opens each listed control in a preview or staging copy of the
-  app on invented data, never in the live app, and confirms the window it sits in, or that it
+  app on invented data with its outbound effects off, never in the live app, and confirms the window it sits in, or that it
   sits on the screen itself [I]; a wrong `"screen"` entry, on a control that sits in a window,
   lets the step that opens her record through it name no need and press in whatever window is
   open. Beside it, `pickingWindows` says, for every window `anchorWindows` names, whether it
@@ -296,7 +302,7 @@ written for each of them. Two layers:
   true, the picker's own step excepted (`sample-no-need`), and no `selectSample` in a need whose
   last reopen names a window not marked true (`select-window`). It takes the mark from here,
   never from the manifest's picker steps, and trusts it: the inventory's reviewer opens each
-  window in a preview or staging copy of the app on invented data, never in the live app, and
+  window in a preview or staging copy of the app on invented data with its outbound effects off, never in the live app, and
   confirms its mark; a window wrongly marked false lets a step there name no `selectSample`
   where no step at `"none"` names it in an open or step result (`none-window`) and no picker
   step sits in it (`picker-mark`) [I]. An id that every person's row in a list carries, the
@@ -392,10 +398,19 @@ written for each of them. Two layers:
   listed: that the bindings then reach the sample's record and no other, that the three lists
   are complete, and that each control `recordAnchors` lists changes only the sample's own
   record, never a business-wide rule or many people's records (the inventory's reviewer runs
-  each tour's do steps in order, on the sample, in a preview or staging copy of the app on
-  invented data, never in the live app: a save's effect can depend on a field an earlier step
+  every do step of every tour in order, on the sample, practice-only steps inside practice mode,
+  in a preview or staging copy of the app on invented data with its outbound effects off, never
+  in the live app, each tour from a known state of the copy (a switch left set by an earlier run
+  turns her note's save into a template's), a save whose window holds a switch or a remembered
+  choice that could make it business-wide once with that field in each state, and after each
+  step looks at the sample's record (it changed as the step says) and at the places a
+  business-wide change or a change to other people would show (the settings the step's window
+  can reach, and every list of other people, as the day's list), then records the copy's name
+  and the date in the manifest's `inOrderRun`, which the checker requires at stage app when a
+  tour has a do step (`run-not-recorded`): a save's effect can depend on a field an earlier step
   set, and a wrongly listed control pressed in the live app would itself do the harm), is judged
-  in the running app. Then the anchor of its control; what she
+  in the running app (a preview or staging copy of it on invented data with its outbound effects
+  off, never the live app). Then the anchor of its control; what she
   reads, and the text when it only shows; a do step's action (open, pick, select, type), its
   result, the G-20 test it names (`safeTest`) and, for a practice-only step, `practiceOnly`
   (only a step classed `P`: a step with no class, classed `S` or classed `T` is never
@@ -406,8 +421,10 @@ written for each of them. Two layers:
   record, the sample's, never the last one open, since she may have opened a real person's
   since, and a window opened on one person counts as open (`isOpen`) only while it shows the
   sample's record [I]; with no sample record it does nothing and the step only shows; the
-  bindings do it, and only the running app shows it (`tour-anchors`). The file's `stage` (`demo`
-  or `app`), the core screens, the anchors that no step points at (each with its screens), the
+  bindings do it, and only the running app (a preview or staging copy of it on invented data
+  with its outbound effects off, never the live app) shows it (`tour-anchors`). The file's
+  `stage` (`demo` or `app`), `inOrderRun` (where and when the in-order run was done), the core
+  screens, the anchors that no step points at (each with its screens), the
   written reason for a screen or a task with no tour, and the important actions beyond an
   article's tasks are in the same file.
 - A bindings file for each environment, which is not portable: anchor id to element (`anchors`,
@@ -462,7 +479,8 @@ task, and an anchor the manifest does not know on that screen: one that no tour 
 points at or names as a result (with the same arg, where it has one; a chapter stands on the
 screens of its whole job) and no `anchors` entry for that screen lists. Whether the control is
 really on the screen, for an `anchors` entry and for an article's anchor alike, is judged only
-in the running app (`tour-anchors`, not built).
+in the running app (a preview or staging copy of it on invented data with its outbound effects
+off, never the live app) (`tour-anchors`, not built).
 
 The format, an example and the checker are in [tours/](tours/): `tours.schema.json` and
 `inventory.schema.json`; `example/`, a manifest of six tours with its inventory and the bindings
@@ -470,10 +488,18 @@ of a web app; and `tour-check.mjs`, which runs `tour-shape`, `tour-inventory`, `
 the part of `tour-no-commit` that data can show, with no browser (`node tour-check.mjs
 tours.json --inventory inventory.json`, exit 1 on a finding; the app's own run adds
 `--require-stage app`). Whether each anchor and result resolves on its screen needs the running
-app (`tour-anchors`). The running app, for `tour-anchors` and for every reviewer who opens,
+app (`tour-anchors`), defined next. The running app, for `tour-anchors` and for every reviewer
+who opens,
 presses or runs something to check the manifest or the inventory, is a preview or staging copy
-of the app on invented data, never the live app: a wrongly listed control pressed there would
-itself save a business-wide rule or act on real people's records. Seventeen of MediZen's demo
+of the app on invented data with its outbound effects off, never the live app: a wrongly listed
+control pressed there would itself save a business-wide rule or act on real people's records.
+Its outbound effects (messages, charges, calendar and other third-party sends, automatic jobs)
+are off or sandboxed, since an invented phone number can be a real person's; the app's preview
+of `shared/rules.md`, «An app is built once», point 5, is such a copy. A project with no such
+copy builds one first, or its tours have no do steps: every step shows or stops. A question only
+the live app answers (the sample patient exists, is marked, and is the only one marked; which
+automatic senders are on) is answered there by looking, never by pressing. What the engine then
+does for a user in the live app is what was checked in the copy. Seventeen of MediZen's demo
 tours were converted into the format on
 11.11.2026 to test it. Against `start` as first written (screen, view, close), 5 of the 17
 start-ups did not fit, in three kinds: the calendar's start (three tours) puts it on this week
