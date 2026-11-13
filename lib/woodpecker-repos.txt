@@ -3,8 +3,10 @@
 # A repo is added only after its .woodpecker/landing.yml is on main and green (cutover).
 # snooker-smart: PR #141, cash-next-app: PR #20, sportchat-web: PR #11, therapy-flow-v2: PR #132 (2026-11-03;
 # nightly cron 01:30/01:45/02:00 UTC). camstore: .woodpecker/landing.yml on main, PR #7 merged (2026-11-07).
+# shifts-app: .woodpecker/landing.yml on main, PR #6 merged (2026-11-13; nightly cron 02:30 UTC).
 snooker-smart
 cash-next-app
 sportchat-web
 therapy-flow-v2
 camstore
+shifts-app

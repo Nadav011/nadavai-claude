@@ -72,9 +72,10 @@ Each machine's role is in `rules/ci-policy.md`, "Machines"; this is where things
     as one user, and it can write `state/`, which holds the baselines. The sandbox limits what
     such a bug can change on the host, not what it can post. Closing it means running
     extract-raw, extract-range and security-scan under a second user with no token and read-only
-    baselines; not done, because the five repos are private and only Nadav's sessions open PRs.
+    baselines; not done, because the six repos are private and only Nadav's sessions open PRs.
     Do it before a repo takes PRs from anyone else. The token is the fine-grained
-    "nadavai-secscan (Oracle svc)": five repos, Contents and Pull requests read, Commit statuses
+    "nadavai-secscan (Oracle svc)": six repos (shifts-app added on 2026-11-13, with an empty
+    baseline and a clean first scan of its main), Contents and Pull requests read, Commit statuses
     and Issues write, expires 2027-11-04.
   - Measured there: a PR scan 8 to 70 s, therapy-flow-v2's full scan 100 s, against the merge
     guard's 600 s grace.
