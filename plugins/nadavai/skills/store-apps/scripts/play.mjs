@@ -3,6 +3,7 @@
 //   node play.mjs upload <package> <aab> <track> [--status draft|inProgress|completed] [--fraction 0.1]
 //                        [--name "<release name>"] [--notes-he "<text>"] [--yes-production]
 //   node play.mjs raw <METHOD> <path-after-v3> [json]  e.g. raw GET applications/<pkg>/reviews
+//   node play.mjs apk <package> <versionCode> <out.apk>  the Play-signed universal APK, exactly what Play delivers
 // upload makes a draft unless --status says otherwise. inProgress is a staged rollout and needs
 // --fraction (0 < f < 1). A non-draft release on the production track also needs --yes-production,
 // because it uses up the version code and reaches users at once. A failed call deletes its edit.
@@ -42,7 +43,7 @@ const opt = (name) => {
   if (v === undefined || v.startsWith('--')) die(`${name} needs a value`);
   return v;
 };
-if (!['tracks', 'upload', 'raw'].includes(cmd)) die('usage: play.mjs tracks|upload|raw ... (see header)');
+if (!['tracks', 'upload', 'raw', 'apk'].includes(cmd)) die('usage: play.mjs tracks|upload|raw|apk ... (see header)');
 let status, fraction;
 if (cmd === 'upload') {
   const known = new Set([...VALUE_FLAGS, '--yes-production']);
@@ -98,6 +99,19 @@ if (cmd === 'tracks') {
     await call('PUT', `${API}/applications/${pkg}/edits/${id}/tracks/${track}`, body, headers);
   }, true);
   console.log('committed edit', done.id, 'track', track, 'status', status);
+} else if (cmd === 'apk') {
+  const [pkg, vc, out] = args;
+  if (!pkg || !vc || !out) die('usage: play.mjs apk <package> <versionCode> <out.apk>');
+  const list = await call('GET', `${API}/applications/${pkg}/generatedApks/${vc}`);
+  const id = list.generatedApks?.[0]?.generatedUniversalApk?.downloadId;
+  if (!id) die(`no universal APK for ${pkg} ${vc}`);
+  const r = await fetch(`${API}/applications/${pkg}/generatedApks/${vc}/downloads/${encodeURIComponent(id)}:download?alt=media`, {
+    headers: { Authorization: `Bearer ${await token()}` },
+  });
+  if (!r.ok) die(`download: ${r.status} ${await r.text()}`);
+  const { writeFileSync } = await import('node:fs');
+  writeFileSync(out, Buffer.from(await r.arrayBuffer()));
+  console.log('wrote', out, 'certificate', list.generatedApks[0].certificateSha256Hash);
 } else {
   const [method, path, b] = args;
   if (!method || !path) die('usage: play.mjs raw <METHOD> <path-after-v3> [json]');
