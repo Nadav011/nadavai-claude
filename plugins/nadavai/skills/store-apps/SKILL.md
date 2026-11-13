@@ -40,8 +40,8 @@ publishes), this skill and the rule win.
 
 Approval gates still apply at every step (`rules/working-style.md`, `rules/acting-on-behalf.md`):
 a public release (a build, a raise of a staged rollout, the first listing, a change to a live
-listing, its availability or price), access given to a person outside the team (a reviewer login),
-deletion with no verified backup and anything that costs money are asked at that moment; a migration
+listing, its availability or price), a deletion with no way back and anything that costs money are
+asked at that moment; a reviewer login is made without asking and named in the report; a migration
 or a permission change follows the Approval gates there. Uploading a build and submitting it for review
 are not asked once its checks pass (Nadav, 2026-11-10), provided the release is held for him: App
 Store Connect `releaseType: MANUAL`; on Play the internal or a closed testing track (an open track

@@ -2,7 +2,7 @@
 
 Companion: `promotion.md`. Sources read 2026-11-07. Labels: **Verified** = an official page says it; **Measured** =
 our own call on 7.11; **Vendor** = a third-party blog says it; **House rule** = our choice, not a store's. Tags such as (A1, G3) point to Sources. Every text,
-graphic, video or upload to a store is store publishing: ask Nadav at that moment (the build pre-approval in `rules/working-style.md` does not cover listing text, graphics or video); show him the full listing before upload. **MONEY GATE** = charges or can bill: stop and ask
+graphic, video or upload to a store is store publishing: ask Nadav at that moment (the build upload that runs without asking, `rules/working-style.md`, Approval gates, does not cover listing text, graphics or video); show him the full listing before upload. **MONEY GATE** = charges or can bill: stop and ask
 (`rules/acting-on-behalf.md`).
 
 ## Limits and sizes

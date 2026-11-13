@@ -27,7 +27,7 @@ fi
 
 command -v ydotool >/dev/null && ok "ydotool installed" || bad "ydotool" "setup.sh"
 systemctl --user is-active -q ydotool && ok "ydotoold service running" || bad "ydotoold service" "systemctl --user enable --now ydotool"
-[ -w /dev/uinput ] && ok "/dev/uinput writable" || bad "/dev/uinput not writable" "needs a uaccess udev rule; ask Nadav (permission change)"
+[ -w /dev/uinput ] && ok "/dev/uinput writable" || bad "/dev/uinput not writable" "needs a uaccess udev rule: add it with sudo and name it in the report"
 
 if command -v qdbus6 >/dev/null && [[ "${XDG_CURRENT_DESKTOP:-}" == *KDE* ]]; then
   dev=""

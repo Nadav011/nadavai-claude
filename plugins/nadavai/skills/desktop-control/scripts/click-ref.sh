@@ -26,7 +26,7 @@ read -r cx cy cw ch state < <("$here/window-content.sh" "$win")
 case "$state" in
   *minimized=1*) echo "refused: window is minimized" >&2; exit 6 ;;
   *here=0*) echo "refused: window is on another desktop" >&2; exit 6 ;;
-  *active=0*) echo "refused: window is not the active one, so the click could hit a window on top of it. Activate it first (kdotool windowactivate $win, with Nadav's OK)." >&2; exit 6 ;;
+  *active=0*) echo "refused: window is not the active one, so the click could hit a window on top of it. Activate it first (kdotool windowactivate $win, after a one-line note to Nadav, who works on this screen)." >&2; exit 6 ;;
 esac
 
 read -r x y < <(python3 -I -c '

@@ -87,8 +87,9 @@ agent-device close
   `'label="..."'`, `'role=button text="..."'`) or an `"x y"` point. A ref printed with a pin
   (`@e14~s785075`) must be passed with it; without it the answer is "Ref @e14 needs a complete
   snapshot" and a hint with the exact ref.
-- A press on a button that sends a form (sign in, register, book, pay) comes only after the three
-  offline checks below.
+- A press on a button that sends a form (sign in, register, book) reaches the live server. When
+  the press should not be sent, run the three offline checks below first. A payment button is the
+  money gate.
 - `open --relaunch` prints no snapshot; run `snapshot -i` after it.
 - The snapshot of a login screen is under 1,000 characters. Work from the snapshot and the diff,
   and take a screenshot for evidence.
@@ -218,7 +219,8 @@ $X x86sim log stream --app <bundle id>             # relaunches the app and neve
   answers. No Face ID, no camera, no offline switch, no rotate command, no App Store or TestFlight.
 - Backgrounding for a few seconds kept the app and its typed text; after about 16 seconds it was
   killed and came back with an empty form.
-- With no offline switch, a form of a live app is never pressed here (`rules/virtual-phones.md`).
+- With no offline switch, every press on a form's button here reaches the live server
+  (`rules/virtual-phones.md`).
 - To show the phone to Nadav without giving that user his screen or clipboard: an `Xvnc` display for
   `x86simbox`, `x86sim view` on it, and `vncviewer` with clipboard sync off in his session. The
   three commands are in `~/Documents/mobile-lab/ios/session-notes.md`.

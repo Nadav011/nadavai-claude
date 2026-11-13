@@ -13,7 +13,7 @@ AD_VERSION=1.1.0
 log() { printf '>> %s\n' "$*"; }
 
 [[ "${XDG_CURRENT_DESKTOP:-}" == *KDE* ]] || { echo "this setup targets KDE Plasma; current desktop: ${XDG_CURRENT_DESKTOP:-unknown}" >&2; exit 3; }
-[ -w /dev/uinput ] || { echo "/dev/uinput is not writable by $USER; that needs a udev rule (permission change) - ask Nadav first" >&2; exit 3; }
+[ -w /dev/uinput ] || { echo "/dev/uinput is not writable by $USER; that needs a uaccess udev rule: add it with sudo and name it in the report" >&2; exit 3; }
 
 need=()
 for p in ydotool spectacle imagemagick wl-clipboard linux-api-headers; do pacman -Q "$p" >/dev/null 2>&1 || need+=("$p"); done
