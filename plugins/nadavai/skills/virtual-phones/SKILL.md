@@ -152,7 +152,7 @@ There is one device ("Main phone") for the whole machine, so it is used under a 
 agent on the machine can take and see. `scripts/x86sim-lock.sh` is the only way to take it:
 
 ```bash
-scripts/x86sim-lock.sh take "$PPID" "<your session name>"   # exit 0: yours. exit 1: prints the live holder
+scripts/x86sim-lock.sh take "$PPID" "<your session name>"   # exit 0: yours. exit 1: not yours (a live holder, or "try again")
 scripts/x86sim-lock.sh show
 scripts/x86sim-lock.sh release "$PPID"                       # when you are done
 ```
@@ -161,8 +161,11 @@ scripts/x86sim-lock.sh release "$PPID"                       # when you are done
   from a live one. In Claude Code, `$PPID` in a tool's shell is that process (checked 2026-11-13);
   in another agent, check what `$PPID` is before relying on it.
 - A lock whose holder is dead is taken over by `take` itself, with one winner (twenty concurrent
-  takers were tried on a free lock and on a dead holder's lock: one won each time). Never remove
-  the lock directory by hand.
+  takers were tried on a free lock and on a dead holder's lock: one won each time). Do not remove
+  the lock directory by hand, with one exception: a `take` or a `release` that was killed half-way
+  can leave a lock with no live holder that `take` keeps refusing ("try again") for more than a
+  minute. Then, after `show` and `kill -0` confirm that no live process is named in it, remove
+  `owner`, the `takeover` directory and the lock directory, and take it again.
 - While another live session holds the lock, run nothing on the device except `aot sim status` and
   `x86sim screenshot`: no `install`, `launch`, `tap`, `type`, `home`, `openurl`, `log stream`,
   start, stop or restart. Ask that session or wait.
