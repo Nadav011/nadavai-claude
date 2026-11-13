@@ -157,7 +157,8 @@ other tour is started by the person.
 safe to do (G-20); or it tells a real person; or it is permanent or charges. On the first kind
 the person does the step herself and the step moves on only when the screen shows the result the
 step names (a condition written in the manifest, not a timer). On the other two the step says
-what the control does and has "הבנתי" (a stop step): the control is lit but does not respond,
+what the control does and has "הבנתי" (a stop step): the control is lit (only once the press test of "What responds" has passed in
+a recording copy; until then the step is a centred card that lights nothing) but does not respond,
 the tour never presses it and never moves on because it was pressed. "הבנתי" goes on to a step
 that does not need it pressed, or ends the chapter. A tour's sentence says that nothing goes
 out, or that no one is told, only where that action's G-20 test, or the practice mode's test,
@@ -182,7 +183,8 @@ flag: a check fails a sender that goes around it, so one added next month is cau
 test runs the scheduled jobs past the latest reminder. Putting that hold into the senders
 changes who gets a message (a flag set wrongly drops a real patient's reminder), so it goes
 through the replay of `action-safety.md` and is switched on only after Nadav's yes. Until the
-test exists, and the hold is on in the live app, the step is a "הבנתי" step. An "undo" toast is
+test exists, the hold is on in the live app, and the other two live-app conditions hold too
+((c) the senders, (d) the handlers that answer a provider), the step is a "הבנתי" step. An "undo" toast is
 not "safe": a notice held for ten seconds leaves
 after the tour has moved on.
 
@@ -534,13 +536,16 @@ sample only when (a) it runs that same build; (b) the hold is on in the live app
 switched on only after Nadav's yes, and a step the hold makes safe stays "הבנתי" until the hold
 is on there, not merely until the test exists; (c) every automatic sender that is on in the live
 app was on in the copy and shown to be held: the test runs the step once with the hold off and
-sees the send in the recorder, then with the hold on and sees nothing the step caused (a step
-that sends nothing shows nothing either way; an unrelated control that sends, seen in the
-recorder, shows only that the recorder is not deaf), and which senders are on live is found by
+sees the send in the recorder, then with the hold on and sees nothing the step caused (each sender that is on in the live app has to be seen in the recorder in the run with
+the hold off, fired by this step or, for a sender this step does not reach, by the event that
+fires it; a run with the hold off in which such a sender never appears does not meet this
+condition, because a step that sends nothing shows nothing either way, and an unrelated control
+that sends shows only that the recorder is not deaf), and which senders are on live is found by
 looking at the live app's settings, never by pressing, and that list goes into the test's setup;
 and (d) a call coming in from a provider (a webhook, a delivery report) is outside the test, so
-a handler that sends when a provider calls back is found by reading the code, and until every
-such handler is read and named in the test, the step stays "הבנתי". What these four do not cover
+a handler that sends when a provider calls back is found by reading the code, and until every such handler is read, named in the test and seen to pass through the place that
+checks the flag, the step stays "הבנתי" (a handler that goes around the flag keeps it so, named
+or not). What these four do not cover
 stays "הבנתי"; every other sentence on what the live app then does points here. A project with
 no recording copy gives its tours no do steps, and its showing and stop steps light no control
 (each a centred card, as "What responds" says), whatever preview it has; building one (the
