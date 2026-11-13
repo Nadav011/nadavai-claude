@@ -100,7 +100,8 @@ https://github.com/safaiyeh/app-store-review-skill.
 | Availability | `GET /v2/appAvailabilities/<appId>` and its `territoryAvailabilities`; `PATCH /v1/territoryAvailabilities/<id>` with `available`; `POST /v2/appAvailabilities` when none exists. |
 | Submit for review | `POST /v1/reviewSubmissions` (`platform: IOS`, `app`), then `POST /v1/reviewSubmissionItems` (`appStoreVersion`), then `PATCH /v1/reviewSubmissions/<id>` with `submitted: true`. Read back `WAITING_FOR_REVIEW`. |
 | Resubmit after a rejection | A submission left in `UNRESOLVED_ISSUES` does not take `submitted: true` again (409 "Version is not ready to be submitted yet", for 30 minutes and more), and its rejected item can neither be deleted nor joined by a new one. `PATCH /v1/reviewSubmissions/<id>` with `canceled: true`, wait for `COMPLETE`, then open a new submission as above (found 2026-11-12, Cash). |
-| Review attachment (a screen recording for App Review) | `POST /v1/appStoreReviewAttachments` (`fileName`, `fileSize`, `appStoreReviewDetail`), `PUT` the bytes to each `uploadOperations` URL with its headers, then `PATCH` it with `uploaded: true` and `sourceFileChecksum` (MD5); read `assetDeliveryState` `COMPLETE`. A simulator recording is accepted as a file but say in the notes that it is one: Apple's 2.1 request asks for a physical device. |
+| Review attachment (a screen recording for App Review) | `POST /v1/appStoreReviewAttachments` (`fileName`, `fileSize`, `appStoreReviewDetail`), `PUT` the bytes to each `uploadOperations` URL with its headers, then `PATCH` it with `uploaded: true` and `sourceFileChecksum` (MD5); read `assetDeliveryState` `COMPLETE`. A simulator recording is accepted as a file but say in the notes that it is one: Apple's 2.1 request asks for a physical device. A review detail holds one attachment: `DELETE` the old one first (409 "max of 1 attachment"). A file over 5 MB comes in several operations; cut each part to a file before the `PUT` (`head -c` in a pipe under `pipefail` kills the loop after the first part, and the `PATCH` then answers 500). Apple's 2.1 of 2026-11-13 also said: "we cannot use a demo video showing the app in use" in place of a working sign-in. |
+| Read a rejection | The text and the reviewer's screenshot are only in the web Resolution Center (`/apps/<id>/distribution/reviewsubmissions/details/<submission>`); the API gives the state alone. Apple's sign-in form sits in a cross-origin iframe that `agent-browser auth login` and `frame` cannot reach, so open the page `--headed` in the kept profile and let Nadav sign in once (Sign in with iPhone); the profile keeps the session. Reply there with `fill` on the «Reply» textbox, then cancel and resubmit as above. |
 | Release a MANUAL version | `POST /v1/appStoreVersionReleaseRequests` once `appStoreState` is `PENDING_DEVELOPER_RELEASE`. |
 
 ## Google Play
@@ -154,6 +155,10 @@ Chrome refuses passwords and can be blocked by a password manager's overlay.
   check that the bundle's `base/res/mipmap-*/ic_launcher*.png` show the listing icon (`unzip` the AAB
   and look at the images). Google may refuse a kept agent-browser profile's login ("This browser or
   app may not be secure"); `--profile Default` (a copy of Nadav's signed-in Chrome) then gets in.
+- **A reviewers' code must open the app in one step.** Cash's code, typed in the store app, redirected to a separate demo
+  origin, which showed its own lock and asked again; the iPad reviewer read the second lock as a refused sign-in and rejected
+  under 2.1 (2026-11-13). Carry the unlock with the redirect (Cash: `#review=<code>` that only the demo build accepts), and
+  before submitting walk the reviewers' path from a cold start on the live URL in WebKit at iPad size.
 - **A stale demo password fails the review.** The MediZen reviewer password had been rotated
   since it was entered, and Apple's reviewers would have been refused. Before each submission,
   sign in with the demo account against production and check two things: HTTP 200, and that the
