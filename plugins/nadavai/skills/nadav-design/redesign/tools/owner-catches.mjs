@@ -4,8 +4,12 @@
 // redesign/templates/MEASURES.md; `modes/retro.md` runs this tool).
 //
 // usage: node tools/owner-catches.mjs <MEASURES.md> [--period month|quarter|all] [--json]
-//   exit 0: counted, every row well formed; 1: counted, and some rows are malformed (listed, never counted);
+//   exit 0: counted, every row well formed; 1: counted, and some rows are malformed or outside the table (listed,
+//   never counted, and the shares are withheld, since a share of part of the table is not the table's share);
 //   2: usage, no file, or no "Owner catches" table in it.
+// The table is the header row and every line after it that starts with `|`. A line further down its section (up to
+// the next heading) that holds a `|` is a row the table does not reach (no leading pipe, or after a blank line): it is
+// named as outside the table, never dropped silently.
 //
 // A row is one problem. Its `ref` is the problem's own key: for a gate row, the finding as its gate names it, the
 // same on every run (a DoD check id and its sample, a reviewer's finding title as first written), and its `words`
@@ -65,15 +69,26 @@ const validDate = s => {
   const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
   return d.getUTCFullYear() === +m[1] && d.getUTCMonth() === +m[2] - 1 && d.getUTCDate() === +m[3];
 };
+// Today in local time: a row dated later was written ahead of its day, or mistyped.
+const now = new Date();
+const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 const periodOf = date => (period === 'all' ? 'all' : period === 'month' ? date.slice(0, 7) : `${date.slice(0, 4)}-Q${Math.floor((+date.slice(5, 7) - 1) / 3) + 1}`);
 
 const rows = [];
 const malformed = [];
 const repeats = [];
+const outside = [];
 const firstLine = new Map();
+let end = lines.length;
 for (let i = start + 1; i < lines.length; i++) {
+  if (!lines[i].trim().startsWith('|')) { end = i; break; } // the table ends at its first line that is not a row
+}
+// The rest of the section: a line with a pipe there is a row the table does not reach.
+for (let i = end; i < lines.length && !/^\s{0,3}#{1,6}\s/.test(lines[i]); i++) {
+  if (lines[i].includes('|')) outside.push({ line: i + 1, row: lines[i].trim().slice(0, 160) }); // M:outside
+}
+for (let i = start + 1; i < end; i++) {
   const raw = lines[i];
-  if (!raw.trim().startsWith('|')) break; // the table ends at its first line that is not a row
   const c = cellsOf(raw);
   if (c.every(x => /^:?-+:?$/.test(x))) continue; // the separator row
   const n = i + 1;
@@ -81,6 +96,7 @@ for (let i = start + 1; i < lines.length; i++) {
   if (c.length !== HEADER.length) { bad(`${c.length} cells, not ${HEADER.length}`); continue; } // M:cells
   const [date, screen, cls, finder, when, gate, ref, words] = c;
   if (!validDate(date)) { bad(`date "${date}" is not a real YYYY-MM-DD date`); continue; } // M:date
+  if (date > today) { bad(`date ${date} is after today (${today})`); continue; } // M:future
   if (!screen) { bad('no screen'); continue; } // M:screen
   if (!CLASSES.includes(cls)) { bad(`class "${cls}" is not one of ${CLASSES.join(', ')}`); continue; } // M:class
   if (!FINDERS.includes(finder)) { bad(`found by "${finder}" is not one of ${FINDERS.join(', ')}`); continue; } // M:finder
@@ -102,9 +118,15 @@ const add = (t, r) => {
   if (r.when === 'before' && r.finder !== 'gate') t.owner_before += 1; // M:count-owner
   if (r.when === 'after') { t.after += 1; t[`after_${r.finder}`] += 1; } // M:count-after
 };
+// With rows not read (malformed, or outside the table), no share is printed: only the counts of the rows read.
+const unread = malformed.length + outside.length;
 const share = t => {
   const all = t.gate_before + t.owner_before + t.after;
-  return all ? Math.round((1000 * t.gate_before) / all) / 10 : null; // M:share
+  if (!all || unread) return null; // M:withheld
+  let s = Math.round((1000 * t.gate_before) / all) / 10; // M:share
+  // Rounding never prints 100% while an escape exists, nor 0% when a gate caught something.
+  if (s === 100 && t.gate_before < all) s = 99.9; else if (s === 0 && t.gate_before > 0) s = 0.1; // M:cap
+  return s;
 };
 const periods = {};
 const screens = {};
@@ -137,14 +159,17 @@ const out = {
   escaped: { count: escapes.length, no_gate: noGate.length, by_gate: byGate },
   repeats,
   malformed,
+  outside,
+  withheld: unread ? `${unread} rows not read (${malformed.length} malformed, ${outside.length} outside the table): no share is given until they are fixed; the counts are of the rows read` : null,
   reading: READING.join('\n'),
 };
 
-if (json) process.stdout.write(`${JSON.stringify(out, null, 2)}\n`, () => process.exit(malformed.length ? 1 : 0));
+if (json) process.stdout.write(`${JSON.stringify(out, null, 2)}\n`, () => process.exit(unread ? 1 : 0));
 else {
-  const pct = s => (s === null ? 'none counted' : `${s}%`);
+  const pct = s => (unread ? 'withheld' : s === null ? 'none counted' : `${s}%`);
   const tri = t => `gates before ship ${t.gate_before}, owner or user before ship ${t.owner_before}, after ship ${t.after}`;
-  const o = [`owner-catches: ${files[0]}: ${rows.length} problems counted, ${repeats.length} repeated rows counted once, ${malformed.length} malformed`];
+  const o = [`owner-catches: ${files[0]}: ${rows.length} problems counted, ${repeats.length} repeated rows counted once, ${malformed.length} malformed, ${outside.length} outside the table`];
+  if (out.withheld) o.push(`share withheld: ${out.withheld}`);
   o.push(`all: ${tri(total)} (owner ${total.after_owner}, user ${total.after_user}, gate ${total.after_gate}); the gates caught ${pct(total.share)}`);
   for (const [key, p] of Object.entries(out.periods)) {
     o.push(`period ${key}: ${tri(p)}; the gates caught ${pct(p.share)}`);
@@ -161,6 +186,10 @@ else {
     o.push('malformed rows (not counted; fix each):');
     for (const m of malformed) o.push(`  line ${m.line}: ${m.why}`);
   }
+  if (outside.length) {
+    o.push('rows outside the table (not counted; join each to the table: a leading |, no blank line before it):');
+    for (const m of outside) o.push(`  outside the table: line ${m.line}`);
+  }
   o.push(...READING);
-  process.stdout.write(`${o.join('\n')}\n`, () => process.exit(malformed.length ? 1 : 0));
+  process.stdout.write(`${o.join('\n')}\n`, () => process.exit(unread ? 1 : 0));
 }
