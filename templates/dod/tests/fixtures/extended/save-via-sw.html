@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>save-via-sw</title>
+<style>
+  body { margin: 0; padding: 16px; font-family: sans-serif; font-size: 16px; background: #fff; color: #111; }
+  input { font: inherit; border: 1px solid #888; padding: 6px 8px; }
+  :focus-visible { outline: 3px solid #111; outline-offset: 2px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>הגדרות</h1>
+  <label>שם <input type="text" value="מיכל ברק"></label>
+  <p>כאן משנים את הפרטים של החשבון. השינויים נשמרים בכל פעם שעוזבים שדה, גם בלי חיבור לרשת.</p>
+</main>
+<script>
+  // A PWA whose service worker answers every fetch (save-sw.js: respondWith(fetch(request))). The
+  // page saves when forced colours switch on; while the worker controls it, that POST leaves from the
+  // worker, with no page. The extended checks block service workers, so the page sends it itself.
+  navigator.serviceWorker?.register("/save-sw.js", { scope: "/" }).catch(() => {});
+  matchMedia("(forced-colors: active)").addEventListener("change", (e) => {
+    if (e.matches) fetch("/save?ev=via-sw-forced-colors", { method: "POST", body: "x" }).catch(() => {});
+  });
+</script>
+</body>
+</html>

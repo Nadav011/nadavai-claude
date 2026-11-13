@@ -9,10 +9,11 @@
 // score. The page-level functions take a Playwright Page; `a11yInPage` runs INSIDE the page through
 // page.evaluate, so it is self-contained.
 //
-// The focus walk of forced-colors presses Tab and moves focus away, which runs the page's own focus
-// and blur handlers. So every check runs under `installWriteGuard`: from the moment a check starts on
-// a page, every request of that page whose method is not GET, HEAD or OPTIONS is aborted and recorded,
-// and the caller reports it as a `write-held` finding.
+// The focus walk of forced-colors presses Tab and moves focus away, and every check changes the
+// window, which runs the page's own handlers. So every check runs under `installWriteGuard`: every
+// write of the context (a request that is not GET, HEAD or OPTIONS) is aborted and recorded, except a
+// page's own while it loads, and the caller reports it as a `write-held` finding. The caller never
+// closes a check's page (see installWriteGuard).
 //
 // Each condition that makes or withholds a finding is one line ending in `// M:<code>`: the kit's
 // tests (`tests/extended-checks.mjs`) delete that line, and change the thresholds one at a time, and
@@ -229,7 +230,19 @@ export function a11yInPage(arg: InPageArg): Item[] | { key: string; label: strin
   const w = window.innerWidth;
   // 1.4.10's exception: a part that needs two dimensions to be used. It may make the page scroll
   // sideways; anything else that does is a finding, named by the widest such element.
-  const TWO_D = 'table, [role="table"], [role="grid"], [role="treegrid"], img, svg, canvas, video, iframe, [role="img"], [role="application"]';
+  // `role="application"` is not here: put on an app's root it would excuse the whole page.
+  const TWO_D = 'table, [role="table"], [role="grid"], [role="treegrid"], img, svg, canvas, video, iframe, [role="img"]';
+  // A table used only for layout (one column, no header cell or caption, or role none) is not data.
+  const isTwoD = (t: Element) => {
+    if (t.tagName !== "TABLE") return true;
+    if (t.matches('[role="none"], [role="presentation"]')) return false; // M:layout-role
+    if (!t.querySelector("th, caption") && !Array.from((t as HTMLTableElement).rows).some((row) => row.cells.length > 1)) return false; // M:layout-table
+    return true;
+  };
+  const inTwoD = (el: Element) => {
+    for (let t = el.closest(TWO_D); t; t = t.parentElement ? t.parentElement.closest(TWO_D) : null) if (isTwoD(t)) return true;
+    return false;
+  };
   if (arg.sideways && pageScrolls) {
     let widest: Element | null = null;
     let widestW = 0;
@@ -237,9 +250,9 @@ export function a11yInPage(arg: InPageArg): Item[] | { key: string; label: strin
       if (!vis(el)) continue;
       const r = el.getBoundingClientRect();
       if (!(r.right > w + 1 || r.left < -1)) continue; // M:sideways-edge
-      if (el.closest(TWO_D)) continue; // M:two-d
+      if (inTwoD(el)) continue; // M:two-d
       // A wrapper that is wide only because a two-dimensional part inside it is.
-      if (Array.from(el.querySelectorAll(TWO_D)).some((t) => t.getBoundingClientRect().width >= r.width - 1)) continue; // M:two-d-wrap
+      if (Array.from(el.querySelectorAll(TWO_D)).some((t) => isTwoD(t) && t.getBoundingClientRect().width >= r.width - 1)) continue; // M:two-d-wrap
       if (r.width > widestW) {
         widest = el;
         widestW = r.width;
@@ -338,58 +351,73 @@ export function result(items: Item[], notes: string[] = []): A11yResult {
   return { count: kept.length, kinds, samples: kept.slice(0, MAX_SAMPLES).map((i) => i.sample), ...(notes.length ? { notes } : {}) };
 }
 
-/** A write the guard held: the method, the path (no query, no host) and the moment of the check. */
+/** A write the guard held: the method, the path (no query, no host), where it came from, and the moment of the check. */
 export interface HeldWrite {
   method: string;
   path: string;
+  /** "the page", "another page of the check (a popup)" or "a worker (no page)". */
+  from: string;
   moment: string;
 }
 
 export interface WriteGuard {
-  /** From now on, every write of this page is held; `moment` says what the check is doing. */
+  /** A page about to load for a check: its requests pass until `watch`, so it loads as the scored phase saw it. */
+  loading(page: Page): void;
+  /** The check starts on this page; `moment` says what it is doing. */
   watch(page: Page, moment: string): void;
   /** What the check is doing now, for the record of a write held from here on. */
   moment(page: Page, moment: string): void;
-  /** The writes held for this page so far (and forgets them). */
-  take(page: Page): HeldWrite[];
+  /** The writes held since the last call (and forgets them). */
+  take(): HeldWrite[];
 }
 
 /**
- * The extended checks' write guard, on the whole context, before any page loads: a page's requests
- * pass untouched until a check starts on it (`watch`), so the page loads as the scored phase saw it,
- * reads through POST included. From then on, every request of that page whose method is not GET,
- * HEAD or OPTIONS is aborted and recorded, including a beacon sent when the page is closed. Not
- * covered: a GET with side effects, a WebSocket message, and a request a service worker makes on its
- * own (it belongs to no page).
+ * The extended checks' write guard, on the whole context, before any page loads. Every request of the
+ * context whose method is not GET, HEAD or OPTIONS is aborted and recorded, whatever sent it: the
+ * check's page, a popup it opened, a dedicated worker, a request a service worker forwards or makes;
+ * except a request of a page that is loading for a check (`loading`, until `watch`), so that page
+ * loads as the scored phase saw it, reads through POST included. A SharedWorker's requests never reach
+ * a context route, so the guard takes `SharedWorker` away from the context's pages before they load.
+ * What the guard cannot stop is what leaves while a page closes (its pagehide, visibilitychange and
+ * unload handlers' beacons and keepalive fetches go out from the browser process, unseen): the caller
+ * never closes a check's page, and the test's context closes them all at its end, which, measured on
+ * Playwright 1.60.0 and 1.64.1, runs none of those handlers. Not held: a WebSocket message, and a GET
+ * that changes data.
  */
 export async function installWriteGuard(context: BrowserContext): Promise<WriteGuard> {
-  const watched = new Map<Page, { moment: string; held: HeldWrite[] }>();
+  const loadingPages = new Set<Page>();
+  const known = new Set<Page>();
+  const held: HeldWrite[] = [];
+  let now = "the check started";
+  await context.addInitScript(() => Object.defineProperty(window, "SharedWorker", { value: undefined, configurable: true })); // M:shared-worker
   await context.route("**/*", (route) => {
     const req = route.request();
     let page: Page | null = null;
     try {
       page = req.frame().page();
     } catch {
-      page = null; // a service worker's own request has no frame
+      page = null; // a service worker's request, or a worker's, has no frame
     }
-    const w = page ? watched.get(page) : undefined;
-    if (w && !SAFE_METHODS.includes(req.method())) {
-      w.held.push({ method: req.method(), path: new URL(req.url()).pathname, moment: w.moment });
+    let hold = !SAFE_METHODS.includes(req.method());
+    if (page && loadingPages.has(page)) hold = false; // M:guard-loading
+    if (hold) {
+      const from = !page ? "a worker (no page)" : known.has(page) ? "the page" : "another page of the check (a popup)";
+      held.push({ method: req.method(), path: new URL(req.url()).pathname, from, moment: now });
       return route.abort("blockedbyclient"); // M:guard
     }
     return route.fallback();
   });
   return {
-    watch: (page, moment) => void watched.set(page, { moment, held: watched.get(page)?.held ?? [] }),
-    moment: (page, moment) => {
-      const w = watched.get(page);
-      if (w) w.moment = moment;
+    loading: (page) => void loadingPages.add(page),
+    watch: (page, moment) => {
+      loadingPages.delete(page);
+      known.add(page);
+      now = moment;
     },
-    take: (page) => {
-      const w = watched.get(page);
-      const held = w ? w.held.splice(0) : [];
-      return held;
+    moment: (_page, moment) => {
+      now = moment;
     },
+    take: () => held.splice(0),
   };
 }
 
@@ -397,7 +425,7 @@ export async function installWriteGuard(context: BrowserContext): Promise<WriteG
 export function withHeld(r: A11yResult, held: HeldWrite[]): A11yResult {
   if (!held.length) return r;
   const kinds = { ...r.kinds, "write-held": (r.kinds["write-held"] ?? 0) + held.length };
-  const samples = [...held.map((h) => `write-held: the page tried to save (${h.method} ${h.path}) when ${h.moment}; the guard stopped it`), ...r.samples].slice(0, MAX_SAMPLES);
+  const samples = [...held.map((h) => `write-held: ${h.from} tried to save (${h.method} ${h.path}) when ${h.moment}; the guard stopped it`), ...r.samples].slice(0, MAX_SAMPLES);
   return { ...r, count: r.count + held.length, kinds, samples };
 }
 

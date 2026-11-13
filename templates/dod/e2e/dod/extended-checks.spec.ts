@@ -8,11 +8,15 @@
 // starts only while more than DEADLINE_MARGIN_MS of that deadline is left ("not checked: out of time").
 // Each check opens a new page of the route, as the scored phase's light 1440 entry did, and judges
 // nothing until the access check and the scored page's fingerprint show it is the page the scored
-// phase measured. From the moment a check starts, the page's writes (any request that is not GET,
-// HEAD or OPTIONS) are held and reported as `write-held` (a11y-extended.ts, installWriteGuard).
+// phase measured. Every write of the test's context (any request that is not GET, HEAD or OPTIONS),
+// except a page's own while it loads, is held and reported as `write-held` (a11y-extended.ts,
+// installWriteGuard). No check's page is ever closed: closing a page runs its pagehide,
+// visibilitychange and unload handlers, whose beacons leave unseen by the guard; the pages stay open
+// until the test's context closes, which runs none of them. Service workers are blocked in this
+// context, so a worker cannot answer a page's request on its behalf.
 import fs from "node:fs";
 import path from "node:path";
-import { test, type BrowserContext, type Page } from "@playwright/test";
+import { test, type Page } from "@playwright/test";
 import {
   CHECKS_SIGNIN_FILE,
   fingerprintDiff,
@@ -42,8 +46,8 @@ type ExtendedResult = A11yResult;
 const EXTENDED_DIR = path.join(RESULTS_DIR, "extended");
 /** A check starts only while more than this is left of the checks phase's deadline. */
 const DEADLINE_MARGIN_MS = 20_000;
-/** After a check's page is closed, how long a write it sent on the way out has to reach the guard. */
-const SETTLE_WRITES_MS = 300;
+/** After a check, how long a write it set off (a popup's, a worker's) has to reach the guard. */
+const SETTLE_WRITES_MS = 500;
 const routes = loadRoutes();
 const standard = loadStandard();
 const ACCESS: AccessContext = {
@@ -62,23 +66,16 @@ function scoredResult(name: string): EntryResult | null {
   }
 }
 
-/** Opens a new page of the route and throws unless it is the page the scored phase measured. */
-async function openScoredPage(context: BrowserContext, entry: RouteEntry, scored: EntryResult): Promise<Page> {
-  const page = await context.newPage();
-  try {
-    await page.setViewportSize({ width: WIDE.width, height: WIDE.height });
-    const resp = await page.goto(entry.route, { waitUntil: "domcontentloaded" });
-    await settle(page);
-    const access = await accessCheck(page, entry.route, resp?.status() ?? null, ACCESS);
-    if (access.unreachable_reason) throw new Error(`not checked: ${access.unreachable_reason}`);
-    if (!scored.fingerprint) throw new Error("not checked: the scored phase recorded no fingerprint of this page");
-    const diff = fingerprintDiff(scored.fingerprint, await pageFingerprint(page), entry.fingerprint);
-    if (diff) throw new Error(`not checked: not the page the scored phase measured (${diff})`);
-    return page;
-  } catch (err) {
-    await page.close().catch(() => {});
-    throw err;
-  }
+/** Loads the route in `page` and throws unless it is the page the scored phase measured. The page is never closed (see above). */
+async function openScoredPage(page: Page, entry: RouteEntry, scored: EntryResult): Promise<void> {
+  await page.setViewportSize({ width: WIDE.width, height: WIDE.height });
+  const resp = await page.goto(entry.route, { waitUntil: "domcontentloaded" });
+  await settle(page);
+  const access = await accessCheck(page, entry.route, resp?.status() ?? null, ACCESS);
+  if (access.unreachable_reason) throw new Error(`not checked: ${access.unreachable_reason}`);
+  if (!scored.fingerprint) throw new Error("not checked: the scored phase recorded no fingerprint of this page");
+  const diff = fingerprintDiff(scored.fingerprint, await pageFingerprint(page), entry.fingerprint);
+  if (diff) throw new Error(`not checked: not the page the scored phase measured (${diff})`);
 }
 
 const merge = (parts: [string, A11yResult][]): ExtendedResult => {
@@ -98,6 +95,7 @@ if (standard)
       test.use({
         viewport: { width: WIDE.width, height: WIDE.height },
         colorScheme: "light",
+        serviceWorkers: "block",
         ...(entry.audience === "anonymous" ? { storageState: { cookies: [], origins: [] } } : {}),
       });
       test(`extended ${slug}`, async ({ context }) => {
@@ -114,25 +112,28 @@ if (standard)
           for (const id of EXTENDED_CHECK_IDS) checks[id] = failed("not checked: the checks phase could not sign in");
         } else {
           const guard: WriteGuard = await installWriteGuard(context);
-          // One new page per check: load, check, close, then add the writes the guard held on it.
+          const settleWrites = () => new Promise((r) => setTimeout(r, SETTLE_WRITES_MS));
+          let last = null as ExtendedId | null;
+          // One new page per check: load (its own writes pass while it loads), check, wait, then add the
+          // writes the guard held since the last check. The page stays open (see the top of this file).
           const run = async (ids: ExtendedId[], fn: (page: Page) => Promise<Partial<Record<ExtendedId, ExtendedResult>>>) => {
             if (outOfTime()) {
               for (const id of ids) checks[id] = failed(OUT_OF_TIME);
               return;
             }
-            let page: Page | null = null;
+            const page = await context.newPage();
+            guard.loading(page);
             try {
-              page = await openScoredPage(context, entry, scored);
+              await openScoredPage(page, entry, scored);
               const got = await fn(page);
-              await page.close();
-              await new Promise((r) => setTimeout(r, SETTLE_WRITES_MS));
-              const held = guard.take(page);
+              await settleWrites();
+              const held = guard.take();
               for (const id of ids) checks[id] = withHeld(got[id] as ExtendedResult, id === ids[0] ? held : []);
             } catch (err) {
-              for (const id of ids) checks[id] = failed(err);
-            } finally {
-              if (page && !page.isClosed()) await page.close().catch(() => {});
+              const held = guard.take();
+              for (const id of ids) checks[id] = withHeld(failed(err), id === ids[0] ? held : []);
             }
+            last = ids[0];
           };
           // Both consent checks read the page as it loaded, so one page serves them.
           await run([...CONSENT_CHECK_IDS], async (page) => {
@@ -153,6 +154,10 @@ if (standard)
               ]),
             };
           });
+          // Anything held after the last check took its share (a late write of an open page) goes to it.
+          await settleWrites();
+          const late = guard.take();
+          if (last && late.length) checks[last] = withHeld(checks[last], late);
         }
         fs.mkdirSync(EXTENDED_DIR, { recursive: true });
         fs.writeFileSync(path.join(EXTENDED_DIR, `${slug}.json`), JSON.stringify({ route: entry.route, mode: "report", checks }, null, 2));

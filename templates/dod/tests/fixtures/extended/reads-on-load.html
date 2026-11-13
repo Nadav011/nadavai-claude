@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>reads-on-load</title>
+<style>
+  body { margin: 0; padding: 16px; font-family: sans-serif; font-size: 16px; background: #fff; color: #111; }
+</style>
+</head>
+<body>
+<main>
+  <h1>לוח</h1>
+  <p id="out">טוען</p>
+  <p>הלוח מציג את התורים של השבוע, את הלקוחות שמחכים לאישור ואת ההודעות האחרונות מהסניף.</p>
+</main>
+<script>
+  // An app that reads through POST as it loads (GraphQL, an RPC): the guard lets a page's own requests
+  // pass while it loads for a check, so this read reaches the server every time.
+  fetch("/read?q=board", { method: "POST", body: "{}" }).then(() => (document.getElementById("out").textContent = "נטען")).catch(() => {});
+</script>
+</body>
+</html>

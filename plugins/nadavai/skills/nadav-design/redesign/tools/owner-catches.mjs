@@ -7,16 +7,19 @@
 //   exit 0: counted, every row well formed; 1: counted, and some rows are malformed or outside the table (listed,
 //   never counted, and the shares are withheld, since a share of part of the table is not the table's share);
 //   2: usage, no file, or no "Owner catches" table in it.
-// The table is the header row and every line after it that starts with `|`. A line further down its section (up to
-// the next heading) that holds a `|` is a row the table does not reach (no leading pipe, or after a blank line): it is
-// named as outside the table, never dropped silently.
+// The ledger is everything from its first header row to the end of the file: one table, or several, each opened by
+// its own copy of the header row (a sub-heading per month, say). A table is its header and the lines right after it
+// that start with `|`. Any other line in the ledger that holds a `|` (no leading pipe, after a blank line, a table
+// with other columns) or starts with a date (a row pasted without pipes) is named as outside the table: never
+// counted, never dropped silently, and the shares are withheld until it is fixed.
 //
 // A row is one problem. Its `ref` is the problem's own key: for a gate row, the finding as its gate names it, the
 // same on every run (a DoD check id and its sample, a reviewer's finding title as first written), and its `words`
 // is the file the finding was read from; for an owner or user row, `ref` is where the words were said (the chat
-// and its date, a CHANGES or SESSIONS file and its line) and `words` is what was said. Rows with the same screen,
-// class, finder, gate and ref are one problem: the first counts, the rest are listed as repeats, so a screen
-// measured again does not count the same finding twice. An owner or user row is the "escaped defect" of the
+// and its time, a CHANGES or SESSIONS file and its line) and `words` is what was said. Gate rows with the same screen,
+// class, gate and ref are one problem, and so are owner or user rows that also say the same words: the first
+// counts, the rest are listed as repeats, so a screen measured again does not count the same finding twice. Refs
+// and words are compared without bidi marks or spaces, which a reader cannot see. An owner or user row is the "escaped defect" of the
 // usual testing definition: a defect the test level that was supposed to find that type of defect did not find.
 // Its `gate` names that gate, or `none` when no gate covers the class (a gap, counted apart). The share the gates
 // caught is gates-before over (gates-before + others-before + after), the defect detection percentage adapted to
@@ -35,7 +38,10 @@ const USAGE = 'usage: node tools/owner-catches.mjs <MEASURES.md> [--period month
 const READING = [
   'May be read as: of the problems recorded in this table, the share that a gate recorded before the screen shipped.',
   'May not be read as: a share of every problem (a comment of Nadav\'s with no row, or a test with people whose findings were not written as user rows, is not in it);',
-  '  a share of distinct problems beyond what the refs tell apart (a finding re-found under another title counts again);',
+  '  a share of distinct problems beyond what the refs tell apart (a finding re-found under another title counts again;',
+  '  two gate findings written under one ref, or two owner rows with one ref and the same words, count once);',
+  '  an exact share: it is rounded to one decimal, never to 100% while an escape exists or to 0% when a gate caught',
+  '  something (the JSON then gives 99.9 or 0.1; the text says "over 99.9%" or "under 0.1%").',
   '  a gate succeeding when it found something only after ship (that row is in the "after" count and lowers the share);',
   '  better gates when it rises (fewer owner rows recorded raises it too).',
 ];
@@ -60,7 +66,8 @@ try { text = fs.readFileSync(files[0], 'utf8'); } catch (e) { die(`cannot read $
 // A cell may hold a pipe written as \| (a quote of his that has one).
 const cellsOf = line => line.trim().replace(/^\|/, '').replace(/(?<!\\)\|$/, '').split(/(?<!\\)\|/).map(c => c.trim().replace(/\\\|/g, '|'));
 const lines = text.split('\n');
-const start = lines.findIndex(l => l.trim().startsWith('|') && cellsOf(l).map(c => c.toLowerCase()).join('|') === HEADER.join('|'));
+const isHeader = l => l.trim().startsWith('|') && cellsOf(l).map(c => c.toLowerCase()).join('|') === HEADER.join('|');
+const start = lines.findIndex(isHeader);
 if (start < 0) die(`${files[0]} has no "Owner catches" table (a row of exactly: | ${HEADER.join(' | ')} |)`);
 
 const validDate = s => {
@@ -79,16 +86,19 @@ const malformed = [];
 const repeats = [];
 const outside = [];
 const firstLine = new Map();
-let end = lines.length;
+// What a reader cannot see does not make two refs different: bidi marks and spaces.
+const norm = s => s.replace(/[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, '').replace(/\s+/g, '');
+let inTable = true;
 for (let i = start + 1; i < lines.length; i++) {
-  if (!lines[i].trim().startsWith('|')) { end = i; break; } // the table ends at its first line that is not a row
-}
-// The rest of the section: a line with a pipe there is a row the table does not reach.
-for (let i = end; i < lines.length && !/^\s{0,3}#{1,6}\s/.test(lines[i]); i++) {
-  if (lines[i].includes('|')) outside.push({ line: i + 1, row: lines[i].trim().slice(0, 160) }); // M:outside
-}
-for (let i = start + 1; i < end; i++) {
   const raw = lines[i];
+  const flag = () => outside.push({ line: i + 1, row: raw.trim().slice(0, 160) });
+  if (isHeader(raw)) { inTable = true; continue; } // another table of the ledger // M:more-tables
+  if (!raw.trim().startsWith('|')) inTable = false; // a table ends at its first line that is not a row // M:table-end
+  if (!inTable) {
+    if (raw.includes('|')) flag(); // M:outside
+    else if (/^\s*\d{4}-\d{2}-\d{2}\b/.test(raw)) flag(); // a row pasted without pipes // M:outside-date
+    continue;
+  }
   const c = cellsOf(raw);
   if (c.every(x => /^:?-+:?$/.test(x))) continue; // the separator row
   const n = i + 1;
@@ -106,9 +116,11 @@ for (let i = start + 1; i < end; i++) {
   if (!ref) { bad('no ref: the finding\'s own key (a gate row), or where the words were said (an owner or user row)'); continue; } // M:ref
   if (finder === 'gate' && !words) { bad('a gate row names, in words, the file its finding was read from'); continue; } // M:source
   if (finder !== 'gate' && !words) { bad(`an ${finder} row keeps what was said, in the words used`); continue; } // M:words
-  const key = [screen, cls, finder, gate, ref].join('\u0000');
-  if (firstLine.has(key)) { repeats.push({ line: n, same_as: firstLine.get(key) }); continue; } // M:dedupe
-  firstLine.set(key, n);
+  const key = [screen, cls, finder, gate, norm(ref)].join('\u0000');
+  let sameProblem = key;
+  if (finder !== 'gate') sameProblem += `\u0000${norm(words)}`; // M:key-words
+  if (firstLine.has(sameProblem)) { repeats.push({ line: n, same_as: firstLine.get(sameProblem) }); continue; } // M:dedupe
+  firstLine.set(sameProblem, n);
   rows.push({ line: n, date, screen, cls, finder, when, gate, ref, words });
 }
 
@@ -166,20 +178,28 @@ const out = {
 
 if (json) process.stdout.write(`${JSON.stringify(out, null, 2)}\n`, () => process.exit(unread ? 1 : 0));
 else {
-  const pct = s => (unread ? 'withheld' : s === null ? 'none counted' : `${s}%`);
+  // The cap of share(): a 99.9 that stands for more, and a 0.1 that stands for less, are said so.
+  const pct = t => {
+    if (unread) return 'withheld';
+    if (t.share === null) return 'none counted';
+    const exact = (100 * t.gate_before) / (t.gate_before + t.owner_before + t.after);
+    if (t.share === 99.9 && exact > 99.9) return 'over 99.9%'; // M:say-over
+    if (t.share === 0.1 && exact < 0.1) return 'under 0.1%'; // M:say-under
+    return `${t.share}%`;
+  };
   const tri = t => `gates before ship ${t.gate_before}, owner or user before ship ${t.owner_before}, after ship ${t.after}`;
   const o = [`owner-catches: ${files[0]}: ${rows.length} problems counted, ${repeats.length} repeated rows counted once, ${malformed.length} malformed, ${outside.length} outside the table`];
   if (out.withheld) o.push(`share withheld: ${out.withheld}`);
-  o.push(`all: ${tri(total)} (owner ${total.after_owner}, user ${total.after_user}, gate ${total.after_gate}); the gates caught ${pct(total.share)}`);
+  o.push(`all: ${tri(total)} (owner ${total.after_owner}, user ${total.after_user}, gate ${total.after_gate}); the gates caught ${pct(total)}`);
   for (const [key, p] of Object.entries(out.periods)) {
-    o.push(`period ${key}: ${tri(p)}; the gates caught ${pct(p.share)}`);
+    o.push(`period ${key}: ${tri(p)}; the gates caught ${pct(p)}`);
     for (const k of CLASSES) {
       const c = p.classes[k];
-      if (c.gate_before + c.owner_before + c.after) o.push(`  ${k.padEnd(9)} gates ${c.gate_before}, owner or user ${c.owner_before}, after ${c.after}; caught ${pct(c.share)}`);
+      if (c.gate_before + c.owner_before + c.after) o.push(`  ${k.padEnd(9)} gates ${c.gate_before}, owner or user ${c.owner_before}, after ${c.after}; caught ${pct(c)}`);
     }
   }
   o.push('per screen:');
-  for (const [s, t] of Object.entries(screens).sort(([a], [b]) => a.localeCompare(b))) o.push(`  ${s}: ${tri(t)}; caught ${pct(t.share)}`);
+  for (const [s, t] of Object.entries(screens).sort(([a], [b]) => a.localeCompare(b))) o.push(`  ${s}: ${tri(t)}; caught ${pct(t)}`);
   o.push(`escaped (found by the owner or a user): ${escapes.length}; ${noGate.length} in a class no gate covers${Object.keys(byGate).length ? `; by the gate that should have caught them: ${Object.entries(byGate).map(([g, k]) => `${g} ${k}`).join(', ')}` : ''}`);
   if (repeats.length) o.push(`repeated rows, counted once: ${repeats.map(r => `line ${r.line} (as line ${r.same_as})`).join(', ')}`);
   if (malformed.length) {

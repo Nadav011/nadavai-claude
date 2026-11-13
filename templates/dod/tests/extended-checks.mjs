@@ -3,7 +3,7 @@
 // extended-checks.spec.ts). Not copied into projects; kept apart from run.mjs so the two can
 // change without touching each other.
 //
-//   heavy-slot -- node templates/dod/tests/extended-checks.mjs [--skip-browser] [--skip-run]
+//   heavy-slot -- node templates/dod/tests/extended-checks.mjs [--skip-browser] [--skip-run] [--only-phase]
 //
 // 1. tsc --noEmit (strict) on the new files and the config, with the kit's own settings.
 // 2. CASES: each check on its fixture pages (tests/fixtures/extended/<page>.html), each of which must
@@ -68,26 +68,40 @@ function ensureDeps() {
 const fresh = (name) => fs.mkdtempSync(path.join(WORK, `${name}-`));
 
 // --- what each fixture page must make its check find ---------------------------------------
-// [check, page, kinds, notes]; kinds "write-held" counts at least one (the walk's exact number of
-// focus and blur events is the browser's), and that page also asserts no write reached the server.
+// [check, page, kinds, notes, reads]; kinds "write-held" counts at least one (the walk's exact number
+// of focus and blur events is the browser's). On every page no /save reaches the server, the context's
+// close included; `reads` is a page whose own POST while it loads (/read) must reach it and never be
+// held. The save-* pages are the second review's B1 and B2: a page that saves on leaving, a service
+// worker that forwards, a popup, a SharedWorker.
 const CASES = [
   ["forced-colors", "forced-colors", { boundary: 5, focus: 1, state: 1, mark: 1 }],
   ["forced-colors", "pass", {}],
   ["forced-colors", "clean", {}],
   ["forced-colors", "save-on-focus", { "write-held": "1+" }],
+  ["forced-colors", "save-on-leave", {}],
+  ["forced-colors", "save-via-sw", { "write-held": "1+" }],
+  ["forced-colors", "save-in-popup", { "write-held": "1+" }],
+  ["forced-colors", "save-in-shared-worker", {}],
+  ["forced-colors", "reads-on-load", {}, 0, true],
+  ["text-reflow", "save-on-leave", {}],
   ["text-reflow", "text-reflow", { clipped: 3, unreachable: 1, sideways: 1 }],
   ["text-reflow", "text-reflow-cut", { unreachable: 1 }],
   ["text-reflow", "text-reflow-ltr", { unreachable: 1 }],
   ["text-reflow", "text-reflow-table", {}],
   // WCAG's Understanding Reflow, Figure 9: paragraphs widened to a table's width are not the exception.
   ["text-reflow", "text-reflow-fig9", { sideways: 1 }],
+  // Not the exception (the second review, C8): a layout table, and role="application" on the app's root.
+  ["text-reflow", "text-reflow-layout-table", { sideways: 1 }],
+  ["text-reflow", "text-reflow-presentation", { sideways: 1 }],
+  ["text-reflow", "text-reflow-application", { sideways: 1 }],
   ["text-reflow", "pass", {}],
   ["text-reflow", "clean", {}],
   ["text-spacing", "text-spacing", { clipped: 2, overlap: 2 }],
   ["text-spacing", "pass", {}],
   ["text-spacing", "clean", {}],
-  ["consent", "consent", { prechecked: 4, "no-refuse": 2, "weak-refuse": 4 }],
+  ["consent", "consent", { prechecked: 4, "no-refuse": 2, "weak-refuse": 5 }],
   ["consent", "pass", {}, 1],
+  ["consent", "consent-dark", {}],
   ["consent", "clean", {}],
 ];
 const caseOf = (id, page) => CASES.find(([c, p]) => c === id && p === page);
@@ -109,6 +123,10 @@ const MUTANTS = {
   mark: ["forced-colors", "forced-colors"],
   focus: ["forced-colors", "forced-colors"],
   guard: ["forced-colors", "save-on-focus"],
+  "guard-loading": ["forced-colors", "reads-on-load"],
+  "shared-worker": ["forced-colors", "save-in-shared-worker"],
+  "layout-role": ["text-reflow", "text-reflow-presentation"],
+  "layout-table": ["text-reflow", "text-reflow-layout-table"],
   "sideways-edge": ["text-reflow", "text-reflow-table"],
   "two-d": ["text-reflow", "text-reflow-table"],
   "two-d-wrap": ["text-reflow", "text-reflow-table"],
@@ -144,6 +162,9 @@ const REPLACE = [
   ["wrap-levels-0", "a11y", "a && i < 2; a = a.parentElement", "a && i < 0; a = a.parentElement", "forced-colors", "pass"],
   ["border-ge0", "a11y", "`border-${d.toLowerCase()}-width`)) >= 1", "`border-${d.toLowerCase()}-width`)) >= 0", "forced-colors", "forced-colors"],
   ["outline-ge100", "a11y", "parseFloat(s.outlineWidth) >= 1", "parseFloat(s.outlineWidth) >= 100", "forced-colors", "pass"],
+  ["opacity-off", "consent", "o *= parseFloat(getComputedStyle(a).opacity);", "o *= 1;", "consent", "consent"],
+  ["canvas-white", "consent", "(under, top) => over(top, under), canvasBase)", "(under, top) => over(top, under), [255, 255, 255, 1])", "consent", "consent-dark"],
+  ["application-exempt", "a11y", "[role=\"img\"]';", "[role=\"img\"], [role=\"application\"]';", "text-reflow", "text-reflow-application"],
   ["guard-lets-post", "a11y", 'export const SAFE_METHODS = ["GET", "HEAD", "OPTIONS"];', 'export const SAFE_METHODS = ["GET", "HEAD", "OPTIONS", "POST"];', "forced-colors", "save-on-focus"],
   ["reflow-320-to-360", "a11y", "{ width: 320, height: 256, sideways: true }", "{ width: 360, height: 256, sideways: true }", "text-reflow", "text-reflow"],
   ["reflow-640-to-1280", "a11y", "{ width: 640, height: 512, sideways: false }", "{ width: 1280, height: 512, sideways: false }", "text-reflow", "text-reflow"],
@@ -188,7 +209,11 @@ const RUN = {
 
 /** How a result differs from its case, or "" when it is the case. */
 function differs(r, kase, posts) {
-  const [, , kinds, notes = 0] = kase;
+  const [, , kinds, notes = 0, reads = false] = kase;
+  const saves = posts.filter((p) => p.includes("/save"));
+  if (saves.length) return `writes reached the server: ${saves.join(", ")}`;
+  if (reads && !posts.some((p) => p.includes("/read"))) return "the page's read while it loads did not reach the server";
+  if (r.samples.some((s) => s.includes("/read"))) return `a read while the page loaded was held: ${r.samples.join(" | ")}`;
   const want = Object.entries(kinds);
   if (Object.keys(r.kinds).length !== want.length) return `kinds ${JSON.stringify(r.kinds)} != ${JSON.stringify(kinds)}`;
   for (const [k, n] of want) {
@@ -196,21 +221,27 @@ function differs(r, kase, posts) {
     if (n === "1+" ? got < 1 : got !== n) return `kinds ${JSON.stringify(r.kinds)} != ${JSON.stringify(kinds)}`;
   }
   if ((r.notes ?? []).length !== notes) return `notes ${JSON.stringify(r.notes ?? [])}, want ${notes}`;
-  if (kinds["write-held"] && posts.length) return `writes reached the server: ${posts.join(", ")}`;
   return "";
 }
 
 // --- the fixture server: pages by name, and a log of every write that reached it ----------
 function serve(port) {
   const posts = [];
+  const times = [];
   const server = http.createServer((req, res) => {
     if (req.method !== "GET" && req.method !== "HEAD") {
       posts.push(`${req.method} ${req.url}`);
+      times.push(Date.now());
       req.resume();
       res.writeHead(204);
       return res.end();
     }
     const name = path.basename(new URL(req.url, "http://x").pathname.replace(/\/$/, "/clean")) || "clean";
+    const script = path.join(FIXTURES, name);
+    if (name.endsWith(".js") && fs.existsSync(script)) {
+      res.writeHead(200, { "content-type": "text/javascript; charset=utf-8" });
+      return res.end(fs.readFileSync(script));
+    }
     const file = path.join(FIXTURES, `${name}.html`);
     if (!fs.existsSync(file)) {
       res.writeHead(404, { "content-type": "text/html; charset=utf-8" });
@@ -221,7 +252,7 @@ function serve(port) {
   });
   return new Promise((resolve, reject) => {
     server.once("error", reject);
-    server.listen(port, "127.0.0.1", () => resolve({ server, posts, port }));
+    server.listen(port, "127.0.0.1", () => resolve({ server, posts, times, port }));
   });
 }
 async function serveFree() {
@@ -278,22 +309,27 @@ async function browserTests() {
   const real = { a11y: await import(pathToFileURL(MODULES.a11y).href), consent: await import(pathToFileURL(MODULES.consent).href) };
   const srv = await serveFree();
   const browser = await chromium.launch({ ignoreDefaultArgs: ["--disable-dev-shm-usage"] });
-  // One check on one page, as the spec runs it: a new context with the write guard, a new page, the
-  // check, the page closed, and the writes the guard held added as `write-held`.
+  // One check on one page, as the spec runs it: a context with the write guard and service workers
+  // blocked, a new page marked loading, the check, 500 ms, the writes the guard held added as
+  // `write-held`; the page is never closed, the context is, and what reached the server is read after.
   const check = async (mods, id, page) => {
-    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: "light", locale: "he-IL" });
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: "light", locale: "he-IL", serviceWorkers: "block" });
     const before = srv.posts.length;
+    let r;
     try {
       const guard = await mods.a11y.installWriteGuard(ctx);
       const p = await ctx.newPage();
+      guard.loading(p);
       await p.goto(`http://127.0.0.1:${srv.port}/${page}`);
-      const r = await RUN[id][1](mods, p, guard);
-      await p.close();
-      await new Promise((res) => setTimeout(res, 300));
-      return { r: mods.a11y.withHeld(r, guard.take(p)), posts: srv.posts.slice(before) };
+      await p.waitForLoadState("networkidle").catch(() => {});
+      r = await RUN[id][1](mods, p, guard);
+      await new Promise((res) => setTimeout(res, 500));
+      r = mods.a11y.withHeld(r, guard.take());
     } finally {
       await ctx.close();
     }
+    await new Promise((res) => setTimeout(res, 300));
+    return { r, posts: srv.posts.slice(before) };
   };
   try {
     for (const kase of CASES) {
@@ -360,6 +396,13 @@ function runDod(dir, port) {
   });
 }
 const ROUTES = ["/clean", "/forced-colors", "/consent"];
+// The phase run also takes the pages that try to save (the second review's C7): the spec's own guard
+// wiring, end to end. Only the extended checks switch forced colours on or press Tab, but the other
+// phases navigate, which runs save-on-leave.html's pagehide handlers: so the server must get no /save
+// from the moment the extended checks start (2 s after the last standard result is written).
+// save-in-shared-worker.html is tested in the browser cases only: the scored phase (dod.spec.ts, not
+// these checks) times out on a page that starts a SharedWorker (all four entries, 120 s each).
+const SAVE_ROUTES = ["/save-on-focus", "/save-on-leave", "/save-via-sw", "/save-in-popup", "/reads-on-load"];
 const IDS = ["forced-colors", "text-reflow", "text-spacing", "consent-prechecked", "consent-refuse"];
 const sum = (kinds) => Object.values(kinds).reduce((a, b) => a + b, 0);
 
@@ -367,8 +410,13 @@ const sum = (kinds) => Object.values(kinds).reduce((a, b) => a + b, 0);
 async function phaseTest() {
   const srv = await serveFree();
   try {
-    const dir = project("extended-run", ROUTES, { profile: "work-tool" });
+    const dir = project("extended-run", [...ROUTES, ...SAVE_ROUTES], { profile: "work-tool" });
     const code = await runDod(dir, srv.port);
+    const resDir = path.join(dir, "reports", "dod", "results");
+    const extStart = Math.max(0, ...fs.readdirSync(resDir).filter((f) => f.endsWith(".standard.json")).map((f) => fs.statSync(path.join(resDir, f)).mtimeMs)) + 2000;
+    const saves = srv.posts.filter((p, i) => p.includes("/save") && srv.times[i] >= extStart);
+    const savesBefore = srv.posts.filter((p, i) => p.includes("/save") && srv.times[i] < extStart).length;
+    const reads = srv.posts.filter((p) => p.includes("/read"));
     const out = path.join(dir, "reports", "dod", "results", "extended");
     const read = (slug) => (fs.existsSync(path.join(out, `${slug}.json`)) ? JSON.parse(fs.readFileSync(path.join(out, `${slug}.json`), "utf8")) : null);
     const clean = read("clean");
@@ -387,7 +435,17 @@ async function phaseTest() {
     const mt = (d, f) => fs.statSync(path.join(d, f)).mtimeMs;
     const std = fs.readdirSync(res).filter((f) => f.endsWith(".standard.json")).map((f) => mt(res, f));
     const ext = fs.existsSync(out) ? fs.readdirSync(out).map((f) => mt(out, f)) : [];
-    ok(std.length > 0 && ext.length === ROUTES.length && Math.min(...ext) >= Math.max(...std), "the extended checks run after every standard check (their own project, the checks project's teardown)", `standard results ${std.length}, last at ${Math.max(...std)}; extended ${ext.length}, first at ${Math.min(...ext)}`);
+    ok(std.length > 0 && ext.length === ROUTES.length + SAVE_ROUTES.length && Math.min(...ext) >= Math.max(...std), "the extended checks run after every standard check (their own project, the checks project's teardown)", `standard results ${std.length}, last at ${Math.max(...std)}; extended ${ext.length}, first at ${Math.min(...ext)}`);
+    // The guard, through the spec's own path (B1, B2, C7).
+    ok(!saves.length, `no /save reached the server while the extended checks ran: the check pages are never closed, service workers are blocked, popups' and workers' writes are held (${savesBefore} came earlier, from the other phases' navigations)`, saves.join(", "));
+    const held = (slug) => {
+      const j = read(slug);
+      return j ? IDS.reduce((n, id) => n + (j.checks[id]?.kinds?.["write-held"] ?? 0), 0) : -1;
+    };
+    for (const slug of ["save-on-focus", "save-via-sw", "save-in-popup"]) ok(held(slug) >= 1, `${slug}.json records the writes the guard held (write-held ${held(slug)})`, JSON.stringify(read(slug)));
+    for (const slug of ["save-on-leave", "reads-on-load"]) ok(held(slug) === 0 && IDS.every((id) => !read(slug)?.checks[id]?.error), `${slug}.json: nothing to hold, no check errored`, JSON.stringify(read(slug)));
+    const all = [...ROUTES, ...SAVE_ROUTES].map((r) => read(r.slice(1))).filter(Boolean);
+    ok(reads.length > 0 && !all.some((j) => IDS.some((id) => (j.checks[id]?.samples ?? []).some((x) => x.includes("/read")))), `a page's own POST while it loads passes the guard (${reads.length} reads reached the server, none held)`, `reads ${reads.length}`);
     const dod = JSON.parse(fs.readFileSync(path.join(dir, "reports", "dod", "dod.json"), "utf8"));
     // No key of dod.json is one of these check ids (a route named /forced-colors is a route, "/forced-colors").
     const keys = new Set();
@@ -430,6 +488,12 @@ async function deadlineTest() {
 }
 
 ensureDeps();
+if (args.includes("--only-phase")) {
+  // The phase run alone, for proving the guard tests against another copy of the kit.
+  await phaseTest();
+  console.log(failed ? `${failed} failed` : "all passed");
+  process.exit(failed ? 1 : 0);
+}
 typecheck();
 if (!args.includes("--skip-browser")) {
   await browserTests();

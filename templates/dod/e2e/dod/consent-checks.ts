@@ -116,24 +116,43 @@ export function consentInPage(prominence: { area: number; font: number; contrast
     };
     return 0.2126 * f(c[0]) + 0.7152 * f(c[1]) + 0.0722 * f(c[2]);
   };
-  // What is painted behind the element's text: its own and its ancestors' backgrounds, composited down
-  // to the first opaque one (white below all). null when an image or gradient is in the way.
+  // The page's own canvas, under every background: white, or dark under `color-scheme: dark`.
+  const canvasBase = ((): [number, number, number, number] => {
+    const probe = document.createElement("div");
+    probe.style.cssText = "background-color: Canvas; position: absolute; inline-size: 0; block-size: 0";
+    document.documentElement.appendChild(probe);
+    const c = rgba(getComputedStyle(probe).backgroundColor);
+    probe.remove();
+    return [c[0], c[1], c[2], 1];
+  })();
+  // An element's opacity fades it and all it holds: the product of its own and its ancestors'.
+  const opacityUp = (el: Element) => {
+    let o = 1;
+    for (let a: Element | null = el; a; a = a.parentElement) o *= parseFloat(getComputedStyle(a).opacity);
+    return o;
+  };
+  // What is painted behind the element's text: its own and its ancestors' backgrounds, each faded by
+  // its opacity, composited down to the first opaque one (the page's canvas below all). null when an
+  // image or gradient is in the way.
   const bgOf = (el: Element): [number, number, number, number] | null => {
     const layers: [number, number, number, number][] = [];
     for (let a: Element | null = el; a; a = a.parentElement) {
       const s = getComputedStyle(a);
       if (s.backgroundImage !== "none") return null; // M:bg-image
       const c = rgba(s.backgroundColor);
+      c[3] *= opacityUp(a);
       if (c[3] === 0) continue;
       layers.push(c);
       if (c[3] === 1) break;
     }
-    return layers.reduceRight<[number, number, number, number]>((under, top) => over(top, under), [255, 255, 255, 1]); // M:composite
+    return layers.reduceRight<[number, number, number, number]>((under, top) => over(top, under), canvasBase); // M:composite
   };
   const contrast = (el: Element) => {
     const bg = bgOf(el);
     if (!bg) return null;
-    const a = lum(over(rgba(getComputedStyle(el).color), bg));
+    const text = rgba(getComputedStyle(el).color);
+    text[3] *= opacityUp(el);
+    const a = lum(over(text, bg));
     const b = lum(bg);
     return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
   };

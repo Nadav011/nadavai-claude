@@ -3060,6 +3060,33 @@ const OC_CLEAN = ocLedger([...OC_GOOD, ...OC_REPEAT], 'clean');
 const OC_GATE1 = '| 2026-11-01 | a | look | gate | before | dod:x | x: one | reports/dod/dod.json |';
 const OC_NOLEADING = ocFile('noleading', `# m\n\n## Owner catches\n\n${OC_HEAD}${OC_GATE1}\n2026-11-02 | a | look | owner | before | none | chat 2026-11-02 | לא כמו שם |\n| 2026-11-03 | a | look | owner | before | none | chat 2026-11-03 | עוד אחד |\n\n## Next\n\n| not | this table |\n`);
 const OC_BLANKGAP = ocFile('blankgap', `# m\n\n## Owner catches\n\n${OC_HEAD}${OC_GATE1}\n\n| 2026-11-05 | a | look | owner | before | none | chat 2026-11-05 | נוסף אחרי שורה ריקה |\n| 2026-11-06 | a | look | owner | after | none | chat 2026-11-06 | עוד |\n`);
+// The second review's ledgers of round 3 (B3, C2, C3, C4), with November dates (its December ones are in the future).
+const OC_AFTERHEADING = ocFile('afterheading', `# m\n\n## Owner catches\n\n${OC_HEAD}${OC_GATE1}\n\n### November, second half\n\n| 2026-11-05 | a | look | owner | after | none | chat 2026-11-05 10:00 | שבור |\n| 2026-11-06 | a | look | owner | after | none | chat 2026-11-06 10:00 | שבור 2 |\n`);
+const OC_SECONDTABLE = ocFile('secondtable', `# m\n\n## Owner catches\n\n${OC_HEAD}${OC_GATE1}\n\n### November, second half\n\n${OC_HEAD}| 2026-11-11 | a | look | owner | after | none | chat 2026-11-11 10:00 | שבור |\n`);
+const OC_TABS = ocFile('tabs', `# m\n\n## Owner catches\n\n${OC_HEAD}${OC_GATE1}\n2026-11-11\ta\tlook\towner\tafter\tnone\tchat 2026-11-11\tשבור\n`);
+const OC_KEYS = ocLedger([
+  '| 2026-11-01 | a | look | gate | before | dod:x | k | r.json |',
+  '| 2026-11-01 | b | look | gate | before | dod:x | k | r.json |',
+  '| 2026-11-01 | a | copy | gate | before | dod:x | k | r.json |',
+  '| 2026-11-01 | a | look | gate | before | dod:y | k | r.json |',
+  '| 2026-11-01 | a | look | owner | before | dod:x | k | אמר |',
+  '| 2026-11-01 | a | look | gate | before | dod:x | k2 | r.json |',
+  '| 2026-11-01 | a | look | owner | before | dod:x | k | אמר משהו אחר |',
+  '| 2026-11-01 | a | look | user | before | dod:x | k | אמר |',
+  '| 2026-11-02 | a | look | gate | before | dod:x | k | other.json |',
+], 'keys');
+const OC_UNSEEN = ocLedger([
+  '| 2026-11-10 | home | look | gate | before | dod:x | one-primary: \u200f"שמירה" | reports/dod/dod.json |',
+  '| 2026-11-11 | home | look | gate | before | dod:x | one-primary: "שמירה" | reports/dod/dod.json |',
+  '| 2026-11-11 | home | look | gate | before | dod:x | one-primary: <button>"שמירה" | reports/dod/dod.json |',
+  '| 2026-11-12 | home | look | gate | before | dod:x | one-primary: <button> "שמירה" | reports/dod/dod.json |',
+], 'unseen');
+const OC_SAMEREF = ocLedger([
+  '| 2026-11-12 | home | look | gate | before | dod:x | one-primary: <button> "שמירה" | reports/dod/dod.json |',
+  '| 2026-11-12 | home | look | owner | before | none | chat 2026-11-12 | הכפתור קטן מדי |',
+  '| 2026-11-12 | home | look | owner | before | none | chat 2026-11-12 | הצבע של הכותרת לא כמו בדוגמה |',
+  '| 2026-11-12 | home | look | owner | before | none | chat 2026-11-12 | הרווחים צפופים |',
+], 'sameref');
 const ocRun = (file, tool = OC, extra = ['--json']) => {
   const r = sh('node', [tool, file, ...extra]);
   let out = null; try { out = JSON.parse(r.stdout); } catch { /* the caller reports raw */ }
@@ -3109,7 +3136,9 @@ function ocSuite(tool) {
     && /repeated rows, counted once: line 18 \(as line 7\)/.test(tclean.stdout) && /May be read as:/.test(tclean.stdout) && /May not be read as:/.test(tclean.stdout), `exit ${tclean.status}: ${tclean.stdout.slice(0, 300)}`);
   const tbad = ocRun(OC_FIXTURE, tool, []);
   check('text fixture', tbad.status === 1 && /share withheld: 12 rows not read \(12 malformed, 0 outside the table\)/.test(tbad.stdout) && !/caught \d/.test(tbad.stdout), `exit ${tbad.status}: ${tbad.stdout.slice(0, 300)}`);
-  for (const [name, f, lines] of [['noleading', OC_NOLEADING, [8, 9]], ['blankgap', OC_BLANKGAP, [9, 10]]]) {
+  // noleading: the pipe-less row, the row after it, and the other section's table further down (the ledger runs to the
+  // end of the file, so a table after it is named too).
+  for (const [name, f, lines] of [['noleading', OC_NOLEADING, [8, 9, 13]], ['blankgap', OC_BLANKGAP, [9, 10]], ['afterheading', OC_AFTERHEADING, [11, 12]], ['tabs', OC_TABS, [8]]]) {
     const j = ocRun(f, tool);
     check(name, j.status === 1 && j.out && j.out.rows === 1 && JSON.stringify(j.out.outside.map(x => x.line)) === JSON.stringify(lines) && j.out.total.share === null && /outside the table/.test(j.out.withheld || ''), `exit ${j.status}: ${JSON.stringify(j.out && { rows: j.out.rows, outside: j.out.outside, share: j.out.total.share })}`);
     const t = ocRun(f, tool, []);
@@ -3131,6 +3160,21 @@ function ocSuite(tool) {
   const hi = ocRun(ocLedger([...many(1999, 'gate'), ...many(1, 'owner')], 'hi'), tool);
   const lo = ocRun(ocLedger([...many(1, 'gate'), ...many(2000, 'owner')], 'lo'), tool);
   check('cap', hi.out && hi.out.total.share === 99.9 && lo.out && lo.out.total.share === 0.1, `1999/2000 ${hi.out && hi.out.total.share}, 1/2001 ${lo.out && lo.out.total.share}`);
+  const hiT = ocRun(ocLedger([...many(1999, 'gate'), ...many(1, 'owner')], 'hi-text'), tool, []);
+  const loT = ocRun(ocLedger([...many(1, 'gate'), ...many(2000, 'owner')], 'lo-text'), tool, []);
+  const natural = ocRun(ocLedger([...many(999, 'gate'), ...many(1, 'owner')], 'natural-text'), tool, []);
+  check('cap text', /the gates caught over 99\.9%/.test(hiT.stdout) && /the gates caught under 0\.1%/.test(loT.stdout) && /the gates caught 99\.9%/.test(natural.stdout), `${hiT.stdout.split('\n')[1]} / ${loT.stdout.split('\n')[1]} / ${natural.stdout.split('\n')[1]}`);
+  // A second table, under its own heading and its own copy of the header, is read (the second review's B3).
+  const two = ocRun(OC_SECONDTABLE, tool);
+  check('second table', two.status === 0 && two.out && two.out.rows === 2 && two.out.total.share === 50, `exit ${two.status}: ${JSON.stringify(two.out && { rows: two.out.rows, share: two.out.total.share })}`);
+  // The key: rows that differ in one cell each are different problems; a gate row's words are not in the key, an owner
+  // row's are; refs that differ only by a bidi mark or a space are one (the second review's C2, C3).
+  const keys = ocRun(OC_KEYS, tool);
+  check('key', keys.status === 0 && keys.out && keys.out.rows === 8 && JSON.stringify(keys.out.repeats) === JSON.stringify([{ line: 15, same_as: 7 }]), `exit ${keys.status}: ${JSON.stringify(keys.out && { rows: keys.out.rows, repeats: keys.out.repeats })}`);
+  const unseen = ocRun(OC_UNSEEN, tool);
+  check('unseen marks', unseen.status === 0 && unseen.out && unseen.out.rows === 2 && unseen.out.repeats.length === 2, `exit ${unseen.status}: ${JSON.stringify(unseen.out && { rows: unseen.out.rows, repeats: unseen.out.repeats })}`);
+  const sameref = ocRun(OC_SAMEREF, tool);
+  check('one ref, three owner problems', sameref.status === 0 && sameref.out && sameref.out.rows === 4 && sameref.out.total.share === 25, `exit ${sameref.status}: ${JSON.stringify(sameref.out && { rows: sameref.out.rows, share: sameref.out.total.share })}`);
   const none = ocFile('none', '# מדידות\n\n| date | screen | class | found by | when | count | gate | words |\n|---|---|---|---|---|---|---|---|\n');
   const a = ocRun(none, tool);
   const b = ocRun(OC_FIXTURE, tool, ['--period', 'year']);
@@ -3141,7 +3185,8 @@ const OC_WHY = ocSuite(OC);
 const ocPick = re => OC_WHY.filter(w => re.test(w)).join('; ');
 await test('OC-fixture', 'owner-catches counts the fixture ledger: per period, class and screen, the escapes, the repeat counted once, every malformed row by its line, and withholds the share', async () => ocPick(/^(fixture|malformed lines|text fixture)/));
 await test('OC-clean', 'a ledger with only well-formed rows exits 0 and gives the shares (total, per period, class and screen), as JSON and as text with what the share may and may not be read as', async () => ocPick(/^(clean|text clean)/));
-await test('OC-outside', 'a row with no leading pipe, and rows after a blank line, are named as outside the table (exit 1, share withheld), never dropped silently', async () => ocPick(/^(noleading|blankgap)/));
+await test('OC-outside', 'a row with no leading pipe, rows after a blank line, rows under a sub-heading without their own header, and a row pasted without pipes are named as outside the table (exit 1, share withheld), never dropped silently', async () => ocPick(/^(noleading|blankgap|afterheading|tabs)/));
+await test('OC-key', 'a second table under its own header is read; rows differing in one key cell are different problems; refs differing by an unseen mark are one; owner rows with one ref and different words are different problems', async () => ocPick(/^(second table|key|unseen marks|one ref)/));
 await test('OC-edges', 'quarters (December is Q4, January Q1), header case, a cell of dashes, a \\| in the words, the 99.9/0.1 cap, and usage errors', async () => ocPick(/^(quarter|header case|dash cell|pipe|cap|usage)/));
 await test('OC-template', 'the empty MEASURES.md template is a ledger the tool reads: 0 problems, exit 0', async () => {
   const r = ocRun(path.join(SK, 'templates', 'MEASURES.md'));
@@ -3164,8 +3209,18 @@ function ocMutant(code) {
 const OC_REPL = [
   ['header-case', ".map(c => c.toLowerCase()).join('|')", ".join('|')"],
   ['quarter-formula', 'Math.floor((+date.slice(5, 7) - 1) / 3) + 1', 'Math.floor(+date.slice(5, 7) / 3) + 1'],
-  ['table-end', '{ end = i; break; }', '{ continue; }'],
-  ['section-end', '!/^\\s{0,3}#{1,6}\\s/.test(lines[i])', 'true'],
+  // the second review's section-h2-only, and a stop at any heading: the ledger runs to the end of the file
+  ['section-h2-only', "  const raw = lines[i];\n  const flag", "  const raw = lines[i];\n  if (/^#{1,2}\\s/.test(raw)) break;\n  const flag"],
+  ['section-any-heading', "  const raw = lines[i];\n  const flag", "  const raw = lines[i];\n  if (/^\\s{0,3}#{1,6}\\s/.test(raw)) break;\n  const flag"],
+  ['key-no-screen', '[screen, cls, finder, gate, norm(ref)]', '[cls, finder, gate, norm(ref)]'],
+  ['key-no-class', '[screen, cls, finder, gate, norm(ref)]', '[screen, finder, gate, norm(ref)]'],
+  ['key-no-finder', '[screen, cls, finder, gate, norm(ref)]', '[screen, cls, gate, norm(ref)]'],
+  ['key-no-gate', '[screen, cls, finder, gate, norm(ref)]', '[screen, cls, finder, norm(ref)]'],
+  ['key-ref-only', '[screen, cls, finder, gate, norm(ref)]', '[norm(ref)]'],
+  ['key-words-always', "if (finder !== 'gate') sameProblem +=", 'sameProblem +='],
+  ['norm-off', "const norm = s => s.replace(", "const norm = s => s; const unused = s => s.replace("],
+  ['norm-no-bidi', ".replace(/[\\u061c\\u200e\\u200f\\u202a-\\u202e\\u2066-\\u2069]/g, '')", ""],
+  ['norm-no-space', ".replace(/\\s+/g, '');", ";"],
   ['separator-every', 'c.every(x => /^:?-+:?$/.test(x))', 'c.some(x => /^:?-+:?$/.test(x))'],
   ['round-floor', 'Math.round((1000 * t.gate_before) / all) / 10', 'Math.floor((1000 * t.gate_before) / all) / 10'],
   ['round-int', 'Math.round((1000 * t.gate_before) / all) / 10', 'Math.round((100 * t.gate_before) / all)'],

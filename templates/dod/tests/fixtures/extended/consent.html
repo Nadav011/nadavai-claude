@@ -14,6 +14,7 @@
   .ask .yes-big { padding: 14px 32px; }
   .ask .small-area { padding: 0; background: none; color: #111; }
   .ask .small-font { font-size: 12px; padding: 12px 20px; background: #fff; color: #111; border-color: #111; }
+  .ask .faded { opacity: 0.25; }
   .ask .pale { background: #fff; color: #999; border-color: #999; }
   /* a native box hidden and drawn by its label */
   .drawn input { position: absolute; opacity: 0; width: 1px; height: 1px; }
@@ -61,6 +62,12 @@
     <p>לאפשר התראות על מבצעים?</p>
     <button type="button">לאפשר</button>
     <button type="button" class="small-font">לא עכשיו</button>
+  </div>
+  <!-- weak-refuse by opacity alone: the "no" is the same dark button, faded to a quarter. -->
+  <div class="ask">
+    <p>האתר משתמש בעוגיות מדידה.</p>
+    <button type="button">אישור הכול</button>
+    <button type="button" class="faded">דחיית הכול</button>
   </div>
   <div class="ask">
     <p>האתר משתמש בעוגיות שיווק.</p>

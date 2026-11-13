@@ -350,34 +350,57 @@ deadline: in the checks phase, `playwright.dod.config.ts` makes them their own p
 (`extended`), the teardown of the project that runs every other check (`checks`), so they start
 only after those have finished and never take their share of `checksMinutes`. A check starts only
 while more than 20 seconds of that deadline are left; otherwise it writes `error: "not checked: out
-of time ..."`. A one-route run with `--grep "<slug>__"` does not run them, because their titles carry no
-`__`; `pnpm dod -- --grep "<slug>__|extended <slug>$"` runs that route's entries and its extended
-checks, and writes only its `extended/<slug>.json` (`screen` step 7 runs it this way).
+of time ..."`. A one-route run writes that route's `extended/<slug>.json` and no other. With
+`pnpm dod -- --grep "<slug>__"` that is because Playwright (1.64.1, measured) does not apply `--grep`
+to a teardown project's tests, so every extended test starts, and each returns at once for a route
+this run did not measure. `--grep "<slug>__|extended <slug>$"` (what `screen` step 7 runs) names the
+route's extended test as well, so it holds on a version that does filter them.
 
-The checks move focus, resize the window and add a stylesheet, and an app's own handlers can answer
-that with a save (a field that saves on blur). So from the moment a check starts on its page, every
-request of that page whose method is not GET, HEAD or OPTIONS is aborted before it leaves the
-browser, and reported as a finding of kind `write-held`, with the method, the path and what the
-check was doing ("when focus left `<input>` ..."), so a person can see which handler wrote. While
-the page loads nothing is held, because apps read through POST too (GraphQL, an RPC). Not held: a
-WebSocket message, a GET that changes data, and a request a service worker makes on its own. The
-fixture `save-on-focus.html` saves on focus, on blur and by `sendBeacon`, and its test asserts no
-write reaches the server.
+The checks move focus, resize the window, switch forced colours on and add a stylesheet, and an
+app's own handlers can answer that with a save (a field that saves on blur, a draft saved on
+resize). So every request of the test's browser context whose method is not GET, HEAD or OPTIONS is
+aborted before it leaves the browser, whatever sent it (the check's page, a window it opened, a
+worker), and reported as a finding of kind `write-held`, with the method, the path, who sent it and
+what the check was doing ("when focus left `<input>` ..."), so a person can see which handler wrote.
+A page's own requests pass while it loads for a check, because apps read through POST too (GraphQL,
+an RPC). Three things keep writes from leaving where the guard cannot see them:
+- No check's page is ever closed. Closing a page runs its `pagehide`, `visibilitychange` and
+  `unload` handlers, and their beacons and keepalive fetches leave from the browser process, unseen.
+  The pages stay open until the test's context closes, which runs none of those handlers (measured on
+  Playwright 1.60.0 and 1.64.1).
+- Service workers are blocked in the extended checks' context (`serviceWorkers: "block"`), so a
+  worker that answers every fetch cannot send a page's write on its behalf.
+- `SharedWorker` is taken away from the context's pages before they load: a SharedWorker's requests
+  never reach a context route. A page that needs one to draw may then differ from the scored page,
+  and its checks say "not the page the scored phase measured".
+
+Not held, and what a project does about it: a WebSocket message, a GET or an image request that
+changes data, and a write the app makes on hover or on its own timer while the page loads (the
+load is not guarded, as in every phase of the kit). If the app saves any of these ways on focus,
+blur, resize or a change of colours, run the checks only against a QA account whose data may
+change, or leave `standard.json` out of that project. The fixtures that hold this
+(`save-on-focus.html`, `save-on-leave.html`, `save-via-sw.html`, `save-in-popup.html`,
+`save-in-shared-worker.html`, `reads-on-load.html`) run through the spec itself in a real
+`run-dod.mjs` run, and the test asserts that the server got no write.
 
 | Check | Where | Fires on |
 |---|---|---|
 | `forced-colors` (A-01, partly) | 1440x900, Chromium's forced colours (`forcedColors: "active"`, which paints the forced palette, not only the media query) | `boundary`: a button, field, select, switch, checkbox or slider with no border of 1px or more on any side and no outline of 1px or more, and no wrapper within 8px of it that has one (a native checkbox, radio or select, and anything under `forced-color-adjust: none`, are drawn by the system or the page and not judged; a ghost or icon button with no border is a finding, which its fix, a transparent border, removes); `focus`: one of the first 25 elements Tab reaches whose picture, 6px around it, is the same focused and not (a focus ring made of `box-shadow` alone, which forced colours remove); `state`: a selected, current, pressed or checked item that in normal colours looks different from an unselected one of the same kind beside it and in forced colours looks the same (it was told apart by a background or a shadow only); `mark`: an element 3px to 600px with no words in it or beside it, painted only by its background colour and not the colour behind it (a status dot, a progress fill), which forced colours paint the page colour |
-| `text-reflow` (A-02) | 640x512 and 320x256: the 1280x1024 window at 200% (1.4.4: no loss, sideways scroll allowed) and at 400% zoom (1.4.10) | `clipped`: text partly outside a box that hides its overflow (`overflow: hidden` or `clip`, an ellipsis, a line clamp); text wholly outside its box is a closed panel and is not judged, nor is a slide of a carousel (`aria-roledescription`); `unreachable`: text partly beside the window on a side no scroll reaches (the right of a right-to-left page, the left of a left-to-right one, either side when the page does not scroll sideways, as when `html` or `body` hides what is wider); `sideways` (320 only): the page really scrolls sideways (not when `html` or `body` hides the overflow) because of an element that is not a part needing two dimensions; the sample names the widest such element. 1.4.10's exception, two ways: text inside a box that scrolls on its own (a wide table in its scroller) is reachable and not judged, whatever its width; and a part that needs two dimensions (a table, `role="table"`, `role="grid"` or `role="treegrid"`, an image, a map or chart in `svg`, `canvas`, `video`, `iframe`, `role="img"` or `role="application"`; a CSS grid layout is not one), or a wrapper that is wide only because of one, may make the page scroll sideways. Everything else must still fit the window: a paragraph made as wide as a table beside it (WCAG's Understanding Reflow, Figure 9, a fail) is not two-dimensional, so it is the `sideways` finding, named as the widest element |
+| `text-reflow` (A-02) | 640x512 and 320x256: the 1280x1024 window at 200% (1.4.4: no loss, sideways scroll allowed) and at 400% zoom (1.4.10) | `clipped`: text partly outside a box that hides its overflow (`overflow: hidden` or `clip`, an ellipsis, a line clamp); text wholly outside its box is a closed panel and is not judged, nor is a slide of a carousel (`aria-roledescription`); `unreachable`: text partly beside the window on a side no scroll reaches (the right of a right-to-left page, the left of a left-to-right one, either side when the page does not scroll sideways, as when `html` or `body` hides what is wider); `sideways` (320 only): the page really scrolls sideways (not when `html` or `body` hides the overflow) because of an element that is not a part needing two dimensions; the sample names the widest such element. 1.4.10's exception, two ways: text inside a box that scrolls on its own (a wide table in its scroller) is reachable and not judged, whatever its width; and a part that needs two dimensions (a data table, `role="table"`, `role="grid"` or `role="treegrid"`, an image, a map or chart in `svg`, `canvas`, `video`, `iframe`, `role="img"`; not a CSS grid layout, not a layout table, meaning one column with no header cell or `role="presentation"`, and not `role="application"`, which on an app's root would excuse the whole page), or a wrapper that is wide only because of one, may make the page scroll sideways. Everything else must still fit the window: a paragraph, heading, search field or pagination made as wide as the table it goes with (WCAG's Understanding Reflow, Figures 9 and 13, both fails) is not two-dimensional, so it is the `sideways` finding, named as the widest element |
 | `text-spacing` (A-03, partly) | 1440x900 and 375x812 | with the four overrides of 1.4.12 (`TEXT_SPACING_CSS`: line height 1.5, paragraph spacing 2em, letter spacing 0.12em, word spacing 0.16em), text `clipped` or `unreachable` as above, or two texts that `overlap`, that were not before the overrides (a badge over its label on purpose is not a finding) |
 | `consent-prechecked` (H-02) | the page as it loaded | a checkbox or switch (also one that only `aria-checked` says is on, and a native box hidden and drawn by its label) that is on, whose label speaks of consent (mailing, updates by mail or message, offers, marketing, cookies, sharing, third parties, privacy, "מסכימה", "מאשר", Hebrew or English; not an app's own updates), other than a disabled one labelled necessary ("הכרחיות", "necessary"). The check cannot tell a default from a choice she saved earlier (a profile page shows her own choice ticked), so the sample says "is on when the page loads (a default, or a choice saved earlier: a person reads which)" |
-| `consent-refuse` (H-03) | the page as it loaded | an accept control ("אישור הכול", "לאפשר", "מסכים", "Accept all", ...) inside a box whose words, other than the button's own, are a consent request (cookies, mailing, marketing, consent, a permission, location, notifications): `no-refuse` when no refuse control ("דחיית הכול", "לא תודה", "לא עכשיו", "לא כרגע", "אחר כך", "ביטול", "Reject all", "Decline all", "Deny all", "Later", "Don't allow" with either apostrophe, ...) is in the box; `weak-refuse` when none is as prominent, the stated rule being: a button or link like the accept control, at least half its area, its text at least 85% of the accept text's size, and at least 4.5:1 against its own background (`PROMINENCE` in `consent-checks.ts`). Closing the box ("סגירה", an X) is not a refuse control (H-03). A generic "אישור", "OK" or "Got it" in a box with fields of its own is that form's submit and is not judged. Colours are read as the browser paints them (any syntax: `oklch`, `color-mix`, hex), and a translucent background is laid over what is behind it; when an image or a gradient is behind the refuse control, its contrast is not judged: if its area and text size pass, it gets a note ("contrast not judged"), not a finding |
+| `consent-refuse` (H-03) | the page as it loaded | an accept control ("אישור הכול", "לאפשר", "מסכים", "Accept all", ...) inside a box whose words, other than the button's own, are a consent request (cookies, mailing, marketing, consent, a permission, location, notifications): `no-refuse` when no refuse control ("דחיית הכול", "לא תודה", "לא עכשיו", "לא כרגע", "אחר כך", "ביטול", "Reject all", "Decline all", "Deny all", "Later", "Don't allow" with either apostrophe, ...) is in the box; `weak-refuse` when none is as prominent, the stated rule being: a button or link like the accept control, at least half its area, its text at least 85% of the accept text's size, and at least 4.5:1 against its own background (`PROMINENCE` in `consent-checks.ts`). Closing the box ("סגירה", an X) is not a refuse control (H-03). A generic "אישור", "OK" or "Got it" in a box with fields of its own is that form's submit and is not judged. Colours are read as the browser paints them (any syntax: `oklch`, `color-mix`, hex), each faded by its element's and its ancestors' `opacity`, and a translucent background is laid over what is behind it, down to the page's own canvas (dark under `color-scheme: dark`); when an image or a gradient is behind the refuse control, its contrast is not judged: if its area and text size pass, it gets a note ("contrast not judged"), not a finding |
 
 What they cannot see, and the reviewer of each rule reads instead: a consent box or banner in
 other words than the lists hold; a focus ring on an element past the first 25 Tab stops; text
 spacing inside a shadow root (the overrides are a page stylesheet); what a forced-colours user can
 do with a control, beyond seeing its edge; and a shell of the window's height that hides its
 overflow (`h-screen overflow-hidden`) with a menu longer than the window: links wholly below its
-edge read as a closed panel, so nothing is reported although no scroll reaches them. Each is a
+edge read as a closed panel, so nothing is reported although no scroll reaches them; under
+`html { overflow-x: hidden }`, a row of links is reported once, for the link that straddles the
+edge, not for those wholly past it; a decorative image wider than the window counts as a
+two-dimensional part and is not reported (Understanding Reflow would have it fit the window); and a
+layout table with two or more columns and no header cell counts as a data table. Each is a
 heuristic in report mode, held, like the checks above, to fixture pages that fail it and pages that
 pass them all (`tests/fixtures/extended/`, `pass.html` holding each exemption), and each condition
 and threshold to a test that fails without it:
