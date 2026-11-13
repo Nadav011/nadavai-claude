@@ -171,17 +171,19 @@ under "The tour manifest" below) and never against the live account, showing tha
 for that action on the sample record, now or later, and that it is held on the server by the
 sample flag: after the step, and after the scheduled jobs ran past the latest reminder, the
 recorder holds nothing the step caused, for the sample or for anyone else, and the same test
-first shows that the recorder records (a control known to send, pressed once, appears in it), so
-an empty recorder is evidence; the live app, whose server code is the same, then does for the
-sample what the test showed. "Nothing, from any sender" can be shown only where every outbound
+first shows that the recorder records and that the hold, not a sender left off in the copy, is
+what keeps it empty (condition (c) of the live-app conditions there), so an empty recorder is
+evidence; the live app then does for the sample what the test showed only under those
+conditions, and until they all hold the step is a "הבנתי" step. "Nothing, from any sender" can
+be shown only where every outbound
 effect (messages,
 charges, calendar sync, webhooks, scheduled jobs) passes through one place that checks the
 flag: a check fails a sender that goes around it, so one added next month is caught, and the
 test runs the scheduled jobs past the latest reminder. Putting that hold into the senders
 changes who gets a message (a flag set wrongly drops a real patient's reminder), so it goes
 through the replay of `action-safety.md` and is switched on only after Nadav's yes. Until the
-test exists the
-step is a "הבנתי" step. An "undo" toast is not "safe": a notice held for ten seconds leaves
+test exists, and the hold is on in the live app, the step is a "הבנתי" step. An "undo" toast is
+not "safe": a notice held for ten seconds leaves
 after the tour has moved on.
 
 Three things are never "do it yourself" in the business's real books, whatever a test shows:
@@ -190,7 +192,9 @@ and closing a record for good. A practice receipt that took a real number cannot
 real books are every place in the live account where a document number is taken or the documents
 provider is called; a separate "sample" numbering inside the live account is not outside them
 unless Nadav says so. The one exception is a practice mode in which no document number is taken
-and no provider can be reached, proven by that mode's own tests: there she does them herself, to
+and no provider can be reached, proven by that mode's own tests, made in the recording copy
+(defined under "The tour manifest") and never in the live account: there she does them herself,
+to
 the end (his pick of 11.11.2026 for MediZen [A], in the example above; for another project whose
 mode gives the same proof [I]). The rest of this paragraph is this skill's own [I]. She enters
 the mode by her own tap from the tour's card, or is already in it; the tour never switches mode
@@ -221,7 +225,13 @@ card does (the built version made the target inert on those steps too [B]). So a
 step may light a control on a real person's row: it acts on nobody. Where the sample record
 carries the same control, the step lights the sample's. A test of the built engine shows it:
 pressing the lit control of a stop step does nothing, no click reaches the app and the step does
-not move on (`tour-anchors`, run in the recording copy, never in the live app). This is done
+not move on (`tour-anchors`, run in the recording copy, never in the live app). Until that test
+has passed there, no step of a tour anyone runs lights a control, whatever its class: a stop
+step on a control classed T or P, a stop step classed S (a press would save to whatever record
+the control sits on, a real person's included) and a showing step, whose control carries no
+class and may do anything, are each written with no anchor, a centred card that names the
+control, and get their anchors back once the test passes; the checker cannot know whether the
+test was done (`NOT_COVERED`). This is done
 with the platform's own mechanism
 (`inert`, or
 `aria-hidden` on the siblings), which also stops the app's keyboard shortcuts and a screen
@@ -410,14 +420,20 @@ written for each of them. Two layers:
   step looks at the sample's record (it changed as the step says), at the settings the step's
   window can reach and every list of other people, as the day's list (unchanged), and at the
   recorder, the provider gate and the browser's effects (nothing the step caused, or only what
-  the step's class says, for the sample alone): a print, an export, a download or a send seen
-  there means the control is not a record control, so the run fails and `inOrderRun` is not
-  written; after a run that passes, the reviewer who did it, and nobody else, writes the copy's
+  the step's class says, for the sample alone): a print, an export, a download, a send, a
+  charge, a clipboard write or a navigation out of the app seen there means the control is not a
+  record control, so the run fails and `inOrderRun` is not written (a send that leaves only when
+  a scheduled job runs is not this look's to see: G-20's test, which runs the jobs past the
+  latest reminder, catches it); after a run that passes, the reviewer who did it, and nobody
+  else, writes the copy's
   name, the date and the key `tour-check.mjs --run-key` prints into the manifest's `inOrderRun`,
   which the checker requires at stage app when a tour has a do step (`run-not-recorded`),
-  refuses at stage demo (`run-at-demo`), and holds to a day that has passed (`run-date`) and to
-  the key of the content it was written for (`run-stale`); the key shows only that the record
-  was written for this exact content, never that the run was done: a save's effect can depend on
+  refuses at stage demo (`run-at-demo`), and holds to a day not after today (`run-date`) and,
+  with `--inventory`, to the key of the content it was written for (`run-stale`); the key leaves
+  out only the words she reads, which `tours.schema.json` names under `inOrderRun.key`, so a
+  text-only change keeps the record, and it covers no bindings, app code or build, so it shows
+  only that the record was written for this exact content, never that the run was done or that
+  the app is unchanged since: a save's effect can depend on
   a field an earlier step
   set, and a wrongly listed control pressed in the live app would itself do the harm), is judged
   in the recording copy, never in the live app. Then the anchor of its control; what she
@@ -509,11 +525,26 @@ latest reminder, and every outbound provider (messages, charges, calendar and ot
 sends, the automatic jobs' sends) replaced at its gate by a recorder that records what would
 have left and sends nothing; the browser's own effects are recorded too (a print, a download, a
 new window or tab, a navigation out of the app, a clipboard write). It is never the live app,
-and never a copy whose providers hold real keys. G-20's `safeTest`, the stop-step press test and
-the in-order run are made there and nowhere else, and since its server code is the live app's,
-what the engine then does for a user in the live app is what was checked there. A project with
-no recording copy gives its tours no do steps, every step showing or stopping, whatever preview
-it has; building one (the server's own build against an invented-data database, a recorder at
+and never a copy whose providers hold real keys. G-20's `safeTest`, the practice mode's tests
+(`modeTest`, and `stopTest`, that the step is a stop step outside the mode), the stop-step press
+test and the in-order run are made there and nowhere else. A check there shows what this build
+did on this database, with these settings, with every outbound provider replaced and no call
+coming in from a provider. **The live-app conditions**: the live app does the same for the
+sample only when (a) it runs that same build; (b) the hold is on in the live app, which is
+switched on only after Nadav's yes, and a step the hold makes safe stays "הבנתי" until the hold
+is on there, not merely until the test exists; (c) every automatic sender that is on in the live
+app was on in the copy and shown to be held: the test runs the step once with the hold off and
+sees the send in the recorder, then with the hold on and sees nothing the step caused (a step
+that sends nothing shows nothing either way; an unrelated control that sends, seen in the
+recorder, shows only that the recorder is not deaf), and which senders are on live is found by
+looking at the live app's settings, never by pressing, and that list goes into the test's setup;
+and (d) a call coming in from a provider (a webhook, a delivery report) is outside the test, so
+a handler that sends when a provider calls back is found by reading the code, and until every
+such handler is read and named in the test, the step stays "הבנתי". What these four do not cover
+stays "הבנתי"; every other sentence on what the live app then does points here. A project with
+no recording copy gives its tours no do steps, and its showing and stop steps light no control
+(each a centred card, as "What responds" says), whatever preview it has; building one (the
+server's own build against an invented-data database, a recorder at
 every provider gate and in the browser) is the project's own work and cost decision, not this
 skill's. A question only the live app answers (the sample patient exists, is marked, and is the
 only one marked; which automatic senders are on) is answered there by looking, never by
