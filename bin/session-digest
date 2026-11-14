@@ -39,9 +39,12 @@ NOISE_PREFIXES = (
     "Caveat:", "[Request interrupted", "<command-message>", "Stop hook feedback:",
     "A session-scoped Stop hook", "Base directory for this skill:", "Your claude.ai usage limit",
     "<tools-used-before-summary", "<side-sessions-event", "The app was quit while you were working",
-    "The dev server failed to start with the following error",
+    "I hit my usage limit while you were working", "The dev server failed to start with the following error",
 )
 PEER_PREFIX = "Another Claude session sent a message:"
+# The brief a session writes into a side session it starts. It speaks of the owner in the third
+# person and is that session's word, not his.
+PEER_PREFIXES = (PEER_PREFIX, "Background (from the session that started this one):")
 SUMMARY_PREFIX = "This session is being continued from a previous conversation"
 GOAL = re.compile(r"Goal check-in: «(.+?)»", re.S)
 REMINDER = re.compile(r"<system-reminder>.*?</system-reminder>", re.S)
@@ -267,7 +270,7 @@ def read(path, args):
                 source = origin.get("kind") if isinstance(origin, dict) else None
                 # Records written before the origin field carry no source, so the wording decides.
                 # Another session's message can be marked meta, so it is looked at before meta is dropped.
-                if source == "peer" or text.startswith(PEER_PREFIX):
+                if source == "peer" or text.startswith(PEER_PREFIXES):
                     body = text[len(PEER_PREFIX):] if text.startswith(PEER_PREFIX) else text
                     add("X", stamp, clip(body, args.max_peer_chars))
                     continue
@@ -301,7 +304,7 @@ def read(path, args):
                 text = REMINDER.sub("", text).strip() if text else ""
                 if not text:
                     continue
-                if source == "peer" or text.startswith(PEER_PREFIX):
+                if source == "peer" or text.startswith(PEER_PREFIXES):
                     body = text[len(PEER_PREFIX):] if text.startswith(PEER_PREFIX) else text
                     add("X", att.get("timestamp") or stamp, clip(body, args.max_peer_chars))
                     continue

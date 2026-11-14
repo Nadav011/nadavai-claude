@@ -17,7 +17,7 @@ count() { grep -c -- "$1" <<<"$all"; }
 summary=$("$BIN" "$FIX" --out "$t/all" | tail -1)
 all=$(cat "$t"/all/part-*.md)
 # shellcheck disable=SC2034  # read inside the eval of ok()
-want="11 typed, 1 dialog answers, 3 commands, 1 goals, 2 replies, 1 before a dialog, 3 from other sessions, 1 compactions, 1 part(s)"
+want="11 typed, 1 dialog answers, 3 commands, 1 goals, 2 replies, 1 before a dialog, 4 from other sessions, 1 compactions, 1 part(s)"
 ok "counts: got '$summary'" '[ "$summary" = "$want" ]'
 
 # What he typed is kept once per message.
@@ -39,6 +39,8 @@ ok "command with args"            'grep -q "^/model opus$" <<<"$all"'
 ok "queued command"               'grep -q "^/nadavai:my-status$" <<<"$all"'
 ok "goal once"                    '[ "$(count "every report screen works end to end")" = 1 ]'
 ok "peer is not typed"            'grep -q "^=== X1 .*not the owner" <<<"$all" && grep -q "hold the deploy" <<<"$all"'
+ok "a parent session's brief is not typed" 'grep -B2 "look at the parent brief" <<<"$all" | grep -q "^=== X[0-9]* .*not the owner"'
+ok "the app's usage-limit resume text is not typed" '! grep -q "I hit my usage limit" <<<"$all"'
 ok "meta peer kept as peer"       'grep -q "the tax session finished its part" <<<"$all"'
 ok "peer message from the queue"  'grep -q "the design session needs the logo file" <<<"$all" && ! grep -B3 "needs the logo file" <<<"$all" | grep -q "owner typed"'
 ok "compaction mark"              'grep -q "CONTEXT COMPACTED #1" <<<"$all"'
