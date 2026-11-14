@@ -35,6 +35,7 @@ ok "a per-machine cap is not reset from base" '[ "$(jq -r .env.VITEST_MAX_THREAD
 ok "a profile's own effort entry stays"       '[ "$(jq -r ".modelSettings[\"claude-opus-5-5\"].effortLevel" "$a")" = medium ]'
 ok "a missing effort entry is added"          '[ "$(jq -r ".modelSettings[\"claude-opus-5-5\"].effortLevel" "$b")" = "$(jq -r ".modelSettings[\"claude-opus-5-5\"].effortLevel" "$here/settings/settings.base.json")" ]'
 ok "the model is the base's"                  '[ "$(jq -r .model "$b")" = "$(jq -r .model "$here/settings/settings.base.json")" ]'
+ok "the advisor model is the base's"          '[ "$(jq -r .advisorModel "$a")" = "$(jq -r .advisorModel "$here/settings/settings.base.json")" ] && [ "$(jq -r .advisorModel "$a")" = fable ]'
 
 # 2. A second run changes nothing.
 before=$(cat "$a" "$b")
