@@ -14,7 +14,10 @@
 //
 // To change the look, change this file (or the command in settings.base.json): update.sh writes
 // that command into the statusLine of every profile, so a status line set in one profile with
-// /statusline is replaced on the next update.
+// /statusline is replaced on the next update. The renderer's own options (which elements, their
+// order) are the `omcHud` key of a profile's settings.json, which update.sh neither writes nor
+// copies between profiles; an order that moves the label off the start of its line would leave
+// `[OMC#...]` unrenamed, because the label is renamed only there.
 //
 // CommonJS on purpose: the file has no extension, and Node decides the module kind by extension.
 "use strict";

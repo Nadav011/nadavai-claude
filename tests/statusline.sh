@@ -32,12 +32,17 @@ const nb = (s) => s.replace(/ /g, "\u00A0");
 console.log("\x1b[1m" + nb("[OMC#5.8.4]") + "\x1b[0m" + nb(" | Model: Opus 5.5 | agents:3") + "\n" +
   nb("├─ G general-purpose  3m  Run claude plugin update nadavai after the pull") + "\n" +
   nb("├─ G general-purpose  1m  grep for [!] omc lines") + "\n" +
-  nb("└─ G general-purpose  1m  Fix [OMC-12] planner comparison"));
+  nb("└─ G general-purpose  1m  Fix [OMC-12] planner comparison") + "\n" +
+  nb("├─ G general-purpose  1m  quote [!] omc 5.8.6 - paste: in the report") + "\n" +
+  nb("├─ G general-purpose  1m  explain the [OMC] HUD error line") + "\n" +
+  nb("└─ G general-purpose  1m  why it says [OMC] run /omc-setup to install properly"));
 JS
 out=$(NADAVAI_STATUSLINE_RENDERER="$t/rows.mjs" node "$sl" </dev/null 2>&1 | plain)
 ok "an agent row that says 'claude plugin update' stays"   'grep -qF "Run claude plugin update nadavai after the pull" <<<"$out"'
 ok "an agent row that says '[!] omc' stays"                'grep -qF "grep for [!] omc lines" <<<"$out"'
-ok "a bracket that is not the label is not renamed"        'grep -qF "Fix [OMC-12] planner comparison" <<<"$out" && [ "$(wc -l <<<"$out")" = 4 ] && grep -q "^\[NadavAI\] | Model" <<<"$out"'
+ok "a bracket that is not the label is not renamed"        'grep -qF "Fix [OMC-12] planner comparison" <<<"$out" && [ "$(wc -l <<<"$out")" = 7 ] && grep -q "^\[NadavAI\] | Model" <<<"$out"'
+ok "a row that quotes the renderer's update line or failure lines mid-row stays (the patterns are anchored to the line start)" \
+  'grep -qF "quote [!] omc 5.8.6 - paste: in the report" <<<"$out" && grep -qF "explain the [OMC] HUD error line" <<<"$out" && grep -qF "why it says [OMC] run /omc-setup to install properly" <<<"$out"'
 
 printf 'console.log("[OMC#5.8.4] | Model: Opus 5.5");\n' >"$t/plain.mjs"
 out=$(NADAVAI_STATUSLINE_RENDERER="$t/plain.mjs" node "$sl" </dev/null 2>&1 | plain)
