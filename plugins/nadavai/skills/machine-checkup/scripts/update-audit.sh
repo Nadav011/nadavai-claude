@@ -3,8 +3,8 @@
 # One block per source. Each line is one of:
 #   ok        checked and current
 #   PENDING   fixable on the live machine (an install or update command)
-#   REBOOT    applied, but only a reboot or app restart finishes it (never done on a machine
-#             with running sessions: report it to Nadav)
+#   REBOOT    applied, but only a reboot or app restart finishes it (done without asking only
+#             under machine-checkup hard rule 1; otherwise listed for Nadav)
 #   UNKNOWN   the check itself failed (offline, tool error): nothing was proven
 #   info      not checkable from here (said so, never counted as ok)
 # Exit: 0 everything current, 1 PENDING, 2 UNKNOWN (and nothing pending), 3 only REBOOT items.
@@ -311,7 +311,7 @@ block "failed units"
 echo
 if   [ -s "$F/pending" ]; then echo "RESULT: PENDING items above (fix them, then run again)"; return 1
 elif [ -s "$F/unknown" ]; then echo "RESULT: NOT VERIFIED: some checks failed, nothing is proven for them"; return 2
-elif [ -s "$F/reboot" ];  then echo "RESULT: current, but a reboot/restart is needed to finish (reboot without asking once no other agent session, CI job, deploy or heavy-slot job runs on this machine and nobody is at its desktop, and say so; until then it stays pending)"; return 3
+elif [ -s "$F/reboot" ];  then echo "RESULT: current, but a reboot/restart is needed to finish (reboot without asking only under machine-checkup hard rule 1: no other agent session, CI job, deploy or heavy-slot job, its screen locked or no desktop session open, and not the Oracle servers, a CI agent or another machine with a service others rely on around the clock; otherwise it stays pending and is listed for Nadav)"; return 3
 fi
 echo "RESULT: everything current"
 }

@@ -28,8 +28,9 @@ hold the last run's decisions and what was intentionally left out.
    runners, dagu) is never touched without him: another session owns it.
 3. **Never interrupt the source.** No reboot, no restart of Orca, Chrome or Docker there. Ask him
    to close Chrome for the profile copy. Reboot the target without asking while nothing else
-   is running on it and nobody is at its desktop (`rules/working-style.md`, Approval gates);
-   otherwise the reboot stays pending and is named in the report.
+   is running on it, its screen is locked or no desktop session is open, and no service that
+   others rely on runs on it (`rules/working-style.md`, Approval gates); otherwise the reboot
+   stays pending and is named in the report.
 4. **Logins follow `references/logins.md`**: static and Google tokens may be copied, rotating
    refresh tokens get a fresh login on the target, WhatsApp never. Secrets are never printed.
 5. **Hardware-specific items stay hardware-specific**: host tuning (`legion-power-limits`,

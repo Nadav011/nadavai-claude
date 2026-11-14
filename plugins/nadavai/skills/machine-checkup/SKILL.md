@@ -17,9 +17,11 @@ per-round logs and lessons), `msi-thermal-diagnosis-2026-10.md`,
    sessions and 10-hour workflows at all times. A reboot is the one exception, and only while no
    session is working on the machine (Nadav, 2026-11-14), read as `rules/working-style.md`
    (Approval gates) reads it: no agent session other than this one, no CI job, deploy or
-   `heavy-slot` job, and nobody at its desktop (`loginctl show-session <id> -p LockedHint` says
-   `yes`, or no desktop session is open). A reboot of the Oracle servers stays pending until
-   Nadav has answered that case.
+   `heavy-slot` job, and its desktop is free (`loginctl show-session <id> -p LockedHint` says
+   `yes`, or no desktop session is open). A machine he may be working at, or one with a
+   service that others rely on around the clock (the Oracle servers, a CI agent such as the
+   MSI), is not rebooted by an agent: the reboot stays pending and is listed for him (Nadav,
+   2026-11-14: "ממתין ומדווח לך").
 2. **Nothing needed is lost.** Delete only what is regenerable (caches, build output,
    `node_modules`, old downloads) or proven orphaned. User data, history and anything without a
    second copy goes to the archive on the other machine first (`scripts/archive.sh`), and is
