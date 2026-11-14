@@ -1,23 +1,26 @@
 ---
 name: virtual-phones
-description: Run, see and operate an Android or iPhone app on Nadav's Linux machines without a physical phone - the Android SDK emulator driven with agent-device, and the experimental x86sim iPhone simulator on the LENOVO. Use when a task needs an app opened on a phone image, a screen read or tapped, a customer flow walked through, a device feature simulated (SMS code, fingerprint, notification, deep link, offline, Hebrew system language), a simulator build of an iOS app, or when asked whether something can be checked without a phone or a Mac. Not for the web layer's phone feel (mobile-native) or store submission (store-apps).
+description: Run, see and operate an Android or iPhone app on Nadav's Linux machines without a physical phone - the Android SDK emulator driven with agent-device, the experimental x86sim iPhone simulator on the LENOVO, and scripted iPhone-simulator runs on Apple's Xcode Cloud. Use when a task needs an app opened on a phone image, a screen read or tapped, a customer flow walked through, a device feature simulated (SMS code, fingerprint, notification, deep link, offline, Hebrew system language), a simulator build of an iOS app, or when asked whether something can be checked without a phone or a Mac. Not for the web layer's phone feel (mobile-native) or store submission (store-apps).
 ---
 
 # Virtual phones
 
-What an agent can do on a phone image here. Everything below was run on 2026-11-13 against
+What an agent can do on a phone image here. Everything below was run on 2026-11-13 and 14 against
 MediZen 1.3.0 unless a line says otherwise; the evidence is in `~/Documents/mobile-lab/`
 (`android/REPORT.md` and `android/commands.md`, `ios/x86sim-matrix-data.txt`, `ios/session-notes.md`,
-`ios/ui-access.md`). The routing and the lines that always hold are in `rules/virtual-phones.md`.
+`ios/ui-access.md`, `ios/xcode-cloud/REPORT.md`). The routing and the lines that always hold are in `rules/virtual-phones.md`.
 
 | Need | Use | Reach |
 |---|---|---|
 | Android app: read the screen as text, tap by name, type Hebrew, device features | SDK emulator + `agent-device` | Almost every customer action (below) |
 | A recorded, repeatable flow a repo already keeps | Maestro, as that repo runs it | Regression only; do not start new work in it |
 | iPhone: real iOS rendering, the app's own screens, a flow walked by sight | x86sim on the LENOVO + a simulator build from Codemagic | Screenshots and taps; no element tree, push, Face ID, location, camera or offline |
+| iPhone: a scripted check that reads the screen as text, taps by name and signs in | A run on Xcode Cloud + `agent-device` ([references/ios-xcode-cloud.md](references/ios-xcode-cloud.md)) | The element tree, typing, screenshots; each try is a 4 to 7 minute run, with no live screen |
 | The store build on a real device, real push, the camera, a weak or Samsung phone | A physical phone (and a Mac for iPhone) | Not available here: say so, do not substitute |
 
-If `~/Android/Sdk` is missing, or `getent passwd x86simbox` prints nothing, say which and stop.
+Check only what the task's platform needs: an Android task needs `~/Android/Sdk` on the machine it
+runs on, an x86sim task needs `getent passwd x86simbox` to print a line. When that one is missing,
+say so and stop (the MSI has the SDK and no `x86simbox` user, and Android work runs there).
 
 Why agent-device: on the same MediZen flow it took about 11 seconds, Maestro 33 and mobile-mcp 21.
 It types Hebrew, addresses WebView elements by ref or selector, and answers each action with a
@@ -49,7 +52,7 @@ scripts/lab-emulator.sh stop --port <port>            # as soon as the work ends
   and `claude-probe-37` (Android 17), in Hebrew with MediZen 1.3.0, and `claude-probe-play`
   (Android 17 with Play and the lab's Google account: Play updates its WebView and installs apps
   from public listings; spend nothing there). The LENOVO holds `claude-probe` as the
-  fallback. Create your own on the MSI with the `avdmanager` line below through `ssh msi bash -s`.
+  fallback. Create your own on the MSI with the `avdmanager` line of `references/android-by-hand.md` through `ssh msi bash -s`.
 - Prefer an Android 17 image when the question is how a screen behaves. An emulator image's WebView
   never updates itself: the Android 16 image has WebView 133 (February 2025), the Android 17 image
   has 145, the Play device had 157 and phones 158 on 2026-11-14. On 133 MediZen's side menu was
@@ -58,39 +61,8 @@ scripts/lab-emulator.sh stop --port <port>            # as soon as the work ends
 - The console's auth token differs per machine, so `adb ... emu` typed here fails for an emulator
   on the MSI: send console commands with `lab-emulator.sh emu`, and stop with `stop`.
 
-By hand, on one machine:
-
-```bash
-~/Android/Sdk/emulator/emulator -list-avds     # these may be other sessions' AVDs
-adb devices                                    # ports already in use
-echo no | avdmanager create avd -n <your own name> -k "system-images;android-36;google_apis;x86_64" -d pixel_7
-heavy-slot -- true
-~/Android/Sdk/emulator/emulator -avd <name> -port <free even port> \
-  -no-window -no-snapshot -no-audio -no-boot-anim -feature -Vulkan   # in the background, outside heavy-slot; host Vulkan hung it once
-adb -s emulator-<port> wait-for-device         # then getprop sys.boot_completed = 1
-adb -s emulator-<port> emu kill                # as soon as the work ends
-```
-
-- Name the AVD for your task, pick an even port no line of `adb devices` uses, and write both
-  where a later turn finds them.
-- `heavy-slot -- true` only gates the start: beyond the machine's first always-admitted places it
-  waits while the machine is under pressure. The
-  emulator itself runs outside it, because a process inside `heavy-slot` holds one of the machine's
-  always-admitted places for as long as it lives (`machine-load.md`). Stop it the moment the work
-  ends.
-- After `avdmanager`, confirm the AVD is in `emulator -list-avds`.
-- Two images, two uses. `google_apis` is a userdebug build: `adb root` works, the language can be
-  changed, and MediZen's WebView exposed its DevTools socket. `google_apis_playstore` is built like
-  a retail phone: Play Store, no root, no DevTools socket for a release app.
-- A release `.aab` becomes installable with
-  `heavy-slot -- bundletool build-apks --mode=universal --bundle=app.aab --output=app.apks --ks=$HOME/.android/debug.keystore --ks-key-alias=androiddebugkey --ks-pass=pass:android --key-pass=pass:android --overwrite`,
-  then `unzip -o -q app.apks universal.apk` and `adb install universal.apk`. Read the package id with
-  `~/Android/Sdk/build-tools/<version>/aapt2 dump badging universal.apk`. Copy the `.aab` out of another
-  session's worktree; never build or write there.
-- That APK is re-signed, so Android does not verify its app links (`pm get-app-links <package>` shows
-  state 1024) and a bare link opens Chrome. Open a link with an explicit package
-  (`adb shell am start -W -a android.intent.action.VIEW -d "<url>" <package>`), or allow the host with
-  `adb shell pm set-app-links-user-selection --user 0 --package <package> true <host>`.
+Starting one by hand on one machine, creating an AVD, the two image kinds, installing a release
+`.aab` and opening links in a re-signed APK: [references/android-by-hand.md](references/android-by-hand.md).
 
 ### Drive it with agent-device
 
@@ -156,15 +128,19 @@ task needs it (`rules/acting-on-behalf.md`).
 A snapshot, and the diff `--settle` prints, show a password field's content in clear text, which
 lands in the transcript (checked with a made-up value,
 `~/Documents/mobile-lab/android/commands.md`). So a vault login of Nadav's is never typed into a
-phone image. Two ways in, neither run end to end on these machines yet; the first session that
-uses one records what happened in that `commands.md`:
+phone image. Two ways in:
 
-- A password-free sign-in link for the account, when the app's sign-in accepts one. The link
-  opens the account like a password, so it is never printed or pasted into a command: the
-  command that makes it pipes it straight into `$D shell am start -a android.intent.action.VIEW
-  -d "$(cat)"`, and nothing else of its output is shown.
-- The QA account's own test password, typed from the project's env file by variable name and
-  submitted in the same command, with no snapshot and no `--settle` between typing and sending.
+- The QA account's own test password, typed from a local secrets file by variable name and
+  submitted by the same script, with no snapshot and no `--settle` between typing and sending.
+  Run end to end on MediZen's isolated QA clinic on 2026-11-14, after a guard that proves which
+  account it is. Android: `fill 'id="password"' --text-stdin`
+  (`~/Documents/mobile-lab/android/tools/qa-signin.sh`). iPhone: never `fill` a password box
+  (it turns the app's show-password switch on); press it, check it is hidden and focused, bring
+  the Latin keyboard up, then `type` (`references/ios-xcode-cloud.md`).
+- A password-free sign-in link for the account, when the app's sign-in accepts one (not run here
+  yet). The link opens the account like a password, so it is never printed or pasted into a
+  command: the command that makes it pipes it straight into `$D shell am start -a
+  android.intent.action.VIEW -d "$(cat)"`, and nothing else of its output is shown.
 
 To press a form's button without sending it, go offline first and see all three:
 
@@ -260,6 +236,16 @@ $X x86sim log stream --app <bundle id>             # relaunches the app and neve
   `x86simbox`, `x86sim view` on it, and `vncviewer` with clipboard sync off in his session. The
   three commands are in `~/Documents/mobile-lab/ios/session-notes.md`.
 
+## iPhone on Xcode Cloud (scripted, any machine)
+
+Apple's build machines (25 free hours a month in the developer program) boot a real iOS simulator,
+and `agent-device` drives the app there with the element tree x86sim lacks. A run is a script on a
+lab branch that Xcode Cloud starts and that stops before anything is built; the script's log is the
+only thing that comes back, so it prints the trees and pictures it wants seen. Started and read
+with `asc` from any machine. The working example (therapy-flow-v2, branch `ci/ios-simulator-app`),
+the traps of iOS 27 (the folding iPhone, the password box, the Hebrew keyboard, the notifications
+question) and how a secret reaches a run: [references/ios-xcode-cloud.md](references/ios-xcode-cloud.md).
+
 ### A simulator build of the app
 
 Only Xcode makes one, so it comes from Codemagic: a workflow that builds `Release` for
@@ -267,11 +253,13 @@ Only Xcode makes one, so it comes from Codemagic: a workflow that builds `Releas
 The working example is therapy-flow-v2, branch `ci/ios-simulator-app`, workflow
 `medizen-ios-simulator`; [references/ios-simulator-build.md](references/ios-simulator-build.md) has
 the step and what is known about each flag. A build uses the account's free macOS minutes, which
-the store builds share, so every build is asked first (`rules/virtual-phones.md`).
+the store builds share and get first: before a build, read the account and apply the Codemagic
+line of `rules/virtual-phones.md` (the steps are in the reference).
 
 ## What still needs a Mac or a phone
 
-The native element tree and Web Inspector on iPhone, simulated push, location and Face ID, network
+A live iPhone screen with the element tree and Web Inspector (Xcode Cloud gives them only inside a
+scripted run), simulated push, location and Face ID, network
 conditioning, and (with an iPhone attached) the real TestFlight or store build with real push and
 the camera. vphone-linux, a full virtual iPhone, was read and not installed
 (`~/Documents/mobile-lab/ios/vphone-feasibility.md`): creating it peaks at roughly 75 to 95 GB,

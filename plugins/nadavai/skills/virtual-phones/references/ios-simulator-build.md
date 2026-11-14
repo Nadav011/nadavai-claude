@@ -5,9 +5,12 @@ for MediZen on 2026-11-13 (therapy-flow-v2, branch `ci/ios-simulator-app`, workf
 `medizen-ios-simulator`). The two builds, their times and the checks made on them are recorded in
 `~/Documents/mobile-lab/ios/session-notes.md`.
 
-**Ask Nadav before every build** (AskUserQuestion: the minutes left this month, the minutes this
-build should take, and whether a store build is waiting). The account's free minutes are shared
-with the store builds, a failed build counts unless it failed on a Codemagic service error or a
+**Before every build, read the account** (`/user`, below): its billing fields (payment details on
+file, paid minutes) and the free minutes left; two accounts exist. Then apply the Codemagic line of
+`rules/virtual-phones.md` to what it shows: it says when a build is the money gate, when a lab
+build is not started because the store builds get the free minutes first, and what the report of
+a build that runs says. The account's free
+minutes are shared with the store builds, a failed build counts unless it failed on a Codemagic service error or a
 timeout (Codemagic's billing page, quoted in
 `~/Documents/mobile-lab/ios/vphone-feasibility.md`), and the plan runs one build at a time, so a
 simulator build also delays a store build queued behind it.
@@ -59,7 +62,7 @@ What is known about each part:
 - An app with an over-the-air runtime baked at build time (MediZen's `OTA_RUNTIME`) passes it on the
   `xcodebuild` line exactly as its store workflow does.
 
-Starting and fetching it, after his yes:
+Starting and fetching it, once that rule line lets the build run:
 
 ```bash
 set -a; . ~/.claude/secrets/codemagic.env; set +a
@@ -74,7 +77,7 @@ curl -sSL -H "x-auth-token: $CODEMAGIC_TOKEN" -o App-simulator-arm64.zip "<artef
 
 - Usage is `user.billing.usage.currentPeriod.buildTime.mac_mini_m2_free` in seconds, against
   `user.billing.usage.freeLimit.buildTime` (30000 on 2026-11-13, when the account had no payment
-  info).
+  info; read both again before every build).
 - That day a build waited 11 to 28 minutes for a machine, and the two MediZen simulator builds ran
   8m44s and 5m51s. Wait in one background command that asks every 30 seconds and exits on
   `finished`, `failed`, `canceled` or `timeout`.
