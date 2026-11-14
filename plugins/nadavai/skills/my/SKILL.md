@@ -5,38 +5,62 @@ disable-model-invocation: true
 ---
 # my: the menu of Nadav's prompt store
 
-Nadav typed this to see what he can run. Print the table below as it is, in Hebrew, with no text before it, then the two closing lines. Start no work and call no tool.
+Nadav typed this to see what he can run. Print the tables below as they are, each under its heading, in Hebrew, with no text before them, then the three closing lines. Start no work and call no tool.
+
+**באמצע עבודה**
 
 | כשאתה רוצה לדעת או לבקש | מקלידים |
 |---|---|
 | תמשיך עד הסוף בלי לעצור | `/nadavai:my-run` |
-| זו הדרך הכי טובה? יש משהו מוכן? | `/nadavai:my-best` |
-| סיימנו את הכול? אפשר לסגור? | `/nadavai:my-done` |
 | חזרנו עם משתמש חדש, אחרי חסימה, אתחול או קריסה | `/nadavai:my-resume` |
-| אתה בטוח? איך בדקת? | `/nadavai:my-prove` |
-| תקרא את הסשן האחר, תעביר לו הודעה, פרומט לסשן חדש | `/nadavai:my-other` |
-| תעבור על כל הסשן, עם בודקים חדשים | `/nadavai:my-review` |
+| התחברתי, תמשיך מאיפה שעצרת | `/nadavai:my-connected` |
 | מה מצבנו, מה נשאר, כמה זמן עוד | `/nadavai:my-status` |
 | תעשה את זה אתה | `/nadavai:my-self` |
-| תפתח נראה: קישור, מה לראות, מה השתנה | `/nadavai:my-show` |
-| תסביר לי את זה בפשטות | `/nadavai:my-plain` |
-| תכין הודעה ללקוח | `/nadavai:my-client` |
-| מיצינו את המחקר? | `/nadavai:my-research` |
-| המחשב נתקע או מלא | `/nadavai:my-machine` |
 | למה זה לוקח כל כך הרבה זמן? | `/nadavai:my-fast` |
-| רק תענה, אל תתחיל כלום | `/nadavai:my-hold` |
-| זה לא מה שהתכוונתי | `/nadavai:my-wrong` |
-| תרים את זה לרמה הכי גבוהה | `/nadavai:my-top` |
-| תשאל אותי את כל מה שפתוח | `/nadavai:my-ask` |
 | מה עכשיו? | `/nadavai:my-next` |
-| למה אופוס ולא סונט? מי עושה מה ועל איזה מודל | `/nadavai:my-agents` |
-| תשמור את זה לתמיד | `/nadavai:my-save` |
-| תעלה הכול ל-MAIN ולדומיין | `/nadavai:my-ship` |
-| איפה הולכים הטוקנים והכסף? | `/nadavai:my-cost` |
-| למה זה קרה, ושלא יקרה שוב | `/nadavai:my-never` |
+
+**בודקים**
+
+| כשאתה רוצה לדעת או לבקש | מקלידים |
+|---|---|
+| סיימנו את הכול? אפשר לסגור? | `/nadavai:my-done` |
+| אתה בטוח? איך בדקת? | `/nadavai:my-prove` |
+| תעבור על כל הסשן, עם בודקים חדשים | `/nadavai:my-review` |
+| מיצינו את המחקר? | `/nadavai:my-research` |
 | תביא חוות דעת שנייה ממודל אחר | `/nadavai:my-second` |
 | דילגת על מה ששאלתי | `/nadavai:my-missed` |
 | איבדתי את הכול: מה נסגר, מה נשאר, איזה סבב | `/nadavai:my-map` |
 
-Ctrl+P פותח את אותה רשימה מעל תיבת הכתיבה: מקש מספר מכניס את הפרומט לתיבה, ו-Enter מריץ.
+**להבין ולהחליט**
+
+| כשאתה רוצה לדעת או לבקש | מקלידים |
+|---|---|
+| זו הדרך הכי טובה? יש משהו מוכן? | `/nadavai:my-best` |
+| תסביר לי את זה בפשטות | `/nadavai:my-plain` |
+| רק תענה, אל תתחיל כלום | `/nadavai:my-hold` |
+| תשאל אותי את כל מה שפתוח | `/nadavai:my-ask` |
+| למה אופוס ולא סונט? מי עושה מה ועל איזה מודל | `/nadavai:my-agents` |
+| איפה הולכים הטוקנים והכסף? | `/nadavai:my-cost` |
+
+**להראות, לשלוח ולשמור**
+
+| כשאתה רוצה לדעת או לבקש | מקלידים |
+|---|---|
+| תקרא את הסשן האחר, תעביר לו הודעה, פרומט לסשן חדש | `/nadavai:my-other` |
+| תפתח נראה: קישור, מה לראות, מה השתנה | `/nadavai:my-show` |
+| תכין הודעה ללקוח | `/nadavai:my-client` |
+| תשמור את זה לתמיד | `/nadavai:my-save` |
+| תעלה הכול ל-MAIN ולדומיין | `/nadavai:my-ship` |
+
+**משהו לא טוב**
+
+| כשאתה רוצה לדעת או לבקש | מקלידים |
+|---|---|
+| המחשב נתקע או מלא | `/nadavai:my-machine` |
+| זה לא מה שהתכוונתי | `/nadavai:my-wrong` |
+| תרים את זה לרמה הכי גבוהה | `/nadavai:my-top` |
+| למה זה קרה, ושלא יקרה שוב | `/nadavai:my-never` |
+
+Ctrl+P פותח את אותה רשימה מעל תיבת הכתיבה, קבוצה אחת בכל פעם: מקש מספר מכניס את הפרומט לתיבה, 0 עובר לקבוצה הבאה, ו-Enter מריץ.
+ברשימה של Ctrl+P יש גם שורה "לנעול את הסשן על היעד": היא מכניסה לתיבה שורת `/goal` מוכנה, והסשן לא עוצר עד שהכול סגור.
 אחרי השם אפשר להוסיף מילים משלך, למשל: `/nadavai:my-review רק מיום שלישי`.

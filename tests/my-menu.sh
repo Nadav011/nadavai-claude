@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # tests/my-menu.sh: the Ctrl+P menu of the /my-* prompts (mods/my-menu) and how it is installed.
 # Three parts: lib/keybind.mjs adds the key and loses nothing that is in a keybindings.json,
-# link_my_menu reaches every account profile of a made-up home, and the menu's order names the
+# link_my_menu reaches every account profile of a made-up home, and the menu's groups name the
 # prompts that exist. With `claude` on PATH it also validates the mod and runs the mod's own tests.
 # shellcheck disable=SC2016,SC2034  # the checks are single-quoted and read variables inside the eval of ok()
 set -uo pipefail
@@ -130,10 +130,12 @@ again=$(run_link)
 ok "second install: nothing bound again" '! grep -q "bound ctrl+p" <<<"$again"'
 ok "second install: link kept"     'grep -q "already linked" <<<"$again"'
 
-# 9. The menu's order names every /my-* prompt, and only prompts that exist.
-order=$(sed -n '/^const ORDER = \[/,/^\]/p' "$MOD/hooks/register.tsx" | grep -o "'[a-z-]*'" | tr -d "'" | sort)
+# 9. The menu's groups name every /my-* prompt once, and only prompts that exist. The goal row is
+# not a prompt: it is the constant GOAL there, and the list it points at is the one my-run writes.
+order=$(sed -n '/^const GROUPS/,/^\]/p' "$MOD/hooks/register.tsx" | grep -o "'[a-z-]*'" | tr -d "'" | sort)
 prompts=$(find "$here/plugins/nadavai/skills" -maxdepth 1 -type d -name 'my-*' -printf '%f\n' | sed 's/^my-//' | sort)
-ok "the menu's order matches the prompts (order: ${order//$'\n'/ } | prompts: ${prompts//$'\n'/ })" '[ -n "$order" ] && [ "$order" = "$prompts" ]'
+ok "the menu's groups match the prompts (groups: ${order//$'\n'/ } | prompts: ${prompts//$'\n'/ })" '[ -n "$order" ] && [ "$order" = "$prompts" ]'
+ok "the goal row and my-run name the same list" 'grep -qF "מה נחשב גמור" "$MOD/hooks/register.tsx" && grep -qF "מה נחשב גמור" "$here/plugins/nadavai/skills/my-run/SKILL.md"'
 ok "hooks.json names the module"   '[ "$(jq -r ".modules[0]" "$MOD/hooks/hooks.json")" = ./register.tsx ] && [ -f "$MOD/hooks/register.tsx" ]'
 ok "the nadavai plugin hooks file has no module (Codex reads it)" '! jq -e "has(\"modules\")" "$here/plugins/nadavai/hooks/hooks.json" >/dev/null'
 

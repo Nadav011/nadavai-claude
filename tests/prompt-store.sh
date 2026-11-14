@@ -64,6 +64,7 @@ my-done session-close-check
 my-other session-digest
 my-other cs
 my-resume resume-all
+my-connected vault-login-add
 my-wrong session-digest
 my-missed session-digest
 my-cost token-audit
@@ -100,6 +101,9 @@ my-wrong ${CLAUDE_SESSION_ID}
 my-wrong AskUserQuestion
 my-missed ${CLAUDE_SESSION_ID}
 my-self agent-browser
+my-connected agent-browser
+my-run מה נחשב גמור
+my-run לנעול את הסשן על היעד
 my-show orca-cli
 my-machine nadavai:machine-checkup
 my-machine SendMessage

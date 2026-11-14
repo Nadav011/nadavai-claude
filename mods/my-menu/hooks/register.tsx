@@ -6,8 +6,9 @@ import type { EngineInterface, Register } from 'claude-code'
 // the sentence he would say, what he gets, and the prompt it writes. A number
 // key (over an empty box) or a click puts that prompt in the prompt box, and
 // his own Enter runs it, so a prompt still starts only when he starts it and
-// he can add words after its name. The name `my` is taken: it is the nadavai
-// plugin's printed menu, which stays as the form that needs no mod.
+// he can add words after its name. The rows come in groups, one group on the
+// screen at a time, and 0 turns to the next. The name `my` is taken: it is the
+// nadavai plugin's printed menu, which stays as the form that needs no mod.
 //
 // Why the band above the prompt and not a pane: a pane docks beside the
 // transcript in a wide terminal, and Orca's terminal (our right-to-left patch)
@@ -19,42 +20,34 @@ import type { EngineInterface, Register } from 'claude-code'
 
 const COMMAND = 'my-menu'
 const PREFIX = 'nadavai:my-'
-// The order he sees: by how many of his messages each prompt answers, counted
-// over everything he typed to his agents from 2026-08 to 2026-11 (the table is
-// in ~/.omc/plans/method-review-2026-11-13/prompt-store/corpus-2026-11-14/,
-// merged/order.txt). A prompt not named here comes after these, by name.
-const ORDER = [
-  'run',
-  'best',
-  'done',
-  'resume',
-  'prove',
-  'other',
-  'review',
-  'status',
-  'self',
-  'show',
-  'plain',
-  'client',
-  'research',
-  'machine',
-  'fast',
-  'hold',
-  'wrong',
-  'top',
-  'ask',
-  'next',
-  'agents',
-  'save',
-  'ship',
-  'cost',
-  'never',
-  'second',
-  'missed',
-  'map',
+// The row that is not a prompt: it writes a ready `/goal` line. Goal mode is
+// what keeps a session from stopping before the work is closed, and only he
+// can turn it on (Nadav, 2026-11-14, picked "שורה מוכנה ברשימה" over copying a
+// line the session prints).
+const GOAL = 'goal'
+// The groups he sees, by the situation he is in (Nadav, 2026-11-14, picked
+// "לפי מצב" over one list ordered by use). Between the groups and inside each,
+// the most used come first, counted over everything he typed to his agents
+// from 2026-08 to 2026-11 (the table is in
+// ~/.omc/plans/method-review-2026-11-13/prompt-store/corpus-2026-11-14/,
+// merged/order.txt). A prompt no group names goes to a last group, by name.
+const GROUPS: readonly { title: string; names: readonly string[] }[] = [
+  {
+    title: 'באמצע עבודה',
+    names: ['run', GOAL, 'resume', 'connected', 'status', 'self', 'fast', 'next'],
+  },
+  {
+    title: 'בודקים',
+    names: ['done', 'prove', 'review', 'research', 'second', 'missed', 'map'],
+  },
+  { title: 'להבין ולהחליט', names: ['best', 'plain', 'hold', 'ask', 'agents', 'cost'] },
+  { title: 'להראות, לשלוח ולשמור', names: ['other', 'show', 'client', 'save', 'ship'] },
+  { title: 'משהו לא טוב', names: ['machine', 'wrong', 'top', 'never'] },
 ]
-// Number keys 1 to 9 pick a row; 0 turns the page. A page holds as many rows
-// as the band has room for, so no row is scrolled out of reach of its key.
+const REST = 'נוספים'
+// Number keys 1 to 9 pick a row; 0 turns the page. A page holds one group, or
+// as much of it as the band has room for, so no row is scrolled out of reach
+// of its key.
 const MAX_PER_PAGE = 9
 const MIN_PER_PAGE = 1
 // A last page with fewer rows than this shares rows with the page before it.
@@ -76,7 +69,28 @@ const TITLE = 'הפרומטים שלי'
 const HINT = '   מקש מספר או לחיצה בעכבר מכניסים את הפרומט לתיבה · Enter מריץ · Ctrl+P סוגר'
 const SHORT_HINT = '   מספר בוחר · Ctrl+P סוגר'
 
-type Row = { name: string; sentence: string; gloss: string }
+// `line` is what a pick writes when it is not `/<name> <his words>`.
+type Row = {
+  name: string
+  sentence: string
+  gloss: string
+  line?: (words: string) => string
+}
+type Group = { title: string; rows: Row[] }
+
+// When the goal is met. The list it names is the one a session writes under
+// that heading when he sets a goal or runs /nadavai:my-run, and the ending is
+// the one `working-style.md` (Finishing) gives every goal condition.
+const GOAL_MET =
+  'כל שורה ברשימת "מה נחשב גמור" של הסשן הזה סגורה עם ראיה, או שכל מה שנשאר רשום עם חסימה של נדב, של לקוח, של בדיקת חנות או פלטפורמה, של תאריך או של חומרה'
+const GOAL_ROW: Row = {
+  name: GOAL,
+  sentence: 'לנעול את הסשן על היעד',
+  gloss: 'הסשן לא עוצר עד שכל מה שנחשב גמור סגור',
+  // Words he typed are the goal itself, and the list still decides when it is met.
+  line: words =>
+    words === '' ? `/${GOAL} ${GOAL_MET}` : `/${GOAL} ${words}. היעד הושג רק כש${GOAL_MET}`,
+}
 
 // The words he had typed when he opened the menu: what the prompt box held, or
 // what followed `/my-menu`. A number key reaches the menu only over an empty
@@ -127,8 +141,9 @@ const gloss = (description: string): string => {
     .replace(/\.$/, '')
 }
 
-// How many rows each page holds: full pages first, since the most used
-// prompts come first, and a short last page evened out with the one before.
+// How many rows each page of one group holds: full pages first, since the
+// most used prompts come first, and a short last page evened out with the one
+// before.
 const pageSizes = (count: number, fit: number): number[] => {
   const pages = Math.ceil(count / fit)
   const sizes = Array.from({ length: pages }, (_, i) => Math.min(fit, count - i * fit))
@@ -145,26 +160,48 @@ const pageSizes = (count: number, fit: number): number[] => {
 const widest = (texts: string[]): number =>
   Math.max(0, ...texts.map(text => text.length))
 
-const place = (name: string): number => {
-  const at = ORDER.indexOf(name.slice(PREFIX.length))
-
-  return at === -1 ? ORDER.length : at
-}
-
-// The prompts this session can run, read from the commands themselves, so a
-// new nadavai:my-* skill shows up here without a second list to keep.
-const prompts = async ($: EngineInterface): Promise<Row[]> => {
+// The prompts this session can run, in their groups, read from the commands
+// themselves, so a new nadavai:my-* skill shows up here without a second list
+// to keep. No group at all when the session has none of the prompts.
+const groups = async ($: EngineInterface): Promise<Group[]> => {
   const all = await $.command.list()
+  const mine = all.filter(one => one.name.startsWith(PREFIX))
+  if (mine.length === 0) return []
+  const row = (one: { name: string; description: string }): Row => ({
+    name: one.name,
+    sentence: sentence(one.description),
+    gloss: gloss(one.description),
+  })
+  const named = new Set(GROUPS.flatMap(group => group.names))
+  const listed = GROUPS.map(group => ({
+    title: group.title,
+    rows: group.names.flatMap(name => {
+      if (name === GOAL) return [GOAL_ROW]
+      const one = mine.find(found => found.name === `${PREFIX}${name}`)
 
-  return all
-    .filter(one => one.name.startsWith(PREFIX))
-    .sort((a, b) => place(a.name) - place(b.name) || a.name.localeCompare(b.name))
-    .map(one => ({
-      name: one.name,
-      sentence: sentence(one.description),
-      gloss: gloss(one.description),
-    }))
+      return one ? [row(one)] : []
+    }),
+  }))
+  const rest = mine
+    .filter(one => !named.has(one.name.slice(PREFIX.length)))
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map(row)
+
+  return [...listed, { title: REST, rows: rest }].filter(group => group.rows.length > 0)
 }
+
+// The pages the band turns through: each group, cut where it has more rows
+// than the band has room for.
+const pagesOf = (all: Group[], fit: number): Group[] =>
+  all.flatMap(group => {
+    const sizes = pageSizes(group.rows.length, fit)
+
+    return sizes.map((size, n) => {
+      const start = sizes.slice(0, n).reduce((sum, one) => sum + one, 0)
+
+      return { title: group.title, rows: group.rows.slice(start, start + size) }
+    })
+  })
 
 // What he is told when a step ran past its time and left the box alone.
 const LATE_PICK = 'הבחירה התעכבה ולא נכנסה לתיבה. אפשר לבחור שוב.'
@@ -230,13 +267,18 @@ export const register: Register = on => {
   // The key, or `/my-menu`: opens the list, and closes it when it is open.
   on('command.run', { command: COMMAND }, async ($, e) => {
     if (!isInteractive) {
-      const rows = await prompts($)
+      const all = await groups($)
 
       return {
         text:
-          rows.length === 0
+          all.length === 0
             ? MISSING
-            : rows.map(row => `/${row.name}  ${row.sentence}`).join('\n'),
+            : all
+                .flatMap(group => [
+                  `${group.title}:`,
+                  ...group.rows.map(row => `/${row.name}  ${row.sentence}`),
+                ])
+                .join('\n'),
       }
     }
 
@@ -267,26 +309,20 @@ export const register: Register = on => {
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (!(await read($, isOpen)) || e.props.hasSurvey) return next(e)
     const { Box, Text, Button } = $.ui.resolve(e)
-    const rows = await prompts($)
-    if (rows.length === 0) return <Text wrap="truncate-end">{MISSING}</Text>
+    const all = await groups($)
+    if (all.length === 0) return <Text wrap="truncate-end">{MISSING}</Text>
+    const rows = all.flatMap(group => group.rows)
 
     // A band too short for a title gives its rows to the list.
     const hasTitle = e.props.maxRows >= ROWS_FOR_TITLE
     const room = e.props.maxRows - (hasTitle ? 2 : 1)
     const fit = Math.max(MIN_PER_PAGE, Math.min(MAX_PER_PAGE, room))
-    const sizes = pageSizes(rows.length, fit)
-    const pages = sizes.length
-    const onPage = (n: number): Row[] => {
-      const start = sizes.slice(0, n).reduce((sum, size) => sum + size, 0)
-
-      return rows.slice(start, start + (sizes[n] ?? 0))
-    }
-    const at = Math.min(await read($, page), pages - 1)
-    const shown = onPage(at)
-    const after = (at + 1) % pages
-    const coming = onPage(after)
-      .map(row => row.sentence)
-      .join(' · ')
+    const pages = pagesOf(all, fit)
+    const at = Math.min(await read($, page), pages.length - 1)
+    const shown = pages[at] ?? { title: '', rows: [] }
+    const after = (at + 1) % pages.length
+    const ahead = pages[after] ?? shown
+    const coming = ahead.rows.map(row => row.sentence).join(' · ')
     // The cells a row's text may take: the band's width less the key ("1: ").
     const width = Math.max(MIN_WIDTH, e.props.bodyColumns - 4)
     // The columns are sized over every prompt, not only this page's, so that
@@ -307,23 +343,26 @@ export const register: Register = on => {
     const table =
       sentences + (hasGloss ? GAP + glosses : 0) + (hasName ? GAP + names : 0)
 
-    // The title row, held to the band's width.
-    const pageOf = pages > 1 ? `  (${at + 1} מתוך ${pages})` : ''
-    const left = e.props.bodyColumns - TITLE.length - pageOf.length
+    // The title row, held to the band's width: the group on screen, which is
+    // what tells him where he is, stays when the band has no room for both.
+    const pageOf = pages.length > 1 ? `  (${at + 1} מתוך ${pages.length})` : ''
+    const whole = `${TITLE}: ${shown.title}`
+    const head = whole.length + pageOf.length <= e.props.bodyColumns ? whole : shown.title
+    const left = e.props.bodyColumns - head.length - pageOf.length
     const hint = HINT.length <= left ? HINT : SHORT_HINT.length <= left ? SHORT_HINT : ''
 
     return (
       <Box flexDirection="column">
         {hasTitle && (
           <Text wrap="truncate-end">
-            <Text bold>{TITLE}</Text>
+            <Text bold>{head}</Text>
             <Text dimColor>
               {pageOf}
               {hint}
             </Text>
           </Text>
         )}
-        {shown.map((row, index) => {
+        {shown.rows.map((row, index) => {
           const said = cut(row.sentence, sentences)
           const what = hasGloss ? cut(row.gloss, glosses) : ''
           // Blank cells that line the columns up: the sentences begin at the
@@ -343,7 +382,7 @@ export const register: Register = on => {
               plain
               hotkey={String(index + 1)}
               onPress={() => {
-                void inTurn($, isLate => choose($, row.name, isLate))
+                void inTurn($, isLate => choose($, row, isLate))
               }}
             >
               {said}
@@ -362,7 +401,7 @@ export const register: Register = on => {
             </Button>
           )
         })}
-        {pages > 1 && (
+        {pages.length > 1 && (
           <Button
             key="page"
             plain
@@ -374,7 +413,10 @@ export const register: Register = on => {
             }}
           >
             <Text dimColor>
-              {cut(after === 0 ? 'חזרה לרשימה הראשונה' : `עוד: ${coming}`, width)}
+              {cut(
+                after === 0 ? `חזרה להתחלה: ${ahead.title}` : `הבא: ${ahead.title} · ${coming}`,
+                width,
+              )}
             </Text>
           </Button>
         )}
@@ -423,13 +465,14 @@ const close = async ($: EngineInterface, isLate: () => boolean): Promise<void> =
 }
 
 // Puts `/<prompt> ` in the prompt box, with the words he had typed as the
-// prompt's arguments, and closes the list. A draft that began with another
+// prompt's arguments (the goal row writes its own line around them), and
+// closes the list. A draft that began with another
 // command gives up that command's name, not its words. Only a real command's
 // name is given up, whole or without its plugin (`/nadavai:my-plain`,
 // `/my-plain`): a path (`/tmp why`, `/tmp/log.txt ...`) is words.
 const choose = async (
   $: EngineInterface,
-  name: string,
+  row: Row,
   isLate: () => boolean,
 ): Promise<void> => {
   const { text } = await $.prompt.read()
@@ -447,7 +490,7 @@ const choose = async (
     first && commands.some(one => one.name === first[1] || one.name.endsWith(`:${first[1]}`))
       ? draft.slice(first[0].length)
       : draft
-  const line = `/${name} ${words}`
+  const line = row.line ? row.line(words.trim()) : `/${row.name} ${words}`
   if (isLate()) {
     $.ui.toast(LATE_PICK)
 

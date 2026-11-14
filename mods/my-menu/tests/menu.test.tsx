@@ -18,8 +18,10 @@ const band = (bodyColumns = 150, maxRows = 14, hasSurvey = false) =>
     },
   }) as const
 
-// What the session can run: two of his prompts out of order, one the menu's
-// order does not name, the printed menu itself and a built-in.
+// What the session can run: two of his prompts from two groups, out of order,
+// one that no group names, the printed menu itself and a built-in. With the
+// goal row, which is always there, the list has three groups: "באמצע עבודה"
+// (the goal row, status), "להבין ולהחליט" (plain) and "נוספים" (new).
 const COMMANDS = [
   { name: 'compact', description: 'Compact the conversation', source: 'builtin' },
   {
@@ -42,6 +44,12 @@ const COMMANDS = [
 
 const STATUS = 'row:nadavai:my-status'
 const PLAIN = 'row:nadavai:my-plain'
+const GOAL = 'row:goal'
+const NEW = 'row:nadavai:my-new'
+// When the goal row's goal is met, as the menu writes it.
+const MET =
+  'כל שורה ברשימת "מה נחשב גמור" של הסשן הזה סגורה עם ראיה, או שכל מה שנשאר רשום עם חסימה של נדב, של לקוח, של בדיקת חנות או פלטפורמה, של תאריך או של חומרה'
+type Command = { name: string; description: string; source: (typeof COMMANDS)[number]['source'] }
 
 // `/my-menu` as his key or his Enter runs it, with what he typed after it.
 const run = (args = '') =>
@@ -92,7 +100,7 @@ const gate = (): { wait: Promise<void>; open: () => void } => {
 const engine = (
   on: On,
   held: Box,
-  commands: readonly (typeof COMMANDS)[number][] = COMMANDS,
+  commands: readonly Command[] = COMMANDS,
   faults: Faults = {},
 ): void => {
   on('command.list', () => {
@@ -137,7 +145,7 @@ test('a closed list draws nothing of its own', async ($, on) => {
   await ui.unmount()
 })
 
-test('the list shows his prompts in his order: a number, the sentence, what he gets, the prompt', async ($, on) => {
+test('the list shows one group at a time: a number, the sentence, what he gets, the prompt', async ($, on) => {
   engine(on, box())
 
   await $.session.start(START)
@@ -145,15 +153,99 @@ test('the list shows his prompts in his order: a number, the sentence, what he g
   const ui = await $.ui.mount(band())
   const rows = await ui.findAll({ type: 'Button' })
 
-  expect(rows.map(row => row.key)).toEqual([STATUS, PLAIN, 'row:nadavai:my-new'])
-  expect(rows.map(row => row.props.hotkey)).toEqual(['1', '2', '3'])
-  expect(rows[0]?.text).toMatch(/^מה מצבנו\? +מה נעשה, מה רץ עכשיו +nadavai:my-status\/ *$/)
-  expect(rows[1]?.text).toMatch(/^תסביר לי את זה בפשטות +מה היה, מה יהיה +nadavai:my-plain\/ *$/)
+  // The first group, with the goal row where his order puts it, and the key
+  // that turns to the next group.
+  expect(rows.map(row => row.key)).toEqual([GOAL, STATUS, 'page'])
+  expect(rows.map(row => row.props.hotkey)).toEqual(['1', '2', '0'])
+  expect((await ui.find({ type: 'Text', text: /הפרומטים שלי/ }))?.text).toMatch(
+    /^הפרומטים שלי: באמצע עבודה {2}\(1 מתוך 3\)/,
+  )
+  expect(rows[0]?.text).toMatch(/^לנעול את הסשן על היעד +הסשן לא עוצר עד שכל מה שנחשב גמור סגור +goal\/ *$/)
+  expect(rows[1]?.text).toMatch(/^מה מצבנו\? +מה נעשה, מה רץ עכשיו +nadavai:my-status\/ *$/)
+  expect(rows[2]?.text).toBe('הבא: להבין ולהחליט · תסביר לי את זה בפשטות')
   // Every row fills the band (its width less the key), so a click anywhere on
   // a row presses it. The names end in one cell: drawn right to left, that
   // is the column where every prompt begins.
-  expect(rows.map(row => row.text.length)).toEqual([146, 146, 146])
-  expect(new Set(rows.map(row => row.text.lastIndexOf('/'))).size).toBe(1)
+  expect(rows.slice(0, 2).map(row => row.text.length)).toEqual([146, 146])
+  expect(new Set(rows.slice(0, 2).map(row => row.text.lastIndexOf('/'))).size).toBe(1)
+
+  await ui.press({ key: 'page' })
+  const second = await ui.findAll({ type: 'Button' })
+  expect(second.map(row => row.key)).toEqual([PLAIN, 'page'])
+  expect(second[0]?.text).toMatch(/^תסביר לי את זה בפשטות +מה היה, מה יהיה +nadavai:my-plain\/ *$/)
+  expect((await ui.find({ type: 'Text', text: /הפרומטים שלי/ }))?.text).toMatch(
+    /^הפרומטים שלי: להבין ולהחליט {2}\(2 מתוך 3\)/,
+  )
+  await ui.unmount()
+})
+
+test('the groups come in his order, and a prompt no group names comes last', async ($, on) => {
+  const one = (name: string, description: string): Command => ({
+    name: `nadavai:my-${name}`,
+    description,
+    source: 'plugin',
+  })
+  engine(on, box(), [
+    one('new', 'פרומט חדש בלי סימן'),
+    one('machine', 'המחשב נתקע או מלא: מה מכביד עכשיו.'),
+    one('other', 'תקרא את הסשן האחר: להמשיך ממנו.'),
+    one('best', 'זו הדרך הכי טובה? חלופות עם מחיר.'),
+    one('done', 'סיימנו את הכול? כל בקשה שלי.'),
+    one('connected', 'התחברתי: בדיקה שהחיבור עובד.'),
+    one('run', 'תמשיך עד הסוף בלי לעצור: רשימה.'),
+  ])
+
+  await $.session.start(START)
+  await $.command.run(run())
+  const ui = await $.ui.mount(band())
+  const seen: string[] = []
+  for (let n = 0; n < 6; n += 1) {
+    const title = (await ui.find({ type: 'Text', text: /הפרומטים שלי/ }))?.text ?? ''
+    const keys = (await ui.findAll({ type: 'Button' }))
+      .map(row => row.key)
+      .filter(key => key !== 'page')
+    seen.push(`${/: (.*?) {2}\(/.exec(title)?.[1]} = ${keys.join(' ')}`)
+    await ui.press({ key: 'page' })
+  }
+
+  expect(seen).toEqual([
+    'באמצע עבודה = row:nadavai:my-run row:goal row:nadavai:my-connected',
+    'בודקים = row:nadavai:my-done',
+    'להבין ולהחליט = row:nadavai:my-best',
+    'להראות, לשלוח ולשמור = row:nadavai:my-other',
+    'משהו לא טוב = row:nadavai:my-machine',
+    'נוספים = row:nadavai:my-new',
+  ])
+  // The sixth press came back to the first group.
+  expect((await ui.findAll({ type: 'Button' }))[0]?.key).toBe('row:nadavai:my-run')
+  await ui.unmount()
+})
+
+test('the goal row writes a ready goal line, and his words become the goal', async ($, on) => {
+  const held = box()
+  engine(on, held)
+
+  await $.session.start(START)
+  await $.command.run(run())
+  const ui = await $.ui.mount(band())
+  await ui.press({ key: GOAL })
+  expect(held.text).toBe(`/goal ${MET}`)
+  expect(await ui.find({ type: 'Button' })).toBeUndefined()
+
+  // With words in the box when the list opened: they are the goal, and the
+  // list of what counts as done still decides when it is met.
+  held.text = 'לסיים את מסך ההזמנות'
+  await $.command.run(run())
+  await ui.redraw()
+  await ui.press({ key: GOAL })
+  expect(held.text).toBe(`/goal לסיים את מסך ההזמנות. היעד הושג רק כש${MET}`)
+
+  // A draft that began with a prompt gives up the prompt's name, as for any row.
+  held.text = '/nadavai:my-plain the login bug'
+  await $.command.run(run())
+  await ui.redraw()
+  await ui.press({ key: GOAL })
+  expect(held.text).toBe(`/goal the login bug. היעד הושג רק כש${MET}`)
   await ui.unmount()
 })
 
@@ -299,6 +391,7 @@ test('a box that takes nothing keeps his words, and he is shown what he picked',
   held.isFree = true
   await $.command.run(run())
   await ui.redraw()
+  await ui.press({ key: 'page' })
   await ui.press({ key: PLAIN })
   expect(held.text).toBe('/nadavai:my-plain ')
   await ui.unmount()
@@ -337,7 +430,7 @@ test('sending something else closes the list and gives his words back', async ($
   await ui.unmount()
 })
 
-test('a short band turns pages with 0, and every row keeps a number key', async ($, on) => {
+test('0 turns to the next group, and every row keeps a number key', async ($, on) => {
   engine(on, box())
 
   await $.session.start(START)
@@ -346,45 +439,52 @@ test('a short band turns pages with 0, and every row keeps a number key', async 
   const ui = await $.ui.mount(band(150, 4))
 
   const keys = async () => (await ui.findAll({ type: 'Button' })).map(row => row.key)
-  expect(await keys()).toEqual([STATUS, PLAIN, 'page'])
+  expect(await keys()).toEqual([GOAL, STATUS, 'page'])
   expect((await ui.find({ key: 'page' }))?.props.hotkey).toBe('0')
-  expect((await ui.find({ key: 'page' }))?.text).toBe('עוד: פרומט חדש בלי סימן')
-  expect((await ui.find({ type: 'Text', text: /מתוך/ }))?.text).toMatch(/\(1 מתוך 2\)/)
+  expect((await ui.find({ key: 'page' }))?.text).toBe('הבא: להבין ולהחליט · תסביר לי את זה בפשטות')
+  expect((await ui.find({ type: 'Text', text: /מתוך/ }))?.text).toMatch(/\(1 מתוך 3\)/)
   const column = (await ui.find({ key: STATUS }))?.text.lastIndexOf('/')
 
   await ui.press({ key: 'page' })
-  expect(await keys()).toEqual(['row:nadavai:my-new', 'page'])
+  expect(await keys()).toEqual([PLAIN, 'page'])
   // The columns stay where they were when the page turns.
-  expect((await ui.find({ key: 'row:nadavai:my-new' }))?.text.lastIndexOf('/')).toBe(column)
-  expect((await ui.find({ key: 'row:nadavai:my-new' }))?.props.hotkey).toBe('1')
-  expect((await ui.find({ key: 'page' }))?.text).toBe('חזרה לרשימה הראשונה')
+  expect((await ui.find({ key: PLAIN }))?.text.lastIndexOf('/')).toBe(column)
+  expect((await ui.find({ key: PLAIN }))?.props.hotkey).toBe('1')
+  expect((await ui.find({ key: 'page' }))?.text).toBe('הבא: נוספים · פרומט חדש בלי סימן')
 
   await ui.press({ key: 'page' })
-  expect(await keys()).toEqual([STATUS, PLAIN, 'page'])
+  expect(await keys()).toEqual([NEW, 'page'])
+  expect((await ui.find({ key: 'page' }))?.text).toBe('חזרה להתחלה: באמצע עבודה')
+
+  await ui.press({ key: 'page' })
+  expect(await keys()).toEqual([GOAL, STATUS, 'page'])
   await ui.unmount()
 })
 
-test('a last page is never one row alone', async ($, on) => {
-  const more = [
-    ...COMMANDS,
-    { name: 'nadavai:my-a', description: 'שורה רביעית', source: 'plugin' },
-    { name: 'nadavai:my-b', description: 'שורה חמישית', source: 'plugin' },
-  ] as const
-  on('command.list', () => ({ value: [...more] }))
-  on('command.register', () => ({ value: { command: 'my-menu' } }))
-  on('session.start', (_, e) => ({ cwd: e.cwd }))
-  on('prompt.read', () => ({ value: { text: '', cursor: 0 } }))
+test('a group with more rows than the band has room for takes two pages, and the last is never one row alone', async ($, on) => {
+  const more: Command[] = ['a', 'b', 'c', 'd', 'e'].map(letter => ({
+    name: `nadavai:my-${letter}`,
+    description: `שורה ${letter}`,
+    source: 'plugin',
+  }))
+  engine(on, box(), more)
 
   await $.session.start(START)
   await $.command.run(run())
-  // Room for four rows: five prompts would leave one alone on the second page.
+  // Room for four rows: the five prompts of one group would leave one alone
+  // on its second page.
   const ui = await $.ui.mount(band(150, 6))
 
   const rows = async () =>
-    (await ui.findAll({ type: 'Button' })).filter(row => row.key !== 'page')
-  expect(await rows()).toHaveLength(3)
+    (await ui.findAll({ type: 'Button' })).filter(row => row.key !== 'page').map(row => row.key)
+  const title = async () => (await ui.find({ type: 'Text', text: /הפרומטים שלי/ }))?.text
+  expect(await rows()).toEqual([GOAL])
   await ui.press({ key: 'page' })
-  expect(await rows()).toHaveLength(2)
+  expect(await rows()).toEqual(['row:nadavai:my-a', 'row:nadavai:my-b', 'row:nadavai:my-c'])
+  expect(await title()).toMatch(/^הפרומטים שלי: נוספים {2}\(2 מתוך 3\)/)
+  await ui.press({ key: 'page' })
+  expect(await rows()).toEqual(['row:nadavai:my-d', 'row:nadavai:my-e'])
+  expect(await title()).toMatch(/^הפרומטים שלי: נוספים {2}\(3 מתוך 3\)/)
   await ui.unmount()
 })
 
@@ -441,17 +541,20 @@ test('no row is wider than a narrow band: the name goes before any sentence is c
   await $.command.run(run())
   // 36 cells: the longest sentence (21) and the names (18) do not both fit.
   const narrow = await $.ui.mount(band(40))
-  const rows = await narrow.findAll({ type: 'Button' })
-  expect(rows.map(row => row.text.length)).toEqual([36, 36, 36])
-  expect(rows[1]?.text).toMatch(/^תסביר לי את זה בפשטות *$/)
+  const rows = (await narrow.findAll({ type: 'Button' })).filter(row => row.key !== 'page')
+  expect(rows.map(row => row.text.length)).toEqual([36, 36])
+  expect(rows[0]?.text).toMatch(/^לנעול את הסשן על היעד *$/)
   expect((await narrow.find({ type: 'Text', text: /הפרומטים שלי/ }))?.text.length).toBeLessThanOrEqual(40)
+  expect((await narrow.find({ key: 'page' }))?.text.length).toBeLessThanOrEqual(36)
   await narrow.unmount()
 
-  // 20 cells: now the sentence itself is cut.
+  // 20 cells: now the sentence itself is cut, and the title keeps the group's
+  // name, which is what tells him where he is.
   const narrower = await $.ui.mount(band(24))
-  const short = await narrower.findAll({ type: 'Button' })
-  expect(short.map(row => row.text.length)).toEqual([20, 20, 20])
-  expect(short[1]?.text).toBe('תסביר לי את זה בפשט…')
+  const short = (await narrower.findAll({ type: 'Button' })).filter(row => row.key !== 'page')
+  expect(short.map(row => row.text.length)).toEqual([20, 20])
+  expect(short[0]?.text).toBe('לנעול את הסשן על הי…')
+  expect((await narrower.find({ type: 'Text', text: /באמצע עבודה/ }))?.text).toBe('באמצע עבודה  (1 מתוך 3)')
   await narrower.unmount()
 })
 
@@ -588,12 +691,13 @@ test('the way back to the first page is cut to a narrow band', async ($, on) => 
 
   await $.session.start(START)
   await $.command.run(run())
-  // 16 cells, one row a page: the third page shows the way back.
+  // 16 cells, one row a page: the fourth page shows the way back.
   const ui = await $.ui.mount(band(20, 3))
   await ui.press({ key: 'page' })
   await ui.press({ key: 'page' })
+  await ui.press({ key: 'page' })
 
-  expect((await ui.find({ key: 'page' }))?.text).toBe('חזרה לרשימה הרא…')
+  expect((await ui.find({ key: 'page' }))?.text).toBe('חזרה להתחלה: בא…')
   await ui.unmount()
 })
 
@@ -604,7 +708,7 @@ test('a band of two rows drops the title and keeps a row and the page key', asyn
   await $.command.run(run())
   const ui = await $.ui.mount(band(150, 2))
 
-  expect((await ui.findAll({ type: 'Button' })).map(row => row.key)).toEqual([STATUS, 'page'])
+  expect((await ui.findAll({ type: 'Button' })).map(row => row.key)).toEqual([GOAL, 'page'])
   expect(await ui.find({ type: 'Text', text: /הפרומטים שלי/ })).toBeUndefined()
   await ui.unmount()
 })
@@ -614,17 +718,18 @@ test('0 goes to the page after the one on screen, also after the list grew short
 
   await $.session.start(START)
   await $.command.run(run())
-  // One row a page: three pages. Two presses reach the third.
+  // One row a page: four pages. Three presses reach the fourth.
   const ui = await $.ui.mount(band(150, 3))
   await ui.press({ key: 'page' })
   await ui.press({ key: 'page' })
-  expect((await ui.findAll({ type: 'Button' })).map(row => row.key)).toEqual(['row:nadavai:my-new', 'page'])
-
-  // The band grows: two pages now, and the screen shows the last one.
-  await ui.redraw(band(150, 4).props)
-  expect((await ui.findAll({ type: 'Button' })).map(row => row.key)).toEqual(['row:nadavai:my-new', 'page'])
   await ui.press({ key: 'page' })
-  expect((await ui.findAll({ type: 'Button' })).map(row => row.key)).toEqual([STATUS, PLAIN, 'page'])
+  expect((await ui.findAll({ type: 'Button' })).map(row => row.key)).toEqual([NEW, 'page'])
+
+  // The band grows: three pages now, and the screen shows the last one.
+  await ui.redraw(band(150, 4).props)
+  expect((await ui.findAll({ type: 'Button' })).map(row => row.key)).toEqual([NEW, 'page'])
+  await ui.press({ key: 'page' })
+  expect((await ui.findAll({ type: 'Button' })).map(row => row.key)).toEqual([GOAL, STATUS, 'page'])
   await ui.unmount()
 })
 
@@ -637,8 +742,12 @@ test('with nobody at the keyboard the list is printed and nothing opens', async 
 
   expect(ran.text).toBe(
     [
+      'באמצע עבודה:',
+      '/goal  לנעול את הסשן על היעד',
       '/nadavai:my-status  מה מצבנו?',
+      'להבין ולהחליט:',
       '/nadavai:my-plain  תסביר לי את זה בפשטות',
+      'נוספים:',
       '/nadavai:my-new  פרומט חדש בלי סימן',
     ].join('\n'),
   )
@@ -740,6 +849,7 @@ test('a pick whose fill fails shows what he picked, and his words do not turn up
   isBroken = false
   await $.command.run(run())
   await ui.redraw()
+  await ui.press({ key: 'page' })
   await ui.press({ key: PLAIN })
   expect(held.text).toBe('/nadavai:my-plain ')
   await ui.unmount()
