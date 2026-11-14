@@ -11,8 +11,9 @@
 #          code-reviewer, security-reviewer), with the nadavai type to start in their place. Why:
 #          the rule in model-routing.md was not what ran (week to 2026-11-14: 163 OMC executor
 #          calls against 110 of nadavai:executor, about 12% of the week's usage), and the OMC
-#          executor's prompt carries no stop at money, migrations, deletion or deploys (Nadav
-#          approved closing this on 2026-11-14). Grok's spawn_subagent is left alone: Grok has
+#          executor's prompt carries no stop at money, migrations, deletion or deploys. It
+#          enforces model-routing.md; the session that wrote it read Nadav's answer of 2026-11-14
+#          to the method-review plan as approving it. Grok's spawn_subagent is left alone: Grok has
 #          OMC's agents and not nadavai's, so the deny could not be followed there. Not seen: an
 #          agent a Workflow script starts, and the tmux workers of the `omc team` CLI.
 #   Bash:  a sleep of 120 s or more in the foreground. It blocks the agent; long local
@@ -46,13 +47,17 @@
 #          unless the command carries `# rm-checked: <reason>`. That check ignores bypass and auto
 #          mode, and its classifier cannot approve it: it holds the session for a person's answer and
 #          denies after a timeout (154 such stops from 2026-10-15 to 2026-11-03, 61 answered by Nadav
-#          by hand). Since 2026-11-14 scripts/rm-prompt-answer.sh answers that prompt at once, so this
-#          rule is no longer what keeps a session from standing still; it stays until a week of
-#          numbers (the hook's log) shows the hook answers every such prompt. Every target must be
-#          a literal path, start with ${NAME:?}, or start with a literal absolute path, ~/ or $HOME/
-#          plus a fixed name before the first variable. This rule allows "$HOME/${rel:?}" although
-#          the built-in check stops it (5 of the 11 stops in the week to 2026-11-14); the prompt
-#          hook answers that stop, and its text gives the rewrite. Denied:
+#          by hand). Since 2026-11-14 scripts/rm-prompt-answer.sh answers that prompt at once in
+#          bypassPermissions mode, so there this rule is no longer what keeps a session from
+#          standing still. In plan mode with bypass available (the prompt waits with no time limit)
+#          and in auto mode the hook is silent and this rule still pre-empts the prompt. Before it
+#          is retired, a week of numbers has to show, on the LENOVO and on the MSI: the hook's log
+#          (what it answered), the built-in stops still found in transcripts (rm_holds.py, the scan
+#          behind the 11 stops of the week to 2026-11-14), and which mode those sessions ran in.
+#          Every target must be a literal path, start with ${NAME:?}, or start with a literal
+#          absolute path, ~/ or $HOME/ plus a fixed name before the first variable. This rule
+#          allows "$HOME/${rel:?}" although the built-in check stops it (4 of those 11 stops); the
+#          prompt hook answers that stop, and its text gives the rewrite. Denied:
 #          a variable as a path root ($T/*, $W/$d/.vite, "$HOME/$rel"), $(...), /, ~ or /home/<user>
 #          and their top level, a relative glob ending in a bare * after cd, and, in a command that
 #          also runs sh -c, a bare variable target. Measured on that history: 138 of the 154 stops

@@ -14,7 +14,7 @@
 # and the check itself stays on. It never approves: the check fired because it could not show the
 # removal is safe. Nadav, 2026-11-14: "לפתור שלא יהיה יותר את העציורת האלה של קלוד".
 #
-# Measured on 2026-11-14 in three live sessions in bypass mode: 0.2 to 0.4 s from the call to the
+# Measured on 2026-11-14 in four live sessions in bypass mode: 0.16 to 0.42 s from the call to the
 # denial. One ran in a terminal that Orca created, with Orca's own permission hook live; one had a
 # second permission hook that stayed silent for 60 s. Claude Code acts on the first decision and
 # does not wait for the other permission hooks.
@@ -25,10 +25,15 @@
 # denial. In every other mode a prompt is the person's to answer, so the hook stays silent (in plan
 # mode the prompt then waits with no time limit). Silent also for every other tool, and when jq is
 # missing. With the hook in place a person no longer sees this prompt in bypass mode, so nobody
-# approves one at the terminal.
+# approves one at the terminal: a removal of a path that is itself protected is reported as blocked,
+# with its command, for Nadav to run. The log below keeps the start of each denied command; the file
+# is private, and the transcript holds the same text.
 set -u
 input=$(cat)
 command -v jq >/dev/null 2>&1 || exit 0
+# Claude Code always names the event; another agent that reads this hooks.json (Codex) does not send
+# this pair, so its approvals are left alone.
+[ "$(jq -r '.hook_event_name // empty' <<<"$input" 2>/dev/null)" = PermissionRequest ] || exit 0
 [ "$(jq -r '.permission_mode // empty' <<<"$input" 2>/dev/null)" = bypassPermissions ] || exit 0
 tool=$(jq -r '.tool_name // empty' <<<"$input" 2>/dev/null)
 case "$tool" in
@@ -39,7 +44,7 @@ cmd=$(jq -r '.tool_input.command // empty' <<<"$input" 2>/dev/null)
 
 if [[ $cmd =~ (^|[^[:alnum:]_.-])(rm|rmdir)([^[:alnum:]_.-]|$) ]]; then
   kind="rm"
-  msg='Claude Code'"'"'s removal check stopped this command before it ran, and nothing was removed. It stops an rm or rmdir whose target could turn out to be /, the home directory, the working directory or one of its parents, or a top-level directory: a path rooted at $HOME, ~ or another variable, a variable set from $(pwd) or a similar command, a target that is a command substitution, or a glob such as dir/*/*. Write each target as a literal absolute path below the directory you mean and run it again. If the path has to be computed, first run the command that computes it on its own, read the path it prints, and then remove that literal path in a second command. Do not move the removal into a script file, eval or another wrapper to get around the check. A literal path on a mounted drive (/mnt, /media, /run/media) is stopped on every removal there: leave it and name it in your report.'
+  msg='Claude Code'"'"'s removal check stopped this command before it ran, and nothing was removed. It stops an rm or rmdir whose target could turn out to be /, the home directory, the working directory or one of its parents, or a top-level directory: $HOME or ~ followed by a variable or a substitution, an unguarded variable followed by / or a glob, a variable set from $(pwd) or a similar command, a target that is only a command substitution, or a glob such as dir/*/*. Write each target as a literal absolute path below the directory you mean and run it again. If the path has to be computed, first run the command that computes it on its own, read the path it prints, and then remove that literal path in a second command. Do not move the removal into a script file, eval or another wrapper to get around the check. If a literal absolute path is stopped again, the path itself is protected (the working directory or one of its parents, the home directory, a top-level directory, or a mounted drive under /mnt, /media or /run/media): do not retry it and do not remove it another way; list it as blocked in your report with the exact command, for Nadav to run in his shell.'
 else
   kind="parse"
   msg='Claude Code could not read this command well enough to rule out a removal (nested quoting, eval, sh -c, or a heredoc followed by more commands), so it was not run. Write file contents with the Write tool and run the steps as separate plain commands. If the command already was one plain command, a prompt of another kind was answered here: name it in your report.'

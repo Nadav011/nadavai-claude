@@ -13,6 +13,8 @@ req() {  # mode tool command
   jq -cn --arg m "$1" --arg t "$2" --arg c "$3" \
     '{session_id:"s1", hook_event_name:"PermissionRequest", permission_mode:$m, tool_name:$t, tool_input:{command:$c}}'
 }
+# The same request as another agent might send it: bypass mode, but no event name.
+req_no_event() { req "$@" | jq -c 'del(.hook_event_name)'; }
 check() {  # name expect(deny|silent) json [word the message must hold]
   local name="$1" want="$2" json="$3" word="${4:-}" out rc got
   out=$(printf '%s' "$json" | bash "$HOOK"); rc=$?
@@ -37,6 +39,8 @@ check "never an allow"                    deny   "$(req bypassPermissions Bash '
 check "computed path: compute first"      deny   "$(req bypassPermissions Bash 'D=$(pwd); rm -rf "$D"')" "in a second command"
 check "no way around through a file"      deny   "$(req bypassPermissions Bash "$RMV")" "Do not move the removal into a script file"
 check "mounted drive is named"            deny   "$(req bypassPermissions Bash 'rm -rf /run/media/u/USB/build')" "mounted drive"
+check "a protected literal path: blocked" deny   "$(req bypassPermissions Bash 'rm -rf /home/nadavcohen/project')" "list it as blocked in your report"
+check "no event name: left alone"         silent "$(req_no_event bypassPermissions Bash "$RMV")"
 check "default mode: the person answers"  silent "$(req default Bash "$RMV")"
 check "acceptEdits mode"                  silent "$(req acceptEdits Bash "$RMV")"
 check "auto mode"                         silent "$(req auto Bash "$RMV")"
@@ -58,7 +62,7 @@ else echo "PASS: the message does not send a removal into a script file"; PASS=$
 
 LOG="$XDG_CACHE_HOME/nadavai/rm-prompt-answer.log"
 n=$(wc -l <"$LOG" 2>/dev/null || echo 0)
-if [ "$n" -ge 9 ]; then echo "PASS: answers are logged ($n lines)"; PASS=$((PASS+1))
+if [ "$n" -ge 10 ]; then echo "PASS: answers are logged ($n lines)"; PASS=$((PASS+1))
 else echo "FAIL: answers are not logged ($n lines)"; FAIL=$((FAIL+1)); fi
 # Each line: time, session, tool, which message, command length, the command's start on one line.
 printf '%s' "$(req bypassPermissions Bash $'rm -rf "$a"\nrm -rf "$b"')" | bash "$HOOK" >/dev/null
