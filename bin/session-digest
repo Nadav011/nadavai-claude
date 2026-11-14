@@ -1,0 +1,411 @@
+#!/usr/bin/env -S python3 -I
+"""session-digest <session-id | transcript.jsonl> [--out DIR]
+
+Writes what the owner typed in a Claude Code session and what the session reported back at the
+end of each turn, in time order, as small markdown files a reviewing agent can read whole.
+A transcript is tens of megabytes of tool output; this keeps only the voices a review needs.
+
+  DIR/index.md      the session, the counts, where its context was compacted, the list of parts
+  DIR/part-NN.md    the entries, each part under --part-kb (default 36)
+
+Entries:  U<n> a message the owner typed (also one typed while the session worked, or as the
+               reason for rejecting a tool call)
+          A<n> what he picked in a question dialog, with the options offered and any note he typed
+          C<n> a slash command he ran         G<n> a goal condition, once
+          R<n> the session's reply that ended a turn
+          Q<n> what the session wrote just before it opened a question dialog
+          X<n> a message from another session, cut short: it is not the owner's word
+          a marked line wherever the session's context was compacted
+
+Read-only on the transcript. Options: --since YYYY-MM-DD (only entries from that local day on),
+--owner-only (U, A, C and G only: what he asked for, without the session's side),
+--max-user-chars N (default 2500: longer messages are pastes, cut with a note),
+--max-report-chars N (default 5000), --max-peer-chars N (default 1200), --part-kb N,
+--out DIR (default: ./session-digest-<id8>).
+
+The digest repeats what he typed, so it can hold something private. Known key formats and a
+password that follows the word are replaced by [redacted]; keep the folder out of commits and messages.
+"""
+import argparse
+import datetime
+import glob
+import json
+import os
+import re
+import sys
+
+NOISE_PREFIXES = (
+    "<local-command-", "<task-notification", "<system-reminder", "<bash-", "<user-prompt-submit-hook",
+    "Caveat:", "[Request interrupted", "<command-message>", "Stop hook feedback:",
+    "A session-scoped Stop hook", "Base directory for this skill:", "Your claude.ai usage limit",
+    "<tools-used-before-summary",
+)
+PEER_PREFIX = "Another Claude session sent a message:"
+SUMMARY_PREFIX = "This session is being continued from a previous conversation"
+GOAL = re.compile(r"Goal check-in: «(.+?)»", re.S)
+REMINDER = re.compile(r"<system-reminder>.*?</system-reminder>", re.S)
+COMMAND = re.compile(r"<command-name>\s*(/?[^<\s]+)\s*</command-name>")
+COMMAND_ARGS = re.compile(r"<command-args>(.*?)</command-args>", re.S)
+# Claude Code writes the reason he types when he rejects a tool call inside that call's result.
+REJECTION = re.compile(r"the user said:\n(.*?)(?:\n\nNote: The user's next message|\Z)", re.S)
+QUEUE_WINDOW = 900  # seconds in which a queued message may be logged once more when delivered
+
+SECRETS = [
+    re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|\Z)", re.S),
+    re.compile(r"\bsk-ant-[A-Za-z0-9_-]{20,}"),
+    re.compile(r"\bsk-(?:proj-)?[A-Za-z0-9_-]{40,}"),
+    re.compile(r"\bgh[pousr]_[A-Za-z0-9]{36}\b"),
+    re.compile(r"\bgithub_pat_[A-Za-z0-9_]{60,}"),
+    re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
+    re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{20,}"),
+    re.compile(r"\bglpat-[A-Za-z0-9_-]{20,}"),
+    re.compile(r"\bsk_live_[A-Za-z0-9]{20,}"),
+]
+# The word, a separator that says a value follows, then the value. "הסיסמה נדרשה" stays as it is.
+PASSWORD = re.compile(r"(?i)((?:\bpassword|\bpasswd|\bpwd|סיסמה|סיסמא)\s*(?:\bis\b|היא|זה|[:=])\s*)(\S+)")
+
+
+def redact(text):
+    for pattern in SECRETS:
+        text = pattern.sub("[redacted]", text)
+    return PASSWORD.sub(lambda m: m.group(1) + "[redacted]", text)
+
+
+def find_transcript(arg):
+    if os.path.isfile(arg):
+        return arg
+    roots = []
+    if os.environ.get("CLAUDE_CONFIG_DIR"):
+        roots.append(os.path.join(os.environ["CLAUDE_CONFIG_DIR"], "projects"))
+    roots.append(os.path.expanduser("~/.claude/projects"))
+    roots += glob.glob(os.path.expanduser("~/.config/orca/claude-profiles/*/home/projects"))
+    hits = {}
+    for root in roots:
+        for path in glob.glob(os.path.join(root, "*", arg + "*.jsonl")):
+            hits[os.path.realpath(path)] = path
+    if not hits:
+        sys.exit(f"session-digest: no transcript matches '{arg}'")
+    if len({os.path.basename(h) for h in hits}) == 1:
+        # One session resumed under another account profile leaves an older, shorter copy behind.
+        newest = max(hits, key=os.path.getmtime)
+        if len(hits) > 1:
+            print(f"session-digest: {len(hits)} copies of this session; reading the newest", file=sys.stderr)
+        return newest
+    sys.exit("session-digest: '%s' matches %d transcripts, give more of the id:\n  %s"
+             % (arg, len(hits), "\n  ".join(sorted(hits))))
+
+
+def text_of(content):
+    """The typed text of a user record, or None when the record is a tool result."""
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return None
+    parts = []
+    for block in content:
+        kind = block.get("type") if isinstance(block, dict) else None
+        if kind == "tool_result":
+            return None
+        if kind == "text":
+            parts.append(block.get("text", ""))
+        elif kind == "image":
+            parts.append("[image]")
+        elif kind == "document":
+            parts.append("[document]")
+    return "\n".join(parts) if parts else None
+
+
+def rejection_of(content):
+    """What he typed as the reason when he rejected a tool call, or None."""
+    if not isinstance(content, list):
+        return None
+    for block in content:
+        if not isinstance(block, dict) or block.get("type") != "tool_result":
+            continue
+        inner = block.get("content")
+        if isinstance(inner, list):
+            inner = "\n".join(b.get("text", "") for b in inner if isinstance(b, dict) and b.get("type") == "text")
+        found = REJECTION.search(inner) if isinstance(inner, str) else None
+        if found and found.group(1).strip():
+            return found.group(1).strip()
+    return None
+
+
+def dialog_answer(result):
+    """A dialog result as text: each question, the options offered, his pick and his typed note."""
+    offered = {}
+    for q in result.get("questions") or []:
+        if isinstance(q, dict):
+            labels = [o.get("label", "") for o in q.get("options") or [] if isinstance(o, dict)]
+            offered[q.get("question", "").strip()] = " | ".join(x for x in labels if x)
+    notes = result.get("annotations") if isinstance(result.get("annotations"), dict) else {}
+    lines = []
+    for question, answer in result["answers"].items():
+        lines.append(f"- {question.strip()}")
+        if offered.get(question.strip()):
+            lines.append(f"  offered: {offered[question.strip()]}")
+        lines.append(f"  -> {answer}")
+        note = (notes.get(question) or {}).get("notes") if isinstance(notes.get(question), dict) else None
+        if note and str(note).strip():
+            lines.append(f"  note he typed: {str(note).strip()}")
+    return "\n".join(lines)
+
+
+def seconds(stamp):
+    try:
+        return datetime.datetime.fromisoformat(stamp.replace("Z", "+00:00")).timestamp()
+    except (AttributeError, ValueError):
+        return 0.0
+
+
+def when(stamp):
+    try:
+        t = datetime.datetime.fromisoformat(stamp.replace("Z", "+00:00")).astimezone()
+        return t.strftime("%Y-%m-%d %H:%M")
+    except (AttributeError, ValueError):
+        return "unknown time"
+
+
+def clip(text, limit):
+    text = redact(text.strip())
+    if len(text) <= limit:
+        return text
+    return text[:limit].rstrip() + f"\n[cut here: {len(text) - limit} more characters in the transcript]"
+
+
+def read(path, args):
+    entries = []
+    counts = {k: 0 for k in ("U", "A", "C", "G", "R", "Q", "X", "compactions", "bad_lines")}
+    goals = set()
+    first = last = None
+    seen = {}       # typed text -> (seconds, prompt index, a queued copy still waits for its delivery)
+    before_dialog = ""  # the session's text in a turn that has not ended yet
+
+    def add(kind, stamp, body):
+        counts[kind] += 1
+        entries.append((kind, counts[kind], when(stamp), body))
+
+    def compacted(stamp):
+        if not entries or entries[-1][0] != "compact":
+            counts["compactions"] += 1
+            entries.append(("compact", counts["compactions"], when(stamp), ""))
+
+    def typed(stamp, text, prompt_index=None, queued=False, note=""):
+        """One entry per message. A prompt is logged twice when it is re-sent, and a message typed
+        while the session works is logged in the queue and may be logged once more when delivered.
+        The same words typed again later are a new message and are kept."""
+        now = seconds(stamp)
+        before = seen.get(text)
+        if before:
+            then, index, waiting = before
+            same_prompt = prompt_index is not None and index == prompt_index and now - then <= 120
+            delivery = waiting and not queued and now - then <= QUEUE_WINDOW
+            if same_prompt or delivery or abs(now - then) <= 5:
+                seen[text] = (then, index if index is not None else prompt_index, waiting and not delivery)
+                return
+        seen[text] = (now, prompt_index, queued)
+        add("U", stamp, note + clip(text, args.max_user_chars))
+
+    with open(path, encoding="utf-8", errors="replace") as fh:
+        for line in fh:
+            if not line.strip():
+                continue
+            try:
+                rec = json.loads(line)
+            except ValueError:
+                counts["bad_lines"] += 1
+                continue
+            if not isinstance(rec, dict) or rec.get("isSidechain"):
+                continue
+            stamp = rec.get("timestamp")
+            if args.since and stamp and when(stamp)[:10] < args.since:
+                continue
+            if stamp:
+                first = first or stamp
+                last = stamp
+            kind = rec.get("type")
+            if rec.get("isCompactSummary") or (kind == "system" and rec.get("subtype") == "compact_boundary"):
+                compacted(stamp)
+                continue
+            if kind == "user":
+                content = (rec.get("message") or {}).get("content")
+                result = rec.get("toolUseResult")
+                if isinstance(result, dict) and isinstance(result.get("answers"), dict) and result["answers"]:
+                    add("A", stamp, redact(dialog_answer(result)))
+                    continue
+                reason = rejection_of(content)
+                if reason:
+                    typed(stamp, reason, note="(typed as the reason for rejecting a tool call)\n")
+                    continue
+                raw = text_of(content)
+                if raw is None:
+                    continue
+                goal = GOAL.search(raw)
+                if goal:  # written as a meta note or inside a reminder, so look before both are dropped
+                    if goal.group(1) not in goals:
+                        goals.add(goal.group(1))
+                        add("G", stamp, clip(goal.group(1), args.max_user_chars))
+                    continue
+                text = REMINDER.sub("", raw).strip()
+                if not text:
+                    continue
+                origin = rec.get("origin")
+                source = origin.get("kind") if isinstance(origin, dict) else None
+                # Records written before the origin field carry no source, so the wording decides.
+                # Another session's message can be marked meta, so it is looked at before meta is dropped.
+                if source == "peer" or text.startswith(PEER_PREFIX):
+                    body = text[len(PEER_PREFIX):] if text.startswith(PEER_PREFIX) else text
+                    add("X", stamp, clip(body, args.max_peer_chars))
+                    continue
+                if rec.get("isMeta"):
+                    continue
+                if text.startswith(SUMMARY_PREFIX):
+                    compacted(stamp)
+                    continue
+                if source not in (None, "human"):
+                    continue
+                if text.startswith("/") and "\n" not in text and len(text) < 80:
+                    add("C", stamp, text)
+                    continue
+                cmd = COMMAND.search(text)
+                if cmd and text.lstrip().startswith(("<command-name>", "<command-message>")):
+                    name = cmd.group(1) if cmd.group(1).startswith("/") else "/" + cmd.group(1)
+                    given = COMMAND_ARGS.search(text)
+                    add("C", stamp, redact((name + " " + (given.group(1) if given else "").strip()).strip()))
+                    continue
+                if text.startswith(NOISE_PREFIXES):
+                    continue
+                before_dialog = ""
+                typed(stamp, text, (rec.get("turnPosition") or {}).get("promptIndex"))
+            elif kind == "attachment":
+                att = rec.get("attachment") or {}
+                if att.get("type") != "queued_command":
+                    continue
+                origin = att.get("origin")
+                if isinstance(origin, dict) and origin.get("kind") not in (None, "human"):
+                    continue
+                text = text_of(att.get("prompt"))
+                text = REMINDER.sub("", text).strip() if text else ""
+                if not text or text.startswith(NOISE_PREFIXES):
+                    continue
+                if text.startswith("/") and "\n" not in text and len(text) < 200:
+                    add("C", att.get("timestamp") or stamp, redact(text))
+                    continue
+                typed(att.get("timestamp") or stamp, text, queued=True,
+                      note="(typed while the session was working)\n")
+            elif kind == "assistant":
+                msg = rec.get("message") or {}
+                blocks = [b for b in msg.get("content") or [] if isinstance(b, dict)]
+                text = "\n".join(b.get("text", "") for b in blocks if b.get("type") == "text").strip()
+                if msg.get("stop_reason") == "end_turn":
+                    before_dialog = ""
+                    if text:
+                        add("R", stamp, clip(text, args.max_report_chars))
+                    continue
+                if text:
+                    before_dialog = text
+                for b in blocks:
+                    if b.get("type") == "tool_use" and b.get("name") == "AskUserQuestion":
+                        asked = [q.get("question", "").strip() for q in (b.get("input") or {}).get("questions") or []
+                                 if isinstance(q, dict)]
+                        body = (clip(before_dialog, args.max_report_chars) + "\n\n" if before_dialog else "")
+                        body += "asked in the dialog:\n" + "\n".join(f"- {q}" for q in asked if q)
+                        add("Q", stamp, redact(body))
+                        before_dialog = ""
+    if args.owner_only:
+        entries = [e for e in entries if e[0] in ("U", "A", "C", "G", "compact")]
+    return entries, counts, when(first), when(last)
+
+
+TITLES = {
+    "U": "owner typed", "A": "owner picked in a dialog", "C": "owner ran a command",
+    "G": "goal condition set for the session", "R": "session's reply at the end of a turn",
+    "Q": "session's text before a question dialog",
+    "X": "message from another session (not the owner's word)",
+}
+
+
+def render(entry):
+    kind, n, stamp, body = entry
+    if kind == "compact":
+        return (f"\n---\n**CONTEXT COMPACTED #{n} ({stamp})**: from here the session held only a summary "
+                "of everything above this line.\n---\n")
+    return f"\n=== {kind}{n} · {stamp} · {TITLES[kind]} ===\n\n{body}\n"
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("session")
+    ap.add_argument("--out")
+    ap.add_argument("--since", help="YYYY-MM-DD, local time")
+    ap.add_argument("--owner-only", action="store_true")
+    ap.add_argument("--max-user-chars", type=int, default=2500)
+    ap.add_argument("--max-report-chars", type=int, default=5000)
+    ap.add_argument("--max-peer-chars", type=int, default=1200)
+    ap.add_argument("--part-kb", type=int, default=36)
+    args = ap.parse_args()
+
+    # Everything is checked before the output folder is touched: a bad argument must not cost an
+    # earlier digest.
+    if args.since and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", args.since):
+        sys.exit("session-digest: --since takes YYYY-MM-DD")
+    path = find_transcript(args.session)
+    sid = os.path.basename(path).removesuffix(".jsonl")
+    entries, counts, first, last = read(path, args)
+
+    out = args.out or f"session-digest-{sid[:8]}"
+    os.makedirs(out, exist_ok=True)
+    for old in glob.glob(os.path.join(out, "part-*.md")):
+        os.remove(old)
+
+    limit = args.part_kb * 1024
+    parts, buf, size = [], [], 0
+    for entry in entries:
+        chunk = render(entry)
+        weight = len(chunk.encode("utf-8"))
+        if buf and size + weight > limit:
+            parts.append(buf)
+            buf, size = [], 0
+        buf.append((entry, chunk))
+        size += weight
+    if buf:
+        parts.append(buf)
+
+    session_side = "" if args.owner_only else (
+        f", {counts['R']} end-of-turn replies, {counts['Q']} texts before a dialog, "
+        f"{counts['X']} messages from other sessions")
+    index = [f"# Session digest {sid}", "",
+             f"- transcript: `{path}` ({os.path.getsize(path) // 1024} KB)",
+             f"- from {first} to {last} (local time)"
+             + (f"; entries before {args.since} were left out on request" if args.since else ""),
+             f"- {counts['U']} messages the owner typed, {counts['A']} dialog answers, {counts['C']} commands, "
+             f"{counts['G']} goal conditions" + session_side
+             + ("; the session's own replies were left out on request (--owner-only)" if args.owner_only else ""),
+             f"- context compacted {counts['compactions']} time(s); each place is marked inside the parts",
+             "- first message the owner typed: "
+             + next((e[3][:160].replace(chr(10), ' ') for e in entries if e[0] == 'U'), '(none)'),
+             "- last command the owner ran: "
+             + next((e[3][:160] for e in reversed(entries) if e[0] == 'C'), '(none)'),
+             "- this folder repeats what he typed; keep it out of commits and messages",
+             ]
+    if counts["bad_lines"]:
+        index.append(f"- {counts['bad_lines']} unreadable line(s) skipped")
+    index += ["", "## Parts", ""]
+    for i, part in enumerate(parts, 1):
+        name = f"part-{i:02d}.md"
+        with open(os.path.join(out, name), "w", encoding="utf-8") as fh:
+            fh.write(f"# Session digest {sid}, part {i} of {len(parts)}\n" + "".join(c for _, c in part))
+        ids = [f"{e[0]}{e[1]}" for e, _ in part if e[0] != "compact"]
+        span = f"{ids[0]} to {ids[-1]}" if ids else "compaction marks only"
+        index.append(f"- `{name}`: {span}, {part[0][0][2]} to {part[-1][0][2]}")
+    with open(os.path.join(out, "index.md"), "w", encoding="utf-8") as fh:
+        fh.write("\n".join(index) + "\n")
+    print(os.path.join(out, "index.md"))
+    print(f"{counts['U']} typed, {counts['A']} dialog answers, {counts['C']} commands, {counts['G']} goals, "
+          + ("" if args.owner_only else
+             f"{counts['R']} replies, {counts['Q']} before a dialog, {counts['X']} from other sessions, ")
+          + f"{counts['compactions']} compactions, {len(parts)} part(s)")
+
+
+if __name__ == "__main__":
+    main()
