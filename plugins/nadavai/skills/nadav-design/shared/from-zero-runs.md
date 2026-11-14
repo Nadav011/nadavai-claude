@@ -244,19 +244,26 @@ passes (a screen is outside the one exception), closer with one missed goes to N
 SHIFTS is already being built, and nothing here changes its plan by itself [I]. Its build plan is
 `~/Projects/mexicani-shifts/docs/plan/BUILD-PLAN.md`: Nadav approved draft 21 on 13.11.2026 («מאשר הכול», by the
 plan's own record and `STATUS.md` beside it; later drafts carry their own closing checks), and the build session
-builds from it in `~/Projects/shifts-app`, where units have landed on main. Its demo lives inside the app's repo
-(`~/Projects/mexicani-shifts`, branch `design/direction-and-demo`: 134 files under `src/demo` at `9300c90`, none on
-`main`), so there is nothing to copy and no look route to choose; it is not a standalone demo, so
-`standalone-demo-to-app.md` does not apply, except «Whose decision a differing behaviour is», which binds every
-from-zero run (above). Asked on 14.11.2026 whether SHIFTS gets the measurement of each part against the demo, once he
-knew its plan was approved and units had landed, he picked [A] «כן, להוסיף בלי לעכב (מומלץ)», whose text read: SHIFTS
-goes on now with the units that are not screen parts; its plan gets a round that adds the zero-differences gate to the
-parts and the screens, and comes back to him for approval; a part built before the instrument is ready is measured
-after the instrument is approved; the price is one more approval round and fixes to a part found to differ. So: the
-planning session writes that round into SHIFTS's plan (unit 0 reused from the first run's latest approved commit; the
-demo side is `src/demo` at the plan's tag; the gate, the look-over, the per-variant count and the reopening rule as
-above), no build unit waits for it, and until he approves the revised plan the approved one stands as it is. This file
-adds directly only the stuck log, kept by the build session in its own repo (`~/Projects/shifts-app`, at a path that
+builds from it in the app's repo, `~/Projects/shifts-app`, where units have landed on main. Its demo is not in that
+repo: it lives in the archive repo `~/Projects/mexicani-shifts`, on branch `design/direction-and-demo` (under
+`src/demo`, not on `main`), and how its look reaches the build is the plan's own (its hand-off contract,
+`docs/plan/handoffs/PROCEDURE.md`). So this file names no look route for SHIFTS and copies nothing there; it is not a
+standalone demo, so `standalone-demo-to-app.md` does not apply, except «Whose decision a differing behaviour is»,
+which binds every from-zero run (above).
+
+Asked on 14.11.2026 whether SHIFTS gets the measurement of each part against the demo, once he knew its plan was
+approved and units had landed, he picked [A] «כן, להוסיף בלי לעכב (מומלץ)», whose text read: SHIFTS goes on now with
+the units that are not screen parts; its plan gets a round that adds the zero-differences gate to the parts and the
+screens, and comes back to him for approval; a part built before the instrument is ready is measured after the
+instrument is approved; the price is one more approval round and fixes to a part found to differ.
+
+What follows from it is this session's reading [I]. The planning session writes that round into SHIFTS's plan: the
+gate on parts and on screens, with the look-over, the per-variant count and the reopening rule as above; unit 0 reused
+from the first run's latest approved commit; the demo side at a commit the round names (the plan has no demo tag
+today); and whether the gate reuses, replaces or sits beside the look measurement the plan's hand-off contract already
+has, so that no part is measured twice by two rules. No build unit waits for the round, and until he approves the
+revised plan the approved one stands as it is: nothing in this file is adopted in SHIFTS before that. This file adds
+directly only the stuck log, kept by the build session in its own repo (`~/Projects/shifts-app`, at a path that
 session names; the plan's folder is the planning session's and is not in git) and reported as above, and the rule on
 behaviour.
 
