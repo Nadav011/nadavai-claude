@@ -23,8 +23,9 @@ Nothing here makes an agent ask him, wait for him or hold a question back.
   The number of agents follows the work (`rules/model-routing.md`), so a structure sized to an agent count is not
   a reason for the calendar.
 - What waits on someone else (a store or platform review, a client's answer, an account that has to be opened)
-  is started as early as the plan allows and is listed apart from the building time. A step that is one of the
-  approval gates (a contract to sign, a payment) is put to him early; it is not taken early.
+  is started as early as the plan allows and is listed apart from the building time. A signature or a payment is
+  named in the estimate and stays behind the approval gates: it is asked and taken only at the moment those
+  gates already require.
 - He gets the range the measurement gives, the most likely figure inside it with its confidence
   (`rules/candor.md`), and the two or three things that move it most. No more precision than the measurement
   has: weeks, not days, for a program of months. When the high end is more than twice the low end, the same
