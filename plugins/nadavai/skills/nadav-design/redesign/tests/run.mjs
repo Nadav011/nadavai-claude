@@ -532,7 +532,18 @@ const builtOnceRefs = (skillRoot, extraFiles = []) => {
       const ref = m[0], target = resolve(ref, f);
       const after = flat.slice(m.index + ref.length, m.index + ref.length + 160);
       const cite = after.match(/^`?,? «([^»]+)»(?:,? (?:that section's )?points? (\d)(?: and (\d))?)?/);
-      if (m[2] === 'rules' && !(cite && cite[1] === 'An app is built once' && cite[2])) continue; // only point citations of rules.md
+      if (m[2] === 'rules') {
+        // the summary in rules.md is not cited by point or by line: the full text of each point lives in built-once.md
+        const line = after.match(/^`?:(\d+)(?:-(\d+))?|^`?,? lines? (\d+)(?:-(\d+))?/);
+        const rel = `${path.relative(path.join(skillRoot, '..'), f)}: ${ref}`;
+        if (cite && cite[1] === 'An app is built once' && cite[2]) { n++; why.push(`${rel} «An app is built once» point ${cite[2]}${cite[3] ? ` and ${cite[3]}` : ''} -> stale: the point's full text is at shared/built-once.md, «An app is built once», point ${cite[2]}${cite[3] ? ` and ${cite[3]}` : ''}`); }
+        else if (line) {
+          n++;
+          const a = +(line[1] || line[3]), b = +(line[2] || line[4] || a);
+          why.push(`${rel}:${a}${b !== a ? `-${b}` : ''} -> stale: rules.md line numbers changed on 14.11.2026${a >= 51 && b <= 556 ? `; old lines ${a}-${b} of «An app is built once» are now shared/built-once.md:${a - 48}-${b - 48}` : ''}; cite the section by name`);
+        }
+        continue;
+      }
       n++;
       const where = `${path.relative(path.join(skillRoot, '..'), f)}: ${ref}${cite ? ` «${cite[1]}»${cite[2] ? ` point ${cite[2]}${cite[3] ? ` and ${cite[3]}` : ''}` : ''}` : ''}`;
       if (!fs.existsSync(target)) { why.push(`${where} -> no file ${target}`); continue; }
@@ -552,7 +563,7 @@ const builtOnceRefs = (skillRoot, extraFiles = []) => {
   }
   return { why, n };
 };
-await test('SLIM-2', 'every built-once.md citation in the skill, product-rebuild and working-style.md resolves to a file, and a cited section or point exists there (also a rules.md «An app is built once», point N citation); a planted broken citation is caught', async () => {
+await test('SLIM-2', 'every built-once.md citation in the skill, product-rebuild and working-style.md resolves to a file, and a cited section or point exists there; a rules.md «An app is built once», point N or rules.md:NNN citation fails naming where the text now is; planted broken citations of each kind are caught', async () => {
   const root = path.join(SK, '..');
   const extra = [path.join(root, '..', 'product-rebuild', 'SKILL.md'), path.join(root, '..', '..', '..', '..', 'rules', 'working-style.md')].filter(p => fs.existsSync(p));
   const real = builtOnceRefs(root, extra);
@@ -569,10 +580,53 @@ await test('SLIM-2', 'every built-once.md citation in the skill, product-rebuild
   fs.writeFileSync(path.join(fx, 'shared', 'built-once.md'), '## An app is built once\n\n1. **One.** a\n\nWhat runs when: x\n');
   const nopoint = builtOnceRefs(fx);
   if (!nopoint.why.some(w => /no point 5/.test(w))) why.push(`a citation of a point that is not there passed: ${JSON.stringify(nopoint)}`);
-  fs.writeFileSync(path.join(fx, 'modes', 'a.md'), 'as `shared/rules.md`, «An app is built once», point 4, says; and `shared/built-once.md`, «Where a fault goes».\n');
+  fs.writeFileSync(path.join(fx, 'modes', 'a.md'), 'as `shared/rules.md`, «An app is built once», point 5, says; see `shared/rules.md`:174-175; and `shared/built-once.md`, «Where a fault goes».\n');
   const both = builtOnceRefs(fx);
-  if (!both.why.some(w => /rules\.md.*no point 4/.test(w))) why.push(`a rules.md point citation that is not there passed: ${JSON.stringify(both)}`);
+  if (!both.why.some(w => /rules\.md «An app is built once» point 5 -> stale: .*shared\/built-once\.md, «An app is built once», point 5/.test(w))) why.push(`a rules.md point citation passed or did not name the new place: ${JSON.stringify(both)}`);
+  if (!both.why.some(w => /rules\.md:174-175 -> stale: .*shared\/built-once\.md:126-127/.test(w))) why.push(`a rules.md line citation passed or did not name the new place: ${JSON.stringify(both)}`);
   if (!both.why.some(w => /no section «Where a fault goes»/.test(w))) why.push(`a citation of a missing section passed: ${JSON.stringify(both)}`);
+  return why.join(' · ');
+});
+// the summary is what most modes read of the rule: its routing sentence and the preview prohibitions that bind every
+// mode are pinned, because a copy with either deleted passed every other test (review 1 of the split, C2 and B1)
+const builtOnceSummary = () => {
+  const t = fs.readFileSync(path.join(SK, '..', 'shared', 'rules.md'), 'utf8');
+  const i = t.search(/^## An app is built once$/m);
+  if (i < 0) return '';
+  const rest = t.slice(i + 1), j = rest.search(/^## /m);
+  return (j < 0 ? rest : rest.slice(0, j)).replace(/\s+/g, ' ');
+};
+await test('SLIM-3', 'the summary in shared/rules.md routes to shared/built-once.md: who must read it in full (redesign step 8, the build session, setup 10b, screen in an app with a preview, the demo-to-app path, anyone who starts, opens, screenshots, shows, hosts or shares the preview), the unsure case, and that the full rule holds', async () => {
+  const s = builtOnceSummary(), why = [];
+  const pins = [
+    ['the routing sentence', /\*\*The full rule is `shared\/built-once\.md`\.\*\* Read it in full before/],
+    ['redesign step 8', /`redesign` step 8 and its plan review/], ['the build session', /each unit of the build session/],
+    ['setup step 10b', /setup step 10b/], ['screen in an app with a preview', /`screen` in an app that has a preview/],
+    ['the demo-to-app path', /`shared\/standalone-demo-to-app\.md`/],
+    ['whoever touches the preview', /any mode or agent that starts, opens, screenshots, shows, hosts or shares the app's preview or sends its address to anyone/],
+    ['the unsure case', /Unsure whether work touches the preview: read it\./], ['the full rule holds', /Where the two differ, the full rule holds\./],
+  ];
+  for (const [name, re] of pins) if (!re.test(s)) why.push(`the summary lacks ${name}`);
+  if (/reads only this summary|no other work/.test(s + fs.readFileSync(path.join(SK, '..', 'shared', 'built-once.md'), 'utf8').split('\n').slice(0, 2).join(' '))) why.push('a sentence tells work not to read the full rule');
+  return why.join(' · ');
+});
+await test('SLIM-4', 'the summary keeps the preview prohibitions that bind every mode: only the build session runs it before its check passes, he plays it in a browser through the shell and never in a native shell, it is hosted beyond localhost only as point 5 (d) says, a staging backend is not invented data, and logic it simulates is tested before he plays', async () => {
+  const s = builtOnceSummary(), why = [];
+  const pins = [
+    ['the no-play line', /Nobody plays the preview, on any machine, before its check script passes there/],
+    ['who runs it before the check', /until then only the build session runs it, and only to run the checks/],
+    ['the served tree', /While he plays, the served tree does not change/],
+    ['the shell, never the port', /He opens the shell, never the app's port/],
+    ['browser, never a native shell', /always in a browser, never inside a native shell/],
+    ['loopback until the check', /Until the check script passes, the preview listens on loopback only/],
+    ['his own domain, never a claude.ai artifact, after his yes', /only on one of his own domains, never a claude\.ai artifact, and after his yes/],
+    ['a new host or cost is asked', /a new host, a DNS record or any cost is asked at that moment/],
+    ['never production hosting', /never on the app's production hosting, the production domain, a subdomain of it, or a host inside a production cookie's `Domain=` scope/],
+    ['the check against the deployed URL', /before the link is shared, the whole check script except the no-demo check runs against the deployed URL and passes/],
+    ['staging is not invented data', /\(a staging or test backend is not invented data\)/],
+    ['the logic test before play', /Before he plays a preview that simulates it, that logic has an exhaustive test with a mutant per property failing it/],
+  ];
+  for (const [name, re] of pins) if (!re.test(s)) why.push(`the summary lacks ${name}`);
   return why.join(' · ');
 });
 await test('GM7', 'component variants may share «מצב» phones, mapped in INVENTORY.md and checked by the words lens', async () => {

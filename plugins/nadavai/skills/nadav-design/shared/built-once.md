@@ -1,5 +1,5 @@
 # nadav-design · «An app is built once», the full rule (moved verbatim from `shared/rules.md` on 14.11.2026)
-Who reads it: the work `shared/rules.md`, «An app is built once», lists, in full before its first step; no other work.
+Read in full first by the work that `shared/rules.md`, «An app is built once», lists, and by anyone unsure it applies.
 ## An app is built once
 
 The demo of an app becomes the app. The page is not code: the app's build of a screen is its only build, and nothing

@@ -59,4 +59,4 @@ the plan, 10.11.2026). Its gaps go into `docs/ui-audit/PLAN.md` for after the re
 The profile says what the screen owes the person; the platform says how it is checked. On a web
 screen (a browser, a Capacitor shell) the automated checks read the DOM. On a native screen
 (Expo) the same rules hold and the checks read the device instead; where no device check exists
-yet the rule counts as `reviewer`. The platform rules are in the skill's `shared/rules.md`.
+yet the rule counts as `reviewer`. The platform rules are in the skill's `shared/platform.md`.
