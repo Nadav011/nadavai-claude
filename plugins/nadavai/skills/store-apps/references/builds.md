@@ -132,7 +132,14 @@ account holder's Apple ID, creates it under Integrate → Create Workflow.
   `xcodebuild -resolvePackageDependencies -project <p> -scheme App`. The `defaults` lines are needed;
   without them the resolve fails in the same way. Cash's build 4 passed this way (2026-11-14).
 - The web half runs in `ci_scripts/ci_post_clone.sh` next to each `.xcodeproj`. Its client keys come
-  from the workflow's environment variables, which the owner pastes. Adding `ci_scripts` changes the
+  from the workflow's environment variables, which the owner pastes, or, when the owner wants nothing
+  done by hand, from a committed file of the public client values only (anon-role key, analytics,
+  Turnstile, VAPID public key, the Firebase client config; never a service key) that the script
+  sources when the workflow sets nothing (therapy-flow-v2 `native/xcode-cloud/*.env`, Nadav,
+  2026-11-14; MediZen and RetroBarber Archives passed at 17c27ea5). An agent never pastes them itself.
+- Codemagic fills Info.plist's `$(OTA_RUNTIME)` through an xcodebuild argument, which Xcode Cloud
+  does not offer. Set the key that holds it, `CapawesomeLiveUpdateDefaultChannel`, with PlistBuddy
+  after the runtime is baked, and read it back; `Set :OTA_RUNTIME` fails with "Does Not Exist". Adding `ci_scripts` changes the
   iOS runtime, because it is a tracked file under the native project. Start Xcode Cloud's build number
   above the last Codemagic one.
 
