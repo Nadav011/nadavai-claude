@@ -97,7 +97,7 @@ const confirmEdits = async (t, changed) => {
       : await diffConfirm(tag, what)
     if (!c) return { approved: false, open: [], why: `confirm ${tag} returned nothing` }
     log(`${SENSITIVE ? 'full review' : 'diff-only confirm'} ${tag}: ${c.verdict}, ${c.findings.length} findings`)
-    if (!c.findings.length || i === CONF) return { approved: ok(c), open: c.findings, why: ok(c) ? '' : `confirm ${tag}: ${c.verdict}, ${blockingIn(c) ? 'HIGH or MEDIUM still open' : 'not approved'}` }
+    if (!c.findings.length || i === CONF) return { approved: ok(c), open: c.findings, why: ok(c) ? '' : `confirm ${tag}: ${c.verdict}, ${blockingIn(c) ? 'HIGH or MEDIUM still open' : 'not approved'}${SENSITIVE ? `; sensitive: the cap of ${CONF} re-reviews per edit chain ends this run, the rounds go on in a new run, and nothing is approved meanwhile` : ''}` }
     tag = `${t}.${i}`
     const fx = await planFix(tag, c.findings, `what confirm ${t} round ${i} found`)
     if (!fx) return { approved: false, open: c.findings, why: `fix ${tag} returned nothing` }

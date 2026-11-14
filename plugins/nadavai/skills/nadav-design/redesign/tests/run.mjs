@@ -275,6 +275,13 @@ await test('RC4', 'with sensitive:true an edit after an APPROVE gets a full revi
   return sFull.length >= 1 && !sDiff.length && sFull.every(c => /Review the WHOLE plan/.test(c.prompt)) && s.result.gates.reviewApproved === true && !dFull.length && dDiff.length >= 1
     ? '' : `sensitive: ${sFull.length} full, ${sDiff.length} diff-only; default: ${dFull.length} full, ${dDiff.length} diff-only; gates ${JSON.stringify(s.result.gates)}`;
 });
+await test('RC6', 'with sensitive:true a chain that still fails after the cap of three full re-reviews says the rounds go on in a new run and approves nothing', async () => {
+  const over = { verdict: c => (fullRound(c) === 1 ? { verdict: 'APPROVE', summary: 'ok', findings: [LOW], anchors: { ...CLEAN_ANCHORS } } : c.label.startsWith('plan-review-full:') ? { verdict: 'ITERATE', summary: 'no', findings: [HIGH0], anchors: { ...CLEAN_ANCHORS } } : undefined) };
+  const { result, calls } = await plan({ sensitive: true }, over);
+  const n = calls.filter(c => c.label.startsWith('plan-review-full:')).length;
+  return n === 3 && result.gates.reviewApproved === false && result.gates.readyForOwner === false && /the rounds go on in a new run, and nothing is approved meanwhile/.test(result.stop)
+    ? '' : `full re-reviews ${n}, stop ${result.stop}, gates ${JSON.stringify(result.gates)}`;
+});
 await test('RC5', 'the second model runs Grok, else Codex on its config default, else Antigravity, and every question says read-only', async () => {
   const { calls } = await plan({});
   const c = calls.find(x => x.label === 'second-model');

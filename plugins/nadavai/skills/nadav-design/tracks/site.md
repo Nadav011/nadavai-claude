@@ -22,7 +22,7 @@ page is the product; it covers those product screens.
 | DoD on every route | Unchanged: every route, the mechanical checks, axe, console. |
 | Lighthouse | Unchanged for the page as first loaded. Heavy media loads on demand after first paint and has its own budget below, so the bar is met, not waived. |
 | Visual change gate | Unchanged. Tempo is usually `flow`: pairs collect to a checkpoint. |
-| One Hebrew family, at most two families (setup step 3) | Body text keeps the project's Hebrew family. A display face the reference needs is a new font: asked once, with the licence checked and a free face proposed (hard rule "no new font without asking"). |
+| One Hebrew family, at most two families (setup step 3) | Body text keeps the project's Hebrew family. A display face the reference needs is a new font: asked once, with the licence checked and a free face proposed (a new font is Nadav's: `SKILL.md`, the font and dependency line and case 3 of the visual change gate). |
 | Direction pick, three candidate themes (setup step 11b) | Not offered when he gave a reference: the reference is the direction. |
 
 ## The order of work
