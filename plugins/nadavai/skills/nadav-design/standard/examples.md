@@ -142,8 +142,9 @@ this skill's own reading, as in `experience.md`.
 - **What it is:** a forest sky with a gold glow; MediZen's lockup at the left and the date at the
   right; a two-line headline with one changing word in gold; one glass card that plays five
   three-beat films (היומן, הבוט בוואטסאפ, תשלום וקבלה, תזכורות, תיק מטופל); a line of clinic events;
-  and a sheet with Google, Apple and «דרכים אחרות להיכנס». On a computer the hero is a band across
-  the top and the sheet a card under it.
+  and a sheet with Google, Apple and «דרכים אחרות להיכנס». On a computer the sky is a band across
+  the top, with the headline and the line of events on one side and the film card on the other,
+  and the sheet is a card centred under the band, rising over its lower edge.
 - **An example of:** an entry screen that has what he asks of every app's (a hero on top, films
   running, the main features highlighted, a beautiful sign-in), and the composition that
   `entry-hero.md` recommends another app's entry screen starts from. The recommendation is this

@@ -17,7 +17,7 @@ the approved page and are not a check; the checks are the measured lines.
   so that MediZen's would be built differently:
   "זה לא קשור אלייך אתה תעסק רק בשבילך זה לא אמור להיות העתק כל אחד והאופי שלה אלב אולם דברים מגניבם וכל העקררונותצ של האנציות הסראטון הקוד הפיצרים" [N]
 - 14:19, on three rough directions that put the hero beside the sign-in and played a film once:
-  "כן אבל איפה כל העקורנות של סרטונהים דבירם רצים הדגשה של פיצרים HERO למעלה" [N]
+  "כן אבל איפה כל העקורנות של סרטונהים דבירם רצים הדגשה של פיצרים HERO למעלה הלוגדו דווןקא היה פצצה בראשון כל השאר לא" [N]
 
 This skill's reading of the three [I]: the principles are shared and each screen is its own.
 Shared: a hero on top, things running in it, the product's features highlighted, a beautiful
@@ -111,13 +111,15 @@ approved page as measured; `[M: fault]` lines are faults measured on it, fixed a
 - **Reduced motion:** nothing moves or advances by itself, every film shows its last frame, and a
   tap still moves to the next film [M].
 - **Someone can stop it, and a key does what a tap does.** Content that moves for ever has a pause
-  control that the keyboard reaches, at the card's edge beside the dots, and the dots are buttons
-  that switch the film, with a hit area of at least 24 px around each [M: fault, the page had
-  neither; WCAG 2.2.2 and 2.1.1].
+  control that the keyboard reaches, at the card's edge beside the dots, and the keyboard can move
+  to the next film too (the card as one button, or the dots as buttons) [M: fault, the page had
+  neither; WCAG 2.2.2 and 2.1.1]. Each of these is a touch target of at least 44 px, like every
+  target the standard's probe measures.
 - **What a screen reader gets.** The card is one image with one label that names the features,
-  and every slide inside it is `aria-hidden`, so the films' words are not read out as stray text.
-  The h1 carries the changing words as visually hidden text, so it does not read as a sentence
-  with its subject missing [M: fault, both].
+  and every slide inside it is `aria-hidden`: MediZen's own review found about thirty text nodes
+  of the films still in the accessibility tree inside the image (`ENTRY-E-REVIEW-1.md`, F2). The
+  h1 carries the changing words as visually hidden text, so it does not read as a sentence with
+  its subject missing [M: fault].
 - **Decoration cannot move the screen.** The app box and the sky use `overflow: clip`, not
   `hidden`: a hidden box is still a scroll container. The SHIFTS session measured 81 px of
   scrollable overflow from its blurred shapes and moved its screen sideways with a forced scroll;
@@ -129,11 +131,13 @@ approved page as measured; `[M: fault]` lines are faults measured on it, fixed a
   over its lower edge. The phone frame is a demo's chrome only.
 - **Short screens drop decoration before the form scrolls:** first the live line, then the film
   card [M]; the primary way in is on screen without scrolling. On the smallest phone (320x568),
-  with the other ways open and an error showing, everything in the sheet can still be reached
-  [M: fault].
+  with the other ways open and an error showing, everything in the sheet can still be reached:
+  on the approved page the legal links could not be (`ENTRY-E-REVIEW-1.md`, F4).
 - **Contrast is measured against the sky,** at the pixels behind each text, in every sky the
-  screen can show (each hour): 4.5:1, or 3:1 for large text. The accent on a bright sky is where
-  it failed [M: fault, 2.1 to 3.6 in the daytime skies].
+  screen can show (each hour): 4.5:1, or 3:1 for large text. In every sky but the night's the approved
+  page failed in three places [M: fault; the ratio that 90% of the pixels behind the text meet]:
+  the white date under the glow (2.11 to 2.64, the worst), the headline's gold word (2.45 in the
+  morning, 2.98 at noon) and the 12 px day letters in a film (2.72 to 3.63).
 - The sheet may come first in the source so that Tab reaches sign-in first; the heading order
   still starts at the h1. Every `id` is unique [M: fault, a repeated one left a button dead].
 - The success moment does not hold the person back: she is in while it plays [I; the approved
