@@ -491,8 +491,8 @@ dependency_ids() {
 }
 
 npm_globals() {
-  # Names from npm-globals.txt, comments and blank lines stripped.
-  sed -e 's/#.*//' -e 's/[[:space:]]//g' "$REPO/npm-globals.txt" | grep -v '^$'
+  # Names from npm-globals.txt: comments, blank lines and the check command after a "|" stripped.
+  sed -e 's/#.*//' -e 's/|.*//' -e 's/[[:space:]]//g' "$REPO/npm-globals.txt" | grep -v '^$' || true
 }
 
 ensure_npm_script_approvals() {
@@ -532,51 +532,73 @@ ensure_npm_globals() {
   npm install -g "${missing[@]}" || warn "npm install -g reported a problem"
 }
 
-npm_global_commands() {
-  # "<package> <command> <version>" for every command the listed global packages install.
+npm_global_checks() {
+  # "<package>|<check command>" for every line of npm-globals.txt that names one after a "|".
+  sed -e 's/#.*//' "$REPO/npm-globals.txt" | awk -F'|' 'NF > 1 {
+    gsub(/^[ \t]+|[ \t]+$/, "", $1); gsub(/^[ \t]+|[ \t]+$/, "", $2)
+    if ($1 != "" && $2 != "") print $1 "|" $2
+  }'
+}
+
+npm_global_versions() {
+  # "<package> <version>" for every listed global package that is installed.
   local root
   root="$(npm root -g 2>/dev/null)" || return 0
-  # shellcheck disable=SC2016  # the ${...} below are JavaScript template strings
   npm_globals | NPM_ROOT="$root" node -e '
     const fs = require("fs"), path = require("path");
     for (const pkg of fs.readFileSync(0, "utf8").split("\n").filter(Boolean)) {
-      let m;
-      try { m = JSON.parse(fs.readFileSync(path.join(process.env.NPM_ROOT, pkg, "package.json"), "utf8")); } catch { continue; }
-      const bin = typeof m.bin === "string" ? { [pkg.split("/").pop()]: m.bin } : (m.bin || {});
-      for (const b of Object.keys(bin)) console.log(`${pkg} ${b} ${m.version}`);
+      try { console.log(pkg + " " + JSON.parse(fs.readFileSync(path.join(process.env.NPM_ROOT, pkg, "package.json"), "utf8")).version); } catch {}
     }' || true
 }
 
-starting_commands() {
-  # Of the "<package> <command> <version>" lines on stdin, the ones whose command answers --version.
-  local pkg cmd ver
-  while read -r pkg cmd ver; do
-    if command -v "$cmd" >/dev/null 2>&1 && timeout 20 "$cmd" --version >/dev/null 2>&1 </dev/null; then
-      printf '%s %s %s\n' "$pkg" "$cmd" "$ver"
+passing_checks() {
+  # Of the "<package>|<check command>" lines on stdin, the packages whose command exits 0 within
+  # 20 seconds. The command is run as plain words, with no shell and no input.
+  local pkg cmd words
+  while IFS='|' read -r pkg cmd; do
+    read -ra words <<<"$cmd"
+    if [ "${#words[@]}" -gt 0 ] && timeout 20 "${words[@]}" >/dev/null 2>&1 </dev/null; then
+      printf '%s\n' "$pkg"
     fi
   done
   return 0
 }
 
 update_npm_globals() {
-  # Opt-in (--npm). Updates the listed global packages, and names every command of theirs that
-  # answered --version before the update and does not after it, with the version to go back to.
+  # Opt-in (--npm). Updates the listed global packages, prints each version that changed, and
+  # names every package whose check command (npm-globals.txt, after the "|") passed before the
+  # update and fails after it, with the version to go back to. A warning, never a stop.
   # Why: until 2026-11-14 nothing updated these tools (agent-browser was two versions behind, the
   # omc CLI one), and an update is also the usual way a working tool stops working: npm 12 runs no
   # install scripts, so a package that downloads its binary in one can come back unable to start.
-  local before after pkg cmd ver broke=0 names=()
+  # Only the named check runs, never every command a package installs: lighthouse also installs
+  # chrome-debug, which opens Chrome whatever its arguments.
+  local before after was now pkg old new broke=0 names=()
   mapfile -t names < <(npm_globals)
   [ "${#names[@]}" -gt 0 ] || return 0
-  before="$(npm_global_commands | starting_commands)"
+  was="$(npm_global_versions)"
+  before="$(npm_global_checks | passing_checks)"
   npm update -g "${names[@]}" --fetch-retries 5 --fetch-timeout 120000 || warn "npm update -g reported a problem"
-  after="$(npm_global_commands | starting_commands | cut -d' ' -f1,2)"
-  while read -r pkg cmd ver; do
+  now="$(npm_global_versions)"
+  after="$(npm_global_checks | passing_checks)"
+  while read -r pkg old; do
     [ -n "$pkg" ] || continue
-    grep -qxF "$pkg $cmd" <<<"$after" && continue
-    warn "$cmd answered --version before the update and does not now; to go back: npm install -g $pkg@$ver"
+    new="$(awk -v p="$pkg" '$1 == p { print $2 }' <<<"$now")"
+    if [ -z "$new" ] || [ "$new" = "$old" ]; then continue; fi
+    if [ "${new%%.*}" != "${old%%.*}" ]; then
+      log "$pkg $old -> $new (a new major version: its changes may need a look)"
+    else
+      log "$pkg $old -> $new"
+    fi
+  done <<<"$was"
+  while read -r pkg; do
+    [ -n "$pkg" ] || continue
+    if grep -qxF "$pkg" <<<"$after"; then continue; fi
+    old="$(awk -v p="$pkg" '$1 == p { print $2 }' <<<"$was")"
+    warn "$pkg: its check passed before the update and fails now; to go back: npm install -g $pkg@$old"
     broke=$((broke + 1))
   done <<<"$before"
-  if [ "$broke" -eq 0 ]; then log "global npm packages updated; every command that started before still starts"; fi
+  if [ "$broke" -eq 0 ]; then log "global npm packages updated; every check that passed before still passes"; fi
 }
 
 enable_omc_news_timer() {

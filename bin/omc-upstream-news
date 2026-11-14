@@ -2,10 +2,11 @@
 # omc-upstream-news: what oh-my-claudecode changed upstream since the copy we took from it.
 #
 #   omc-upstream-news            write the report and print it
-#   omc-upstream-news --notify   also send a desktop notification when the report changed
+#   omc-upstream-news --notify   also send a desktop notification when the list of changed or
+#                                new skills is different from the last report's and not empty
 #                                (what the monthly omc-upstream-news.timer runs)
 #
-# On 2026-11-14 the plugin was taken apart: six of its skills and some lines of others were
+# On 2026-11-14 the plugin was taken apart: some of its skills and some lines of others were
 # copied into nadavai (plugins/nadavai/skills/VENDORED.md, "oh-my-claudecode skills") and the
 # plugin itself was switched off. Its authors keep working (31 releases in the 30 days before
 # that), so this looks once a month at what they changed since the commit we copied from:
@@ -13,50 +14,64 @@
 # starts no agent. Whoever reads the report decides whether something is worth taking.
 #
 # It keeps a blob-less clone under ~/.cache/nadavai/omc-upstream and writes the report to
-# ~/.local/state/nadavai/omc-upstream-news.txt. Exit 0, or 1 when upstream could not be read.
+# ~/.local/state/nadavai/omc-upstream-news.txt. Exit 0 with a report, or 1 with a message and
+# the old report left as it is, when upstream could not be read or no longer has the shape
+# this script reads (it never reports "none" for something it could not check).
 set -uo pipefail
 REPO="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
 url="${OMC_UPSTREAM_URL:-https://github.com/Yeachan-Heo/oh-my-claudecode.git}"
 clone="${OMC_UPSTREAM_CLONE:-$HOME/.cache/nadavai/omc-upstream}"
 state="$HOME/.local/state/nadavai/omc-upstream-news.txt"
 vendored="${OMC_VENDORED_FILE:-$REPO/plugins/nadavai/skills/VENDORED.md}"
+# The monthly timer also runs right after a late boot, sometimes before the network is up.
+tries="${OMC_UPSTREAM_TRIES:-4}"; pause="${OMC_UPSTREAM_PAUSE:-30}"
 notify=0
 case "${1:-}" in
   --notify) notify=1 ;;
-  -h|--help) sed -n '2,16p' "$0"; exit 0 ;;
+  -h|--help) sed -n '2,19p' "$0"; exit 0 ;;
   "") ;;
   *) echo "omc-upstream-news: unknown option $1 (see --help)" >&2; exit 2 ;;
 esac
+fail() { echo "omc-upstream-news: $*" >&2; exit 1; }
 
 # The row of VENDORED.md that names the upstream repo holds the commit and the folders we took.
 row="$(grep -F 'github.com/Yeachan-Heo/oh-my-claudecode' "$vendored" 2>/dev/null | grep '^|' | head -n 1)"
 base="$(grep -oE '\b[0-9a-f]{40}\b' <<<"$row" | head -n 1)"
 ours="$(cut -d'|' -f2 <<<"$row" | tr ',' '\n' | sed 's/[[:space:]]//g' | grep -v '^$')"
 if [ -z "$base" ] || [ -z "$ours" ]; then
-  echo "omc-upstream-news: no oh-my-claudecode row with a commit in $vendored" >&2
-  exit 1
+  fail "no oh-my-claudecode row with a commit and folder names in $vendored"
 fi
 
 mkdir -p "$(dirname "$clone")" "$(dirname "$state")"
-if [ ! -d "$clone" ]; then
-  git clone -q --bare --filter=blob:none "$url" "$clone" 2>/dev/null \
-    || { echo "omc-upstream-news: could not clone $url" >&2; exit 1; }
-fi
-# A bare clone made by `git clone --bare` has no fetch refspec; name the branch each time.
-git -C "$clone" fetch -q "$url" '+refs/heads/main:refs/heads/main' 2>/dev/null \
-  || { echo "omc-upstream-news: could not fetch $url" >&2; exit 1; }
-git -C "$clone" cat-file -e "$base^{commit}" 2>/dev/null \
-  || { echo "omc-upstream-news: the commit $base of VENDORED.md is not in upstream's main" >&2; exit 1; }
+fetched=0
+for ((i = 1; i <= tries; i++)); do
+  if [ ! -d "$clone" ]; then
+    git clone -q --bare --filter=blob:none "$url" "$clone" 2>/dev/null || true
+  fi
+  # A bare clone has no fetch refspec, and a fetch by URL does not read the clone's filter:
+  # name the branch and the filter each time.
+  if [ -d "$clone" ] && git -C "$clone" fetch -q --filter=blob:none "$url" '+refs/heads/main:refs/heads/main' 2>/dev/null; then
+    fetched=1
+    break
+  fi
+  if [ "$i" -lt "$tries" ]; then sleep "$pause"; fi
+done
+[ "$fetched" = 1 ] || fail "could not read $url (tried $tries times)"
+git -C "$clone" merge-base --is-ancestor "$base" main 2>/dev/null \
+  || fail "the commit $base of VENDORED.md is not in the history of upstream's main"
 
-head="$(git -C "$clone" rev-parse main)"
-commits="$(git -C "$clone" rev-list --count "$base..main")"
+head="$(git -C "$clone" rev-parse main)" || fail "could not read upstream's main"
+commits="$(git -C "$clone" rev-list --count "$base..main")" || fail "could not count upstream's commits"
+skills_at() { git -C "$clone" ls-tree -d --name-only "$1" skills/ | sed 's|^skills/||' | sort; }
+then_skills="$(skills_at "$base")" || fail "could not list the skills at $base"
+now_skills="$(skills_at main)" || fail "could not list the skills at upstream's main"
+[ -n "$now_skills" ] || fail "upstream's main has no skills/ folder any more: its layout changed, look by hand ($clone)"
 changed=""
 while read -r name; do
-  n="$(git -C "$clone" rev-list --count "$base..main" -- "skills/$name")"
-  [ "$n" -gt 0 ] && changed+="  $name: $n commits"$'\n'
+  n="$(git -C "$clone" rev-list --count "$base..main" -- "skills/$name")" || fail "could not read the history of skills/$name"
+  if [ "$n" -gt 0 ]; then changed+="  $name: $n commits"$'\n'; fi
 done <<<"$ours"
-skills_at() { git -C "$clone" ls-tree -d --name-only "$1" skills/ 2>/dev/null | sed 's|^skills/||' | sort; }
-new="$(comm -13 <(skills_at "$base") <(skills_at main) | sed 's/^/  /')"
+new="$(comm -13 <(printf '%s\n' "$then_skills") <(printf '%s\n' "$now_skills") | sed 's/^/  /')"
 
 report="$(
   echo "oh-my-claudecode upstream since the copy in nadavai (${base:0:12})"
@@ -70,10 +85,13 @@ report="$(
   echo
   echo "To read one: git -C $clone log -p ${base:0:12}..main -- skills/<name>"
 )"
-before="$(cat "$state" 2>/dev/null || true)"
+# The part a reader acts on: the two lists, without the commit count that moves every month.
+lists() { sed -n '/^Skills we took/,/^To read one/p'; }
+before="$(lists <"$state" 2>/dev/null || true)"
 printf '%s\n' "$report" >"$state"
 printf '%s\n' "$report"
-if [ "$notify" = 1 ] && [ "$report" != "$before" ] && command -v notify-send >/dev/null 2>&1; then
+if [ "$notify" = 1 ] && { [ -n "$changed" ] || [ -n "$new" ]; } && [ "$(lists <<<"$report")" != "$before" ] \
+  && command -v notify-send >/dev/null 2>&1; then
   notify-send -a nadavai "OMC: יש שינויים מאז שלקחנו ממנו" "הדוח: $state" || true
 fi
 exit 0
