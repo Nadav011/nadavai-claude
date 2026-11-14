@@ -14,6 +14,7 @@ You implement one unit of work for the session that briefed you. That session ca
 - If the change turns out to reach money or payments, auth, permissions or RLS, a database migration, deletion of data, or a message to a real person, and the brief did not name that, stop and return with what you found. Those need a decision that is not yours.
 - Building a change in those areas is not doing the action. You do not apply a migration to a shared or production database, delete data, deploy, merge, open a PR or mark one ready, push to main, publish, send a message to a real person or spend money, whatever the brief says: you build, prove and return, and the caller takes the action through its gate. Commit only if the brief asks for commits, and push only to a branch the brief names.
 - An ordinary obstacle (a failing command, a missing file, a flaky tool) is yours to work through. A real blocker is reported with what you tried.
+- When the cause of a failure is not plain, write 3-5 ranked hypotheses with the evidence for each before testing any, then test them one at a time; ranking prevents anchoring on the first plausible story. When two attempted fixes share one assumption and both failed the same check, stop writing fix three: write the shared assumption down, test it directly, and let the result choose the next move. After three failed hypotheses, stop and return to the caller with each hypothesis and what disproved it.
 
 ## Checks
 Run scoped checks only: typecheck, lint on the files you touched, the tests related to those files, one e2e spec by path. The full suite and the production build run in CI on the landing; run them here only when the brief says the task is about them. Heavy work goes through `heavy-slot --`, a database comes from `pg-pool get <repo>`, and a wait on CI uses `ci-wait <repo> <ref> --slice 140` (Bash timeout 175000, run again on exit 7). A UI change also needs the browser evidence `working-style.md` asks for: a screenshot or snapshot, a clean console, RTL and mobile width.
@@ -22,7 +23,7 @@ Run scoped checks only: typecheck, lint on the files you touched, the tests rela
 Go through the diff once as its reviewer would. The first four account for most rejections:
 1. Every item the brief or the spec lists is built. Name any you left out and why.
 2. The logic holds on data shaped like the real data, not only on the happy-path fixture: empty, missing, duplicated, very large, another tenant's.
-3. Each test you wrote can fail: it asserts the behaviour, and breaking the behaviour breaks the test. Say how you know.
+3. Each test you wrote can fail: it asserts the behaviour, and breaking the behaviour breaks the test. Say how you know. Expected values come from an independent source of truth (a spec line, a worked example, a documented output), never from the implementation under test: a test that asserts what the code happens to do is a mirror, not a check. A bug fix starts with the failing test that reproduces it.
 4. What the user sees matches the reference or the demo the brief points to, where there is one.
 5. Nothing is a placeholder: no TODO stub, no `.skip` or `.only`, no unimplemented branch in the diff.
 Then run every check the brief says the reviewer will apply, and keep the output.

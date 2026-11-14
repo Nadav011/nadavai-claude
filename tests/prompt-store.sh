@@ -1,20 +1,14 @@
 #!/usr/bin/env bash
 # tests/prompt-store.sh: the /my-* prompts (plugins/nadavai/skills/my*) stay runnable.
-# They are thin on purpose: several hand the job to an oh-my-claudecode skill or to a tool in bin/,
-# and OMC renames skills between versions. This fails when a prompt points at something that is gone.
+# They are thin on purpose: several hand the job to a tool in bin/. This fails when a prompt points at
+# something that is gone, and when a file under plugins/nadavai/, guides/ or bin/ names an oh-my-claudecode
+# skill or agent type that tests/omc-names-allow.txt does not list (the plugin is being retired).
 #
-#   tests/prompt-store.sh        exit 0 when every prompt, menu row, engine skill and tool lines up
-#   OMC_SKILLS=<dir>             the installed OMC skills folder (default: the active install, else the newest cached)
+#   tests/prompt-store.sh        exit 0 when every prompt, menu row and tool lines up and no OMC name is left
 set -uo pipefail
 here="$(cd "$(dirname "$0")/.." && pwd)"
 skills="$here/plugins/nadavai/skills"
 menu="$skills/my/SKILL.md"
-# The copy Claude Code runs is the one in installed_plugins.json; the cache can also hold older ones.
-active=$(jq -r '.plugins | to_entries[] | select(.key | startswith("oh-my-claudecode@")) | .value[0].installPath' \
-  "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/plugins/installed_plugins.json" 2>/dev/null | head -1)
-omc=${OMC_SKILLS:-${active:+$active/skills}}
-[ -n "$omc" ] && [ -d "$omc" ] \
-  || omc=${OMC_SKILLS:-$(find "$HOME"/.claude/plugins/cache/*/oh-my-claudecode -maxdepth 2 -name skills -type d 2>/dev/null | sort -V | tail -1)}
 PASS=0; FAIL=0
 ok() { PASS=$((PASS+1)); }
 bad() { echo "FAIL: $1"; FAIL=$((FAIL+1)); }
@@ -37,19 +31,35 @@ while read -r name; do
   [ -f "$skills/$name/SKILL.md" ] && ok || bad "the menu lists /nadavai:$name, which does not exist"
 done < <(grep -o '/nadavai:my-[a-z-]*' "$menu" | sed 's#/nadavai:##' | sort -u)
 
-# Engine skills: present in the installed OMC, and open to the model (a user-only skill cannot be
-# invoked through the Skill tool).
-engines=$(grep -ho 'oh-my-claudecode:[a-z-]*' "$skills"/my*/SKILL.md | sort -u)
-if [ -z "$omc" ] || [ ! -d "$omc" ]; then
-  echo "note: oh-my-claudecode is not installed here; engine skills not checked: $(echo $engines)"
+# oh-my-claudecode is being retired (2026-11-14): its skills and agent types will not exist, so a file of
+# ours that names one (oh-my-claudecode:<name>) points at nothing. Each such name in plugins/nadavai/,
+# guides/ or bin/ must be listed in tests/omc-names-allow.txt as "path | name | reason"; a listed line
+# that no longer appears fails too, so the list shrinks with the references. rules/ and settings/ are
+# not scanned yet: their OMC names change in the rules pass.
+allow="$here/tests/omc-names-allow.txt"
+declare -A allowed=() seen=()
+if [ -f "$allow" ]; then
+  while IFS= read -r line; do
+    case "$line" in ''|'#'*) continue ;; esac
+    path=${line%% | *}; rest=${line#* | }; name=${rest%% | *}; reason=${rest#* | }
+    if [ "$rest" = "$line" ] || [ "$reason" = "$rest" ] || [ -z "${reason// /}" ]; then
+      bad "omc-names-allow.txt: not path | name | reason: $line"; continue
+    fi
+    allowed["$path $name"]=1
+  done < "$allow"
 else
-  for e in $engines; do
-    f="$omc/${e#oh-my-claudecode:}/SKILL.md"
-    if [ ! -f "$f" ]; then bad "$e is not in $omc"
-    elif grep -qx 'disable-model-invocation: true' "$f"; then bad "$e is user-only, a prompt cannot invoke it"
-    else ok; fi
-  done
+  bad "tests/omc-names-allow.txt is missing"
 fi
+while read -r path name; do
+  [ -n "$path" ] || continue
+  seen["$path $name"]=1
+  if [ -n "${allowed["$path $name"]-}" ]; then ok
+  else bad "$path names $name, which goes away with the plugin (replace it, or list it in tests/omc-names-allow.txt with the reason it stays)"; fi
+done < <(cd "$here" && grep -rnoE 'oh-my-claudecode:[A-Za-z0-9_*-]*' plugins/nadavai guides bin 2>/dev/null \
+  | awk -F: '{print $1, $3 ":" $4}' | sort -u)
+for k in "${!allowed[@]}"; do
+  [ -n "${seen["$k"]-}" ] && ok || bad "omc-names-allow.txt lists '$k', which no longer appears: remove that line"
+done
 
 # Tools the prompts depend on: each prompt names its tool exactly, and the tool exists. A prompt that
 # stops naming its tool (a typo, a rename) is a prompt that falls back to the session's memory.

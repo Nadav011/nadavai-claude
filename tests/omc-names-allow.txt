@@ -1,0 +1,21 @@
+# Files under plugins/nadavai/, guides/ and bin/ that may still name an oh-my-claudecode skill or agent type.
+# tests/prompt-store.sh reads this list. One line per file and name: path | name | reason.
+# A line whose name no longer appears in that file fails the test, so remove it with the reference.
+bin/executor-quality | oh-my-claudecode:executor | history: it counts the OMC executor runs in old transcripts beside nadavai:executor
+plugins/nadavai/scripts/agent-guard.sh | oh-my-claudecode: | agent-guard's fast-path filter, so a call naming any OMC agent type reaches the deny checks
+plugins/nadavai/scripts/agent-guard.sh | oh-my-claudecode:executor | agent-guard's deny of the OMC executor, with its message
+plugins/nadavai/scripts/agent-guard.sh | oh-my-claudecode:executor-* | agent-guard's deny of the OMC executor variants
+plugins/nadavai/scripts/agent-guard.sh | oh-my-claudecode:critic | agent-guard's deny of the OMC reviewers, with its message
+plugins/nadavai/scripts/agent-guard.sh | oh-my-claudecode:code-reviewer | agent-guard's deny of the OMC reviewers
+plugins/nadavai/scripts/agent-guard.sh | oh-my-claudecode:security-reviewer | agent-guard's deny of the OMC reviewers
+plugins/nadavai/tests/test-agent-guard.sh | oh-my-claudecode:executor | agent-guard's tests of its OMC denies
+plugins/nadavai/tests/test-agent-guard.sh | oh-my-claudecode:executor-high | agent-guard's tests of its OMC denies
+plugins/nadavai/tests/test-agent-guard.sh | oh-my-claudecode:critic | agent-guard's tests of its OMC denies
+plugins/nadavai/tests/test-agent-guard.sh | oh-my-claudecode:code-reviewer | agent-guard's tests of its OMC denies
+plugins/nadavai/tests/test-agent-guard.sh | oh-my-claudecode:security-reviewer | agent-guard's tests of its OMC denies
+plugins/nadavai/tests/test-agent-guard.sh | oh-my-claudecode:verifier | agent-guard's tests: the OMC types it lets through
+plugins/nadavai/tests/test-agent-guard.sh | oh-my-claudecode:planner | agent-guard's tests: the OMC types it lets through
+plugins/nadavai/tests/test-stop-guards.sh | oh-my-claudecode:executor | a stop-guard test's sample subagent payload
+guides/project-reinit.md | oh-my-claudecode:deepinit | waits for the rules pass and the switch-off, which replace deepinit (step 2)
+plugins/nadavai/scripts/project-check.sh | oh-my-claudecode:deepinit | waits for the rules pass and the switch-off, which replace deepinit (the two notices it prints)
+plugins/nadavai/skills/nadav-design/modes/screen.md | oh-my-claudecode:verifier | step 8b still starts the OMC verifier; outside the porting brief, reported to its caller, to be replaced before the switch-off

@@ -12,10 +12,10 @@ The problem: $ARGUMENTS
 
 If that is empty, it is the failure just discussed.
 
-1. Find the root cause from evidence: the transcript, the logs, the code, the data. Say what happened, why, and why nothing caught it. If you cannot show the cause, separate what you know from what you guess.
+1. Find the root cause from evidence: the transcript, the logs, the code, the data. Say what happened, why, and why nothing caught it. If you cannot show the cause, separate what you know from what you guess. Try to disprove your favourite cause yourself: collect the evidence for it and against it, say what it predicts that the next-best cause does not, and run the cheapest check that tells the two apart. One candidate is always that the measurement or the premise is wrong, not the system (a query that applies one key across different entities, tenants or groups; a comparison that does not match the data's grain).
 2. Look for the same class of problem elsewhere: the same pattern in this code, in the other projects that share it, and in production data (read-only). List every place you find. What those places need is done under `working-style.md` (Approval gates) and `action-safety.md`.
-3. Choose the enforcement, taking the first of these that works: a structure in which the mistake cannot be made; a type or a schema; a lint rule or a hook whose message names the fix; a test; a script that makes the right action one command; and text in a rule or a skill last.
-4. Prove that the enforcement fires: reproduce the mistake on purpose and show the check catching it. An enforcement you have not seen fire is a hope.
+3. Choose the enforcement, taking the first of these that works: a structure in which the mistake cannot be made; a type or a schema; a lint rule or a hook whose message names the fix; a test; a script that makes the right action one command; and text in a rule or a skill last. Name in its message the way a legitimate case passes (as `# land-urgent:` does).
+4. Prove that the enforcement fires: reproduce the mistake on purpose and show the check catching it, and run the right action through it too, to show it passes. An enforcement you have not seen fire is a hope.
 5. Report the cause, where else it was found, what stops it now with the proof, and what is still open.
 
 A fix inside this project you make now. A fix that belongs in `~/nadavai` follows `nadavai.md`. Something that fails a wrong action in code, with a message that names the right one (a test, a lint rule, a check in a script, a guard on a command that is wrong every time), you build, prove and report. Text or a hook that would make agents ask him, wait for him or decline a task is his to decide: give him the exact wording and the case it is for.

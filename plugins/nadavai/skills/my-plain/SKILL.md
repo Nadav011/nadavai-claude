@@ -12,7 +12,7 @@ What to explain: $ARGUMENTS
 
 If that is empty, explain your last reply.
 
-1. Invoke the Skill tool with skill `oh-my-claudecode:bro` to restate it. If that skill cannot load, say the same thing again in everyday words, one idea per sentence, and keep every fact and every number.
+1. Say the same thing again in everyday words, one idea per sentence, and keep every fact and every number. Say what each actor is the first time it appears (for example, the program that checks the code) and then use that plain name. Use as many plain sentences as the facts need: a version that drops a fact is not plainer.
 2. Write it in Hebrew, in this shape where it fits: what was (the situation), what will be (what changes), and how he will see it (what he or a user notices on the screen).
 3. Replace a name that was made up during the work (a round, a lane, a unit id) with what the thing is. Say a technical term in Hebrew words. English stays only for a name he has to copy.
 4. If something in the original was wrong or overstated, correct it here.
