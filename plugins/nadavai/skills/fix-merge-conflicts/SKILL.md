@@ -12,8 +12,9 @@ metadata:
 ---
 
 > **nadavai preface.** Copied from oh-my-claudecode (see `../VENDORED.md`). A merge into main still follows
-> `rules/ci-policy.md` (rules 3 and 6: the landing PR, rebased on main, merged with `--match-head-commit`), and a
-> force push is never part of this skill: the `--force-with-lease` line in step 6 is not followed.
+> `rules/ci-policy.md` (rules 3 and 6: the landing PR, rebased on main, merged with `--match-head-commit`). The
+> `--force-with-lease` push of step 6 is for your own landing branch after that rebase, never for main and never
+> for a branch another session works on.
 
 # Fix Merge Conflicts
 

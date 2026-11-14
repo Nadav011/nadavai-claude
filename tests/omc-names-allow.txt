@@ -18,4 +18,3 @@ plugins/nadavai/tests/test-agent-guard.sh | oh-my-claudecode:planner | agent-gua
 plugins/nadavai/tests/test-stop-guards.sh | oh-my-claudecode:executor | a stop-guard test's sample subagent payload
 guides/project-reinit.md | oh-my-claudecode:deepinit | waits for the rules pass and the switch-off, which replace deepinit (step 2)
 plugins/nadavai/scripts/project-check.sh | oh-my-claudecode:deepinit | waits for the rules pass and the switch-off, which replace deepinit (the two notices it prints)
-plugins/nadavai/skills/nadav-design/modes/screen.md | oh-my-claudecode:verifier | step 8b still starts the OMC verifier; outside the porting brief, reported to its caller, to be replaced before the switch-off
