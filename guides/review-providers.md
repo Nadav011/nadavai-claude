@@ -26,7 +26,7 @@ Read before running `omc ask` for a review. Which provider a review gets, and ho
   folder that holds only the material under review (the diff with the changed files, copies of the code the
   review needs, the criteria, the question), not in an app's repo or a client's folder, because the provider runs in its current directory with its
   approvals and its sandbox off and an app's repo holds live env files; the one exception is this config repo
-  (below). The material carries no secret, no real people's rows and no real person's identifying details
+  (below). The material carries no secret, no real people's rows and no real person's identifying or health details
   (the public text of this config repo excepted; `review-rounds.md`, the final read, says what is invented). Start it with the session's
   tokens removed from its environment (the providers sign in from their own config files; tried with Grok on
   2026-11-14): `env -u GITHUB_PERSONAL_ACCESS_TOKEN -u BRIGHTDATA_API_TOKEN -u ORCA_AGENT_HOOK_TOKEN

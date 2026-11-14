@@ -17,9 +17,9 @@ nothing that only delays.
 - A plan or a spec that replaces part of an older one carries over the decisions of his that the replaced
   part held, each as the words he typed or the option text he picked together with the question it
   answered, in the language he used. Where the older part only restates a decision, his words are looked up
-  where he gave them (the project's decision record, the interview file); a point whose words are not found
-  is carried as "words not found", and as decided only when the older plan is one he approved (Requests),
-  otherwise as "recommended, not decided"; it is neither quoted nor dropped. Where he has since typed or picked
+  where he gave them (the project's decision record, the interview file); where his words are not found,
+  point to the old line by file and line, write "words not found", and do not copy or restate that line; mark
+  the point decided only when he approved that plan (Requests), otherwise "recommended, not decided". Where he has since typed or picked
   a change to one, his later words are written right after the older ones, with the date; where the two differ
   the later words win, and the older words stay in force for what the later ones do not change. Detail
   that an agent derives from a decision is written outside the quote, as the agent's.
