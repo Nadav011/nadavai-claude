@@ -54,8 +54,33 @@ printf '%s\n' '{"bindings":[{"context":"Chat","bindings":{"Ctrl+P":"chat:stash"}
 out=$(bind "$f")
 ok "own key kept"                  'has "$f" "Ctrl+P" "chat:stash"'
 ok "own key not doubled"           '[ "$(jq -r ".bindings[0].bindings | keys | map(ascii_downcase) | map(select(. == \"ctrl+p\")) | length" "$f")" = 1 ]'
-ok "own key named"                 'grep -q "kept Ctrl+P = chat:stash" <<<"$out"'
+ok "own key named"                 'grep -q "kept Ctrl+P = \"chat:stash\" (Chat)" <<<"$out"'
 ok "other key still added"         'has "$f" "ctrl+shift+p" "command:my-menu"'
+ok "only the added key is reported bound: $out" 'grep -q "bound ctrl+shift+p=command:my-menu in" <<<"$out" && ! grep -q "bound ctrl+p=" <<<"$out"'
+
+# 4b. The same key under another spelling, in another block, as the start of a chord, or unbound
+# on purpose: each is his choice and nothing is added for that key.
+kept() { # kept <label> <json> : ctrl+p is not added anywhere and the file's own key is named
+  local f="$t/kept-$1.json" out
+  printf '%s\n' "$2" > "$f"
+  out=$(bind "$f")
+  ok "$1: ctrl+p not added" '[ "$(jq "[.bindings[].bindings | to_entries[] | select(.value == \"command:my-menu\") | .key] | map(select(. == \"ctrl+p\")) | length" "$f")" = 0 ]'
+  ok "$1: named ($out)" 'grep -q "kept .*; ctrl+p is not bound" <<<"$out"'
+}
+kept control-p       '{"bindings":[{"context":"Chat","bindings":{"control+p":"chat:stash"}}]}'
+kept second-block    '{"bindings":[{"context":"Chat","bindings":{"ctrl+t":"app:toggleTodos"}},{"context":"Chat","bindings":{"ctrl+p":"chat:stash"}}]}'
+kept chord-prefix    '{"bindings":[{"context":"Chat","bindings":{"ctrl+p ctrl+s":"chat:stash"}}]}'
+kept unbound-null    '{"bindings":[{"context":"Chat","bindings":{"ctrl+p":null}}]}'
+kept lowercase-chat  '{"bindings":[{"context":"chat","bindings":{"ctrl+p":"chat:stash"}}]}'
+kept global-block    '{"bindings":[{"context":"Global","bindings":{"ctrl+p":"app:toggleTodos"}}]}'
+f="$t/order.json"
+printf '%s\n' '{"bindings":[{"context":"Chat","bindings":{"shift+ctrl+p":"chat:stash"}}]}' > "$f"
+out=$(bind "$f")
+ok "modifier order: ctrl+shift+p not added beside shift+ctrl+p" '! has "$f" "ctrl+shift+p" "command:my-menu" && has "$f" "ctrl+p" "command:my-menu"'
+f="$t/same.json"
+printf '%s\n' '{"bindings":[{"context":"Chat","bindings":{"Control+P":"command:my-menu","ctrl+shift+p":"command:my-menu"}}]}' > "$f"
+before=$(sha256sum < "$f"); out=$(bind "$f")
+ok "already bound under another spelling: untouched and silent" '[ "$(sha256sum < "$f")" = "$before" ] && [ -z "$out" ]'
 
 # 5. Another context only: a Chat block is added beside it.
 f="$t/global.json"
@@ -73,6 +98,12 @@ ok "broken file named"             'grep -q "skipped unreadable" <<<"$out"'
 f="$t/shape.json"; printf '%s\n' '{"bindings":{"ctrl+p":"x"}}' > "$f"; before=$(sha256sum < "$f")
 bind "$f" >/dev/null
 ok "wrong shape untouched"         '[ "$(sha256sum < "$f")" = "$before" ]'
+f="$t/array.json"; printf '%s\n' '{"bindings":[{"context":"Chat","bindings":["x"]}]}' > "$f"; before=$(sha256sum < "$f")
+out=$(bind "$f")
+ok "a list where the keys belong: untouched and named" '[ "$(sha256sum < "$f")" = "$before" ] && grep -q "skipped unreadable" <<<"$out"'
+ln -s "$t/nowhere.json" "$t/dangling.json"
+out=$(bind "$t/dangling.json")
+ok "a link that points nowhere is left as a link" '[ -L "$t/dangling.json" ] && [ ! -e "$t/nowhere.json" ] && grep -q "skipped dangling link" <<<"$out"'
 
 # 7. A wrong call is refused.
 node "$KB" "$t/x.json" Chat 2>/dev/null; rc=$?

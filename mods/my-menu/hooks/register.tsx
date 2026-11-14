@@ -1,3 +1,4 @@
+import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 // The menu of Nadav's prompt store. `/my-menu` (bound to Ctrl+P in
@@ -29,8 +30,21 @@ const ORDER = [
 
 type Row = { value: string; label: string }
 
+// The words he had typed when he opened the menu: what the prompt box held, or
+// what followed `/my-menu`. A pane takes the keyboard only over an empty box,
+// so the words are taken out and kept here. They come back as the chosen
+// prompt's arguments, or as they were when he closes the menu without choosing.
+// Kept in the session's state, so a reload of this module does not lose them.
+const held = atom({ plugin: 'my-menu', key: 'held' } as const, '')
+
+const joined = (...parts: string[]): string =>
+  parts
+    .map(part => part.trim())
+    .filter(part => part !== '')
+    .join(' ')
+
 // The sentence he would say: the description up to its first "?" or ":".
-export const sentence = (description: string): string => {
+const sentence = (description: string): string => {
   const text = description.trim()
   const ask = text.indexOf('?')
   const colon = text.indexOf(':')
@@ -60,12 +74,6 @@ const prompts = async ($: EngineInterface): Promise<Row[]> => {
 const MISSING =
   'הפרומטים עוד לא נטענו בסשן הזה. מקלידים /reload-plugins ואז פותחים שוב.'
 
-// What the prompt box held when he opened the menu. A pane takes the keyboard
-// only over an empty box, so the words are taken out and kept here: they come
-// back as the chosen prompt's arguments, or as they were when he closes the
-// menu without choosing.
-let held = ''
-
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
@@ -77,11 +85,15 @@ export const register: Register = on => {
     return next(e)
   })
 
-  on('command.run', { command: COMMAND }, async $ => {
+  on('command.run', { command: COMMAND }, async ($, e) => {
     const { text } = await $.prompt.read()
     if (text.trim() !== '') {
-      held = text
-      await $.prompt.fill({ text: '' })
+      // The words leave the box only when it could be emptied: while a dialog
+      // holds the keys they stay where he typed them.
+      const emptied = await $.prompt.fill({ text: '' })
+      if (emptied.isFilled) await update($, held, kept => joined(kept, text))
+    } else if (e.args.trim() !== '') {
+      await update($, held, kept => joined(kept, e.args))
     }
     const opened = await $.ui.open({
       id: PANE,
@@ -126,30 +138,34 @@ export const register: Register = on => {
     )
   })
 
-  // He closed the menu without choosing: his words go back in the box.
+  // He closed the menu without choosing: his words go back in the box. A pick
+  // closes the pane too, as the plugin, and puts them in the box itself.
   on('ui.close', async ($, e, next) => {
     const closed = await next(e)
-    if (e.id === PANE) await giveBack($)
+    if (e.id === PANE && e.origin.kind !== 'plugin') await giveBack($)
 
     return closed
   })
 }
 
+// Puts the held words back, after anything he typed since, and forgets them
+// only once the box has taken them.
 const giveBack = async ($: EngineInterface): Promise<void> => {
-  if (held === '') return
-  const words = held
-  held = ''
-  await $.prompt.fill({ text: words })
+  const words = await read($, held)
+  if (words === '') return
+  const { text } = await $.prompt.read()
+  const back = await $.prompt.fill({ text: joined(text, words) })
+  if (back.isFilled) await update($, held, () => '')
 }
 
 // Puts `/<prompt> ` in the prompt box, with the words he had typed as the
-// prompt's arguments, and hands the keyboard back by closing the pane.
+// prompt's arguments, and hands the keyboard back by closing the pane. A draft
+// that began with another command gives up that command's name, not its words.
 const choose = async ($: EngineInterface, name: string): Promise<void> => {
   const { text } = await $.prompt.read()
-  const typed = (held === '' ? text : held).trim()
-  held = ''
-  const words = typed.startsWith('/') ? '' : typed
+  const words = joined(await read($, held), text).replace(/^\/\S*\s*/, '')
   await $.ui.close({ id: PANE })
   const filled = await $.prompt.fill({ text: `/${name} ${words}` })
-  if (!filled.isFilled) $.ui.toast(`/${name}`)
+  if (filled.isFilled) await update($, held, () => '')
+  else $.ui.toast(`התיבה לא פנויה כרגע. הפרומט שבחרת: /${name}`)
 }

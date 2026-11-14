@@ -162,8 +162,10 @@ link_my_menu() {
   if [ -d "$CFG/skills" ] && ! same_path "$CFG/skills" "$skills"; then
     link_dir "$REPO/mods/my-menu" "$CFG/skills/my-menu"
   fi
-  # Each profile keeps its own keybindings.json (Orca writes its own key there), so the key goes
-  # to each one. A key that already runs something else there is kept, and keybind.mjs names it.
+  # The key lives in ~/.claude/keybindings.json: Orca copies that file over each account
+  # profile's own copy whenever it prepares the profile for a launch (a key written only into a
+  # profile is gone at the next launch). The profiles are written too so that open sessions get
+  # the key now. A key that already runs something else is kept, and keybind.mjs names it.
   for d in "$HOME/.claude" "$HOME"/.config/orca/claude-profiles/*/home; do
     [ -d "$d" ] || continue
     node "$REPO/lib/keybind.mjs" "$d/keybindings.json" Chat 'ctrl+p=command:my-menu' 'ctrl+shift+p=command:my-menu' \
