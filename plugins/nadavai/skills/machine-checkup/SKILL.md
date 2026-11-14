@@ -154,7 +154,10 @@ the MSI and stalls writes meanwhile).
   Before retiring a unit: `systemctl list-dependencies --reverse <unit>`, any `.socket`/`.timer`/
   `.path` that activates it, and who talks to its port; disable it, then move the file to
   `/root/retired-tuning/` and `daemon-reload` (rollback = move back, reload, enable).
-- **ARCHIVE**: `scripts/archive.sh <host>-<date>[-n] <paths>` in the background (new name per
+- **ARCHIVE**: while omarchy is off, the archive is the MSI's own disk:
+  `ARCHIVE_HOST=msi ARCHIVE_MNT=/ ARCHIVE_DIR=/home/nadavmsi/archive scripts/archive.sh ...`
+  (from the LENOVO; `tests/archive-sh.sh` covers it). Keep the MSI above 150 GB free, it runs CI.
+  `scripts/archive.sh <host>-<date>[-n] <paths>` in the background (new name per
   round; it refuses paths already in the archive, paths through symlinks, a full or unmounted
   archive disk, and archiving to the same machine). It writes a per-run receipt
   (`archive-<run>.receipt`: path, manifest, time) and exits 1 if anything failed. Right before

@@ -6,6 +6,9 @@
 # usage: archive.sh <archive-name> <path under $HOME>...
 #        archive.sh --check <receipt>
 # env:   ARCHIVE_HOST (default omarchy)  CHECKUP_DIR (default ~/cleanup-audit-<date>)
+#        ARCHIVE_MNT (default /mnt/data: the disk the archive must sit on) and ARCHIVE_DIR
+#        (default $ARCHIVE_MNT/archive). omarchy is off since 2026-11-09, so archive to the MSI:
+#        ARCHIVE_HOST=msi ARCHIVE_MNT=/ ARCHIVE_DIR=/home/nadavmsi/archive
 #        ARCH_IONICE (default "-c2 -n7"; "-c3" while another session is measuring the disk)
 #
 # Fail-closed: every step's exit status is checked; the manifest (manifest.py) covers type, path,
@@ -26,19 +29,21 @@ fi
 
 name=${1:?archive name}; shift
 [[ $name =~ ^[A-Za-z0-9._-]+$ && $name != .* ]] || { echo "bad archive name: $name" >&2; exit 2; }
-host=${ARCHIVE_HOST:-omarchy}; mnt=/mnt/data; dst=$mnt/archive/$name
+host=${ARCHIVE_HOST:-omarchy}; mnt=${ARCHIVE_MNT:-/mnt/data}; dst=${ARCHIVE_DIR:-${mnt%/}/archive}/$name
 dir=${CHECKUP_DIR:-$HOME/cleanup-audit-$(date +%F)}; mkdir -p "$dir"
 run=$(date +%Y%m%dT%H%M%S)-$$; receipt=$dir/archive-$run.receipt; log=$dir/archive-$run.log; fail=0
-q() { printf '%q' "$1"; }                # quote one argument for the remote shell (bash on omarchy)
-remote_manifest() { ssh "$host" "python3 -I - $(q "$1")" < "$mf"; }
+q() { printf '%q' "$1"; }                # quote one argument for the remote bash
+# Remote commands go to bash on stdin: the MSI's login shell is fish, which cannot run them.
+rsh() { ssh "$host" bash -s <<<"$1"; }
+remote_manifest() { ssh "$host" bash -c "$(q "python3 -I - $(q "$1")")" < "$mf"; }
 remote_exists() {                        # prints yes / no; any other outcome is a failure
-  local out; out=$(ssh "$host" "if test -e $(q "$1") || test -L $(q "$1"); then echo yes; else echo no; fi") || return 1
+  local out; out=$(rsh "if test -e $(q "$1") || test -L $(q "$1"); then echo yes; else echo no; fi") || return 1
   [[ $out == yes || $out == no ]] && echo "$out"
 }
 
 # The archive must be another machine, and the archive dir must really sit on its archive disk.
 [ "$(ssh "$host" hostname 2>/dev/null)" != "$(hostname)" ] || { echo "archive host is this machine" >&2; exit 2; }
-ssh "$host" "mountpoint -q $mnt && mkdir -p $(q "$dst") && [ \"\$(realpath -e $(q "$dst"))\" = $(q "$dst") ] && [ \"\$(findmnt -no TARGET -T $(q "$dst"))\" = $mnt ]" \
+rsh "mountpoint -q $mnt && mkdir -p $(q "$dst") && [ \"\$(realpath -e $(q "$dst"))\" = $(q "$dst") ] && [ \"\$(findmnt -no TARGET -T $(q "$dst"))\" = $mnt ]" \
   || { echo "archive dir $dst on $host is not a plain directory on the $mnt disk" >&2; exit 2; }
 
 for arg in "$@"; do
@@ -49,12 +54,12 @@ for arg in "$@"; do
   ex=$(remote_exists "$dst/$rel") || { echo "FAILED could not check the archive for $rel" >> "$log"; fail=1; continue; }
   [ "$ex" = no ] || { echo "FAILED already in archive (use a new archive name): $rel" >> "$log"; fail=1; continue; }
   size=$(du -sk -- "$src" | cut -f1)
-  free=$(ssh "$host" "df -Pk $(q "$dst") | awk 'NR==2{print \$4}'") || free=0
+  free=$(rsh "df -Pk $(q "$dst") | awk 'NR==2{print \$4}'") || free=0
   [ "${free:-0}" -gt $((size * 12 / 10)) ] || { echo "FAILED not enough space on $host for $rel" >> "$log"; fail=1; continue; }
   # Absolute symlinks still point at the original location after deletion: listed for the caller.
   find "$src" -type l -lname '/*' -printf "NOTE absolute symlink %p -> %l\n" >> "$log"
   echo "$(date +%T) copy $rel -> $host:$dst/$rel" >> "$log"
-  ssh "$host" "mkdir -p $(q "$dst/$parent")" || { echo "FAILED mkdir $rel" >> "$log"; fail=1; continue; }
+  rsh "mkdir -p $(q "$dst/$parent")" || { echo "FAILED mkdir $rel" >> "$log"; fail=1; continue; }
   # -s (protect args): rsync passes the remote path itself, so it must not be shell-quoted here.
   ionice $io rsync -aHAX -s -- "$src" "$host:$dst/$parent/" >> "$log" 2>&1 || { echo "FAILED rsync $rel" >> "$log"; fail=1; continue; }
   t0=$(date +%s)                         # before hashing: a write during verification is newer than t0
