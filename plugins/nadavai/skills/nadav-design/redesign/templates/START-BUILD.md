@@ -28,7 +28,11 @@ FEATURES-PROPOSED.md, INVENTORY.md. The demo at that tag is read-only: a design 
    preview at 375 and 1440, dark and light.
 3. Never re-decide an answer. A question the package does not answer goes to Nadav with AskUserQuestion,
    recommendation first, and its answer is appended to DECISIONS-ANSWERED.md.
-4. Anything marked `go` (migrations, auth, payments, store publishing, paid services) waits for Nadav's explicit go.
+4. Anything marked `go` waits for Nadav's yes: it holds one of the five actions `rules/working-style.md`, Approval
+   gates, keeps for him (money, a paid service included; a message or post in his name or a client's; a public store
+   release; an official filing or signature; a deletion with no way back). A migration, an auth or permission change
+   and payment code are engineering actions: they run after an independent review, with a tested way back and
+   through the project's script, with a report after (that section and `~/nadavai/guides/production-change.md`).
 5. Every unit ends with a reviewer that is not its author, chosen as `rules/working-style.md`, "Second model", says
    (a fresh Opus for auth, data or money), and a dated line in the app's STATUS.md. For a screen the tagged demo
    drew, that reviewer is the `screen` step 8b verifier, given that screen's phones at the tag, as that step says.

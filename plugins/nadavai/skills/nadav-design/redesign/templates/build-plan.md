@@ -40,7 +40,11 @@ any design change after it is made in the app's preview (`shared/rules.md` of na
 - For a standalone demo that predates that section, what the token and component units take from the tag and what
   reaches users when: nadav-design `shared/standalone-demo-to-app.md`.
 - One unit per branch and PR; the order below; shared components before screens.
-- What needs Nadav's go before it runs (migrations, auth, payments, store publishing, paid services) is marked `go`.
+- A unit or step that waits for Nadav's yes is marked `go`: only one of the five actions of `rules/working-style.md`,
+  Approval gates (money, a paid service included; a message or post in his name or a client's; a public store
+  release; an official filing or signature; a deletion with no way back). A migration, an auth or permission change
+  and payment code are engineering actions, not `go`: they run after an independent review, with a tested way back
+  and through the project's script, with a report after (that section; `~/nadavai/guides/production-change.md`).
 
 ## Units
 State is `todo` until the build session marks it `done <sha>`; the `next` gap scan counts the rows not `done`.

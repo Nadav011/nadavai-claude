@@ -111,7 +111,7 @@ Route text and Latin inside a label sit in `<bdi dir="ltr">`.
 | App | Fix lane | Verify group | First build | Rounds |
 |---|---|---|---|---|
 | up to 8 screens | 2 screens | 4 screens | subagents one by one | one review round |
-| 9–20 screens | 3–4 | 6–7 | a workflow, or subagents in batches of 3 | one review round |
+| 9–20 screens | 3–4 | 6–7 | a workflow, or subagents, as many as the work splits into | one review round |
 | over 20 | 4 | 7 | a workflow | one review round |
 
 Screen counts are the screens the page draws. Observed when the page carried every screen (what real runs took, not
@@ -338,8 +338,9 @@ Chat in plain Hebrew, short lines, the why before the what; code, files and comm
 
 ### 8. Build plan
 - `plan/build-plan.md` from the template: it names the approved tag, and its units come in build order, each with
-  acceptance, size, dependencies, `go` where Nadav must approve (migrations, auth, payments, store publishing, paid
-  services). Every answer and every feature row lands somewhere. `tools/check-anchors.py`: 0 missing, 0 wrong. It
+  acceptance, size, dependencies, `go` only where it holds one of the five actions that wait for Nadav's yes
+  (`rules/working-style.md`, Approval gates; a migration, an auth or permission change and payment code are
+  engineering actions that run after an independent review, as that section says). Every answer and every feature row lands somewhere. `tools/check-anchors.py`: 0 missing, 0 wrong. It
   checks the demo citations only; a citation of an INVENTORY.md row is checked by the reviewers, not by a tool.
 - **Unit 1 is the app's preview on invented data** (the folder and the no-demo check: shifts' `src/demo/`; ask before
   any new dependency it needs), isolated and checked as `shared/built-once.md`, «An app is built once», point 5, says.
