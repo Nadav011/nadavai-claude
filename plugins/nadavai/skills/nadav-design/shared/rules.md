@@ -51,35 +51,37 @@ before anything else is built, and no alternative concept is offered unless he a
 ## An app is built once
 
 The demo of an app becomes the app. The page is not code: the app's build of a screen is its only build, and nothing
-is rebuilt after it to match the page. Nadav asked for this rule (11.11.2026) [N]; points 1 to 4 and 6 are the choice
-of the session that wrote it [I]; point 5 holds his global gates (`floor`), and the properties and proofs it holds
-them with are that session's choice [I]. For an app:
+is rebuilt after it to match the page. Nadav asked for this rule (11.11.2026) [N]; point 5 holds his global gates
+(`floor`); points 1 to 4 and 6, and point 5's properties and proofs, are the choice of the session that wrote it [I].
 1. **A standalone page for the direction only.** Outside the app's code, only for the first direction round, one
    round unless Nadav asks for another: the main journey as one playable flow, never isolated screens.
-2. **After the plan is approved, the demo lives in the app.** Direction tagged, build plan, his approval of it, then
-   the build session, preview first. Approval of the direction never starts work in an app repo.
+2. **After the plan is approved, the demo lives in the app.** Direction approved and tagged, build plan, his approval
+   of it, then the build session, preview first. Approval of the direction never starts work in an app repo.
 3. **Approved means a frozen, tagged commit.** Any design change after it is made in the app's preview, never in the
    standalone page; from then on that page is read-only reference.
 4. **The preview comes first.** Demo code and invented data never reach the build real users get (web, OTA or store).
 5. **The preview cannot reach anything real.** It runs on invented data only, from a fake backend in the app repo (a
    staging or test backend is not invented data). Nobody plays the preview, on any machine, before its check script
-   passes there; until then only the build session runs it, and only to run the checks. While he plays, the served
-   tree does not change. He opens the shell, never the app's port, always in a browser, never inside a native shell
-   (store, OTA or live-reload dev build). Until the check script passes, the preview listens on loopback only.
-   Anywhere but localhost it runs only on one of his own domains, never a claude.ai artifact, and after his yes; a
+   passes there (on a local tree, the parts «What runs when» names); until then only the build session runs it, and
+   only to run the checks. While he plays, the served tree does not change: an edit is a new tree, and he plays it
+   only after its check passes on it. He opens the shell, never the app's port, always in a browser, never inside a
+   native shell (store, OTA or live-reload dev build). Until the check script passes, the preview listens on loopback
+   only. He plays it at that machine (a device reaching the same process over the LAN or Tailscale counts, the policy
+   naming its origin); anywhere else only on one of his own domains, never a claude.ai artifact, and after his yes; a
    new host, a DNS record or any cost is asked at that moment; never on the app's production hosting, the production
    domain, a subdomain of it, or a host inside a production cookie's `Domain=` scope; and before the link is shared,
    the whole check script except the no-demo check runs against the deployed URL and passes.
-6. **Behaviour logic is written once** [I]: plain functions in a shared folder, never under the demo folder. Before
-   he plays a preview that simulates it, that logic has an exhaustive test with a mutant per property failing it.
+6. **Behaviour logic is written once** [I]: plain functions with no browser, framework or demo import, never under
+   the demo folder. Before he plays a preview simulating it, its logic has a test running the cases exhaustively, or
+   over every combination up to a size the test states, with a mutant per asserted property failing it.
 
 Not covered: track `site`, track `client-demo` with no app behind it, SportChat v4's running build. MediZen's
-standalone demo predates the rule: point 1's one-round limit is not applied to it. A fault in this rule or its tools
-stops that step and is reported as the full rule's «Where a fault goes» says. **The full rule is
-`shared/built-once.md`.** Read it in full before `redesign` step 8 and its plan review, each unit of the build
-session, setup step 10b, `screen` in an app that has a preview, the path of `shared/standalone-demo-to-app.md`, and
-any mode or agent that starts, opens, screenshots, shows, hosts or shares the app's preview or sends its address to
-anyone. Unsure whether work touches the preview: read it. Where the two differ, the full rule holds.
+standalone demo, older than the rule, is exempt from point 1's one-round limit. A fault in this rule or its tools
+stops that step and is reported («Where a fault goes»). **The full rule is `shared/built-once.md`.** Read it in full
+before `redesign` step 8 and its plan review, each unit of the build session, setup step 10b, `screen` in an app that
+has a preview, `shared/standalone-demo-to-app.md` work, and any mode or agent that starts, opens, screenshots, shows,
+hosts or shares the app's preview or sends its address to anyone. Unsure whether work touches the preview: read it.
+Where the two differ, the full rule holds.
 
 ## Looking at screenshots
 

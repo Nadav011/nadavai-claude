@@ -57,7 +57,7 @@ step (step 0 where it has one). Never run a mode from memory of this table.
 
 **Existing project:** `setup` (step 0 clean slate) → `retro` → `audit` → Nadav approves `docs/ui-audit/PLAN.md` → `screen <name>` in PLAN order (shared first, then critical) → `ship` → `retro` → after launch: `plan <feature>` → `screen` per screen; `ship` step 8 weekly.
 
-**Existing project whose whole look changes:** `setup` → `redesign` (brief, inventory, the direction demo: the main journey as one playable flow, one review round, decisions, the tag, the plan, Nadav approves the plan) → START-BUILD in a build session (unit 1: the app's preview on invented data, `shared/rules.md` point 5) → `screen <name>` per plan unit, designed and shown in that preview → `ship` → `retro`.
+**Existing project whose whole look changes:** `setup` → `redesign` (brief, inventory, the direction demo: the main journey as one playable flow, one review round, decisions, the tag, the plan, Nadav approves the plan) → START-BUILD in a build session (unit 1: the app's preview on invented data, `shared/built-once.md`, «An app is built once», point 5) → `screen <name>` per plan unit, designed and shown in that preview → `ship` → `retro`.
 
 **New project:** `shadcn create --rtl` → `setup` (step 10b preview on invented data, step 11b direction pick) → `retro` → `plan <feature>` → `screen <name>` per screen from the plan, shown playing in the preview → `audit` after 4-5 screens → `screen` for the fixes → `ship` → `retro` → launch.
 
