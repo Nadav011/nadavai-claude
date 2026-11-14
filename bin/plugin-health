@@ -45,11 +45,14 @@ def load(path):
 
 
 def hook_commands(node):
-    """Every "command" string anywhere inside a hooks.json."""
+    """Every "command" string anywhere inside a hooks.json, and every string of an "args" list
+    beside it (oh-my-claudecode writes `"command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/..."]`)."""
     if isinstance(node, dict):
         for k, v in node.items():
             if k == "command" and isinstance(v, str):
                 yield v
+            elif k == "args" and isinstance(v, list):
+                yield from (a for a in v if isinstance(a, str))
             else:
                 yield from hook_commands(v)
     elif isinstance(node, list):

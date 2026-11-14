@@ -89,6 +89,13 @@ out=$(run)
 ok "hooks written inside plugin.json are read"   'grep -q "BROKEN  good: a hook runs scripts/inline.mjs" <<<"$out"'
 printf '%s\n' '{"name":"good"}' >"$cache/good/1.0.0/.claude-plugin/plugin.json"
 
+# A hook whose script is named in an "args" list (the shape oh-my-claudecode uses).
+printf '%s\n' '{"hooks":{"PreToolUse":[{"matcher":"*","hooks":[{"type":"command","command":"node","args":["${CLAUDE_PLUGIN_ROOT}/scripts/run.cjs","${CLAUDE_PLUGIN_ROOT}/scripts/enforcer.mjs"]}]}]}}' >"$cache/good/1.0.0/hooks/hooks.json"
+: >"$cache/good/1.0.0/scripts/run.cjs"
+out=$(run)
+ok "a hook script named in an args list is checked" 'grep -q "BROKEN  good: a hook runs scripts/enforcer.mjs" <<<"$out" && ! grep -q "run.cjs" <<<"$out"'
+printf '%s\n' '{"hooks":{"PreToolUse":[{"matcher":"*","hooks":[{"type":"command","command":"node \"${CLAUDE_PLUGIN_ROOT}\"/scripts/guard.mjs"}]}]}}' >"$cache/good/1.0.0/hooks/hooks.json"
+
 # No readable settings.json is a fault, not an empty pass.
 mv "$cfg/settings.json" "$cfg/settings.json.away"
 out=$(run); rc=$?
