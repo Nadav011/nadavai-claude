@@ -7,6 +7,12 @@
 # and it honors permissionDecision).
 #   Agent: subagent_type "fork" unless the description carries [fork]. A fork inherits
 #          the parent's model and its full context (median ~290K tokens per request).
+#   Agent: the OMC agent types that a nadavai agent replaces (executor, critic, code-reviewer,
+#          security-reviewer), with the nadavai type to start in their place. Why: the rule in
+#          model-routing.md was not what ran (week to 2026-11-14: 163 OMC executor calls against
+#          110 of nadavai:executor, about 12% of the week's usage), and the OMC executor's prompt
+#          carries no stop at money, migrations, deletion or deploys (Nadav approved closing this
+#          on 2026-11-14). Not seen: an agent a Workflow script starts.
 #   Bash:  a sleep of 120 s or more in the foreground. It blocks the agent; long local
 #          commands go to run_in_background, CI waits to ci-wait.
 #   Bash (Claude Code subagents only: the hook input carries agent_id and no turn_id): a
@@ -38,8 +44,12 @@
 #          unless the command carries `# rm-checked: <reason>`. That check ignores bypass and auto
 #          mode, and its classifier cannot approve it: it holds the session for a person's answer and
 #          denies after a timeout (154 such stops from 2026-10-15 to 2026-11-03, 61 answered by Nadav
-#          by hand). Every target must be a literal path, start with ${NAME:?}, or start with a
-#          literal absolute path, ~/ or $HOME/ plus a fixed name before the first variable. Denied:
+#          by hand). Since 2026-11-14 scripts/rm-prompt-answer.sh answers that prompt at once, so this
+#          rule is no longer what keeps a session from standing still; it stays until a week of
+#          numbers shows the hook answers every such prompt. Every target must be a literal path,
+#          start with ${NAME:?}, or start with a literal absolute path, ~/ or $HOME/ plus a fixed
+#          name before the first variable (the built-in check still stops "$HOME/${rel:?}", so the
+#          deny text recommends a literal absolute path). Denied:
 #          a variable as a path root ($T/*, $W/$d/.vite, "$HOME/$rel"), $(...), /, ~ or /home/<user>
 #          and their top level, a relative glob ending in a bare * after cd, and, in a command that
 #          also runs sh -c, a bare variable target. Measured on that history: 138 of the 154 stops
@@ -105,7 +115,7 @@ deny() {
 # Fast path: most calls carry neither word, and this runs before every Bash/run_command call.
 case "$input" in
   # rm after a blank, an operator, a quote, a slash (/bin/rm) or JSON's \n / \t escapes
-  *'"fork"'*|*sleep*|*gh*merge*|*find*|*bfs*|*[[:space:]\;\&\|\(\`\"\'/nt]'rm '*|*.claude/secrets*|*generate_link*) ;;
+  *'"fork"'*|*'"oh-my-claudecode:'*|*sleep*|*gh*merge*|*find*|*bfs*|*[[:space:]\;\&\|\(\`\"\'/nt]'rm '*|*.claude/secrets*|*generate_link*) ;;
   # the removal forms only: "worktree" alone is in the cwd and transcript path of every session under .claude/worktrees
   *'worktree rm'*|*'worktree remove'*|*'worktree delete'*) ;;
   *'"agent_id"'*ci-wait*|*ci-wait*'"agent_id"'*|*'"agent_id"'*'"timeout"'*|*'"timeout"'*'"agent_id"'*) ;;
@@ -622,7 +632,7 @@ rm_guard() { # rm_guard <command>: denies an rm the built-in removal check may h
   case "$kind" in
     wide) deny "rm '$t' removes /, a home directory or their top level. $why Name the exact directory to remove." ;;
     cdglob) deny "rm '$t' after a cd: the check reads a relative glob against the session's own directory, not the one cd moved to. $why Write the absolute path instead (rm -f /tmp/work/out/*)." ;;
-    *) deny "rm '$t' builds its path from a variable the check cannot resolve before the command runs. $why Start the target with a guarded variable, rm -rf \"\${T:?}\"/* or rm -rf \"\${W:?}/\$d/.vite\" (the shell stops instead of removing / when T is empty), or with a literal absolute path (rm -rf /tmp/work/x). Under \$HOME, guard the part after it: \"\$HOME/\${rel:?}\". In a command that also runs sh -c, guard bare targets too: rm -f \"\${f:?}\". If the guard is wrong here, add '# rm-checked: <reason>' to the command." ;;
+    *) deny "rm '$t' builds its path from a variable the check cannot resolve before the command runs. $why Write the target as a literal absolute path (rm -rf /home/you/project/tmp/x, not \$HOME/... or ~/...), or start it with a guarded variable, rm -rf \"\${T:?}\"/* or rm -rf \"\${W:?}/\$d/.vite\" (the shell stops instead of removing / when T is empty). In a command that also runs sh -c, guard bare targets too: rm -f \"\${f:?}\". If the guard is wrong here, add '# rm-checked: <reason>' to the command." ;;
   esac
 }
 
@@ -1040,7 +1050,14 @@ case "$tool" in
     esac
     ;;
   Agent|spawn_subagent)
-    [ "$(jq -r '.tool_input.subagent_type // .toolInput.subagent_type // .toolInput.subagentType // empty' <<<"$input")" = fork ] || allow
+    st=$(jq -r '.tool_input.subagent_type // .toolInput.subagent_type // .toolInput.subagentType // empty' <<<"$input")
+    case "$st" in
+      oh-my-claudecode:executor|oh-my-claudecode:executor-*)
+        deny 'oh-my-claudecode:executor has no stop at money, migrations, deletion, deploys or messages to people. Start nadavai:executor with the same brief (model opus for multi-file work or for those areas; rules/model-routing.md). It builds and proves the change and returns it.' ;;
+      oh-my-claudecode:critic|oh-my-claudecode:code-reviewer|oh-my-claudecode:security-reviewer)
+        deny "A review runs on nadavai:reviewer (clean context, read-only, it verifies instead of trusting): start it with the artifact, the criteria and the file paths, not your conclusion (rules/model-routing.md). For a review that only reads, Grok through 'omc ask grok' also counts (rules/working-style.md, Second model)." ;;
+    esac
+    [ "$st" = fork ] || allow
     [[ $(jq -r '.tool_input.description // .toolInput.description // empty' <<<"$input") == *"[fork]"* ]] && allow
     deny 'A fork inherits your model and your whole context (median ~290K tokens per request). Use a named subagent_type with only the context it needs. If a fork is really what you want, put [fork] in the description.'
     ;;

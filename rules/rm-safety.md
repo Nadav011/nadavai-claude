@@ -1,6 +1,6 @@
-# `rm` targets: literal or guarded
+# `rm` targets: literal absolute paths
 
-Every `rm` target is a literal path or starts with a guarded variable (`rm -rf "${T:?}"/*`); under `$HOME` or `~`, guard the part after it (`"$HOME/${rel:?}"`). agent-guard enforces this, and its deny text gives the rewrite. Claude Code's own removal check, which no permission mode skips, also holds the session on two things the guard cannot see:
+Claude Code checks every `rm` and `rmdir` before it runs. It stops one whose target could turn out to be `/`, the home directory, the working directory or a top-level directory, and any command it cannot read well enough to rule that out. A hook (`rm-prompt-answer.sh`) answers its prompt at once with a denial and the rewrite, so no session waits for a person (Nadav, 2026-11-14, asked that these stops end). The check itself stays on: the switch that turns it off, `CLAUDE_CODE_EVEN_MORE_DANGEROUSLY_SKIP_PERMISSIONS`, is not set here, and Anthropic documents it for isolated machines only.
 
-- Test cases that contain `rm` text go into a scratchpad file run with `bash <file>`, not inline in quotes, and `rm` words stay out of commit messages (`git commit -F file`).
-- File contents are written with the Write tool, not with a heredoc inside a Bash command that chains other commands (`&&`, `;`, lines after `EOF`); run the commands that use the file as separate calls.
+- Write each removal target as a literal absolute path below the directory you mean (`rm -rf /home/nadavcohen/project/tmp/x`), not `$HOME/...`, `~/...`, a variable or a substitution; the check stops `"$HOME/${rel:?}"` too. A target that has to be computed goes into a script file, with `"${name:?}"` on each variable.
+- The check also stops a command it cannot parse. Write file contents with the Write tool, not with a heredoc that more commands follow (`&&`, `;`, lines after `EOF`), and keep text that only mentions `rm` (test cases, a commit message) in a file (`bash <file>`, `git commit -F file`).
