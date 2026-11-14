@@ -99,8 +99,8 @@ without the screen runs step 4's consent checks with its screen task (step 5).
    live Apple and Google policy pages, and section 4 of `posthog-research-2026-11-13.md` beside
    this file. In that section the items marked R are requirements of the spec; the items marked
    I are proposed to Nadav in it, and nothing is refused on their strength (the items marked P are
-   in the defaults of step 3 and below); the legal items need a
-   professional, as the research says, and its professional checks (the lawyer's check, the
+   in the defaults of step 3 and below, except the clinic as a PostHog group, a paid add-on and
+   so asked under the money gate); the legal items need a professional, as the research says, and its professional checks (the lawyer's check, the
    data-protection-officer duty, transfer abroad) are asked of Nadav together, because they cost
    money.
    - What the screen has to achieve (each line is checked in step 4 or in the spec's acceptance
