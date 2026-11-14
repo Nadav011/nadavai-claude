@@ -9,9 +9,9 @@ Nadav does not program and reads the report after, not the diff before. The revi
 - Give it the diff, the exact commands, the target from step 4 and the way back from step 3, and this question: "Should this run on production without Nadav? Argue against it." Do not give it your conclusion.
 - It passes with `APPROVE` and no open fault (`review-rounds.md` beside this file), for the sha it read. Post the verdict with the reviewer's name as a comment on the PR; with no PR, write it into the repo's run log or the task's plan file.
 - A rejection stands until the change is fixed and reviewed again. Another provider does not overturn it.
-- Where `working-style.md` (Second model) calls for the final read by another vendor's model, that read comes after this review and after steps 2 to 4, before the merge, or with no merge right before step 5, as `review-rounds.md` (the bullet on that read) says. Post its verdict beside the reviewer's.
+- Where `working-style.md` (Second model) calls for the final read by another vendor's model, that read comes after this review and after steps 2 to 4 (the data backup of step 3 excepted: it is taken after the read, just before step 5), before the merge, or with no merge right before step 5, as `review-rounds.md` (the bullet on that read) says. Post its verdict beside the reviewer's.
 - Any change to the reviewed files, commands or target after the verdict needs a new review.
-- A change after the trial to what the trial ran (the migration or SQL, its commands, or the schema under it, as after a rebase over another migration) runs steps 2 and 3 again on the changed version before step 5; a change that touches none of that (a comment, a test, a rebase over unrelated files) does not. The steps line in the report names the version each step ran on. For data, the backup of step 3 is taken once, just before step 5, on the final version; a copy taken earlier in the same action is kept beside it, named in the report, with the same drop date.
+- A change after the trial runs steps 2 and 3 again on the changed version before step 5. The only exception is a change that touches nothing the trial ran and nothing under it (a comment, a test, a rebase over unrelated files; a rebase over another migration is not one). The steps line in the report names the version each step ran on. For data, the backup of step 3 is taken just before step 5, on the final version; a copy taken earlier in the same action stays where it is, the final copy goes into the same backup schema under its own table names, and the report names both, with one drop date.
 
 ## 2. Try it where it cannot hurt
 - Run the repo's migration tests, or a throwaway database built from production's schema only (no rows; `pg-pool get <repo>`), with made-up rows shaped like the ones the change touches. A repo that has neither gets the throwaway database built first; that is part of the work.
@@ -43,7 +43,7 @@ Plain Hebrew, at the top of the reply that ends the turn, under "בוצע בלי
 - what changed, in the words a user would use;
 - who is affected and how many (rows, users, clinics);
 - what a user would notice, and what Nadav would see if it went wrong;
-- which reviewer approved it, and where the change is in an area of the final read (`working-style.md`, Second model), which model of another vendor read it (or that a second Opus read in its place);
+- which reviewer approved it, and where the change is in an area of the final read (`working-style.md`, Second model), which model of another vendor read it (or that a second Opus read in its place), and when a later change altered what the unit does, that only the unit's reviewer, named, read it;
 - the backup or restore point, by name and time, and the date the backup will be dropped;
 - how to undo it, as a sentence he can send back ("כתוב: לבטל את <שם>"), and what undoing would lose;
 - the steps, one short line each with its evidence (the reviewer and where the verdict is, the final read by another vendor's model where one was due, what the trial ran, the way back, the target, the checks after), so a skipped step shows.
