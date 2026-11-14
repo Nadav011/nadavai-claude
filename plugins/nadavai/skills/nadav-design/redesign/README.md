@@ -340,10 +340,12 @@ Chat in plain Hebrew, short lines, the why before the what; code, files and comm
 - `plan/build-plan.md` from the template: it names the approved tag, and its units come in build order, each with
   acceptance, size, dependencies, `go` only where it holds one of the five actions that wait for Nadav's yes
   (`rules/working-style.md`, Approval gates; a migration, an auth or permission change and payment code are
-  engineering actions that run after an independent review, as that section says). Every answer and every feature row lands somewhere. `tools/check-anchors.py`: 0 missing, 0 wrong. It
-  checks the demo citations only; a citation of an INVENTORY.md row is checked by the reviewers, not by a tool.
-- **Unit 1 is the app's preview on invented data** (the folder and the no-demo check: shifts' `src/demo/`; ask before
-  any new dependency it needs), isolated and checked as `shared/built-once.md`, «An app is built once», point 5, says.
+  engineering actions that run after an independent review, as that section says). Every answer and every feature
+  row lands somewhere. `tools/check-anchors.py`: 0 missing, 0 wrong. It checks the demo citations only; a citation
+  of an INVENTORY.md row is checked by the reviewers, not by a tool.
+- **Unit 1 is the app's preview on invented data** (the folder and the no-demo check: shifts' `src/demo/`; a new
+  dependency it needs is checked and named as `SKILL.md` says), isolated and checked as `shared/built-once.md`,
+  «An app is built once», point 5, says.
   Nobody plays the preview, on any machine, before its check script passes there. Then tokens and shared
   components, then the screens.
 - **Every screen is designed in that preview.** A screen the tagged demo drew cites its column labels and is held to
@@ -360,8 +362,8 @@ Chat in plain Hebrew, short lines, the why before the what; code, files and comm
   finds a HIGH or MEDIUM, and from the fourth review the result's `faultsPerRound` gives what each round left.
 - Second model: `rules/working-style.md`, "Second model". The full reviews are already fresh Opus, so the cross-check
   is another vendor's read: Grok, else Codex (config default, never `-m` or an effort flag), else Antigravity, else a
-  fresh Opus; `workflows/plan-review.js` holds the order. Its findings are fixed and diff-confirmed. Approval by any reviewer means APPROVE with nothing
-  HIGH or MEDIUM left, whatever the verdict word.
+  fresh Opus; `workflows/plan-review.js` holds the order. Its findings are fixed and diff-confirmed. Approval by
+  any reviewer means APPROVE with nothing HIGH or MEDIUM left, whatever the verdict word.
 - Every edit after an APPROVE (LOW polish, the second model's fixes, START-BUILD itself) is followed by a diff-only
   confirm, at most 3 per chain; approval holds only when the last step is a confirm that says APPROVE, so no edit is
   left unchecked. A rejection with nothing to fix still blocks.

@@ -21,9 +21,10 @@ Under `flow`:
 - Evidence is logged and work continues.
 - A question that blocks nothing is batched to the next checkpoint.
 - The visual change gate collects its before and after pairs into one sheet per checkpoint (Nadav approved
-  this on 2026-11-10). A commit that carries a visual change stays local and is listed on that sheet until he
-  answers keep, change or revert; nothing in it becomes final before his answer. This covers setup's per-step
-  commits and the commit of screen step 8b.
+  this on 2026-11-10). The sheet carries every visual change of the checkpoint with its before and after. Cases 1
+  and 2 of the gate (`SKILL.md`) are committed after screen step 8b and listed there so he can reverse them; only a
+  case 3 change waits for his keep, change or revert on the sheet, and only what depends on that answer stays
+  local and does not become final before it. This covers setup's per-step commits and the commit of screen step 8b.
 - A failure stops only the part that failed.
 - "Ask before starting another screen" does not apply.
 
