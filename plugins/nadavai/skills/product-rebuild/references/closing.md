@@ -54,7 +54,7 @@
 **After the finders:**
 1. **Ledger.** `LEDGER-<date>.md` and `ledger.json`, with `## לנדב, בקצרה` on top: the totals, what is closed now, what only Nadav can do (a short numbered list of plain actions), and what waits on counsel, the CPA or other sessions.
 2. **Closers.** One agent per file. It never touches the files of running lanes (specs, demo) or the app repo.
-3. **Critic.** A completeness critic looks for missing dimensions, for "closed" items without evidence, and for promises to Nadav that are not in the ledger. Its gaps start the next round.
+3. **Critic.** A completeness critic looks for missing dimensions, for "closed" items without evidence, and for promises to Nadav that are not in the ledger. Its gaps go into the ledger as rows for the next repeat; it does not read again a document that had its one round.
 
 `needs_nadav` items go to him at once with AskUserQuestion, grouped. They are never parked for a summary.
 

@@ -62,7 +62,7 @@ A stage is done when all of its rows are ticked with evidence. Print, in Hebrew,
 
 ## Stages
 
-Each stage ends with evidence shown to Nadav (files, counts, shots) and a line in `RUN-LOG.md`. Stages 1-3 run in parallel lanes. Stages 4-7 repeat until the ledger is empty, within the review stop rule (`rules/working-style.md`, Second model).
+Each stage ends with evidence shown to Nadav (files, counts, shots) and a line in `RUN-LOG.md`. Stages 1-3 run in parallel lanes. Stages 4-7 repeat until the ledger is empty; each repeat closes ledger rows and is not a review round, and each document gets its one independent round (`rules/working-style.md`, Second model, "Review rounds converge").
 
 ### 0. Frame
 1. Create the output repo from `templates/` (EXIT-CHECKLIST, RUN-LOG, DECISIONS-ANSWERED, ACCOUNTS, TRIALS) plus `nadav-design/redesign/templates`. Pin the app commit.
@@ -113,8 +113,8 @@ Follow `references/spec-standard.md`.
   - exactly one owning spec
 
   A split id names its other half. The feature coverage map is generated from it.
-- **One spec per domain.** Every block has states, defaults, wording and acceptance tests, the evidence labels, an action-safety contract for each outside effect, `## Open questions` and `## Review log`.
-- **Critic rounds on the specs.** A pre-mortem first, then numbered rounds, each with a response table. After each round, recount `00-INDEX.md` and `GAPS.md` until nothing is missing or duplicated. The rounds follow the review stop rule (`rules/working-style.md`, Second model): no cap in money, messages to people, data and filings; elsewhere three rejecting rounds, then simplify the piece and tell Nadav.
+- **One spec per domain.** Every block has states, defaults, wording and acceptance tests, the evidence labels, an action-safety contract for each outside effect, `## Open questions` and `## Review log`. A domain not built first is written to what `rules/working-style.md` (Requests, "Documents stay small") keeps, and detailed right before it is built; a project where he picked that the build waits until everything is closed says so in its exit checklist.
+- **One critic round on the specs.** A fresh Opus critic per domain, arguing against it, with a response table; its faults are fixed, the same critic checks those fixes, and `00-INDEX.md` and `GAPS.md` are recounted once. Then the specs are frozen and built from, as `rules/working-style.md` (Second model, "Review rounds converge") says for a document; the repeated rounds in money, messages to people, data and filings run on each unit when it is built.
 - **Go-to-market domain.** Positioning, pricing options, onboarding funnel, launch plan and legal. Every product needs one.
 - **Cross-system contracts** (when the system embeds in others, or is embedded): an embed contract covering the frame, the SDK, the look tokens, quotas and step-up. Each host also gets a numbered amendment list. It goes to that host's session only after a review confirms it, and the host repo is never written from this lane.
 - **Proof harness** (optional, when a generative or rendering capability is the core): a working validator, renderer and verifier, run on real assets before the spec is trusted. In the social lane it decided that code draws all text.
@@ -154,7 +154,7 @@ Follow `references/closing.md` §2 and run `workflows/close-all.js`:
 - finders per dimension, one ledger with eight statuses, and doc-only closers
 - a dimension critic for what nobody covered: security, accessibility, performance, data migration, support, pricing, native apps, analytics, backups, operator and admin, and the other verticals
 
-Repeat stages 4-7 until the ledger has no `doc_fix` and no `needs_nadav` rows; the review stop rule bounds the repeats outside money, messages to people, data and official filings. Every exit row is then closed, or is a named launch gate.
+Repeat stages 4-7 until the ledger has no `doc_fix` and no `needs_nadav` rows; a repeat closes rows and adds no review round to a document that had its one. Every exit row is then closed, or is a named launch gate.
 
 ### 8. Build plan
 - Use the `nadav-design/redesign` step 8 format: design units and behaviour units, each with its gates (`action-safety`, `go`), and `check-anchors` at 0/0.
@@ -164,7 +164,7 @@ Repeat stages 4-7 until the ledger has no `doc_fix` and no `needs_nadav` rows; t
   - **An estimate calibrated** on Nadav's own measured git throughput (`tools/calib.sh`). Split it into build time, external waits and owner time, each on its own line.
   - **An outside-approvals register.** List the platform reviews and filings: Meta App Review, TikTok audit, Google OAuth verification, API access levels, tax or registry filings. Give each its lead time, the features it gates, who signs, and the entity it is filed under. These often set the date more than the build does.
   - **A dated stop rule.** If the plan is not at milestone X by date Y, stop and replan with a menu of options. Never "cut scope" silently.
-- A second model runs a pre-mortem on the plan, and a fresh Opus reviews it until APPROVE, within the review stop rule.
+- A second model runs a pre-mortem on the plan; its faults are fixed, the same reviewer checks those fixes, and the plan is frozen.
 - Nadav answers, and the `OWNER-APPROVED` line is written. The build runs in a separate session (`START-BUILD.md`).
 
 ## Lessons

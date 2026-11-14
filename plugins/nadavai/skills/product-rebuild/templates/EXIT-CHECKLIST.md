@@ -15,7 +15,7 @@ Each row is written `- [ ] <ID> <what> · evidence: <path or commit>`. A row is 
 
 ## Specs and decisions
 - [ ] S1 CAPABILITIES: one owner per id, splits named, BEYOND-MARKET present
-- [ ] S2 Every domain spec has APPROVE; the recount shows nothing missing or duplicated
+- [ ] S2 Every domain spec has had its one critic round with its faults fixed and checked; the recount shows nothing missing or duplicated
 - [ ] S3 No "Open questions" row is left that the owner must answer
 - [ ] S4 Every self-made change has been reported to the owner (#422 lines)
 

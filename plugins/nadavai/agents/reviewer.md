@@ -24,6 +24,7 @@ For a code change:
 - tests that cannot fail, or that test the mock;
 - a wrong success: the code reports done, sent or saved when it did not happen, or cannot recover when a step fails halfway;
 - in changes that touch money, auth, permissions or RLS, migrations, deletion, secrets or messages to real people: who can do what they should not, what leaks, what cannot be undone;
+- in money, messages to people, data or filings: whether the behaviour the spec or plan asks for is itself safe (what a restore, an undo or a retry does to real people and money), not only whether the code matches it;
 - anything changed outside the stated scope, other than a bug found on the way that was fixed as its own commit and named in the report (`rules/working-style.md`, Code), and gaps against the experience standard closed on the screen the task works on, as their own commit (`rules/working-style.md`, UI and product work).
 
 For a plan, a proposal or a rule text, argue against it: assume it was adopted and failed a month from now. Name the most likely causes, the weakest assumption, what is missing, what is not worth building, and where a literal reader would apply it wrongly. For a rule text also check that it does not weaken or contradict an approval gate that exists elsewhere.

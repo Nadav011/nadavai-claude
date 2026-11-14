@@ -64,7 +64,7 @@ Measures: what we count after launch, with an ESTIMATE label when it is a target
 4. A reviser applies every finding.
 5. Recount `00-INDEX.md` and `GAPS.md`.
 
-Repeat until each domain gets APPROVE and the recount shows nothing missing or duplicated. The review stop rule (`rules/working-style.md`, Second model) bounds the rounds outside money, messages to people, data and official filings.
+Steps 3-4 run once; the same critic checks the reviser's fixes, the recount runs once, and the specs are frozen (`rules/working-style.md`, Second model, "Review rounds converge"). The repeated rounds in money, messages to people, data and filings run on each unit when it is built.
 
 Each round gets a response table in `00-INDEX.md`, with the finding, what changed and where.
 
