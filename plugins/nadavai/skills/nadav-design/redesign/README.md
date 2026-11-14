@@ -369,8 +369,8 @@ Chat in plain Hebrew, short lines, the why before the what; code, files and comm
   review under `args.sensitive`). Approval by any reviewer means APPROVE with nothing HIGH or MEDIUM left, whatever
   the verdict word.
 - Every edit after an APPROVE (LOW polish, the second model's fixes, START-BUILD itself) is followed by a diff-only
-  confirm, at most 3 per chain; approval holds only when the last step is a confirm that says APPROVE, so no edit is
-  left unchecked. A rejection with nothing to fix still blocks.
+  confirm (a full review under `args.sensitive`), at most 3 per chain; approval holds only when the last step is a
+  confirm that says APPROVE, so no edit is left unchecked. A rejection with nothing to fix still blocks.
 - Then START-BUILD.md (the paste prompt, its line `Status: DRAFT`) and `plan/START-BUILD-CHECKLIST.md` (every item a command
   with its expected result, the plan checks run from the output repo) from the template. `workflows/plan-review.js`
   runs all of it and returns `reviewApproved` and `readyForOwner`, never Nadav's approval.

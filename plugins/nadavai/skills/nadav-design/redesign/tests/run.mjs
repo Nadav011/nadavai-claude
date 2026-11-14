@@ -263,8 +263,10 @@ await test('RC2', 'two rejecting full reviews do not stop the loop: an APPROVE i
 await test('RC3', 'with sensitive:true the full reviews go on past three while one finds a fault, and from the fourth the result carries the faults each round left', async () => {
   const { result, calls } = await plan({ sensitive: true }, { verdict: rejectUntil(4, r => 5 - r) });
   const full = calls.filter(c => fullRound(c)).length;
-  return full === 5 && result.simplify === false && result.gates.reviewApproved === true && JSON.stringify(result.faultsPerRound) === '[4,3,2,1,0]'
-    ? '' : `full ${full}, simplify ${result.simplify}, faults ${JSON.stringify(result.faultsPerRound)}, gates ${JSON.stringify(result.gates)}`;
+  const capped = await plan({ sensitive: true, maxReviews: 4 }, { verdict: rejectUntil(8) });
+  const maxStop = /still ITERATE after 4 full reviews \(sensitive: the rounds go on in a new run, and nothing is approved meanwhile\)/.test(capped.result.stop) && capped.result.gates.reviewApproved === false;
+  return full === 5 && result.simplify === false && result.gates.reviewApproved === true && JSON.stringify(result.faultsPerRound) === '[4,3,2,1,0,0]' && maxStop
+    ? '' : `full ${full}, simplify ${result.simplify}, faults ${JSON.stringify(result.faultsPerRound)}, gates ${JSON.stringify(result.gates)}, max stop ${capped.result.stop}`;
 });
 await test('RC4', 'with sensitive:true an edit after an APPROVE gets a full review, never a diff-only confirm; without it, a diff-only confirm', async () => {
   const lowOnce = c => (fullRound(c) === 1 ? { verdict: 'APPROVE', summary: 'ok', findings: [LOW], anchors: { ...CLEAN_ANCHORS } } : undefined);
@@ -272,21 +274,23 @@ await test('RC4', 'with sensitive:true an edit after an APPROVE gets a full revi
   const d = await plan({}, { verdict: lowOnce });
   const sFull = s.calls.filter(c => c.label.startsWith('plan-review-full:')), sDiff = s.calls.filter(c => c.label.startsWith('plan-confirm'));
   const dFull = d.calls.filter(c => c.label.startsWith('plan-review-full:')), dDiff = d.calls.filter(c => c.label.startsWith('plan-confirm'));
-  return sFull.length >= 1 && !sDiff.length && sFull.every(c => /Review the WHOLE plan/.test(c.prompt)) && s.result.gates.reviewApproved === true && !dFull.length && dDiff.length >= 1
-    ? '' : `sensitive: ${sFull.length} full, ${sDiff.length} diff-only; default: ${dFull.length} full, ${dDiff.length} diff-only; gates ${JSON.stringify(s.result.gates)}`;
+  const sRe = s.result.reviews.filter(x => /^recheck /.test(String(x.round))).length, dRe = d.result.reviews.filter(x => /^recheck /.test(String(x.round))).length;
+  return sFull.length >= 1 && !sDiff.length && sFull.every(c => /Review the WHOLE plan/.test(c.prompt)) && s.result.gates.reviewApproved === true && !dFull.length && dDiff.length >= 1 && sRe === sFull.length && dRe === 0
+    ? '' : `sensitive: ${sFull.length} full, ${sDiff.length} diff-only, ${sRe} recorded; default: ${dFull.length} full, ${dDiff.length} diff-only, ${dRe} recorded; gates ${JSON.stringify(s.result.gates)}`;
 });
 await test('RC6', 'with sensitive:true a chain that still fails after the cap of three full re-reviews says the rounds go on in a new run and approves nothing', async () => {
   const over = { verdict: c => (fullRound(c) === 1 ? { verdict: 'APPROVE', summary: 'ok', findings: [LOW], anchors: { ...CLEAN_ANCHORS } } : c.label.startsWith('plan-review-full:') ? { verdict: 'ITERATE', summary: 'no', findings: [HIGH0], anchors: { ...CLEAN_ANCHORS } } : undefined) };
   const { result, calls } = await plan({ sensitive: true }, over);
   const n = calls.filter(c => c.label.startsWith('plan-review-full:')).length;
-  return n === 3 && result.gates.reviewApproved === false && result.gates.readyForOwner === false && /the rounds go on in a new run, and nothing is approved meanwhile/.test(result.stop)
-    ? '' : `full re-reviews ${n}, stop ${result.stop}, gates ${JSON.stringify(result.gates)}`;
+  return n === 3 && result.gates.reviewApproved === false && result.gates.readyForOwner === false && /the rounds go on in a new run, and nothing is approved meanwhile/.test(result.stop) && JSON.stringify(result.faultsPerRound) === '[0,1,1,1]'
+    ? '' : `full re-reviews ${n}, stop ${result.stop}, faults ${JSON.stringify(result.faultsPerRound)}, gates ${JSON.stringify(result.gates)}`;
 });
 await test('RC5', 'the second model runs Grok, else Codex on its config default, else Antigravity, and every question says read-only', async () => {
   const { calls } = await plan({});
   const c = calls.find(x => x.label === 'second-model');
-  const order = c && /omc ask grok "<question>"; else omc ask codex "<question>", never with -m or an effort flag[\s\S]*; else omc ask antigravity "<question>"/.test(c.prompt);
-  return order && /Read-only: change no file\./.test(c.prompt) && /exit 0 on a quota or balance error: read the raw output/.test(c.prompt) ? '' : `prompt: ${c ? c.prompt.slice(c.prompt.indexOf('SECOND-MODEL'), c.prompt.indexOf('SECOND-MODEL') + 300) : 'no second-model call'}`;
+  const order = c && /omc ask grok "<question>"[\s\S]*?; else omc ask codex "<question>", never with -m or an effort flag[\s\S]*; else omc ask antigravity "<question>"/.test(c.prompt);
+  const bg = c && /omc ask grok "<question>", started with run_in_background[\s\S]*slices of at most 140 s each[\s\S]*its artifact file is read/.test(c.prompt);
+  return order && bg && /Read-only: change no file\./.test(c.prompt) && /exit 0 on a quota or balance error: read the raw output/.test(c.prompt) ? '' : `prompt: ${c ? c.prompt.slice(c.prompt.indexOf('SECOND-MODEL'), c.prompt.indexOf('SECOND-MODEL') + 300) : 'no second-model call'}`;
 });
 
 // ---------------- dry-run tool ----------------
