@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>save-form-self</title>
+<style>
+  body { margin: 0; padding: 16px; font-family: sans-serif; font-size: 16px; background: #fff; color: #111; }
+  input { font: inherit; border: 1px solid #888; padding: 6px 8px; display: block; margin-block: 8px; }
+  :focus-visible { outline: 3px solid #111; outline-offset: 2px; }
+  iframe { border: 1px solid #888; width: 200px; height: 60px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>טופס באותו חלון</h1>
+  <label>שם <input id="a" type="text" value="מיכל ברק"></label>
+  <label>טלפון <input id="b" type="text" value="050-0000000"></label>
+  <p>כאן מעדכנים את פרטי הלקוחה של הסניף. השינויים נשמרים לבד ונשלחים לשרת, כמו באפליקציה אמיתית שעובדת עם תורים, הודעות ותשלומים.</p>
+  <form id="self" method="post" action="/save/form/self"><input type="hidden" name="x" value="1"></form>
+</main>
+<script>
+  // A form posted into the page itself: the route records the post, the cut stops it, Chromium shows an
+  // error page in its place, so the page left its route.
+  const onForcedColors = (f) => matchMedia("(forced-colors: active)").addEventListener("change", (e) => { if (e.matches) f(); });
+  onForcedColors(() => document.getElementById("self").submit());
+</script>
+</body>
+</html>

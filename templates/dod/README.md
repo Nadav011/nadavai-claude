@@ -330,6 +330,226 @@ reason, and what is not built) and `totals.standard_findings` (all findings),
 `totals.standard_failures` (check ids with findings), `totals.standard_errored` (check ids that
 errored) and `totals.standard_scored` (the enforced ones among both, which cost points).
 
+## The extended checks (report only)
+
+Five checks the experience standard lists that axe and the checks above do not cover
+(`standard/experience.md`, rules A-01 to A-03, H-02 and H-03). `e2e/dod/extended-checks.spec.ts`
+runs them in the checks phase, so only when `standard.json` exists, once per route that the
+scored phase reached, on the light 1440 entry's page, in four runs: forced-colors, text-reflow and
+text-spacing each open a new page of the route, and the two consent checks share one, since both
+only read the page as it loaded. A run judges nothing until the access check and the scored page's
+fingerprint show it is that page. They only report: one file per route,
+`reports/dod/results/extended/<slug>.json` (`{ route, mode: "report", checks: { <id>: { count,
+kinds, samples, notes?, tried?, changedWhenCut?, error? } } }`), and one line per route in the log
+(`[dod] extended /calendar: forced-colors found 3, text-reflow clean (2 writes tried while cut off),
+...`). `count` is the number of elements found, one finding per element (ten "עריכה" buttons with the
+same fault are ten); `notes` say what a check could not judge, `tried` the writes the app tried after
+the network was cut off, and `changedWhenCut` how the page changed when it was cut off (below); none
+of them is ever a finding or part of `count`. A check that could not judge says why in `error`, and the log says "not checked" (a reason
+a person can act on) or "errored" (anything else). None of them can be put under `enforce` yet:
+moving them into `dod.json`'s `standard` block is a change to the teardown, kept for when the kit's
+other open branch has landed.
+
+They run last, so nothing of them reaches `dod.json`, the score or the exit code, whatever the
+deadline: in the checks phase, `playwright.dod.config.ts` makes them their own project
+(`extended`), the teardown of the project that runs every other check (`checks`), so they start
+only after those have finished and never take their share of `checksMinutes`. A run starts only
+while more than 20 seconds of that deadline are left; otherwise it writes `error: "not checked: out
+of time ..."`. A one-route run writes that route's `extended/<slug>.json` and no other. With
+`pnpm dod -- --grep "<slug>__"` that is because Playwright (1.64.1, measured) does not apply `--grep`
+to a teardown project's tests, so every extended test starts, and each returns at once for a route
+this run did not measure. `--grep "<slug>__|extended <slug>$"` (what `screen` step 7 runs) names the
+route's extended test as well, so it holds on a version that does filter them.
+
+### What the checks may set off, and the network cut
+
+The checks move focus, resize the window, switch forced colours on and add a stylesheet, and an
+app's own handlers can answer that with a save (a field that saves on blur, a draft saved on
+resize, a mobile redirect that saves as it leaves). So each run has a browser context of its own,
+made from the test's options and from the storage state the test started with, through a proxy on
+loopback that the run starts for itself (`networkCut` in `a11y-extended.ts`; Chromium is told
+`<-loopback>`, so the app's own `localhost` goes through it as well). Before the check starts, the
+run cuts the network off (`guard.watch`): the proxy closes every connection it carries and refuses
+every new one. Nothing puts it back: the context is closed while it is still cut off, then the proxy.
+
+The kit measured this on Playwright 1.64.1's Chromium, with a logging server on loopback: after the
+cut the server received nothing, on every row of the table below that says "cut". Every one of
+those rows has a fixture page whose test asserts it on the server, through the same steps as the
+spec, and the phase run asserts it for the spec itself. The same measurement is why the kit does
+not use `context.setOffline(true)` or DevTools' network emulation: with either, a leaving
+document's beacon and keepalive fetch, a message on an open WebSocket, a SharedWorker's request and
+a WebTransport session still reached the server.
+
+The context's route only records. A request that is not GET, HEAD or OPTIONS, made after the cut by
+a live page, a popup, a frame or a dedicated worker, goes in the check's `tried` field, grouped by
+method, path (its numbers folded to `#`) and sender, with how many times and what the check was
+doing at the first ("the page tried to write (POST /save) 4 times while the network was cut off,
+first when focus moved on with Tab"). It keeps 40 groups apart and counts the rest in one more;
+`samples` describes at most 8: when there are more groups, the first 7 and an eighth sample that
+counts the writes of the others. `count` is every write the route saw, described or not. The route
+does not see a document that is leaving, a SharedWorker, a `fetchLater` or a socket: the cut stops
+those too, but `tried` does not count them, so it is what the route saw, not all the app tried. It
+is what the app did, not a fault of the screen: the log says "clean (N writes tried while cut
+off)", never "found N". A run's writes are reported under its first check; for the consent run that
+is `consent-prechecked`.
+
+| What the page sends | What happens to it | Proved by |
+|---|---|---|
+| a write of a live page, a popup, a frame (also of another origin) or a dedicated worker: `fetch` (also `keepalive`), `XMLHttpRequest`, `sendBeacon`, a form posted into the page, a frame or a new window, `<a ping>`; also one set off by the check (focus, forced colours, a resize, a style tag) or as it ends | cut; recorded in `tried`, with who sent it and what the check was doing (the spec waits 500 ms after a check before it takes them; 40 kinds kept apart, 7 described) | `save-on-focus.html` (forced-colors), `save-xhr.html` (forced-colors), `save-forms.html` (forced-colors), `save-form-self.html` (forced-colors), `save-ping.html` (forced-colors), `save-in-popup.html` (forced-colors), `save-in-worker.html` (forced-colors), `save-via-sw.html` (forced-colors), `save-xo-frame.html` (forced-colors), `save-resize-style.html` (text-reflow), `save-resize-style.html` (text-spacing), `save-late.html` (forced-colors), `save-many-paths.html` (forced-colors), the phase run, `/save-on-focus`, the phase run, `/save-late`; M:cut, M:refuse-new, R:no-loopback, S:spec-no-proxy, M:tried, M:from-popup, M:from-worker, M:watch-moment, M:moment, S:no-settle, M:samples-cap, M:tried-keep, R:overflow-drops |
+| a write of a document as it leaves (a redirect, a navigation, a popup closed), also through another frame's realm or in `pageswap` or `navigate`; `fetchLater`, at once, later or as the context closes | cut; not recorded (no route sees them) | `save-leave-nav.html` (forced-colors), `save-resize-leave.html` (text-reflow), `save-xrealm-leave.html` (forced-colors), `save-pageswap.html` (forced-colors), `save-popup-close.html` (forced-colors), `save-fetchlater.html` (forced-colors); M:cut |
+| a WebSocket message, on a socket open since the load (from the page, a dedicated worker, a popup, a page that then leaves) or on a new one; a SharedWorker's requests; a GET (an image, a script, `EventSource`, a prefetch, speculation rules) | cut: the proxy closes every open connection and refuses new ones; not recorded | `save-ws-open.html` (forced-colors), `save-worker-ws.html` (forced-colors), `save-popup-ws.html` (forced-colors), `save-ws-leave.html` (forced-colors), `save-in-shared-worker.html` (forced-colors), `save-shw-iframe.html` (forced-colors), `save-get.html` (forced-colors), `save-keep-writing.html` (forced-colors), the direct test of `networkCut()`, the phase run, `/save-ws-open`, the phase run, `/save-keep-writing`; M:cut, M:drop-open, M:refuse-new, R:reconnect, S:spec-no-proxy |
+| a WebTransport session | not sent at all: Chromium sends no QUIC through a proxy, cut or not | `save-webtransport.html` (forced-colors); R:no-proxy |
+| a timer or a retry loop, an outbox kept in localStorage, `BroadcastChannel` or a `storage` event to another tab | cut; the context is closed while cut off and nothing it stored is captured, so the next run starts from the test's storage state | `save-retry.html` (forced-colors), `save-outbox.html` (forced-colors), the phase run, `/save-retry`, the phase run, `/save-outbox`, the phase run, `/save-tabsync`; M:cut, S:chain-state |
+| a write while the page loads, from the page or a popup it opens (a page view, an error report, an auth refresh, a read through POST) | passes, as in the scored phase: the cut comes after the load | `reads-on-load.html` (forced-colors), `load-popup.html` (forced-colors), the phase run, `/reads-on-load`; R:cut-at-load |
+| a GET that writes before the cut (a page view logged by GET) | passes, as in the scored phase | none |
+| a WebRTC connection, as the page loads or during the check, from the page or a frame (a blank one, one of another origin, a srcdoc frame); its UDP goes past the proxy | refused: `RTCPeerConnection` is taken away in every document, and the run is not checked when the document that tried is still open as the run reads it (see the refusal, below) | `save-webrtc.html` (forced-colors), `save-webrtc-load.html` (forced-colors), `save-webrtc-iframe.html` (forced-colors), `save-webrtc-xo.html` (forced-colors), `save-webrtc-srcdoc.html` (forced-colors), the phase run, `/save-webrtc`, the phase run, `/save-webrtc-load`, the phase run, `/save-webrtc-iframe`, the phase run, `/save-webrtc-xo`, the phase run, `/save-webrtc-srcdoc`; M:webrtc, R:rtc-top-only, S:no-refusal |
+| a page that changes when cut off (an offline banner, an error state) | checked as it is then; `changedWhenCut` names the change, and the log says "changed when cut off" | the phase run, `/cut-banner`; S:no-second-fingerprint |
+| a page that leaves its route during a check (under the cut, a navigation to another document ends on an error page) | not checked, with where it went; nothing it measured there is reported | `save-spacing-redirect.html` (text-reflow), the phase run, `/save-spacing-redirect`; M:left, S:no-left-check |
+
+The load window: until the cut, the context's requests pass, the page's own and those of a popup it
+opens, because apps read through POST too (GraphQL, an RPC) and the scored phase let the same
+requests pass. The cut comes after the page settled (`settle` in `dod-page.ts`: the network idle,
+then 1.2 s), the access check and the fingerprint compare, so the page a check judges is the one the
+scored phase saw. A write the app sends on its own in that window (a timer, a page view, an error
+report while it loads) reaches the server, as in every phase of the kit.
+
+The page under the cut. The proxy changes nothing the page can read: `navigator.onLine` stays true
+and no `offline` event fires (measured; `setOffline` would set both). What the page meets is a
+request that fails as a network error and an open WebSocket that closes. After the cut the run
+settles the page again and takes one more fingerprint; when it differs from the one before the cut
+(any heading or region word, or more than one control: an offline banner, an error state, a
+signed-out screen), the result's `changedWhenCut` names the difference and the log says "changed
+when cut off". The findings of that run are then of that state, not of the normal screen. A page
+that polls changes at its next poll: one that comes later than the 1.2 s settle can change the page
+while the check runs, and nothing names that. A navigation to another document fails under the cut
+and shows an error page, so a page that leaves its route during a check (its main frame goes to
+another path or site, or shows an error page) is "not checked: the page left its route during the
+check (it went to an error page); nothing measured after that is reported"; a route change inside
+the page by `pushState` names the path it went to (measured), and a change of the hash alone is not
+followed.
+
+The refusal: a WebRTC connection's UDP goes past a proxy, and so past the cut (measured: its STUN
+requests reached the server after the cut). So the kit takes `RTCPeerConnection` away in every
+document of the run, frames and popups included; it throws as a missing feature would, so nothing
+is sent, and it marks the document whose `RTCPeerConnection` was called. The run reads those marks
+twice, before the cut and after the check, in the documents then open (every page of the run and
+its frames): when the document that tried is still open then, as it loads or during the check, the
+run is "not checked: the page tries to start a WebRTC connection, which the network cut does not
+reach, so these checks take it away". An attempt in a frame since removed or a popup since closed
+fails the same way and sends nothing, but the run is not told, so it is reported as checked
+(measured, review 7).
+
+What persists between runs: nothing. Each run starts from the storage state the test started with
+(anonymous: empty; signed in: the checks phase's sign-in), never from one captured after a run;
+nothing a run's context stored (cookies, localStorage, sessionStorage, IndexedDB, an outbox) is
+captured or written back; and the context is closed, still cut off, when the run ends, on success
+and on failure, so an app's outbox, another open tab of the same app and a retry loop end with it.
+
+An auth refresh by POST: while the page loads it passes, and it is a write: with refresh-token
+rotation, each run sends the same refresh token from the same start state, so a route uses it four
+more times, and reuse detection (Supabase's default) can then revoke the QA session on the server;
+the scored phase's entries already do the same. After the cut it fails, and the app may then sign
+itself out, so the check measures the signed-out screen; when that happens within the settle after
+the cut, `changedWhenCut` says so, and later it does not. What a person does: run the checks with a
+QA account whose session may be revoked, with refresh-token reuse detection off for it or a token
+that does not expire during the run.
+
+What a project does about a row it cannot accept (a GET that writes as the page loads, a WebRTC
+page that is never checked): run the checks only against a QA account whose data may change; or
+turn them off for that project, either by leaving `standard.json` out (which also turns off the
+checks phase) or by deleting `e2e/dod/extended-checks.spec.ts` (which turns off these checks
+alone). A project whose pages load only through a proxy of its own cannot use them: the run's
+context goes through the kit's proxy, which connects directly. The fixture pages run in browser
+cases, and most of them also through the spec itself in a real `run-dod.mjs` run, whose test asserts
+that the server got no write while the extended checks ran (but the reads of `reads-on-load.html`
+as it loads, and what `save-keep-writing.html` sends before its first write fails), and none at
+all, over the whole run, of the pages that write only in these checks.
+`save-in-shared-worker.html` and `save-shw-iframe.html` are in the browser cases only, since the
+scored phase times out on a page that starts a SharedWorker.
+
+### What each check finds
+
+| Check | Where | Fires on |
+|---|---|---|
+| `forced-colors` (A-01, partly) | 1440x900, Chromium's forced colours (`forcedColors: "active"`, which paints the forced palette, not only the media query) | `boundary`: a button, field, select, switch, checkbox or slider with no border of 1px or more on any side and no outline of 1px or more, and no wrapper within 8px of it that has one (a native checkbox, radio or select, and anything under `forced-color-adjust: none`, are drawn by the system or the page and not judged; a ghost or icon button with no border is a finding, which its fix, a transparent border, removes); `focus`: one of the first 25 elements Tab reaches whose picture, 6px around it, is the same focused and not (a focus ring made of `box-shadow` alone, which forced colours remove); `state`: a selected, current, pressed or checked item that in normal colours looks different from an unselected one of the same kind beside it and in forced colours looks the same (it was told apart by a background or a shadow only); `mark`: an element 3px to 600px with no words in it or beside it, painted only by its background colour and not the colour behind it (a status dot, a progress fill), which forced colours paint the page colour |
+| `text-reflow` (A-02) | 640x512 and 320x256: the 1280x1024 window at 200% (1.4.4: no loss, sideways scroll allowed) and at 400% zoom (1.4.10) | `clipped`: text partly outside a box that hides its overflow (`overflow: hidden` or `clip`, an ellipsis, a line clamp); text wholly outside its box is a closed panel and is not judged, nor is a slide of a carousel (`aria-roledescription`); `unreachable`: text partly beside the window on a side no scroll reaches (the right of a right-to-left page, the left of a left-to-right one, either side when the page does not scroll sideways, as when `html` or `body` hides what is wider); `sideways` (320 only): the page really scrolls sideways (not when `html` or `body` hides the overflow) because of an element that is not a part needing two dimensions; the sample names the widest such element. 1.4.10's exception, two ways: text inside a box that scrolls on its own (a wide table in its scroller) is reachable and not judged, whatever its width; and a part that needs two dimensions (a data table, `role="table"`, `role="grid"` or `role="treegrid"`, an image, a map or chart in `svg`, `canvas`, `video`, `iframe`, `role="img"`; a `table` with `role="grid"` or `role="treegrid"` whatever its columns; not a CSS grid layout, not a layout table, meaning one column with no header cell or caption, or `role="presentation"` or `role="none"`, not `role="table"`, `role="grid"` or `role="treegrid"` on an element other than a `table` that has no `role="row"`, not any role on an element other than a `table` that holds the page's `main` or its first `h1` (which would excuse the whole page), and not `role="application"`), or a wrapper that is wide only because of one, may make the page scroll sideways. Everything else must still fit the window: a paragraph, heading, search field or pagination made as wide as the table it goes with (WCAG's Understanding Reflow, Figures 9 and 13, both fails) is not two-dimensional, so it is the `sideways` finding, named as the widest element |
+| `text-spacing` (A-03, partly) | 1440x900 and 375x812 | with the four overrides of 1.4.12 (`TEXT_SPACING_CSS`: line height 1.5, paragraph spacing 2em, letter spacing 0.12em, word spacing 0.16em), text `clipped` or `unreachable` as above, or two texts that `overlap`, that were not before the overrides (a badge over its label on purpose is not a finding) |
+| `consent-prechecked` (H-02) | the page as it loaded | a checkbox or switch (also one that only `aria-checked` says is on, and a native box hidden and drawn by its label) that is on, whose label speaks of consent (mailing, updates by mail or message, offers, marketing, cookies, sharing, third parties, privacy, "מסכימה", "מאשר", Hebrew or English; not an app's own updates), other than a disabled one labelled necessary ("הכרחיות", "necessary"). The check cannot tell a default from a choice she saved earlier (a profile page shows her own choice ticked), so the sample says "is on when the page loads (a default, or a choice saved earlier: a person reads which)" |
+| `consent-refuse` (H-03) | the page as it loaded | an accept control ("אישור הכול", "לאפשר", "מסכים", "Accept all", ...) inside a box whose words, other than the button's own, are a consent request (cookies, mailing, marketing, consent, a permission, location, notifications): `no-refuse` when no refuse control ("דחיית הכול", "לא תודה", "לא עכשיו", "לא כרגע", "אחר כך", "ביטול", "Reject all", "Decline all", "Deny all", "Later", "Don't allow" with either apostrophe, ...) is in the box; `weak-refuse` when none is as prominent, the stated rule being: a button or link like the accept control, at least half its area, its text at least 85% of the accept text's size, and at least 4.5:1 against its own background (`PROMINENCE` in `consent-checks.ts`). Closing the box ("סגירה", an X) is not a refuse control (H-03). A generic "אישור", "OK" or "Got it" in a box with fields of its own is that form's submit and is not judged. Colours are read as the browser paints them (any syntax: `oklch`, `color-mix`, hex), each faded by its element's and its ancestors' `opacity` and `filter: opacity()`, and a translucent background is laid over what is painted under the control's centre (`elementsFromPoint`: its ancestors, and a backdrop beside the banner), down to the page's own canvas (dark under `color-scheme: dark`); when an image or a gradient is behind the refuse control, its contrast is not judged: if its area and text size pass, it gets a note ("contrast not judged"), not a finding |
+
+Each check is a heuristic in report mode, held to fixture pages that fail it and pages that pass
+them all (`tests/fixtures/extended/`, `pass.html` holding each exemption), and each condition and
+threshold, and each part of the network cut, to a test that fails without it:
+
+```bash
+heavy-slot -- node ~/nadavai/templates/dod/tests/extended-checks.mjs               # tsc, fixtures, mutants, run-dod.mjs runs, spec mutants
+node ~/nadavai/templates/dod/tests/extended-checks.mjs --skip-browser              # tsc and the table of the cut only
+heavy-slot -- node ~/nadavai/templates/dod/tests/extended-checks.mjs --skip-run --cases-only  # the fixture cases, no mutants
+node ~/nadavai/templates/dod/tests/extended-checks.mjs --print-channel-table       # the table above, from the test's data
+```
+
+### What this does not catch
+
+What the checks miss, and what the reviewer of each rule reads instead:
+
+- A consent box or banner in other words than the lists hold.
+- A focus ring on an element past the first 25 Tab stops.
+- Text spacing inside a shadow root: the overrides are a page stylesheet.
+- What a forced-colours user can do with a control, beyond seeing its edge.
+- A shell of the window's height that hides its overflow (`h-screen overflow-hidden`) with a menu
+  longer than the window: links wholly below its edge read as a closed panel, so nothing is reported
+  although no scroll reaches them.
+- Under `html { overflow-x: hidden }`, a row of links is reported once, for the link that straddles
+  the edge, not for those wholly past it.
+- A decorative image wider than the window counts as a two-dimensional part and is not reported
+  (Understanding Reflow would have it fit the window).
+- A layout table with two or more columns and no header cell counts as a data table.
+
+What the network cut does not stop, or the result does not report:
+
+- Writes while the page loads, before the cut: the page's own and a popup's, by any method, a GET
+  that writes, and an auth refresh (with refresh-token rotation, each of the four runs sends the same
+  token again). They reach the server, as in the scored phase.
+- `tried` counts only what the context's route sees: a live page's, popup's, frame's or dedicated
+  worker's request that is not GET, HEAD or OPTIONS. It does not count a GET, a leaving document's
+  write, a SharedWorker's request, a `fetchLater`, a WebSocket message, or a `fetch` from a popup
+  opened empty (`window.open("")`), which hangs under any context route (measured, Playwright
+  1.64.1) and so is never sent. The cut stops all of them; the report does not name them.
+- A page that changes after the 1.2 s settle that follows the cut (a poll that fails later, a sign-out
+  after a failed refresh) changes during the check, and `changedWhenCut` does not say so. The compare
+  allows one control to differ, so a change of one button alone is not named; a page whose text moves
+  by itself (a carousel) may be named although the cut did not change it.
+- A route change by the hash alone is not followed, so a check on a hash-routed app that switches
+  screens during it reports the other screen under this route.
+- A page that tries to start a WebRTC connection is "not checked" only when the document that tried
+  is still open as the run reads it (before the cut and after the check); an attempt in a frame
+  since removed or a popup since closed fails the same way and sends nothing, but the run is not
+  told, so it is reported as checked.
+- Fenced frames were not measured: a page here cannot make one (`new FencedFrameConfig(url)` is an
+  illegal constructor in this Chromium, review 7), so an ad slot that writes from one is not tested.
+- Prerender was not measured beyond the fetch: a speculation-rules prerender fetches its page, and its
+  script sent nothing before or after the cut (review 7), so a prerendered next screen that writes is
+  not tested.
+- HTTP/2 inside the proxy's tunnel was not run: https was measured over HTTP/1.1 only (the test server
+  offered no h2). The cut destroys a tunnel whole either way, but a connection multiplexed inside one
+  was not measured.
+- Name lookups (DNS) after the cut were not observed: review 7's page that looks up names that do not
+  resolve sent nothing to the server, and what a lookup itself sends was not measured.
+- A page whose network never stays quiet for 500 ms (measured: a request every 100 ms from the load
+  on; also a page that starts a SharedWorker, as said above) is not checked: it fails the run.
+  `settle` waits for the network to go idle with no limit of its own (Playwright Test's navigation
+  timeout is 0), so each scored test runs out its 120 s; Playwright then closes the page, and the
+  entry is written as unreachable (`page.waitForTimeout: Target page, context or browser has been
+  closed`), listed among the entries "the QA account could not open" (measured, review 8: the
+  account's access is fine, the page never went quiet), and scores 0; the run exits with the scored
+  phase's failure, and the extended test, finding the entry unreachable, returns without checking
+  anything.
+- A project whose pages load only through a proxy of its own: the run's context connects directly
+  through the kit's proxy, so its pages do not load as the scored phase saw them.
+- Measured on Playwright 1.64.1's Chromium over http and ws, and over https and wss with a
+  self-signed certificate (review 7), on loopback. WebTransport was measured only as "no QUIC packet
+  left the browser".
+
 ## Moving a project to this template
 
 Five projects run an older copy. What changes for each, in the order it bites:

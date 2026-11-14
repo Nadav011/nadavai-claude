@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>text-reflow-fig9</title>
+<style>
+  /* WCAG's Understanding Reflow, Figure 9 (a fail): the table needs two dimensions, but the wrapper
+     that grows to its width also widens the paragraphs after it, so at 320 they run past the window
+     and need two directions to read. The paragraphs are the "sideways" finding, not the table. */
+  body { margin: 0; font-family: sans-serif; font-size: 16px; background: #fff; color: #111; }
+  .sheet { width: max-content; }
+  table { border-collapse: collapse; min-width: 900px; }
+  td, th { border: 1px solid #ccc; padding: 4px 8px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>תורים</h1>
+  <div class="sheet">
+    <table>
+      <tr><th>שעה</th><th>לקוחה</th><th>טיפול</th><th>הערה</th></tr>
+      <tr><td>09:00</td><td>מיכל ברק</td><td>תספורת</td><td>מגיעה עם הבת שלה</td></tr>
+    </table>
+    <p>תור שבוטל פחות מיממה לפני מועדו מחויב לפי מדיניות הביטולים של הסניף, אלא אם הלקוחה הודיעה על מחלה.</p>
+  </div>
+</main>
+</body>
+</html>

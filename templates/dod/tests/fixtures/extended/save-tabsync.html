@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>save-tabsync</title>
+<style>
+  body { margin: 0; padding: 16px; font-family: sans-serif; font-size: 16px; background: #fff; color: #111; }
+  input { font: inherit; border: 1px solid #888; padding: 6px 8px; display: block; margin-block: 8px; }
+  :focus-visible { outline: 3px solid #111; outline-offset: 2px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>סנכרון בין לשוניות</h1>
+  <label>שם <input id="a" type="text" value="מיכל ברק"></label>
+  <label>טלפון <input id="b" type="text" value="050-0000000"></label>
+  <p>כאן מעדכנים את פרטי הלקוחה. כשהדף פתוח ביותר מלשונית אחת, הלשוניות מודיעות זו לזו ושומרות את מה שהשתנה.</p>
+</main>
+<script>
+  // An app that syncs its open tabs (the third review's B1): a new tab says hello on a BroadcastChannel
+  // and in localStorage, and saves when another tab of the same browser answers. A tab is alone in a
+  // browser context of its own; if a check's page shared one with an earlier check's page, the new
+  // page would save while it loads, before the cut. So no write of this page may reach the server at
+  // any time of a run.
+  const bc = new BroadcastChannel("app");
+  bc.onmessage = (e) => {
+    if (e.data === "hello") bc.postMessage("here");
+    else if (e.data === "here") fetch("/save/tabsync/learned-other-tab", { method: "POST", body: "x" }).catch(() => {});
+  };
+  addEventListener("storage", (e) => {
+    if (e.key === "ping") fetch("/save/tabsync/storage", { method: "POST", body: "x" }).catch(() => {});
+  });
+  bc.postMessage("hello");
+  localStorage.setItem("ping", String(Math.random()));
+</script>
+</body>
+</html>

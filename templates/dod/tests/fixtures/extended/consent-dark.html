@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>consent-dark</title>
+<style>
+  /* A dark page by color-scheme alone: no background is set anywhere, so the browser paints its dark
+     canvas, and the light "no" is as readable as the "yes". Contrast must be judged against that
+     canvas, not against white. */
+  :root { color-scheme: dark; }
+  body { margin: 0; padding: 16px; font-family: sans-serif; font-size: 16px; color: CanvasText; }
+  button { font: inherit; padding: 10px 20px; border: 1px solid #eee; }
+  .yes { background: #eee; color: #111; }
+  .no { background: transparent; color: #eee; }
+</style>
+</head>
+<body>
+<main><h1>דף</h1></main>
+<section>
+  <p>אנחנו משתמשים בעוגיות כדי לשפר את האתר.</p>
+  <button type="button" class="yes">אישור הכול</button>
+  <button type="button" class="no">דחיית הכול</button>
+</section>
+</body>
+</html>

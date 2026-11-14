@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<title>popup-save</title>
+</head>
+<body>
+<main><h1>חלון</h1></main>
+<script>
+  // Opened by save-in-popup.html: saves as it loads.
+  fetch("/save?ev=popup", { method: "POST", body: "x" }).catch(() => {});
+</script>
+</body>
+</html>

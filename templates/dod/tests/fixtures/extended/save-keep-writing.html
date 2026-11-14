@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>save-keep-writing</title>
+<style>
+  body { margin: 0; padding: 16px; font-family: sans-serif; font-size: 16px; background: #fff; color: #111; }
+  input { font: inherit; border: 1px solid #888; padding: 6px 8px; display: block; margin-block: 8px; }
+  :focus-visible { outline: 3px solid #111; outline-offset: 2px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>שמירה רציפה</h1>
+  <p>כאן מעדכנים את פרטי הלקוחה של הסניף. השינויים נשמרים לבד ונשלחים לשרת.</p>
+  <div id="fields"></div>
+</main>
+<script>
+  // 24 fields, so the forced-colours walk (up to 25 Tab stops, two pictures each) runs for a few seconds after
+  // the cut, and a cut that lifts itself a second after the check's start meets several writes.
+  const LABELS = ["שם פרטי", "שם משפחה", "טלפון", "טלפון נוסף", "דוא\"ל", "עיר", "רחוב", "מספר בית", "מיקוד", "תאריך לידה", "תעודת זהות", "שם איש קשר", "טלפון איש קשר", "סניף", "מספר לקוחה", "תאריך הצטרפות", "מסלול", "אמצעי תשלום", "יום חיוב", "הערות לתשלום", "שעה נוחה לשיחה", "שפה מועדפת", "מקור ההגעה", "הערות כלליות"];
+  const box = document.getElementById("fields");
+  LABELS.forEach((text, i) => {
+    const label = document.createElement("label");
+    label.textContent = text + " ";
+    const input = document.createElement("input");
+    input.type = "text";
+    input.id = "f" + i;
+    label.append(input);
+    box.append(label);
+  });
+  // Writes from the load until the context closes (review 7's F1): a POST every 1500 ms (about a second
+  // more than the 500 ms the network-idle wait needs, so the page settles under load) and a socket
+  // reopened every 200 ms that sends when it opens. A cut that lifts itself later lets them through again. Until the first of them
+  // fails (the cut), they say "keep-load"; after it, "keep-cut", so a run without the cut's moment (the
+  // phase run) can still tell the two apart.
+  let failed = false;
+  const label = () => (failed ? "keep-cut" : "keep-load");
+  let n = 0;
+  setInterval(() => {
+    n++;
+    fetch("/save/" + label() + "/" + n, { method: "POST", body: "x" }).catch(() => { failed = true; });
+  }, 1500);
+  let ws = null;
+  setInterval(() => {
+    if (ws) {
+      ws.onerror = null; // closing a socket that is still connecting is not the cut
+      try { ws.close(); } catch { /* keep going */ }
+    }
+    const s = new WebSocket("ws://" + location.host + "/ws/keep");
+    s.onopen = () => { try { s.send(label()); } catch { /* keep going */ } };
+    s.onerror = () => { failed = true; };
+    ws = s;
+  }, 200);
+</script>
+</body>
+</html>

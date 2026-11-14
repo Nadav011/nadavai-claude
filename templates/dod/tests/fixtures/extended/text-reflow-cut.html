@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>text-reflow-cut</title>
+<style>
+  /* The body hides what is wider than the window, and the root's overflow is visible, so the body's
+     overflow is the window's: the page cannot scroll sideways, and a line that runs off the left of
+     this right-to-left page at 320 cannot be reached. That is "unreachable", not text cut by a box. */
+  body { margin: 0; overflow-x: hidden; font-family: sans-serif; font-size: 16px; background: #fff; color: #111; }
+  .long { white-space: nowrap; }
+</style>
+</head>
+<body>
+<main>
+  <h1>תור</h1>
+  <p class="long">הלקוחה ביקשה לדחות את התור של יום שלישי לשבוע הבא באותה שעה</p>
+</main>
+</body>
+</html>

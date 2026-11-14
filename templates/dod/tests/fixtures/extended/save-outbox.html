@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>save-outbox</title>
+<style>
+  body { margin: 0; padding: 16px; font-family: sans-serif; font-size: 16px; background: #fff; color: #111; }
+  input { font: inherit; border: 1px solid #888; padding: 6px 8px; display: block; margin-block: 8px; }
+  :focus-visible { outline: 3px solid #111; outline-offset: 2px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>פרטי לקוחה עם תור שמירה</h1>
+  <label>שם <input id="a" type="text" value="מיכל ברק"></label>
+  <label>טלפון <input id="b" type="text" value="050-0000000"></label>
+  <p>כאן מעדכנים את פרטי הלקוחה. השינויים נשמרים לבד, וגם כשהחיבור נופל הם מחכים בתור ונשלחים בפעם הבאה שהדף נפתח.</p>
+</main>
+<script>
+  // An app with an outbox (the third review's B1): a save that fails waits in localStorage, and every
+  // load sends what waits. It saves when a field loses focus and when forced colours switch on, which
+  // only the extended checks do (the focus walk and forced colours); so no write of this page may
+  // reach the server at any time of a run: the cut stops the first try, and the next check's page
+  // starts from the test's own storage state, with an empty outbox.
+  const Q = "outbox";
+  const queue = () => JSON.parse(localStorage.getItem(Q) || "[]");
+  const keep = (items) => localStorage.setItem(Q, JSON.stringify(items));
+  const send = (item, kind) =>
+    fetch("/save/outbox/" + kind + "-" + item.ev, { method: "POST", body: "x" })
+      .then((r) => {
+        if (!r.ok) throw new Error("not saved");
+        keep(queue().filter((i) => i.id !== item.id));
+      })
+      .catch(() => {});
+  const save = (ev) => {
+    const item = { id: Math.random(), ev };
+    keep([...queue(), item]);
+    send(item, "now");
+  };
+  for (const el of document.querySelectorAll("input")) el.addEventListener("blur", () => save("blur-" + el.id));
+  matchMedia("(forced-colors: active)").addEventListener("change", (e) => {
+    if (e.matches) save("forced-colors");
+  });
+  for (const item of queue()) send(item, "flush");
+</script>
+</body>
+</html>

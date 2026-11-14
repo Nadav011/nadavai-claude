@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>save-leave-nav</title>
+<style>
+  body { margin: 0; padding: 16px; font-family: sans-serif; font-size: 16px; background: #fff; color: #111; }
+  input { font: inherit; border: 1px solid #888; padding: 6px 8px; display: block; margin-block: 8px; }
+  :focus-visible { outline: 3px solid #111; outline-offset: 2px; }
+  iframe { border: 1px solid #888; width: 200px; height: 60px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>מעבר לדף אחר</h1>
+  <label>שם <input id="a" type="text" value="מיכל ברק"></label>
+  <label>טלפון <input id="b" type="text" value="050-0000000"></label>
+  <p>כאן מעדכנים את פרטי הלקוחה של הסניף. השינויים נשמרים לבד ונשלחים לשרת, כמו באפליקציה אמיתית שעובדת עם תורים, הודעות ותשלומים.</p>
+</main>
+<script>
+  // The app goes to another page when forced colours switch on, and saves its draft as it leaves, by
+  // sendBeacon and keepalive fetches (round 5's B1): the network is cut, so the navigation ends on an
+  // error page and none of them reaches the server; the check is "not checked: the page left its route",
+  // since what it measures after that is another page.
+  const onForcedColors = (f) => matchMedia("(forced-colors: active)").addEventListener("change", (e) => { if (e.matches) f(); });
+  addEventListener("pagehide", () => {
+    navigator.sendBeacon("/save/leave-nav/beacon", "x");
+    fetch("/save/leave-nav/keepalive", { method: "POST", body: "x", keepalive: true }).catch(() => {});
+    fetch(new Request("/save/leave-nav/keepalive-request", { method: "POST", body: "x", keepalive: true })).catch(() => {});
+    fetch("/save/leave-nav/plain", { method: "POST", body: "x" }).catch(() => {});
+    const x = new XMLHttpRequest();
+    x.open("POST", "/save/leave-nav/xhr");
+    x.send("x");
+    // A write a moment later, outside the handler (a promise the handler started).
+    Promise.resolve().then(() => navigator.sendBeacon("/save/leave-nav/after-handler", "x"));
+  });
+  // The same draft, saved when the page turns hidden, which comes after pagehide as a page leaves.
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") navigator.sendBeacon("/save/leave-nav/hidden", "x");
+  });
+  onForcedColors(() => { location.href = "/clean"; });
+</script>
+</body>
+</html>

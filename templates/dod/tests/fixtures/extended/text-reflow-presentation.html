@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>text-reflow-presentation</title>
+<style>
+  /* A two-column table marked role="presentation" is layout, not data: the 280px paragraphs in it make
+     the page scroll sideways at 320, a finding. */
+  body { margin: 0; font-family: sans-serif; font-size: 16px; background: #fff; color: #111; }
+  td { padding: 4px; vertical-align: top; }
+  td p { width: 280px; margin: 0; }
+</style>
+</head>
+<body>
+<main>
+  <h1>עמוד</h1>
+  <table role="presentation"><tr>
+    <td><p>טור ראשון של טקסט רגיל שמסודר בטבלה רק כדי שיעמוד ליד הטור השני.</p></td>
+    <td><p>טור שני של טקסט רגיל, גם הוא בטבלה של עימוד ולא של נתונים.</p></td>
+  </tr></table>
+</main>
+</body>
+</html>

@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>text-reflow-application</title>
+<style>
+  /* role="application" does not excuse the page: a 560px card marked as one makes it scroll sideways
+     at 320, a finding. (On a wrapper of the main region no role counts, M:aria-wrapper; here it sits
+     inside main, so only its absence from the two-dimensional parts makes the finding.) */
+  body { margin: 0; font-family: sans-serif; font-size: 16px; background: #fff; color: #111; }
+  .card { width: 560px; border: 1px solid #888; }
+</style>
+</head>
+<body>
+<main>
+  <h1>אפליקציה</h1>
+  <div role="application" aria-label="עורך" class="card">כרטיס ברוחב קבוע שגורם לגלילה לצדדים בכל המסך.</div>
+</main>
+</body>
+</html>

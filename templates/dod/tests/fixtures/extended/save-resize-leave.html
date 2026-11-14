@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>save-resize-leave</title>
+<style>
+  body { margin: 0; padding: 16px; font-family: sans-serif; font-size: 16px; background: #fff; color: #111; }
+  input { font: inherit; border: 1px solid #888; padding: 6px 8px; display: block; margin-block: 8px; }
+  :focus-visible { outline: 3px solid #111; outline-offset: 2px; }
+  iframe { border: 1px solid #888; width: 200px; height: 60px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>טיוטה שנשמרת ביציאה</h1>
+  <label>שם <input id="a" type="text" value="מיכל ברק"></label>
+  <label>טלפון <input id="b" type="text" value="050-0000000"></label>
+  <p>כאן מעדכנים את פרטי הלקוחה של הסניף. השינויים נשמרים לבד ונשלחים לשרת, כמו באפליקציה אמיתית שעובדת עם תורים, הודעות ותשלומים.</p>
+</main>
+<script>
+  // A mobile redirect: a window under 700px goes to the app's narrow page, and the draft is saved on
+  // leaving (round 5's B1, the realistic case). text-reflow's and text-spacing's resizes set it off.
+  const onForcedColors = (f) => matchMedia("(forced-colors: active)").addEventListener("change", (e) => { if (e.matches) f(); });
+  addEventListener("pagehide", () => {
+    navigator.sendBeacon("/save/resize-leave/beacon", "x");
+    fetch("/save/resize-leave/keepalive", { method: "POST", body: "x", keepalive: true }).catch(() => {});
+    fetch(new Request("/save/resize-leave/keepalive-request", { method: "POST", body: "x", keepalive: true })).catch(() => {});
+    fetch("/save/resize-leave/plain", { method: "POST", body: "x" }).catch(() => {});
+    const x = new XMLHttpRequest();
+    x.open("POST", "/save/resize-leave/xhr");
+    x.send("x");
+    // A write a moment later, outside the handler (a promise the handler started).
+    Promise.resolve().then(() => navigator.sendBeacon("/save/resize-leave/after-handler", "x"));
+  });
+  // The same draft, saved when the page turns hidden, which comes after pagehide as a page leaves.
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") navigator.sendBeacon("/save/resize-leave/hidden", "x");
+  });
+  addEventListener("resize", () => { if (innerWidth < 700) location.replace("/clean"); });
+</script>
+</body>
+</html>
