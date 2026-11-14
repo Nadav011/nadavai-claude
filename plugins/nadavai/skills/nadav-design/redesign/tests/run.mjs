@@ -4,6 +4,8 @@
 // never depends on files a fresh clone does not have.
 //
 // usage: PLAYWRIGHT_MODULE=<app>/node_modules/playwright/index.mjs node tests/run.mjs [--no-browser]
+// The run's temp folder is removed when it ends; KEEP_TMP=1 keeps it and prints its path. A run ended by a signal
+// (Ctrl-C, kill) leaves its folder behind in the system temp folder.
 // One browser at a time (the browser tests run one after another). Each test that needs a server binds 127.0.0.1:8977
 // (and 8978 for a second origin) itself and closes it; a busy port fails that test, not the suite.
 import fs from 'fs';
@@ -19,20 +21,17 @@ const MINI = path.join(SK, 'examples/mini');
 const T = path.join(SK, 'tools');
 const W = path.join(SK, 'workflows');
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'redesign-skill-tests-')); // never a fixed, shared folder
-// the run's temp folder is removed when the run ends, passing, failing, or stopped by SIGINT, SIGTERM or SIGHUP; KEEP_TMP=1
-// keeps it and prints its path (999 such folders had piled up in /tmp before this)
+// the run's temp folder is removed when the run ends, passing or failing; KEEP_TMP=1 keeps it and prints its path (999
+// such folders had piled up in /tmp before this)
 const KEEP_TMP = process.env.KEEP_TMP === '1';
+// no signal listener on purpose: a run ended by a signal stops at once with Node's default and leaves its folder behind
 process.on('exit', () => { if (!KEEP_TMP) fs.rmSync(TMP, { recursive: true, force: true }); });
-const SIG_EXIT = { SIGHUP: 129, SIGINT: 130, SIGTERM: 143 };
-for (const sig of Object.keys(SIG_EXIT)) process.on(sig, () => { if (KEEP_TMP) fs.writeSync(2, `the fixture copies are kept in ${TMP}\n`); process.exit(SIG_EXIT[sig]); });
-// --tmp-probe, for the test of the above (TMP-clean): print the folder, write a file in it, then end with 0 (--tmp-probe),
-// with 1 (--tmp-probe=fail), or wait for a signal (--tmp-probe=wait, idle; --tmp-probe=wait-sync, below: a loop of
-// test() calls whose bodies sit in spawnSync, the shape of a real run); no suite test runs
+// --tmp-probe, for the test of the above (TMP-clean): write a file in the folder, print its path, and end at once with 0
+// (--tmp-probe) or 1 (--tmp-probe=fail); no suite test runs
 const tmpProbe = process.argv.find(a => a.startsWith('--tmp-probe'));
-if (tmpProbe && tmpProbe !== '--tmp-probe=wait-sync') {
+if (tmpProbe) {
   fs.writeFileSync(path.join(TMP, 'probe'), 'x');
   fs.writeSync(1, `${TMP}\n`);
-  if (tmpProbe === '--tmp-probe=wait') await new Promise(() => setInterval(() => {}, 1000));
   process.exit(tmpProbe === '--tmp-probe=fail' ? 1 : 0);
 }
 const PNG1 = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
@@ -53,9 +52,6 @@ const test = async (id, name, fn) => {
   } catch (e) {
     results.push({ id, name, ok: false, why: failWhy(e) });
   }
-  // one macrotask between tests: most bodies are synchronous (spawnSync), so without it the event loop never turns and a
-  // SIGINT, SIGTERM or SIGHUP waits until the whole run ends; with it the signal is handled after the current test
-  await new Promise(r => setImmediate(r));
 };
 const sh = (cmd, args, opts = {}) => spawnSync(cmd, args, { encoding: 'utf8', cwd: MINI, ...opts });
 // sh for the tour checker's tests: a signal or a spawn error throws a spawn failure (failWhy names it)
@@ -65,11 +61,6 @@ const shTour = (cmd, args, opts = {}) => {
   if (r.error || r.signal) throw Object.assign(new Error(`${cmd} ${args.map(a => path.basename(String(a))).join(' ')}: ${r.error ? `spawn error ${r.error.code || r.error.message}` : `ended by signal ${r.signal}`}`), { spawnFailure: true });
   return r;
 };
-if (tmpProbe === '--tmp-probe=wait-sync') {
-  fs.writeFileSync(path.join(TMP, 'probe'), 'x');
-  fs.writeSync(1, `${TMP}\n`);
-  for (;;) await test('probe', 'a body that sits in spawnSync', () => { spawnSync(process.execPath, ['-e', 'setTimeout(() => {}, 1000)']); return ''; });
-}
 
 // ---------------- workflow harness ----------------
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
@@ -2209,37 +2200,19 @@ await test('TOUR-spawn', 'review 1\'s C8: a checker child killed by a signal, or
   if (!failWhy(new Error('x')).startsWith('threw: Error: x')) why.push('an ordinary error is no longer reported as threw');
   return why.join(' · ');
 });
-await test('TMP-clean', 'a run removes its temp folder when it ends, passing, failing, or stopped by SIGTERM, SIGINT or SIGHUP, also while a test sits in spawnSync (review 3), and keeps it, with its path printed, only under KEEP_TMP=1 (this session\'s cleanup found 999 left in /tmp)', async () => {
+await test('TMP-clean', 'a run removes its temp folder when it ends, passing or failing, and keeps it, with its path printed, only under KEEP_TMP=1 (this session\'s cleanup found 999 left in /tmp); each probe child ends at once by itself', async () => {
   const why = [];
   const base = fs.mkdtempSync(path.join(TMP, 'tmp-clean-'));
   const env = extra => ({ ...process.env, TMPDIR: base, KEEP_TMP: '', ...extra });
   const left = () => fs.readdirSync(base).filter(f => f.startsWith('redesign-skill-tests-'));
   for (const [label, arg, code] of [['a run that passes', '--tmp-probe', 0], ['a run that fails', '--tmp-probe=fail', 1]]) {
     const r = shTour('node', [path.join(HERE, 'run.mjs'), arg], { env: env({}) });
-    if (r.status !== code || !r.stdout.includes('redesign-skill-tests-') || left().length) why.push(`${label}: exit ${r.status}, left ${JSON.stringify(left())}`);
-  }
-  // review 3's B1: the signal is sent by the probe's pid while it sits inside spawnSync (wait-sync), as in a real run, and
-  // to the idle probe (wait); each must end with its code within 5 s and leave no folder
-  const EXIT = { SIGTERM: 143, SIGINT: 130, SIGHUP: 129 };
-  for (const [probe, sig] of [['wait', 'SIGTERM'], ['wait', 'SIGINT'], ['wait-sync', 'SIGTERM'], ['wait-sync', 'SIGINT'], ['wait-sync', 'SIGHUP']]) {
-    const ch = spawn('node', [path.join(HERE, 'run.mjs'), `--tmp-probe=${probe}`], { env: env({}), stdio: ['ignore', 'pipe', 'pipe'] });
-    const dir = await new Promise(res => { let out = ''; ch.stdout.on('data', d => { out += d; if (out.includes('\n')) res(out.trim()); }); setTimeout(() => res(''), 30000); });
-    const had = !!dir && fs.existsSync(path.join(dir, 'probe'));
-    if (probe === 'wait-sync') await new Promise(r => setTimeout(r, 300)); // inside its first spawnSync by now
-    const done = new Promise(res => ch.on('close', c => res(c)));
-    const sent = Date.now();
-    process.kill(ch.pid, sig);
-    let late = false;
-    const timer = setTimeout(() => { late = true; process.kill(ch.pid, 'SIGKILL'); }, 5000);
-    const c = await done;
-    clearTimeout(timer);
-    const ms = Date.now() - sent;
-    if (!had || late || c !== EXIT[sig] || left().length) why.push(`${probe} ${sig}: folder seen ${had}, exit ${c}${late ? ' after 5 s (killed)' : ''} in ${ms} ms, left ${JSON.stringify(left())}`);
-    for (const f of left()) fs.rmSync(path.join(base, f), { recursive: true, force: true }); // a late probe's folder, so the next case starts clean
+    const dir = r.stdout.trim();
+    if (r.status !== code || !dir.startsWith(path.join(base, 'redesign-skill-tests-')) || fs.existsSync(dir) || left().length) why.push(`${label}: exit ${r.status}, printed ${JSON.stringify(dir)}, left ${JSON.stringify(left())}`);
   }
   const k = shTour('node', [path.join(HERE, 'run.mjs'), '--tmp-probe'], { env: env({ KEEP_TMP: '1' }) });
   const kept = k.stdout.trim();
-  if (k.status !== 0 || !kept || !fs.existsSync(path.join(kept, 'probe')) || left().length !== 1) why.push(`KEEP_TMP=1: exit ${k.status}, kept ${JSON.stringify(left())}`);
+  if (k.status !== 0 || !kept.startsWith(path.join(base, 'redesign-skill-tests-')) || !fs.existsSync(path.join(kept, 'probe')) || left().length !== 1) why.push(`KEEP_TMP=1: exit ${k.status}, printed ${JSON.stringify(kept)}, kept ${JSON.stringify(left())}`);
   return why.join(' · ');
 });
 await test('TOUR-title-count', 'titles and promises are counted as tour-shape counts words, split on spaces: a four-word title with a maqaf and a number joined to it ("קובעים תור ל־3 שעות") and a six-word promise pass; the same title with the number standing alone is five words (title-words), and a seven-word promise fails (promise-words)', async () => {
