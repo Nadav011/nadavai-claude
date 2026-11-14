@@ -241,21 +241,24 @@ passes (a screen is outside the one exception), closer with one missed goes to N
 
 ## SHIFTS
 
-SHIFTS is already being built, and this file changes nothing in its plan [I]. Its build plan is
+SHIFTS is already being built, and nothing here changes its plan by itself [I]. Its build plan is
 `~/Projects/mexicani-shifts/docs/plan/BUILD-PLAN.md`: Nadav approved draft 21 on 13.11.2026 («מאשר הכול», by the
 plan's own record and `STATUS.md` beside it; later drafts carry their own closing checks), and the build session
-builds from it in `~/Projects/shifts-app`, where units have landed on main. No unit of that plan is added, reordered
-or gated anew by this file. Its demo lives inside the app's repo (`~/Projects/mexicani-shifts`, branch
-`design/direction-and-demo`: 134 files under `src/demo` at `9300c90`, none on `main`), so there is nothing to copy and
-no look route to choose; it is not a standalone demo, so `standalone-demo-to-app.md` does not apply, except «Whose
-decision a differing behaviour is», which binds every from-zero run (above). What this file adds to SHIFTS's run is
-two things: the stuck log, kept by the build session in its own repo (`~/Projects/shifts-app`, at a path that session
-names; the plan's folder is the planning session's and is not in git) and reported as above, and that rule on
-behaviour. Unit 0 and the component gate reach SHIFTS only if a round of its own plan adopts them (the demo side would
-then be `src/demo` at the plan's tag); a change to a plan he approved is that plan's round, and goes to him where it
-changes what he approved. His pick of 14.11 named SHIFTS among the three projects, and this section gives SHIFTS
-almost none of the new method; whether its plan adopts unit 0 and the gate is his to decide and was put to him on
-14.11.2026. Until he answers, the approved plan stands as it is [I].
+builds from it in `~/Projects/shifts-app`, where units have landed on main. Its demo lives inside the app's repo
+(`~/Projects/mexicani-shifts`, branch `design/direction-and-demo`: 134 files under `src/demo` at `9300c90`, none on
+`main`), so there is nothing to copy and no look route to choose; it is not a standalone demo, so
+`standalone-demo-to-app.md` does not apply, except «Whose decision a differing behaviour is», which binds every
+from-zero run (above). Asked on 14.11.2026 whether SHIFTS gets the measurement of each part against the demo, once he
+knew its plan was approved and units had landed, he picked [A] «כן, להוסיף בלי לעכב (מומלץ)», whose text read: SHIFTS
+goes on now with the units that are not screen parts; its plan gets a round that adds the zero-differences gate to the
+parts and the screens, and comes back to him for approval; a part built before the instrument is ready is measured
+after the instrument is approved; the price is one more approval round and fixes to a part found to differ. So: the
+planning session writes that round into SHIFTS's plan (unit 0 reused from the first run's latest approved commit; the
+demo side is `src/demo` at the plan's tag; the gate, the look-over, the per-variant count and the reopening rule as
+above), no build unit waits for it, and until he approves the revised plan the approved one stands as it is. This file
+adds directly only the stuck log, kept by the build session in its own repo (`~/Projects/shifts-app`, at a path that
+session names; the plan's folder is the planning session's and is not in git) and reported as above, and the rule on
+behaviour.
 
 ## When a whole run pauses
 
