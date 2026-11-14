@@ -14,7 +14,10 @@ per-round logs and lessons), `msi-thermal-diagnosis-2026-10.md`,
 
 1. **Never stop, restart or slow down a running session's work.** No reboot, no `docker restart`,
    no `swapoff` of zram, no `systemctl restart` of logind/display. Why: Nadav runs 10+ agent
-   sessions and 10-hour workflows at all times.
+   sessions and 10-hour workflows at all times. A reboot is the one exception, and only while
+   nothing is running on the machine (no agent session, CI job, deploy or `heavy-slot` job;
+   Nadav, 2026-11-14); the Oracle servers always have something running, so they are not
+   rebooted without him.
 2. **Nothing needed is lost.** Delete only what is regenerable (caches, build output,
    `node_modules`, old downloads) or proven orphaned. User data, history and anything without a
    second copy goes to the archive on the other machine first (`scripts/archive.sh`), and is
@@ -26,8 +29,9 @@ per-round logs and lessons), `msi-thermal-diagnosis-2026-10.md`,
 4. **Ask only what only Nadav knows** (does he use an app, keep a backup, want a trade-off), in
    AskUserQuestion batches of up to four questions, each option with size and evidence. Never ask
    about something that is provably regenerable or orphaned; delete it. Paid items are the
-   money gate. This skill's own stops, pending Nadav's decision (listed for him 2026-11-14):
-   firewall/SSH/auth changes and DB deletions need his yes.
+   money gate and a deletion with no way back waits for him (`rules/working-style.md`, Approval
+   gates). Firewall, SSH and auth changes run without asking and are named in the report; a
+   BIOS, EC or firmware flash waits for his yes (Nadav, 2026-11-14).
 5. **Folders owned by a running session are cleaned by that session.** Find the owner with
    ListAgents (and by checking which session's cwd or recent commits live there), send it a
    SendMessage with the size and what to drop, and archive only what it hands back. Why: on
@@ -184,8 +188,8 @@ microcode against `intel-ucode`, BIOS against the vendor (Lenovo catalog, MSI do
 devices whose driver exists but is not bound, firmware load failures, DKMS, the NVIDIA module
 against `nvidia-utils`, ELF files with missing libraries, old binaries in `~/.local/bin` that
 shadow the pacman ones, the running kernel, and failed units. Fix each PENDING line, then run it
-again until it prints `everything current`. REBOOT lines are never acted on here (hard rule 1):
-list them for Nadav. UNKNOWN lines are rerun or checked by hand, never reported as current. Only
+again until it prints `everything current`. A REBOOT line is acted on only under hard rule 1's
+condition; otherwise list it for Nadav. UNKNOWN lines are rerun or checked by hand, never reported as current. Only
 then say "everything is up to date"; on 2026-11-03 that sentence was wrong three times before
 this script existed.
 
@@ -194,7 +198,7 @@ Fixes it usually leads to: `pacman -Syu`; `paru -Sua`; bump `pkgver` + `sha256su
 (`--allow-scripts`), `fnm default`; `npm update -g`; `pnpm self-update` and `pnpm update -g
 --latest`; `pipx upgrade-all`; `uv tool upgrade --all` and `uv python upgrade`; `uv self update`,
 `deno upgrade`, `bun upgrade`, `grok update`, `agy update`, `sdkmanager --update`. Firmware, BIOS
-and EC flashes only with Nadav's yes and AC power (`fwupdmgr update --no-reboot-check`, never `-y`;
+and EC flashes only with Nadav's yes (his decision of 2026-11-14) and AC power (`fwupdmgr update --no-reboot-check`, never `-y`;
 Secure Boot state first). Vendor drivers the hardware calls for, checked by
 `lsusb`/`lspci`: msi-ec on MSI, openrazer for Razer, logiops for Logitech MX, intel-npu-driver
 only where `/dev/accel*` exists, intel-compute-runtime for Intel GPU compute,

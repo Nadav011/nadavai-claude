@@ -2,7 +2,7 @@
 
 ## Sessions, workflows, agents
 - **Background work dies with the session.** On 7.11, closing Orca killed a workflow, a Grok run and REA. Long CLI jobs run under `setsid`. Agents write to disk in sections, and a continuation checks for partial edits before it applies anything again.
-- **A workflow resume replays only a prefix.** After a limit stop, write a fresh continuation script that reads the journal. Do not trust a resume to finish the run.
+- **A workflow resume keeps the finished agents' results, in the same session only** (`resumeFromRunId`; `rules/model-routing.md`). After a stop that ended the session, write a continuation script that reads the journal.
 - **systemd-oomd kills the heaviest session.** When a session "closed by itself", swap was full. Cap parallel browsers and language servers.
 - **SendMessage to a workflow agent forks a second writer** in the same clone. Do not message workflow agents; wait for the result.
 - **Read-only agents still write.** Run `git status` after every workflow, and revert what was not theirs to write.

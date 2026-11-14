@@ -26,7 +26,8 @@ hold the last run's decisions and what was intentionally left out.
    Files, projects and agent sessions never move unless he names them. CI (`nadavai-slot`, `~/ci`,
    runners, dagu) is never touched without him: another session owns it.
 3. **Never interrupt the source.** No reboot, no restart of Orca, Chrome or Docker there. Ask him
-   to close Chrome for the profile copy. Reboot the target only when he says so.
+   to close Chrome for the profile copy. Reboot the target without asking while nothing else
+   is running on it (`rules/working-style.md`, Approval gates); otherwise when he says so.
 4. **Logins follow `references/logins.md`**: static and Google tokens may be copied, rotating
    refresh tokens get a fresh login on the target, WhatsApp never. Secrets are never printed.
 5. **Hardware-specific items stay hardware-specific**: host tuning (`legion-power-limits`,
@@ -208,7 +209,7 @@ The binary dlopens `libonnxruntime.so`, so every machine that gets a copy needs 
   `leftovers.sh` on the target.
 - Record the run in memory (what was done, what was intentionally left out and why).
 - Tell Nadav in Hebrew: what was installed, a table of what did NOT move (item, why, what he
-  does), and what needs his hands (reboot, logins).
+  does), and what needs his hands (logins, and a reboot that had to wait).
 
 ## After copying a home from another machine or distro
 Run `scripts/leftovers.sh` on the receiving machine. Each line maps to a fix: install the
