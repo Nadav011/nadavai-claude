@@ -1,7 +1,7 @@
 # The entry screen with a hero
 
-How an app's sign-in screen is built: a hero on top that shows the product at work, and a
-beautiful sign-in under it. Read it before a sign-in screen is planned, built or redesigned,
+How an app's sign-in screen is built: a hero that shows the product at work, and a beautiful
+sign-in with it (under it on a phone, beside it on a computer). Read it before a sign-in screen is planned, built or redesigned,
 beside `experience.md`. It is a pattern for that one screen, not a look for the app.
 
 `[N]` marks Nadav's own words, `[M]` a value measured on the approved page
@@ -19,8 +19,12 @@ the approved page and are not a check; the checks are the measured lines.
 - 14:19, on three rough directions that put the hero beside the sign-in and played a film once:
   "כן אבל איפה כל העקורנות של סרטונהים דבירם רצים הדגשה של פיצרים HERO למעלה הלוגדו דווןקא היה פצצה בראשון כל השאר לא" [N]
 
-This skill's reading of the three [I]: the principles are shared and each screen is its own.
-Shared: a hero on top, things running in it, the product's features highlighted, a beautiful
+- 17:43, after he saw the social studio's first entry screen, on the layout for a computer:
+  "למחשב הדף תריך להראות כמו שהסושאיל עשה שזה לצד כזה והחיחתוך עם כל האלמנטים שלנו וגם תשלח לו לשפר בהתאם אבל המבנה שלו יותר נכון לא ? או שיש מבנה יותר נכון ? לדף ההתחברות" [N]
+
+This skill's reading of these [I]: the principles are shared and each screen is its own.
+Shared: a hero that leads the screen (on top on a phone; beside the sign-in on a computer, as he
+chose that evening), things running in it, the product's features highlighted, a beautiful
 sign-in. Its own: the app's character, and never a copy of another app's screen.
 
 ## The approved screen, and what its four tries showed
@@ -37,8 +41,8 @@ not forbidden; it is shown to him rough in the same way, and it keeps the four s
 
 ## The composition of the approved page
 
-Measured at 390x844 [M]. A screen that starts from it keeps the order and the proportions, not
-the pixels.
+The phone view, measured at 390x844 [M]; the computer layout is under "How it is built". A screen
+that starts from it keeps the order and the proportions, not the pixels.
 
 1. **The hero on top, the sign-in under it.** On a phone the hero takes a little over half the
    height (56.7%) and the sign-in sheet rises from the bottom.
@@ -47,7 +51,7 @@ the pixels.
 3. **A top row:** the app's real lockup and one line beside it (the date).
 4. **A headline of two short lines** whose one accented word changes with the film on show.
 5. **One glass card that plays the product's main features as short films,** one at a time
-   (five), with dots that show which film is on and how long it has left.
+   (five), with dots, on the phone, that show which film is on and how long it has left.
 6. **One live line** under the card, in the same glass: a single invented event of the product,
    changing every few seconds.
 7. **The sign-in sheet:** a title, the primary way in as a large button (56 px), a second way
@@ -111,7 +115,7 @@ approved page as measured; `[M: fault]` lines are faults measured on it, fixed a
 - **Reduced motion:** nothing moves or advances by itself, every film shows its last frame, and a
   tap still moves to the next film [M].
 - **Someone can stop it, and a key does what a tap does.** Content that moves for ever has a pause
-  control that the keyboard reaches, at the card's edge beside the dots, and the keyboard can move
+  control that the keyboard reaches (on the phone at the card's edge beside the dots), and the keyboard can move
   to the next film too (the card as one button, or the dots as buttons) [M: fault, the page had
   neither; WCAG 2.2.2 and 2.1.1]. Each of these is a touch target of at least 44 px, like every
   target the standard's probe measures.
@@ -125,10 +129,21 @@ approved page as measured; `[M: fault]` lines are faults measured on it, fixed a
   scrollable overflow from its blurred shapes and moved its screen sideways with a forced scroll;
   with `clip` it measured 0.
 - **A real wide layout,** switched by a media query, never by a URL parameter, with sizes from a
-  size variable or container units, never CSS `zoom` [M: fault, both]. The layout he approved for
-  a computer: the sky is a band across the top; inside it the headline and the live line sit on
-  one side and the film card on the other; the sheet is a card centred under the band, rising
-  over its lower edge. The phone frame is a demo's chrome only.
+  size variable or container units, never CSS `zoom` [M: fault, both]. The phone frame is a demo's
+  chrome only.
+- **On a computer, MediZen's page puts the hero beside the sign-in.** His words, 14.11.2026 in the
+  MediZen session: at 17:43 the sentence quoted at the top of this file; at 17:50, on a first rough
+  of two sides:
+  "צד ימין לצד אבל לא בחולקה הזאת זה נראה מוזר וקטן מדי האוזר התחברות ואיפה שכל הסרטונהים לא מספיק ומוזר ללטש אותו כמו שצריך" [N];
+  at 17:57, the pick «כן, זה המבנה» on a second rough. The question he answered described it:
+  the sign-in area wider (42% of the screen where the first rough had 31%) with larger buttons,
+  the film filling the hero's side, and under it five buttons, one per feature, that light the
+  film that is playing and move to it when pressed. For a computer this replaced the layout he
+  had approved at 16:50 (a sky band across the top with the sheet as a card under it). It is
+  MediZen's page, not his rule for every app: for another app it is the recommended start, like
+  the rest of the composition, and is shown to him rough [I]. From which width the two sides
+  begin, what a tablet width shows, whether the buttons replace the dots there, and where the
+  pause control sits on that layout are the building session's choices [I].
 - **Short screens drop decoration before the form scrolls:** first the live line, then the film
   card [M]; the primary way in is on screen without scrolling. On the smallest phone (320x568),
   with the other ways open and an error showing, everything in the sheet can still be reached:
