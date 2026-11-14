@@ -109,6 +109,12 @@ The understanding check is `rules/working-style.md`, "Requests"; it is not resta
   `REJECTED.md` at the project root, each when it exists.
 - The two or three readings shown to Nadav are things he can see: a crop of his own earlier approved work, a small
   rendered sample, or a reference link with the exact part marked. Never prose alone.
+- A colour or a theme that is his to choose (setup step 11b, a redesign's design language, a colour reopened in a
+  screen round) is shown as three real options, each applied to the real screen, each with what it says, where it
+  is strong, its price (what else has to change) and its measured contrast [I: the form of round 8, which he
+  answered]. His words on the SHIFTS sign-in,
+  14.11.2026: «תעלה לי 3 דוגמאות לצבעים בסגנונות האלה ואז אני אבחר סופית צבע אבל עם מחשבה מאיתית על כל צבע» [N];
+  in his next answer he picked one of the three (round 9).
 - A look or a choice he rejects is appended to `REJECTED.md` with his words and the date (in `redesign`, at the
   output repo's root, because that mode never writes into the app repo). Nothing listed there is proposed again.
 
