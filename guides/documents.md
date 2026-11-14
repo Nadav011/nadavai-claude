@@ -15,11 +15,10 @@ nothing that only delays.
 - A plan he has to approve opens with what he decides, one line each, before any argument. A work order says what
   to build and how it is checked, without the argument.
 - A plan or a spec that replaces part of an older one lists the decisions of his that the replaced part carried,
-  each one kept or named as changed. On 2026-11-14 a work plan that replaced five sections of a build plan
-  dropped, without a word, his decision that a trial runs first and holds three things.
-- A direction, a brief or a fix instruction that restates a pick of his quotes the option text he was shown and
-  does not paraphrase it. A paraphrase has changed what he picked, and the changed text was then credited to
-  him (three times on 2026-11-14, in two sessions).
+  each one kept as he typed or picked it. Where he has since typed or picked a change to one, name that change.
+  An agent does not mark a decision of his as changed.
+- A direction, a brief or a fix instruction that restates a pick of his quotes the words he picked, the option
+  text when he picked an option or the words he typed when he did not, and does not restate them in other words.
 - A plan built on another session's spec is checked against it when that spec is frozen, not at each merge.
   Between freezes the two sessions exchange a list.
 - A spec that depends on another app is closed only after a reader with that app's code has checked the handoff
