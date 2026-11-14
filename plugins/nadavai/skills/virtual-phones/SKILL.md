@@ -1,26 +1,23 @@
 ---
 name: virtual-phones
-description: Run, see and operate an Android or iPhone app on Nadav's Linux machines without a physical phone - the Android SDK emulator driven with agent-device, the experimental x86sim iPhone simulator on the LENOVO, and scripted iPhone-simulator runs on Apple's Xcode Cloud. Use when a task needs an app opened on a phone image, a screen read or tapped, a customer flow walked through, a device feature simulated (SMS code, fingerprint, notification, deep link, offline, Hebrew system language), a simulator build of an iOS app, or when asked whether something can be checked without a phone or a Mac. Not for the web layer's phone feel (mobile-native) or store submission (store-apps).
+description: Run, see and operate an Android or iPhone app on Nadav's Linux machines without a physical phone - the Android SDK emulator driven with agent-device, and scripted iPhone-simulator runs on Apple's Xcode Cloud. Use when a task needs an app opened on a phone image, a screen read or tapped, a customer flow walked through, a device feature simulated (SMS code, fingerprint, notification, deep link, offline, Hebrew system language), a simulator build of an iOS app, or when asked whether something can be checked without a phone or a Mac. Not for the web layer's phone feel (mobile-native) or store submission (store-apps).
 ---
 
 # Virtual phones
 
 What an agent can do on a phone image here. Everything below was run on 2026-11-13 and 14 against
 MediZen 1.3.0 unless a line says otherwise; the evidence is in `~/Documents/mobile-lab/`
-(`android/REPORT.md` and `android/commands.md`, `ios/x86sim-matrix-data.txt`, `ios/session-notes.md`,
-`ios/ui-access.md`, `ios/xcode-cloud/REPORT.md`). The routing and the lines that always hold are in `rules/virtual-phones.md`.
+(`android/REPORT.md` and `android/commands.md`, `ios/xcode-cloud/REPORT.md`). The routing and the lines that always hold are in `rules/virtual-phones.md`.
 
 | Need | Use | Reach |
 |---|---|---|
 | Android app: read the screen as text, tap by name, type Hebrew, device features | SDK emulator + `agent-device` | Almost every customer action (below) |
 | A recorded, repeatable flow a repo already keeps | Maestro, as that repo runs it | Regression only; do not start new work in it |
-| iPhone: real iOS rendering, the app's own screens, a flow walked by sight | x86sim on the LENOVO + a simulator build from Codemagic | Screenshots and taps; no element tree, push, Face ID, location, camera or offline |
 | iPhone: a scripted check that reads the screen as text, taps by name and signs in | A run on Xcode Cloud + `agent-device` ([references/ios-xcode-cloud.md](references/ios-xcode-cloud.md)) | The element tree, typing, screenshots; each try is a 4 to 7 minute run, with no live screen |
-| The store build on a real device, real push, the camera, a weak or Samsung phone | A physical phone (and a Mac for iPhone) | Not available here: say so, do not substitute |
+| A live iPhone screen to explore by hand, the store build on a real device, real push, the camera, a weak or Samsung phone | A physical phone (and a Mac for iPhone) | Not available here: say so, do not substitute |
 
-Check only what the task's platform needs: an Android task needs `~/Android/Sdk` on the machine it
-runs on, an x86sim task needs `getent passwd x86simbox` to print a line. When that one is missing,
-say so and stop (the MSI has the SDK and no `x86simbox` user, and Android work runs there).
+An Android task needs `~/Android/Sdk` on the machine it runs on; when it is missing, say so and
+stop. An iPhone run needs only `asc` and the lab branch, on any machine.
 
 Why agent-device: on the same MediZen flow it took about 11 seconds, Maestro 33 and mobile-mcp 21.
 It types Hebrew, addresses WebView elements by ref or selector, and answers each action with a
@@ -160,95 +157,25 @@ camera images (the scene is synthetic), behaviour on a weak or vendor-skinned ph
 from the public listing without a Google sign-in. Real FCM push was not tested; Google documents it
 as working on a Google APIs image, and it needs a signed-in test account and a backend send.
 
-## iPhone without a Mac (x86sim, LENOVO only)
-
-x86sim (github.com/x86sim/x86sim, a project a few weeks old in November 2026) runs Apple's own iOS 27 simulator
-runtime on Linux by translating it. It is installed for the Linux user `x86simbox`, which cannot
-read Nadav's home. That user limits what the code can read, not what it can reach: its code was
-not fully audited and the device shares the host's network, so the host's `127.0.0.1` services are
-reachable from inside it. Run it only as that user, never as `nadavcohen`, never run its scripts
-or binaries with root, and never take the host's network down to simulate offline.
-
-There is one device ("Main phone") for the whole machine, so it is used under a lock that any
-agent on the machine can take and see. `scripts/x86sim-lock.sh` is the only way to take it:
-
-```bash
-scripts/x86sim-lock.sh take "$PPID" "<your session name>"   # exit 0: yours. exit 1: not yours (a live holder, or "try again")
-scripts/x86sim-lock.sh show
-scripts/x86sim-lock.sh release "$PPID"                       # when you are done
-```
-
-- The first argument is the long-lived agent process, so another session can tell a dead holder
-  from a live one. In Claude Code, `$PPID` in a tool's shell is that process (checked 2026-11-13);
-  in another agent, check what `$PPID` is before relying on it.
-- A lock whose holder is dead is taken over by `take` itself, with one winner (twenty concurrent
-  takers were tried on a free lock and on a dead holder's lock: one won each time). Do not remove
-  the lock directory by hand, with one exception: a `take` or a `release` that was killed half-way
-  can leave a lock with no live holder that `take` keeps refusing ("try again") for more than a
-  minute. Then, after `show` and `kill -0` confirm that no live process is named in it, remove
-  `owner`, the `takeover` directory and the lock directory, and take it again.
-- While another live session holds the lock, run nothing on the device except `aot sim status` and
-  `x86sim screenshot`: no `install`, `launch`, `tap`, `type`, `home`, `openurl`, `log stream`,
-  start, stop or restart. Ask that session or wait.
-
-```bash
-SB=$(getent passwd x86simbox | cut -d: -f6)       # the sandbox user's home
-X="sudo -n -u x86simbox $SB/xs.sh"
-cd /tmp                                            # a directory that user can enter
-$X aot sim status                                  # "Main phone  iPhone 17  iOS 27.2  running ... home"
-$X aot sim start                                   # 1 to 3 minutes; the first boot ever took 9
-$X x86sim screenshot "$SB/s.png"                   # then: sudo cp to your scratchpad, chown, Read it
-$X x86sim tap <x> <y>                              # device pixels, the screen is 1206x2622
-$X x86sim type "latin text"; $X x86sim home; $X x86sim openurl <url>
-$X x86sim install "$SB/apps/<dir>/App.app"
-$X x86sim launch <bundle id>; $X x86sim listapps
-$X x86sim io recordVideo --secs 10 "$SB/v.mp4"
-$X x86sim log stream --app <bundle id>             # relaunches the app and never ends: timeout, to a file
-```
-
-- It installs arm64 iOS-simulator builds. An app whose main executable is universal (x86_64 and
-  arm64) crashed at launch with "dyld_sim is not compatible with the loaded process"; after
-  `llvm-lipo -thin arm64` on the main executable it ran.
-- After every install the first launch waits one to two minutes while a code map is rebuilt, and
-  `launch` prints "no reply in 30 s" although the app starts. Wait and take a screenshot; do not
-  relaunch.
-- Reading is by screenshot only (0.5 to 3 seconds each). WebDriverAgent and Safari Web Inspector do
-  not start: launchd cannot create their sockets under x86sim's system layer.
-- The first tap after a cold start can scroll instead of focusing; tap again. After "@", Shift
-  stayed down ("example.com" came out "EXAMPLE>COM").
-- Hebrew typing: `type` takes Latin only. With the Hebrew keyboard added (below), Ctrl+Space
-  switches to it (`x86sim raw "key down 224" "key down 44" "key up 44" "key up 224"`), and typing
-  the Latin keys of the Hebrew layout gives Hebrew (`type "akuo"` gives "שלום").
-- System language, the Hebrew keyboard, dark mode and text size are set in the device's preference
-  files while the device is stopped, then a restart. The script that did it and restores it is
-  `tools/prefs.py` in the sandbox user's home (`prefs.py he [dark] [xxl]`, `prefs.py restore`).
-- A universal link (`openurl https://<the app's site>/...`) opens Safari, never the app: the device
-  runs no association daemon, and an ad-hoc build's app id is `FAKETEAMID.<bundle id>`. The app's
-  custom scheme (`openurl <bundle id>://...`) opens it.
-- `push` was refused ("Source is not authorized") while the app had not asked for notification
-  permission; a banner was never shown. `location set` is silent and a page's location request never
-  answers. No Face ID, no camera, no offline switch, no rotate command, no App Store or TestFlight.
-- Backgrounding for a few seconds kept the app and its typed text; after about 16 seconds it was
-  killed and came back with an empty form.
-- With no offline switch, every press on a form's button here reaches the live server
-  (`rules/virtual-phones.md`).
-- To show the phone to Nadav without giving that user his screen or clipboard: an `Xvnc` display for
-  `x86simbox`, `x86sim view` on it, and `vncviewer` with clipboard sync off in his session. The
-  three commands are in `~/Documents/mobile-lab/ios/session-notes.md`.
-
 ## iPhone on Xcode Cloud (scripted, any machine)
 
 Apple's build machines (25 free hours a month in the developer program) boot a real iOS simulator,
-and `agent-device` drives the app there with the element tree x86sim lacks. A run is a script on a
+and `agent-device` drives the app there with the element tree. A run is a script on a
 lab branch that Xcode Cloud starts and that stops before anything is built; the script's log is the
 only thing that comes back, so it prints the trees and pictures it wants seen. Started and read
 with `asc` from any machine. The working example (therapy-flow-v2, branch `ci/ios-simulator-app`),
 the traps of iOS 27 (the folding iPhone, the password box, the Hebrew keyboard, the notifications
 question) and how a secret reaches a run: [references/ios-xcode-cloud.md](references/ios-xcode-cloud.md).
 
+There is no iPhone simulator on these machines any more: x86sim, which ran on the LENOVO and gave
+screenshots and taps only, was removed on 2026-11-14 (Nadav picked "למחוק"), and an agent does not
+install it again. What it showed is kept in `~/Documents/mobile-lab/ios/` (`session-notes.md`,
+`ui-access.md`).
+
 ### A simulator build of the app
 
-Only Xcode makes one, so it comes from Codemagic: a workflow that builds `Release` for
+The Xcode Cloud lab installs a simulator build kept on its lab branch. Only Xcode makes one, and
+this one came from Codemagic: a workflow that builds `Release` for
 `-sdk iphonesimulator` with `ARCHS=arm64` and ad-hoc signing, and keeps `App.app` as an artifact.
 The working example is therapy-flow-v2, branch `ci/ios-simulator-app`, workflow
 `medizen-ios-simulator`; [references/ios-simulator-build.md](references/ios-simulator-build.md) has

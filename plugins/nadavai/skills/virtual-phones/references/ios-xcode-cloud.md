@@ -7,7 +7,7 @@ sign-in script is `~/Documents/mobile-lab/reviews/xc-signin-review-1.md`.
 
 What it is for: a scripted check on real iOS with the element tree (open the app, read a screen as text, tap
 by name, type, sign in to the QA account, take a screenshot). What it is not: a live screen. Every try is a
-run of 4 to 7 minutes, so exploring an app by hand stays on x86sim or a Mac. It proves nothing about the
+run of 4 to 7 minutes, so exploring an app by hand needs a Mac. It proves nothing about the
 store build, push, Face ID, location or the camera (`rules/virtual-phones.md`).
 
 Cost: Xcode Cloud's 25 compute hours a month come with the developer program; the 18 runs took 91 minutes

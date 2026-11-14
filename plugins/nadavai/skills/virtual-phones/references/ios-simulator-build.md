@@ -1,6 +1,7 @@
 # A simulator build of a Capacitor iOS app, from Codemagic
 
-x86sim runs arm64 iOS-simulator builds, and only Xcode produces one. This is the step that worked
+An iPhone simulator runs a simulator build of the app, and only Xcode produces one; the Xcode Cloud
+lab (`ios-xcode-cloud.md`) installs it from its lab branch. This is the step that worked
 for MediZen on 2026-11-13 (therapy-flow-v2, branch `ci/ios-simulator-app`, workflow
 `medizen-ios-simulator`). The two builds, their times and the checks made on them are recorded in
 `~/Documents/mobile-lab/ios/session-notes.md`.
@@ -44,11 +45,8 @@ with:
 What is known about each part:
 
 - `ARCHS=arm64 ONLY_ACTIVE_ARCH=NO`: both builds used it and came out arm64 only (the `lipo` check
-  passed). It matters because a universal main executable crashed in x86sim: Apple's UIKitCatalog
-  sample (x86_64 and arm64) died at launch with "dyld_sim is not compatible with the loaded
-  process, likely due to architecture mismatch", and ran after
-  `llvm-lipo -thin arm64` on its main executable. Universal frameworks inside an arm64 app were not
-  a problem. Why x86sim picks the wrong half was not investigated.
+  passed). Xcode Cloud's machines are arm64, and this arm64-only build is the one that ran there
+  (a universal build was not tried there).
 - `CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=YES` with an empty team and profile: ad-hoc "Sign to Run
   Locally". The first build used `CODE_SIGNING_ALLOWED=NO`; its binary had no
   `__TEXT,__entitlements` section and its first run logged Keychain error -34018 fourteen times.
@@ -56,7 +54,7 @@ What is known about each part:
   not exercised (nobody signed in). Check a build with
   `llvm-objdump --macho --section-headers App.app/App | grep __entitlements`.
 - An ad-hoc build's app id is `FAKETEAMID.<bundle id>`, so universal links do not match the site's
-  association file; x86sim runs no association daemon either.
+  association file.
 - `Release`, not `Debug`: the configuration the store build uses, with no dependency on a debug
   xcconfig.
 - An app with an over-the-air runtime baked at build time (MediZen's `OTA_RUNTIME`) passes it on the
@@ -81,5 +79,5 @@ curl -sSL -H "x-auth-token: $CODEMAGIC_TOKEN" -o App-simulator-arm64.zip "<artef
 - That day a build waited 11 to 28 minutes for a machine, and the two MediZen simulator builds ran
   8m44s and 5m51s. Wait in one background command that asks every 30 seconds and exits on
   `finished`, `failed`, `canceled` or `timeout`.
-- Then: copy the zip into `apps/<dir>/` under the sandbox user's home, unzip it as that user,
-  `x86sim install`, and wait out the first launch.
+- Then: put the zip on the lab branch (MediZen's is `lab/MediZen-simulator-arm64.zip`), where the
+  lab's wrapper script reads it as `APP_ZIP_URL` and the run installs it with `xcrun simctl install`.
