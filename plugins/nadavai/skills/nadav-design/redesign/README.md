@@ -221,7 +221,7 @@ Chat in plain Hebrew, short lines, the why before the what; code, files and comm
   how to play («לוחצים כמו באפליקציה»); light and dark, and «התחלה מחדש», which puts back everything the visitor
   changed; the walkthroughs, one card each (an icon, a title, one line on what it shows); and only then the screens
   by area. A walkthrough runs on the playable screens themselves: each step dims the phone, lights one place and
-  shows a small bubble with the walkthrough's name, one or two lines, dots with «שלב N מתוך M» for a screen
+  shows a small bubble with the walkthrough's name, a title of up to four words, one or two lines, dots with «שלב N מתוך M» for a screen
   reader, «הקודם», «הבא» (on the last step «סיום») and a close button; the line per step keeps the rule above (plain
   Hebrew, today beside after). «הבא» on a step that leads to another screen presses that control in the prototype,
   so the next screen arrives as it does in the app; the prototype holds invented data only and sends nothing. That

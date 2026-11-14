@@ -36,6 +36,9 @@ this skill's own reading, as in `experience.md`.
   (`redesign/README.md`, step 3); the walkthrough card; a walkthrough step that lights one place
   with one small bubble and shows how long the walkthrough is; for the tours we build in apps,
   something to learn from, as he asked, through `help-system.md` and never by copying its engine.
+  What in-app tours take from it was his pick of 14.11.2026, «הכול כמו SporChat (מומלץ)»: the
+  tour's name on the card, a step title of up to four words above the sentence, and a line per
+  tour in the list on what she can do after it (`help-system.md`, "The card") [A].
 - **Not an example of:**
   - an in-app tour: its «הבא» presses the control for the visitor, which a tour in a live app never
     does (`experience.md`, G-08), and a tap on the lit area counts as «הבא», while in an app the lit

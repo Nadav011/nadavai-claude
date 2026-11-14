@@ -91,7 +91,8 @@ result ([N], above). A result is a change to the record that the screen shows an
 article names as the task's outcome (a visit is booked, a note is saved); selecting, opening
 or filling something is not one, so a job is never chopped into chapters of a step or two.
 What keeps a tour light is not a count. It is one sentence a step, at most twelve words ([B];
-a step that needs more becomes two steps); her doing the step, not reading about it; and
+a step that needs more becomes two steps), under a title of at most four words, the twelve
+counted without the title (his pick of 14.11.2026 [A], under "The card"); her doing the step, not reading about it; and
 breaking a long job where the job itself has results. A chapter ends at its result, or at a
 stop step when the result is one a tour never lets her make (below). Its finish says what she
 did and offers the next chapter as the main button, with stopping as the quiet one; the
@@ -256,13 +257,34 @@ with the platform's own mechanism
 `aria-hidden` on the siblings), which also stops the app's keyboard shortcuts and a screen
 reader's activation; see-through blocks over the page stop a finger only. The tour's card is not
 `aria-modal` over the control it points at, or a screen-reader user cannot do the step. The
-step's result is announced in a live region, and each new step is announced there too, its place
-and its sentence together ("שלב 3 מתוך 6. …"), also when focus stays on the card's button; a step
+step's result is announced in a live region, and each new step is announced there too, its place,
+its title and its sentence, in that order ("שלב 4 מתוך 5. בוחרים טיפול. בוחרים טיפול מהרשימה."),
+also when focus stays on the card's button; a step
 whose card takes focus is read from the card and not announced a second time. SportChat's
 partner demo announced only the count, so a screen-reader user who pressed "הבא" heard a number
 and never the step (`examples.md`) [I]. With the on-screen keyboard open, the card and the
 lit control are both above it. A do-it-yourself target that cannot be reached by keyboard makes
 the step a showing step. A tap outside the light pulses it again and says where to press.
+
+**The card.** On 14.11.2026, asked what to take from SportChat's partner demo for the tours inside
+the apps, Nadav picked "הכול כמו SporChat (מומלץ)" [A], whose text was: on the card the tour's
+name on top, a title of up to four words, and one sentence; in the tour list each tour gets a
+short line saying what she will be able to do after it; its stated risk was a taller card that
+must not hide the marked place on a small phone. So the card reads, top to bottom: the tour's name
+in one short line (its `title`; in a chapter the job's title before it [I]); the step's `title`,
+at most four words; its sentence, at most twelve words counted without the title; then the
+progress and the buttons. The card's accessible name is the tour's name, and the step's title is
+not repeated in it: the title and the sentence are read as the step, as above [I]. Words are
+counted as `tour-shape` counts them, split on spaces: a word joined by a maqaf is one word
+("קובעים תור ל־3 שעות" is four), and a number standing alone is a word of its own ("קובעים תור ל 3
+שעות" is five) [I]. On a 320×568 screen the taller card still leaves the lit place visible: it
+goes below the light, else above it, never over it; when neither fits, a showing or stop step
+lights its `part` (under "The tour manifest"), and a step with no part becomes a centred card that
+names the control and lights nothing, as a missing target does, so a do step there only shows,
+since she cannot press what the card would hide [I]. The screen preview shows the card beside the
+light at that size (`tour-anchors`). When the tour ends, focus returns to what started it (the
+card's "הראו לי", the list's row, the link), not to the screen at large, as SportChat's demo did
+(`examples.md`) [I].
 
 Also part of the contract, from the built version ([B]): "דילוג" on every step and progress
 dots; a skipped tour does not open by itself again; "הראו לי שוב" resumes at the same step and
@@ -522,7 +544,10 @@ it lit before and at least 0.85 after, as its own QA recorded (`partner/FLOW.md`
 
 The manifest freezes with the approved demo's tag (its `tag` field), and the app reads that same
 file; a later change to a tour is a change to the file, made once. The app's manifest is the
-same file with `stage` changed from `demo` to `app` and every do step's test named, and the
+same file with `stage` changed from `demo` to `app`, every do step's test named, and every step's
+`title` and every tour's `promise` written: at stage `demo` the steps and the tours still without
+one are a note with their count, so manifests already being written are not broken, and at stage
+`app` each is a finding (`title-missing`, `promise-missing`) [I]; and the
 app's own check run always passes `--inventory inventory.json --require-stage app`, so a
 manifest still at `demo` fails there; `--require-stage app` without `--inventory` is a usage
 error (exit 2), because the checks against `recordAnchors`, `bulkAnchors` and
@@ -602,7 +627,10 @@ starting values. A result that stays reached once seen is the engine's default, 
 demo's own checks drive a do step (its `try`) stays in each environment's tests.
 
 **The tour list (G-17, G-18).** The help panel lists every tour like the levels of a game: how
-many were learned out of how many, what is left, and a tap starts one. It is built from the
+many were learned out of how many, what is left, and a tap starts one. Each row shows the
+tour's title and its `promise`, one line of at most six words on what she will be able to do
+after it ("לקבוע תור למטופל מהיומן" in the example; his pick of 14.11.2026 [A], under "The
+card"). It is built from the
 inventory (G-19), so a screen or an action without a tour shows up as a gap when the list is
 generated, not when a user looks for it. The owner of the business sees, per tour, who finished
 it and who has not yet; only the owner sees the team, each team member sees her own, and there
