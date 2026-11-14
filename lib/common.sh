@@ -532,6 +532,72 @@ ensure_npm_globals() {
   npm install -g "${missing[@]}" || warn "npm install -g reported a problem"
 }
 
+npm_global_commands() {
+  # "<package> <command> <version>" for every command the listed global packages install.
+  local root
+  root="$(npm root -g 2>/dev/null)" || return 0
+  # shellcheck disable=SC2016  # the ${...} below are JavaScript template strings
+  npm_globals | NPM_ROOT="$root" node -e '
+    const fs = require("fs"), path = require("path");
+    for (const pkg of fs.readFileSync(0, "utf8").split("\n").filter(Boolean)) {
+      let m;
+      try { m = JSON.parse(fs.readFileSync(path.join(process.env.NPM_ROOT, pkg, "package.json"), "utf8")); } catch { continue; }
+      const bin = typeof m.bin === "string" ? { [pkg.split("/").pop()]: m.bin } : (m.bin || {});
+      for (const b of Object.keys(bin)) console.log(`${pkg} ${b} ${m.version}`);
+    }' || true
+}
+
+starting_commands() {
+  # Of the "<package> <command> <version>" lines on stdin, the ones whose command answers --version.
+  local pkg cmd ver
+  while read -r pkg cmd ver; do
+    if command -v "$cmd" >/dev/null 2>&1 && timeout 20 "$cmd" --version >/dev/null 2>&1 </dev/null; then
+      printf '%s %s %s\n' "$pkg" "$cmd" "$ver"
+    fi
+  done
+  return 0
+}
+
+update_npm_globals() {
+  # Opt-in (--npm). Updates the listed global packages, and names every command of theirs that
+  # answered --version before the update and does not after it, with the version to go back to.
+  # Why: until 2026-11-14 nothing updated these tools (agent-browser was two versions behind, the
+  # omc CLI one), and an update is also the usual way a working tool stops working: npm 12 runs no
+  # install scripts, so a package that downloads its binary in one can come back unable to start.
+  local before after pkg cmd ver broke=0 names=()
+  mapfile -t names < <(npm_globals)
+  [ "${#names[@]}" -gt 0 ] || return 0
+  before="$(npm_global_commands | starting_commands)"
+  npm update -g "${names[@]}" --fetch-retries 5 --fetch-timeout 120000 || warn "npm update -g reported a problem"
+  after="$(npm_global_commands | starting_commands | cut -d' ' -f1,2)"
+  while read -r pkg cmd ver; do
+    [ -n "$pkg" ] || continue
+    grep -qxF "$pkg $cmd" <<<"$after" && continue
+    warn "$cmd answered --version before the update and does not now; to go back: npm install -g $pkg@$ver"
+    broke=$((broke + 1))
+  done <<<"$before"
+  if [ "$broke" -eq 0 ]; then log "global npm packages updated; every command that started before still starts"; fi
+}
+
+enable_omc_news_timer() {
+  # The monthly run of bin/omc-upstream-news --notify: what oh-my-claudecode changed upstream since
+  # the copy in plugins/nadavai/skills. One git fetch of a blob-less clone; it changes nothing.
+  if ! command -v systemctl >/dev/null 2>&1 || ! systemctl --user show-environment >/dev/null 2>&1; then
+    log "no systemd user session here: omc-upstream-news.timer not enabled"
+    return
+  fi
+  local dir="$HOME/.config/systemd/user" unit
+  mkdir -p "$dir"
+  for unit in omc-upstream-news.service omc-upstream-news.timer; do
+    ln -sfn "$REPO/systemd/user/$unit" "$dir/$unit"
+  done
+  if systemctl --user daemon-reload && systemctl --user enable --now omc-upstream-news.timer >/dev/null 2>&1; then
+    log "omc-upstream-news.timer enabled (monthly)"
+  else
+    warn "could not enable omc-upstream-news.timer"
+  fi
+}
+
 report_npm_globals() {
   local installed pkg missing=0
   installed="$(npm ls -g --depth=0 --parseable 2>/dev/null | sed 's|.*/node_modules/||')"

@@ -3,7 +3,7 @@
 #
 #   ./update.sh          nadavai only (marketplace + plugin + model policy + symlinks)
 #   ./update.sh --all    also refresh every other marketplace and dependency plugin
-#   ./update.sh --npm    also install any missing global npm package
+#   ./update.sh --npm    also install any missing global npm package and update the listed ones
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -79,6 +79,7 @@ ensure_npm_script_approvals
 if [ "$NPM" = 1 ]; then
   step "Global npm packages"
   ensure_npm_globals
+  update_npm_globals
 fi
 
 step "Model policy"
@@ -120,6 +121,7 @@ mirror_guard_to_grok
 step "Plugin health"
 "$REPO/bin/plugin-health" || warn "a plugin or an MCP server is not working: the BROKEN lines above say which"
 enable_plugin_health_timer
+enable_omc_news_timer
 
 if [ "$CODEX_REFRESH_FAILED" = 1 ]; then
   die "Other installer steps completed, but Codex nadavai plugin refresh failed; resolve the error above and rerun."

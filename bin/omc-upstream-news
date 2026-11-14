@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+# omc-upstream-news: what oh-my-claudecode changed upstream since the copy we took from it.
+#
+#   omc-upstream-news            write the report and print it
+#   omc-upstream-news --notify   also send a desktop notification when the report changed
+#                                (what the monthly omc-upstream-news.timer runs)
+#
+# On 2026-11-14 the plugin was taken apart: six of its skills and some lines of others were
+# copied into nadavai (plugins/nadavai/skills/VENDORED.md, "oh-my-claudecode skills") and the
+# plugin itself was switched off. Its authors keep working (31 releases in the 30 days before
+# that), so this looks once a month at what they changed since the commit we copied from:
+# which of the skills we took changed, and which skills are new. It changes nothing here and
+# starts no agent. Whoever reads the report decides whether something is worth taking.
+#
+# It keeps a blob-less clone under ~/.cache/nadavai/omc-upstream and writes the report to
+# ~/.local/state/nadavai/omc-upstream-news.txt. Exit 0, or 1 when upstream could not be read.
+set -uo pipefail
+REPO="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+url="${OMC_UPSTREAM_URL:-https://github.com/Yeachan-Heo/oh-my-claudecode.git}"
+clone="${OMC_UPSTREAM_CLONE:-$HOME/.cache/nadavai/omc-upstream}"
+state="$HOME/.local/state/nadavai/omc-upstream-news.txt"
+vendored="${OMC_VENDORED_FILE:-$REPO/plugins/nadavai/skills/VENDORED.md}"
+notify=0
+case "${1:-}" in
+  --notify) notify=1 ;;
+  -h|--help) sed -n '2,16p' "$0"; exit 0 ;;
+  "") ;;
+  *) echo "omc-upstream-news: unknown option $1 (see --help)" >&2; exit 2 ;;
+esac
+
+# The row of VENDORED.md that names the upstream repo holds the commit and the folders we took.
+row="$(grep -F 'github.com/Yeachan-Heo/oh-my-claudecode' "$vendored" 2>/dev/null | grep '^|' | head -n 1)"
+base="$(grep -oE '\b[0-9a-f]{40}\b' <<<"$row" | head -n 1)"
+ours="$(cut -d'|' -f2 <<<"$row" | tr ',' '\n' | sed 's/[[:space:]]//g' | grep -v '^$')"
+if [ -z "$base" ] || [ -z "$ours" ]; then
+  echo "omc-upstream-news: no oh-my-claudecode row with a commit in $vendored" >&2
+  exit 1
+fi
+
+mkdir -p "$(dirname "$clone")" "$(dirname "$state")"
+if [ ! -d "$clone" ]; then
+  git clone -q --bare --filter=blob:none "$url" "$clone" 2>/dev/null \
+    || { echo "omc-upstream-news: could not clone $url" >&2; exit 1; }
+fi
+# A bare clone made by `git clone --bare` has no fetch refspec; name the branch each time.
+git -C "$clone" fetch -q "$url" '+refs/heads/main:refs/heads/main' 2>/dev/null \
+  || { echo "omc-upstream-news: could not fetch $url" >&2; exit 1; }
+git -C "$clone" cat-file -e "$base^{commit}" 2>/dev/null \
+  || { echo "omc-upstream-news: the commit $base of VENDORED.md is not in upstream's main" >&2; exit 1; }
+
+head="$(git -C "$clone" rev-parse main)"
+commits="$(git -C "$clone" rev-list --count "$base..main")"
+changed=""
+while read -r name; do
+  n="$(git -C "$clone" rev-list --count "$base..main" -- "skills/$name")"
+  [ "$n" -gt 0 ] && changed+="  $name: $n commits"$'\n'
+done <<<"$ours"
+skills_at() { git -C "$clone" ls-tree -d --name-only "$1" skills/ 2>/dev/null | sed 's|^skills/||' | sort; }
+new="$(comm -13 <(skills_at "$base") <(skills_at main) | sed 's/^/  /')"
+
+report="$(
+  echo "oh-my-claudecode upstream since the copy in nadavai (${base:0:12})"
+  echo "upstream main: ${head:0:12}, $commits commits later"
+  echo
+  echo "Skills we took that changed upstream (compare before taking: ours carry local edits, see VENDORED.md):"
+  if [ -n "$changed" ]; then printf '%s' "$changed"; else echo "  none"; fi
+  echo
+  echo "Skills that are new upstream:"
+  if [ -n "$new" ]; then echo "$new"; else echo "  none"; fi
+  echo
+  echo "To read one: git -C $clone log -p ${base:0:12}..main -- skills/<name>"
+)"
+before="$(cat "$state" 2>/dev/null || true)"
+printf '%s\n' "$report" >"$state"
+printf '%s\n' "$report"
+if [ "$notify" = 1 ] && [ "$report" != "$before" ] && command -v notify-send >/dev/null 2>&1; then
+  notify-send -a nadavai "OMC: יש שינויים מאז שלקחנו ממנו" "הדוח: $state" || true
+fi
+exit 0
