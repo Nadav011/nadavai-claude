@@ -114,6 +114,12 @@ mirror_rules_to_codex
 mirror_to_antigravity
 mirror_guard_to_grok
 
+# Marketplaces update by themselves, and an update can ship a plugin whose hook or MCP server
+# file is gone (oh-my-claudecode 5.8.6 on 2026-11-14). The daily plugin-health.timer runs the
+# same check and notifies.
+step "Plugin health"
+"$REPO/bin/plugin-health" || warn "a plugin or an MCP server is not working: the BROKEN lines above say which"
+
 if [ "$CODEX_REFRESH_FAILED" = 1 ]; then
   die "Other installer steps completed, but Codex nadavai plugin refresh failed; resolve the error above and rerun."
 fi

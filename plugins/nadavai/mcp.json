@@ -12,6 +12,11 @@
       "env": {
         "TMPDIR": "/dev/shm"
       }
+    },
+    "posthog": {
+      "type": "http",
+      "url": "https://mcp.posthog.com/mcp",
+      "headersHelper": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/posthog-mcp-headers.sh"
     }
   }
 }

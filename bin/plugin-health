@@ -1,0 +1,182 @@
+#!/usr/bin/env python3
+"""plugin-health: are the enabled Claude Code plugins and their MCP servers working?
+
+  plugin-health            check, print what is broken, exit 1 when something is
+  plugin-health --static   files only: skip the live connection check (no claude process)
+  plugin-health --notify   also send a desktop notification when the broken list changed
+                           (what the daily plugin-health.timer runs)
+
+Marketplaces update by themselves, and an update can ship a plugin that no longer works without
+anything saying so. On 2026-11-14 oh-my-claudecode 5.8.6 arrived without the file its MCP server
+runs (upstream stopped committing its build output), and every session ran without that server
+until someone looked.
+
+What is checked, for each plugin the active settings.json enables:
+  - its install folder exists;
+  - every file a hook command or an MCP server names under ${CLAUDE_PLUGIN_ROOT} exists;
+  - the command of a local (stdio) MCP server is on PATH;
+  - each plugin it lists as a dependency is enabled (Claude Code unloads a plugin whose
+    dependency is off);
+and, without --static, what `claude mcp list` reports for every server: connected, waiting for
+a sign-in, or failed. A server on the settings' deny list is skipped.
+
+The config folder is $CLAUDE_CONFIG_DIR, or ~/.claude. State for --notify is kept in
+~/.local/state/nadavai/plugin-health.txt.
+"""
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+
+ROOT_REF = re.compile(r'\$\{?CLAUDE_PLUGIN_ROOT(?::-[^}]*)?\}?"?(/[A-Za-z0-9_./-]+)')
+
+
+def load(path):
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+
+def hook_commands(node):
+    """Every "command" string anywhere inside a hooks.json."""
+    if isinstance(node, dict):
+        for k, v in node.items():
+            if k == "command" and isinstance(v, str):
+                yield v
+            else:
+                yield from hook_commands(v)
+    elif isinstance(node, list):
+        for v in node:
+            yield from hook_commands(v)
+
+
+def plugin_servers(root):
+    """MCP servers a plugin declares: .mcp.json, mcp.json, or the file plugin.json points at."""
+    manifest = load(os.path.join(root, ".claude-plugin", "plugin.json")) or {}
+    files = [".mcp.json", "mcp.json"]
+    declared = manifest.get("mcpServers")
+    if isinstance(declared, str):
+        files.insert(0, declared)
+    servers = {}
+    if isinstance(declared, dict):
+        servers.update(declared)
+    for name in files:
+        data = load(os.path.join(root, name))
+        if isinstance(data, dict):
+            servers.update(data.get("mcpServers", data) or {})
+    return {k: v for k, v in servers.items() if isinstance(v, dict)}, manifest
+
+
+def static_check(cfg):
+    settings = load(os.path.join(cfg, "settings.json")) or {}
+    enabled = settings.get("enabledPlugins") or {}
+    denied = {d.get("serverName") for d in settings.get("deniedMcpServers") or [] if isinstance(d, dict)}
+    installed = (load(os.path.join(cfg, "plugins", "installed_plugins.json")) or {}).get("plugins") or {}
+    broken, plugins, servers_seen = [], 0, 0
+    for pid, on in sorted(enabled.items()):
+        if on is not True or pid.endswith("@synced"):
+            continue
+        entries = installed.get(pid) or []
+        entry = next((e for e in entries if e.get("scope") == "user"), entries[0] if entries else None)
+        name = pid.split("@")[0]
+        if not entry:
+            broken.append(f"{name}: enabled in settings.json but not installed")
+            continue
+        root = entry.get("installPath") or ""
+        if not os.path.isdir(root):
+            broken.append(f"{name}: install folder is missing ({root})")
+            continue
+        plugins += 1
+        missing = set()
+        hooks = load(os.path.join(root, "hooks", "hooks.json"))
+        for cmd in hook_commands(hooks):
+            for rel in ROOT_REF.findall(cmd):
+                if not os.path.exists(root + rel):
+                    missing.add(f"{name}: a hook runs {rel.lstrip('/')}, which is not in version {entry.get('version')}")
+        servers, manifest = plugin_servers(root)
+        for sname, spec in servers.items():
+            if f"plugin:{name}:{sname}" in denied:
+                continue
+            servers_seen += 1
+            parts = [spec.get("command", ""), spec.get("headersHelper", "")] + [a for a in spec.get("args", []) if isinstance(a, str)]
+            for part in parts:
+                for rel in ROOT_REF.findall(part):
+                    if not os.path.exists(root + rel):
+                        missing.add(f"{name}: MCP server {sname} runs {rel.lstrip('/')}, which is not in version {entry.get('version')}")
+            cmd = spec.get("command")
+            if isinstance(cmd, str) and cmd and "/" not in cmd and "$" not in cmd and not shutil.which(cmd):
+                missing.add(f"{name}: MCP server {sname} needs the command {cmd}, which is not on PATH")
+        for dep in manifest.get("dependencies") or []:
+            dep_id = f"{dep.get('name')}@{dep.get('marketplace')}" if isinstance(dep, dict) else str(dep)
+            if enabled.get(dep_id) is not True:
+                missing.add(f"{name}: its dependency {dep_id} is not enabled, so Claude Code will not load {name}")
+        broken.extend(sorted(missing))
+    return broken, plugins, servers_seen
+
+
+def live_check():
+    """What `claude mcp list` says about each server. Returns (broken lines, servers seen)."""
+    exe = shutil.which("claude")
+    if not exe:
+        return ["live check skipped: the claude command is not on PATH"], 0
+    try:
+        out = subprocess.run([exe, "mcp", "list"], capture_output=True, text=True, timeout=180,
+                             cwd=os.path.expanduser("~")).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return ["live check failed: `claude mcp list` did not finish in 180 s"], 0
+    broken, seen = [], 0
+    for line in out.splitlines():
+        m = re.match(r"^(\S[^:]*(?::[^:\s]+)*): .* - (.+)$", line.strip())
+        if not m:
+            continue
+        seen += 1
+        server, status = m.group(1), m.group(2).strip()
+        if "Connected" in status:
+            continue
+        what = "waits for a sign-in" if "auth" in status.lower() else f"did not connect ({status.lstrip('✗✘!⚠ ').strip()})"
+        broken.append(f"MCP server {server} {what}")
+    return broken, seen
+
+
+def main(argv):
+    if any(a in ("-h", "--help") for a in argv):
+        print(__doc__.strip())
+        return 0
+    unknown = [a for a in argv if a not in ("--static", "--notify")]
+    if unknown:
+        print(f"plugin-health: unknown option {unknown[0]} (see --help)", file=sys.stderr)
+        return 2
+    cfg = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude")
+    broken, plugins, servers = static_check(cfg)
+    if "--static" not in argv:
+        live, seen = live_check()
+        broken += live
+        servers = max(servers, seen)
+    for line in broken:
+        print(f"BROKEN  {line}")
+    print(f"plugin-health: {plugins} plugins, {servers} MCP servers checked, {len(broken)} broken")
+    if "--notify" in argv:
+        state = os.path.expanduser("~/.local/state/nadavai/plugin-health.txt")
+        try:
+            with open(state, encoding="utf-8") as f:
+                before = f.read()
+        except OSError:
+            before = ""
+        now = "\n".join(broken)
+        if now != before:
+            os.makedirs(os.path.dirname(state), exist_ok=True)
+            with open(state, "w", encoding="utf-8") as f:
+                f.write(now)
+            title = "תוסף או שרת MCP של Claude לא עובד" if broken else "התוספים של Claude חזרו לעבוד"
+            body = "\n".join(broken[:6]) or "plugin-health: הכול תקין"
+            if shutil.which("notify-send"):
+                subprocess.run(["notify-send", "-a", "nadavai", title, body], check=False)
+    return 1 if broken else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

@@ -46,7 +46,7 @@ for f in "$a" "$b"; do
   ok "the synced plugin is off in ${f#"$home"/}" '[ "$(jq -r --arg p "$synced" ".enabledPlugins[\$p]" "$f")" = false ]'
   ok "an ordinary off plugin is not added to ${f#"$home"/}" '[ -z "$plain" ] || [ "$(jq -r --arg p "$plain" ".enabledPlugins | has(\$p)" "$f")" = false ]'
 done
-ok "the three unused MCP servers are denied" '[ "$(jq -r "[.deniedMcpServers[].serverName] | map(select(. == \"plugin:cloudflare:cloudflare\" or . == \"plugin:supabase:supabase\" or . == \"plugin:context7:context7\")) | length" "$a")" = 3 ]'
+ok "the two unused MCP servers are denied" '[ "$(jq -r "[.deniedMcpServers[].serverName] | map(select(. == \"plugin:supabase:supabase\" or . == \"plugin:context7:context7\")) | length" "$a")" = 2 ]'
 
 # 2. A second run changes nothing.
 before=$(cat "$a" "$b")

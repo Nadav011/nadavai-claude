@@ -1,0 +1,12 @@
+[Unit]
+Description=Check that the enabled Claude Code plugins and MCP servers work (plugin-health --notify)
+ConditionFileIsExecutable=%h/.local/bin/plugin-health
+
+[Service]
+Type=oneshot
+Nice=19
+# claude lives under fnm's default alias; plugin-health finds it on PATH for the live check.
+Environment=PATH=%h/.local/bin:%h/.local/share/fnm/aliases/default/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/.local/bin/plugin-health --notify
+# Exit 1 means something is broken, which the notification already said.
+SuccessExitStatus=1

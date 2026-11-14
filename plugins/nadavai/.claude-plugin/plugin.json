@@ -51,10 +51,6 @@
       "marketplace": "claude-plugins-official"
     },
     {
-      "name": "cloudflare",
-      "marketplace": "claude-plugins-official"
-    },
-    {
       "name": "skill-creator",
       "marketplace": "claude-plugins-official"
     },
@@ -81,10 +77,6 @@
     {
       "name": "intent",
       "marketplace": "intent"
-    },
-    {
-      "name": "posthog",
-      "marketplace": "posthog"
     },
     {
       "name": "interfaces",

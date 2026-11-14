@@ -55,6 +55,14 @@ and `.timer` into `~/.config/systemd/user/` and `systemctl --user enable --now <
 home machine except the CI agent (the MSI): `ci-policy.md` keeps other heavy jobs off it, so there
 `disk-now` shows live `df` and a map only from a `--scan` run by hand. Tests: `tests/disk-now.sh`.
 
+`bin/plugin-health` checks that every enabled Claude Code plugin still works: its install folder,
+every file a hook or an MCP server runs, each dependency, and what `claude mcp list` says about
+each server. Marketplaces update by themselves, and an update can ship a broken plugin without a
+word (oh-my-claudecode 5.8.6 came without its MCP server file on 2026-11-14). `update.sh` runs it at
+the end, and `systemd/user/plugin-health.timer` runs `plugin-health --notify` daily on every home
+machine (light enough for the MSI): a desktop notification when the broken list changes. Tests:
+`tests/plugin-health.sh`.
+
 `~/pyrightconfig.json` (from `config/home-pyrightconfig.json`) keeps a Python language server that starts in the home folder from loading every `.py` file under it; open files are still analysed. Tests: `tests/home-pyright.sh`.
 
 ## What is inside
@@ -62,7 +70,7 @@ home machine except the CI agent (the MSI): `ci-policy.md` keeps other heavy job
 | Part | Where | Delivered by |
 |---|---|---|
 | Bundle plugin `nadavai` | `plugins/nadavai/` | `claude plugin install nadavai@nadavai` |
-| Dependencies: oh-my-claudecode (OMC), i-have-adhd, context7, typescript-lsp, pyright-lsp, playwright, supabase, chrome-devtools-mcp, cloudflare, skill-creator; UI/UX and product layer: impeccable, intent, interfaces, ux-design, product-innovation, posthog | `plugins/nadavai/.claude-plugin/plugin.json` | installed and enabled automatically with the bundle |
+| Dependencies: oh-my-claudecode (OMC), i-have-adhd, context7, typescript-lsp, pyright-lsp, playwright, supabase, chrome-devtools-mcp, skill-creator; UI/UX and product layer: impeccable, intent, interfaces, ux-design, product-innovation | `plugins/nadavai/.claude-plugin/plugin.json` | installed and enabled automatically with the bundle |
 | Skills: nadav-design + ux-setup / ux-plan / ux-screen / ux-audit / ux-redesign / ux-ship / ux-retro / ux-next (the UI/UX loop), qa-report, machine-checkup (machine cleanup, freeze diagnosis, inventory, and the update/driver audit), machine-provision (set up a second machine to match this one, proven by a diff; Chrome and login transfer), client-messages (house style and send process for client messages), social-campaigns (client ads, boosts and click-to-WhatsApp lead flows, and how Nadav's sites and apps are found in search and AI answers: routes to the local playbook in `~/social/playbook` and the client's `CLIENT.md`; client facts stay out of this repo; routing in `rules/social.md`), desktop-control (computer use without disturbing Nadav: agent-desktop background actions first, real mouse and keys as the last resort; routing in `rules/desktop-control.md`), act-on-behalf (sign-ups, logins and forms in Nadav's name through agent-browser and the vault plugin; rules in `rules/acting-on-behalf.md`), store-apps (web apps into the App Store and Google Play: the model choice, shells, Codemagic builds, store APIs, moving PWA users, and the deploy service's OTA step; routing in `rules/store-apps.md`), virtual-phones (an Android or iPhone app without a phone: the SDK emulator driven with agent-device, and scripted iPhone-simulator runs on Xcode Cloud; routing in `rules/virtual-phones.md`), vercel-react-best-practices, vercel-composition-patterns, vercel-react-view-transitions, hebrew-rtl-best-practices, hebrew-i18n, hebrew-tailwind-preset, israeli-accessibility-compliance, capacitor-app-development, capacitor-plugins, capacitor-android-dex-optimization, safe-area-handling, capacitor-keyboard, capacitor-accessibility, capacitor-apple-review-preflight, capacitor-deep-linking, capacitor-splash-screen, capacitor-push-notifications, capacitor-ios-resizability, debugging-capacitor, ios-android-logs, capacitor-performance, capacitor-uiscene-migration, shadcn, animate, review-animations, improve-animations, find-animation-opportunities, emil-design-eng, mobile-native, prototype, argos-cli, argos-pr-review, argos-upload; product skills write-spec, roadmap-update, sprint-planning, stakeholder-update, synthesize-research, competitive-brief, metrics-review, product-brainstorming; Android: agp-9-upgrade, r8-analyzer, play-policy-insights (from Google's android/skills at bf68e2d, Apache-2.0, LICENSE.txt in each, scanned with SkillSpector; local patches: play-policy-insights Mode B `aggregate` subcommand, r8-analyzer runs its scripts with `uv run --with protobuf`, list `keywords` metadata flattened to a string for the Agent Skills spec; play-policy-insights' report step fetches the app's public Play Store page) | `plugins/nadavai/skills/` | the bundle (invoked as `/nadavai:<skill>` or by trigger) |
 | Bright Data MCP (search engine, unblocked scrape, Reddit/X/YouTube data; groups social, research, advanced_scraping) | `plugins/nadavai/mcp.json` (not `.mcp.json`: the global gitignore drops that name) | the bundle; needs `BRIGHTDATA_API_TOKEN` per machine, see Secrets |
 | Scrapling MCP (free stealth fetch, Cloudflare solving, browser sessions; the first stop before Bright Data, `rules/working-style.md`) | `plugins/nadavai/mcp.json` | the bundle; needs `scrapling` per machine (`system_check` prints the install line) |
@@ -98,7 +106,7 @@ git clone https://github.com/Nadav011/nadavai-claude ~/nadavai
 ~/nadavai/setup.sh
 ```
 
-Then open Claude Code once and run `/mcp` to sign in to Supabase, Cloudflare and PostHog.
+Then open Claude Code once and run `/mcp` to sign in to any server that asks for it. PostHog needs none where the vault holds `POSTHOG_PERSONAL_API_KEY` (`plugins/nadavai/scripts/posthog-mcp-headers.sh`).
 `claude doctor` and `omc doctor conflicts` should both come back clean.
 
 `setup.sh` is idempotent. Anything it replaces (an existing `rules/` dir, user-level skill copies,
@@ -118,7 +126,7 @@ Three things it cannot, because they are secret, personal or huge:
 | `~/.claude/projects/*/memory/` (what Claude remembers per project) | `carry.sh` |
 | `BRIGHTDATA_API_TOKEN` in `settings.json` | `carry.sh` |
 | Session history, `~/.claude/projects` in full | `carry.sh --with-history` (GBs, rarely worth it) |
-| MCP sign-in for Supabase, Cloudflare, PostHog, Vercel | `/mcp` once per machine (OAuth) |
+| MCP sign-in for a server that asks for it (PostHog without a vault key, Vercel) | `/mcp` once per machine (OAuth) |
 | Orca skills (`computer-use`, `orca-cli`, `orchestration`) | installing Orca; they live in `~/.agents` |
 | Official synced skills (docs, docx, pdf, pptx, xlsx) | Claude downloads them from the account by itself |
 
