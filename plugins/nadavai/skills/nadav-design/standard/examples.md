@@ -2,9 +2,9 @@
 
 Work Nadav approved in his own words, kept as examples to start from. An entry is never the bar
 and never a template: another product, his own included, is one example among others
-(`rejected.md`, "Another product as the bar"), and a project's own approved look wins over it. The
-one exception is said in its entry: the composition of MediZen's sign-in screen, which other apps'
-entry screens start from (`entry-hero.md`).
+(`rejected.md`, "Another product as the bar"), and a project's own approved look wins over it. One
+entry says more of itself: the composition of MediZen's sign-in screen is the recommended start
+of another app's entry screen, with the parts each app makes its own (`entry-hero.md`).
 Read it beside `rejected.md` before proposing anything visual, and say which example a proposal
 starts from.
 
@@ -135,7 +135,8 @@ this skill's own reading, as in `experience.md`.
   - 16:03: "הרבה הרבה הרבה יותר טוב ההמסך התחברות רק לבפיצרים ובHERO ממש שיהיה מתקדם וידליק ובאמת את הפיצרים העיקרים לא סתם חרטא ודברים שלא קשורים"
   - 16:33, where the logo goes: "שמאל והתאריך באותה שורה שלה מצד ימין התאריך"
   - 16:50, asked whether this is MediZen's sign-in screen, the pick: «כן, המסך מאושר»
-- **Record:** `~/design-redesign/r12-lanes/OWNER-ANSWERS-2026-11-14.md`, Round 7; the study and the
+- **Record:** the transcript at those times for every line; the 16:33 sentence and the two picks
+  are also in `~/design-redesign/r12-lanes/OWNER-ANSWERS-2026-11-14.md`, Round 7. The study and the
   measurements: `~/.omc/plans/agent-reports-2026-11-10/login-hero-study.md` and
   `hero-anatomy-2026-11-14.md` beside it.
 - **What it is:** a forest sky with a gold glow; MediZen's lockup at the left and the date at the
@@ -143,11 +144,11 @@ this skill's own reading, as in `experience.md`.
   three-beat films (היומן, הבוט בוואטסאפ, תשלום וקבלה, תזכורות, תיק מטופל); a line of clinic events;
   and a sheet with Google, Apple and «דרכים אחרות להיכנס». On a computer the hero is a band across
   the top and the sheet a card under it.
-- **An example of:** the composition an app's entry screen starts from, and the level of its
-  films (`entry-hero.md`). It is the one entry here that other apps start from, because three
-  compositions of MediZen's own were rejected before the one built on this composition was
-  approved [I], and because of his words to the SHIFTS session the same day about CASH's sign-in
-  screen: "בדיוק ככה רק עם הצבעים שלו".
+- **An example of:** an entry screen that has what he asks of every app's (a hero on top, films
+  running, the main features highlighted, a beautiful sign-in), and the composition that
+  `entry-hero.md` recommends another app's entry screen starts from. The recommendation is this
+  skill's [I]: three compositions of MediZen's own were rejected before the one that kept the
+  SHIFTS page's composition was approved.
 - **Not an example of:** a screen to copy whole: his rule of the same day is that the screens do
   not look the same and each app has its own character (`entry-hero.md`, "What each app makes its
   own"); a look for work screens (in MediZen itself he rejected a dark forest-green menu and a dark

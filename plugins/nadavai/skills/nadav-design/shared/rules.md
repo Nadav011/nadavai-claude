@@ -125,8 +125,8 @@ The understanding check is `rules/working-style.md`, "Requests"; it is not resta
 - `standard/rejected.md` seeds a new project's `REJECTED.md`.
 - `standard/examples.md` lists work Nadav approved in his own words, as examples to start from, never as the bar
   (`standard/rejected.md`, "Another product as the bar").
-- A sign-in or first screen is built by `standard/entry-hero.md`: the hero on top, the product's main features
-  as short films, and the list of what each app makes its own.
+- Before a sign-in screen is planned or built, read `standard/entry-hero.md`: what he asks of every app's entry
+  screen, the composition he approved on MediZen's, and what each app makes its own.
 - `plan`, `screen`, `audit` and `ship` end their report with how many of the standard's rules were checked only
   by `reviewer` or by `none` on the screens they covered.
 
