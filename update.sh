@@ -19,6 +19,10 @@ for a in "$@"; do
   esac
 done
 
+# Without python3 the policy step cannot read which plugins an installed nadavai copy still
+# needs, and it would stop there with no message.
+need python3 "Install Python 3 (the model policy step reads the installed nadavai copies with it)."
+
 step "Repo"
 if [ -n "$(git -C "$REPO" status --porcelain)" ]; then
   warn "uncommitted changes in $REPO; skipping git pull"

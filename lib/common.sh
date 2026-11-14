@@ -270,9 +270,6 @@ apply_model_policy() {
   # says: an install that did not update (the project-scope one, a pull that was skipped, a commit
   # not pushed yet) would otherwise leave nadavai, and its guards, unloaded in every session.
   needed="$(installed_nadavai_dependencies)"
-  if [ -z "$needed" ] && ! command -v python3 >/dev/null 2>&1; then
-    warn "python3 is missing, so the installed copies of nadavai could not be read: no plugin is protected from being turned off"
-  fi
   for f in "$target" "$HOME/.claude/settings.json" "$HOME"/.config/orca/claude-profiles/*/home/settings.json; do
     [ -f "$f" ] || continue
     n=$((n+1))
