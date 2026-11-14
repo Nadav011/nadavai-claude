@@ -46,6 +46,11 @@
 
 @layer base {
   html { color-scheme: light dark; -webkit-text-size-adjust: 100%; }
+  /* The app's own theme wins over the system's, also for the native parts (scrollbars, form controls): a dark
+     window under a light system showed a white scrollbar (found in SHIFTS, 14.11.2026). next-themes with
+     attribute="class" puts "light" or "dark" on <html>. */
+  html.dark { color-scheme: dark; }
+  html.light { color-scheme: light; }
   body { min-height: 100dvh; overscroll-behavior: none; }
   :focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
   button, [role="button"], a, input, select, textarea { touch-action: manipulation; }
