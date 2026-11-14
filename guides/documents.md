@@ -11,7 +11,7 @@ nothing that only delays.
   apps that are needed now. The full spec comes right before the piece is built, against the code as it is then
   (`working-style.md`, Requests).
 - A decision or a fact is written in one place and other places point to it. A figure repeated across files is
-  checked by a script.
+  checked by a script where the project already has one, or else replaced by a pointer.
 - A plan he has to approve opens with what he decides, one line each, before any argument. A work order says what
   to build and how it is checked, without the argument.
 - A plan built on another session's spec is checked against it when that spec is frozen, not at each merge.

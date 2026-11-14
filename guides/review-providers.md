@@ -4,8 +4,10 @@ Read before running `omc ask` for a review. Which provider a review gets, and ho
 `rules/working-style.md`, Second model; this file holds only the mechanics.
 
 - Codex: `omc ask codex` (model and effort in `~/.codex/config.toml`).
-- Gemini: `omc ask antigravity` (`~/.gemini/antigravity-cli/settings.json`). `omc ask gemini` is the old CLI and
-  fails.
+- Gemini 4 Argon: `omc ask antigravity` (`~/.gemini/antigravity-cli/settings.json`, set to "Gemini 4 Argon (High)"
+  on 2026-11-14). `omc ask gemini` is the old CLI and fails. Its individual quota ran out on 2026-11-03 and
+  2026-11-13 (a 429, reset within hours): then Grok takes the review. `agy models` also lists a Gemini 4 Hydrogen
+  family; it was not tried here, so try it beside Argon on one real review before relying on it.
 - Grok: `omc ask grok` (`~/.grok/config.toml`). It can exit 0 on a quota or balance error, so read the artifact's
   raw output before counting its answer.
 - `omc ask` starts Codex, Grok and Antigravity with their approvals off, so every review prompt says "read-only"

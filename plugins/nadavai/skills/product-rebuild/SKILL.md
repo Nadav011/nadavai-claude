@@ -133,7 +133,7 @@ Follow `references/decisions.md`.
 
 ### 5. Design and demo (nadav-design redesign)
 - Before the brief, read Nadav's own earlier demos as the taste reference (what recurs, what not to copy).
-- Run `nadav-design` redesign steps 1-8 as that README orders them: BRIEF, inventory, the direction demo of the main journey ("today" against "after" for the screens it draws), one review round with CHANGES files that have an empty column for Nadav's mark, the tag, the plan. The other screens and states are designed in the app's preview during the build (`nadav-design/shared/built-once.md`, «An app is built once», which also says how MediZen and SHIFTS are built under it).
+- Run `nadav-design` redesign steps 1-7 as that README orders them: BRIEF, inventory, the direction demo of the main journey ("today" against "after" for the screens it draws), one review round with CHANGES files that have an empty column for Nadav's mark, the tag. The build plan uses step 8's format and gets the one round of stage 8 here. The other screens and states are designed in the app's preview during the build (`nadav-design/shared/built-once.md`, «An app is built once», which also says how MediZen and SHIFTS are built under it).
 - The round adds a completeness critic and a look critic. Every finding is fixed, or listed as `need` with the reason.
 - The verify matrix adds:
   - 4 widths, light and dark, axe
@@ -154,7 +154,7 @@ Follow `references/closing.md` §2 and run `workflows/close-all.js`:
 - finders per dimension, one ledger with eight statuses, and doc-only closers
 - a dimension critic for what nobody covered: security, accessibility, performance, data migration, support, pricing, native apps, analytics, backups, operator and admin, and the other verticals
 
-Repeat stages 4-7 until the ledger has no `doc_fix` and no `needs_nadav` rows; a repeat closes rows and adds no review round to a document that had its one. Every exit row is then closed, or is a named launch gate.
+Repeat stages 4-7 until the ledger has no `doc_fix` and no `needs_nadav` rows. A repeat applies his answers and closes the rows the pass before it opened; its finders and critic read only what changed since that pass, and a `doc_fix` row in a spec that had its one round is carried to the piece built next (`~/nadavai/guides/review-rounds.md`) instead of rewriting the spec. Applying his answers to a frozen spec is not a review round. After three repeats that each still open new rows, stop, simplify, and tell Nadav what keeps opening (his stop rule, `rules/working-style.md`, Second model). Every exit row is then closed, or is a named launch gate.
 
 ### 8. Build plan
 - Use the `nadav-design/redesign` step 8 format: design units and behaviour units, each with its gates (`action-safety`, `go`), and `check-anchors` at 0/0.
