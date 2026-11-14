@@ -3,8 +3,10 @@
 Applies when the SessionStart hook prints POSTHOG PENDING: a UI project whose package.json has no
 PostHog SDK and whose CLAUDE.md does not mention PostHog. That reminder has one state; once the SDK is in
 package.json, or CLAUDE.md says "PostHog: not used", the reminder stops.
-Steps 1 to 3b are for that state. Step 4's checks and step 5 (notice and consent) hold for every app
-that has PostHog, new or old.
+Steps 1 to 3b are for that state. Step 4 runs when PostHog is connected and when the consent screen
+is built or changed; any other PostHog change checks what it touches from a real browser. Step 5
+(notice and consent) holds for every app that has PostHog, new or old; an app that still collects
+without the screen runs step 4's consent checks with its screen task (step 5).
 
 1. Tell Nadav in one short Hebrew message that this app is not connected to PostHog and ask one
    question: connect it now, or not for this project. Do nothing else first.
@@ -33,6 +35,10 @@ that has PostHog, new or old.
 
 4. Verify, from a real browser, twice: in a fresh profile, and, in an app that had PostHog before
    the screen, in a profile that was signed in on the version before it (a returning user).
+   Fresh: a new profile, or the app's origin with its storage and cookies cleared. Returning:
+   signed in on the live version before the deploy. Second browser (below): another real browser,
+   such as a second Chrome profile, his phone or the Android emulator's Chrome, where
+   `navigator.webdriver` is false.
    - Before the consent screen is answered, and again after refusing it: the page sends PostHog
      no event and no recording (the network panel shows no call to `/e/`, `/s/` or a path under
      `/i/`), and no `/flags/` request at all where the app reads no flags (where it reads flags,
@@ -40,11 +46,11 @@ that has PostHog, new or old.
    - After accepting (until then zero events is the correct result, not a broken key): events
      from the deployed app show up in PostHog live events and, where recording is on, that
      session's recording appears in PostHog.
-   - After accepting, sign out and in again, and sign in on a second browser: the choice holds,
-     events keep arriving, and the screen does not come back.
+   - After accepting, sign out and in again, and sign in on a second browser: once signed in,
+     the choice from the record holds, events keep arriving, and the screen does not show again.
    - Unit tests pin the init options (`opt_out_capturing_by_default: true`, the flags switch of
-     step 5), that `identify` is not called before acceptance, and that the stored choice is
-     applied again after `reset()`.
+     step 5, and what `init` sets off there), that `identify` is not called before acceptance,
+     and that the stored choice is applied again after `reset()`.
    Without all of these it is not done.
    **Never from an automated browser:** PostHog drops every event
    when `navigator.webdriver` is true ("Refusing to render web experiment since the viewer is a
@@ -64,7 +70,7 @@ that has PostHog, new or old.
      refuses is not measured. Not picked: switching measurement off until the screen exists, and
      waiting for the next large version.
    - 2026-11-14, typed, when offered to stop snooker-smart's recording until the screen ships:
-     "למה אבל אני רוצה כמה שיותר מידע מהאפליקציה ואת כל מה שאנחנו צריכים מקצה לקצה בכל האפליקציות שלי
+     "למה אבל אני רוצה כמה שיותצר מידע מהאליקציה ואת כל מה שאנחנו צריכים מקצה לקצה בכל האפליקציות שלי
      כל מה שצריך שיכנס לתנאי שירות ואז ניהיה מוגנים בהכל".
    - 2026-11-14, typed, after he was shown that terms of service alone do not meet Apple's and
      Google's rules: "הכל כולל הכל ואם צריך לפתוח כמו שגוגל אומרים ללקוחות רשומים וחדשים שיאשרו פעם
@@ -80,7 +86,8 @@ that has PostHog, new or old.
    What stays off whatever the above says, until he lifts it: recording in the clinic app
    (therapy-flow-v2 and the MediZen build that replaces it) waits for the lawyer's check, and in
    therapy-flow-v2 it is also off by his decision of 2026-10-07 (INC-2026-008, in that repo's
-   CLAUDE.md: leaks found even with full masking), which a lawyer's yes alone does not lift; so
+   CLAUDE.md and `.claude/rules/analytics.md`: leaks found even with full masking), which a
+   lawyer's yes alone does not lift; so
    does anything else a project's own files keep off by name.
    A fact corrected the same day: the question that led to his typed sentences said
    snooker-smart records screens. Its code is set to, but PostHog holds no recording of that
@@ -90,8 +97,9 @@ that has PostHog, new or old.
    right before it is built (`working-style.md`, Requests), written against the app's code and
    its posthog-js version, PostHog's page (https://posthog.com/docs/privacy/data-collection), the
    live Apple and Google policy pages, and section 4 of `posthog-research-2026-11-13.md` beside
-   this file. In that section the rows marked R are requirements of the spec; the rows marked I
-   are proposed to Nadav in it, and nothing is refused on their strength; the legal rows need a
+   this file. In that section the items marked R are requirements of the spec; the items marked
+   I are proposed to Nadav in it, and nothing is refused on their strength (the items marked P are
+   in the defaults of step 3 and below); the legal items need a
    professional, as the research says, and its professional checks (the lawyer's check, the
    data-protection-officer duty, transfer abroad) are asked of Nadav together, because they cost
    money.
@@ -102,7 +110,10 @@ that has PostHog, new or old.
        their id or a URL with personal data, and no event from the server.
      - The app keeps the choice itself: in the user's record for a signed-in person (the server
        reads it there too) and on the device before sign-in. A person who accepted is not asked
-       again after signing out, or on another device.
+       again after signing out. On a device with no stored choice the app cannot know the person
+       before sign-in, so the screen may show there; once they sign in, the choice in their
+       record applies and the screen does not show again (the spec says which answer wins when
+       the two differ).
      - A person who accepted is measured, recording included where it is on.
      - The screen names every kind of data the app may collect, recording included where it may
        come, so that one approval covers it; a later piece that adds a kind the screen did not
@@ -116,7 +127,8 @@ that has PostHog, new or old.
      product decisions); an app in the Kids category should carry no third-party analytics
      (Apple 1.3), and one aimed only at children uses approved SDKs only (Google Families). In an
      app minors use, the spec says who consents for a minor and, where its Play target audience
-     includes children, how PostHog stays behind a neutral age screen (Google Families).
+     includes children, how PostHog stays behind a neutral age screen or collects nothing from
+     children (Google Families).
    - Mechanism (PostHog's page above): `opt_out_capturing_by_default: true`,
      `posthog.opt_in_capturing()` when the person accepts, `posthog.opt_out_capturing()` when
      they withdraw. Control capture through this API, not by loading the snippet late.
@@ -126,7 +138,10 @@ that has PostHog, new or old.
        heatmaps and the other switches set in the PostHog project never start, for a person who
        accepted too (snooker-smart has it since 2026-10-06). Where the app reads no feature
        flags, use `advanced_disable_feature_flags: true`: it stops `/flags/` and keeps the remote
-       config.
+       config. The remote config then applies every switch set in the PostHog project that `init`
+       does not set itself, so `init` sets off what stays off (at least
+       `enable_recording_console_log: false`; green-room, snooker-smart's project, has
+       console-log capture on), and the unit test of step 4 pins it.
      - While a person is opted out the SDK still sends `/flags/` requests, with the id it has
        and person properties such as the landing URL. So `identify` runs only for a person who
        accepted.
@@ -136,14 +151,19 @@ that has PostHog, new or old.
      - `cookieless_mode` beside the opt-out default sends events right away (PostHog's page).
    - Applied by default, because they only keep data out (listed in the report so that Nadav can
      reverse them): no names, diagnoses or other personal details in event properties, in any
-     app; checkout and payment pages excluded from recording, as step 3 says for routes that show
-     personal data.
+     app; autocapture, where it is on, with `mask_all_text: true` and
+     `mask_all_element_attributes: true` (the element's text and its links carry names, codes and
+     tokens); checkout and payment pages excluded from recording, as step 3 says for routes that
+     show personal data.
    - An app that already collects without the screen: the screen is not built inside a task that
      is not that screen (it is something new for the whole app, `working-style.md`, UI and
-     product work), and capture is not switched off as a side effect of one; a task that asks for
-     it, or a fix that keeps personal data out of PostHog, still changes it. A change that would
-     start a kind of collection the app does not do today (in snooker-smart, the flags switch
-     above starts recording) ships with the screen, not before it. Verify as in step 4. The brief
+     product work), and capture is not switched off as a side effect of one; a task that asks to
+     switch capture off or narrow it, or a fix that keeps personal data out of PostHog, still
+     changes it. A change that would start a kind of collection the app does not do today (in
+     snooker-smart, the flags switch above starts recording) ships with the screen, not before
+     it, also when a task asks for it; the report names the screen task it waits on (the agent's
+     reading of his 13.11 pick, "ומי שמסרב לא נותן נתונים", and of "as today" in his 14.11 pick).
+     Verify as in step 4. The brief
      for the two apps: `~/.omc/handoffs/posthog-consent-screen-2026-11-14.md`. An app found later
      in this state gets the same: the session that finds it names it once in its closing report,
      as a separate task waiting to be started, with a brief in `~/.omc/handoffs/`.
