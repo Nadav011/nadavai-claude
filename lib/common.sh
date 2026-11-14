@@ -574,6 +574,12 @@ link_shortcuts() {
     name="$(basename "$src")"
     [ "$name" = "cs" ] && continue
     target="$HOME/.local/bin/$name"
+    # Only files are tools. A folder (Python writes bin/__pycache__ when a test imports a tool) is
+    # not linked, and a link to one that an earlier run made is removed.
+    if [ -d "$src" ]; then
+      if [ -L "$target" ] && [ "$(readlink "$target")" = "$src" ]; then rm -f "$target"; log "removed the link $target (a folder, not a tool)"; fi
+      continue
+    fi
     if [ -e "$target" ] && [ ! -L "$target" ]; then backup_path "$target" "$name"; fi
     link_file "$src" "$target"
   done
