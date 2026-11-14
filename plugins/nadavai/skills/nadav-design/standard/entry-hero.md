@@ -51,7 +51,7 @@ that starts from it keeps the order and the proportions, not the pixels.
 3. **A top row:** the app's real lockup and one line beside it (the date).
 4. **A headline of two short lines** whose one accented word changes with the film on show.
 5. **One glass card that plays the product's main features as short films,** one at a time
-   (five), with dots that show which film is on and how long it has left.
+   (five), with dots, on the phone, that show which film is on and how long it has left.
 6. **One live line** under the card, in the same glass: a single invented event of the product,
    changing every few seconds.
 7. **The sign-in sheet:** a title, the primary way in as a large button (56 px), a second way
@@ -115,7 +115,7 @@ approved page as measured; `[M: fault]` lines are faults measured on it, fixed a
 - **Reduced motion:** nothing moves or advances by itself, every film shows its last frame, and a
   tap still moves to the next film [M].
 - **Someone can stop it, and a key does what a tap does.** Content that moves for ever has a pause
-  control that the keyboard reaches, at the card's edge beside the dots, and the keyboard can move
+  control that the keyboard reaches (on the phone at the card's edge beside the dots), and the keyboard can move
   to the next film too (the card as one button, or the dots as buttons) [M: fault, the page had
   neither; WCAG 2.2.2 and 2.1.1]. Each of these is a touch target of at least 44 px, like every
   target the standard's probe measures.
@@ -131,17 +131,19 @@ approved page as measured; `[M: fault]` lines are faults measured on it, fixed a
 - **A real wide layout,** switched by a media query, never by a URL parameter, with sizes from a
   size variable or container units, never CSS `zoom` [M: fault, both]. The phone frame is a demo's
   chrome only.
-- **On a computer, two sides at full height.** The hero at the start side: the sky, the top row,
-  the headline, the film card as wide as the side, and under it one button per feature that
-  lights while its film plays and moves to that film when pressed (they take the dots' place),
-  then the live line. The sign-in at the end side, at about two fifths of the width (he found 31%
-  too small and picked 42%), its content one centred column. His picks, 14.11.2026 in the MediZen
-  session: at 17:50, on a first rough where the sign-in side took 31%:
+- **On a computer, MediZen's page puts the hero beside the sign-in.** His words, 14.11.2026 in the
+  MediZen session: at 17:43 the sentence quoted at the top of this file; at 17:50, on a first rough
+  of two sides:
   "צד ימין לצד אבל לא בחולקה הזאת זה נראה מוזר וקטן מדי האוזר התחברות ואיפה שכל הסרטונהים לא מספיק ומוזר ללטש אותו כמו שצריך" [N];
-  at 17:57, on the second rough (the sign-in side at 42%), the pick «כן, זה המבנה». This replaced,
-  for a computer, the layout he had approved at 16:50 (a sky band across the top with the sheet
-  as a card under it). From which width the two sides begin (1024 px in MediZen) and what a
-  tablet width shows are the building session's choices [I].
+  at 17:57, the pick «כן, זה המבנה» on a second rough. The question he answered described it:
+  the sign-in area wider (42% of the screen where the first rough had 31%) with larger buttons,
+  the film filling the hero's side, and under it five buttons, one per feature, that light the
+  film that is playing and move to it when pressed. For a computer this replaced the layout he
+  had approved at 16:50 (a sky band across the top with the sheet as a card under it). It is
+  MediZen's page, not his rule for every app: for another app it is the recommended start, like
+  the rest of the composition, and is shown to him rough [I]. From which width the two sides
+  begin, what a tablet width shows, whether the buttons replace the dots there, and where the
+  pause control sits on that layout are the building session's choices [I].
 - **Short screens drop decoration before the form scrolls:** first the live line, then the film
   card [M]; the primary way in is on screen without scrolling. On the smallest phone (320x568),
   with the other ways open and an error showing, everything in the sheet can still be reached:

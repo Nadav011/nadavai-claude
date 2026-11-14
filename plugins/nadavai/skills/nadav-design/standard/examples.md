@@ -138,8 +138,8 @@ this skill's own reading, as in `experience.md`.
   - 17:43, on the layout for a computer: "למחשב הדף תריך להראות כמו שהסושאיל עשה שזה לצד כזה והחיחתוך עם כל האלמנטים שלנו וגם תשלח לו לשפר בהתאם אבל המבנה שלו יותר נכון לא ? או שיש מבנה יותר נכון ? לדף ההתחברות"
   - 17:50, on a first rough of two sides: "צד ימין לצד אבל לא בחולקה הזאת זה נראה מוזר וקטן מדי האוזר התחברות ואיפה שכל הסרטונהים לא מספיק ומוזר ללטש אותו כמו שצריך"
   - 17:57, on the second rough of two sides, the pick: «כן, זה המבנה»
-- **Record:** the transcript at those times for every line; the 16:33 sentence and the two picks
-  are also in `~/design-redesign/r12-lanes/OWNER-ANSWERS-2026-11-14.md`, Round 7. The study and the
+- **Record:** the transcript at those times for every line; the 16:33 sentence and the picks of
+  15:59 and 16:50 are also in `~/design-redesign/r12-lanes/OWNER-ANSWERS-2026-11-14.md`, Round 7. The study and the
   measurements: `~/.omc/plans/agent-reports-2026-11-10/login-hero-study.md` and
   `hero-anatomy-2026-11-14.md` beside it.
 - **What it is:** a forest sky with a gold glow; MediZen's lockup at the left and the date at the
@@ -147,8 +147,7 @@ this skill's own reading, as in `experience.md`.
   three-beat films (היומן, הבוט בוואטסאפ, תשלום וקבלה, תזכורות, תיק מטופל); a line of clinic events;
   and a sheet with Google, Apple and «דרכים אחרות להיכנס». That is the phone, which is the screen
   he approved at 16:50. For a computer he chose a different layout an hour later (the last three
-  lines above): two sides at full height, the hero with its films at the start side and the
-  sign-in at the end side; at `a84688d` the page still has the earlier computer layout (a sky
+  lines above): the hero with its films beside the sign-in; at `a84688d` the page still has the earlier computer layout (a sky
   band with the sheet as a card under it), and the two-sided one was a rough
   (`~/design-redesign/r12-lanes/entry-variants/e-split/`) when this was written.
 - **An example of:** an entry screen that has what he asks of every app's (a hero, films
