@@ -50,6 +50,22 @@ and label the file a simulator recording in the notes.
 
 ## Real-iPhone tests (Firebase Test Lab) and Xcode Cloud
 
+Xcode Cloud for a new app, in order (what worked for MediZen, RetroBarber, Green Room and Cash on
+2026-11-14; the bullets below hold the detail and the traps):
+1. `ci_scripts/ci_post_clone.sh` beside the `.xcodeproj`, executable: node and the package manager,
+   install, the web build or `cap sync`, any OTA runtime bake (into `CapawesomeLiveUpdateDefaultChannel`),
+   `DEVELOPMENT_TEAM` if the pbxproj has none, and the Swift package resolve. Client values from the
+   workflow's variables or a committed public-values file; never a service key. Land it first.
+2. One Mac session (Codemagic remote Mac over a nested Xephyr VNC): Xcode signed in by the owner,
+   Integrate > Create Workflow, the GitHub grant in the owner's own browser. Quit Xcode and clear its
+   saved state before the next app, or it reuses the first product.
+3. By API right away: every workflow manual-only on the release branch (`PATCH /v1/ciWorkflows`), no
+   post-action until a TestFlight upload is wanted.
+4. Start a run with `POST /v1/ciBuildRuns` (workflow plus `sourceBranchOrTag`), read the action issues
+   and the `ci_post_clone.log` in the LOG_BUNDLE artifact on a failure, fix, run again until the
+   Archive succeeds.
+5. Write the product and workflow ids into the app's native doc and project memory.
+
 Firebase Test Lab runs XCUITests on real iPhones. On the Spark plan (no billing account) it cannot
 charge, and it gives 5 physical-device runs a day. A refused run says `TEST_QUOTA_EXCEEDED` and runs
 nothing; at 01:00 Israel time the quota had not reset yet. Test Lab shuts down on 2027-09-30, and

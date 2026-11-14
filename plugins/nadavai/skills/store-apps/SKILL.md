@@ -1,6 +1,6 @@
 ---
 name: store-apps
-description: "Move a web app into the App Store and Google Play as real store apps, and keep them in step with every web deploy: choose the model (bundled app with signed OTA, or a remote-URL shell with an update gate; never a new TWA), set up the shells, build (iOS on Codemagic, Android locally), do the store work through the store APIs first, once a listing is public end the PWA there for every audience and move its users to the store, check the store-installed app really works and is current, and run the OTA step of the deploy service. Use for any native, store, OTA, TestFlight, App Review, Play Console, Meta App Review, platform approval, TWA or PWA-to-store work, a store build or release, or a native change in a repo with live store apps. Also for store listings: ASO, keywords, screenshots, preview video, store copy and store promotion. Triggers: \"store app\", \"להעלות לחנות\", \"App Store\", \"Google Play\", \"TestFlight\", \"OTA\", \"TWA\", \"store build\", \"ASO\", \"צילומי מסך לחנות\", \"מילות חיפוש\"."
+description: "Move a web app into the App Store and Google Play as real store apps, and keep them in step with every web deploy: choose the model (bundled app with signed OTA, or a remote-URL shell with an update gate; never a new TWA), set up the shells, build (iOS on Xcode Cloud or Codemagic, Android locally), do the store work through the store APIs first, once a listing is public end the PWA there for every audience and move its users to the store, check the store-installed app really works and is current, and run the OTA step of the deploy service. Use for any native, store, OTA, TestFlight, App Review, Play Console, Meta App Review, platform approval, TWA or PWA-to-store work, a store build or release, or a native change in a repo with live store apps. Also for store listings: ASO, keywords, screenshots, preview video, store copy and store promotion. Triggers: \"store app\", \"להעלות לחנות\", \"App Store\", \"Google Play\", \"TestFlight\", \"OTA\", \"TWA\", \"store build\", \"ASO\", \"צילומי מסך לחנות\", \"מילות חיפוש\"."
 ---
 # store-apps
 
@@ -67,7 +67,10 @@ this decision, it wins for that repo (`rules/working-style.md`: a project's stri
    while the plan is written, never left for a later version (Nadav, 2026-11-12).
    Done when every row there has its check result, and the open rows have an owner and a date.
 
-3. **Build.** Do iOS on Codemagic and Android locally ([references/builds.md](references/builds.md)).
+3. **Build.** Do iOS on Xcode Cloud (25 free compute hours a month with the developer program; one
+   product setup per app on a Mac, then everything by API) with Codemagic as the fallback, and Android
+   locally ([references/builds.md](references/builds.md), "Real-iPhone tests (Firebase Test Lab) and
+   Xcode Cloud", which opens with the new-app recipe).
    Which changes need a store build is in `rules/store-apps.md` and builds.md, "Native change or
    web change". Build numbers only ever go up. Done when the artifact's checks passed: signature,
    ids, version, baked runtime read back, no staging host, and no remote `server` in a bundled app.
