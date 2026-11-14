@@ -245,7 +245,7 @@ merge_settings() {
 
 apply_model_policy() {
   # Re-apply only the policy keys of settings.base.json on update (model, advisorModel, availableModels, missing modelSettings entries, plugins that base turns off,
-  # deniedMcpServers, and the env vars CLAUDE_AUTOCOMPACT_PCT_OVERRIDE and OMC_QUIET). A full merge would also reset per-machine values such as the concurrency
+  # deniedMcpServers, the env var CLAUDE_AUTOCOMPACT_PCT_OVERRIDE, and the removal of OMC_QUIET). A full merge would also reset per-machine values such as the concurrency
   # caps. Every Orca account profile keeps its own settings.json, so the keys go to each one,
   # not only to the profile update.sh happens to run in (on 2026-11-07 only one of the
   # LENOVO's profiles had them).
@@ -281,8 +281,9 @@ apply_model_policy() {
         if (!(m in cur.modelSettings)) cur.modelSettings[m] = v;
       }
       // Policy env vars are set one by one, so the other env vars of the machine (tokens, paths) stay.
-      // OMC_QUIET=2 turns off the generic notes OMC adds around every tool call ("File written. Test
-      // the changes", "Use parallel execution"); notes about a failed command or edit still appear.
+      // A var listed here that base does not name is removed from each profile. OMC_QUIET only quieted
+      // the oh-my-claudecode hooks; base dropped it when the plugin was turned off (2026-11-14), and it
+      // stays in this list so that every existing profile loses it.
       for (const k of ["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE", "OMC_QUIET"]) {
         const v = (b.env || {})[k];
         if (v !== undefined) cur.env = { ...(cur.env || {}), [k]: v };

@@ -35,8 +35,7 @@
     "POSTHOG_MCP_EXEC_GATE_DISABLE": "1",
     "CLAUDE_CODE_SUBAGENT_MODEL": "claude-sonnet-5-5",
     "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
-    "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "60",
-    "OMC_QUIET": "2"
+    "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "60"
   },
   "disableClaudeAiConnectors": true,
   "skipDangerousModePermissionPrompt": true,
@@ -47,9 +46,9 @@
   },
   "enabledPlugins": {
     "nadavai@nadavai": true,
-    "oh-my-claudecode@omc": true,
+    "oh-my-claudecode@omc": false,
     "i-have-adhd@i-have-adhd": true,
-    "context7@claude-plugins-official": true,
+    "context7@claude-plugins-official": false,
     "typescript-lsp@claude-plugins-official": true,
     "pyright-lsp@claude-plugins-official": true,
     "playwright@claude-plugins-official": true,
