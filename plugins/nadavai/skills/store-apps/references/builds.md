@@ -75,8 +75,27 @@ account holder's Apple ID, creates it under Integrate → Create Workflow.
 - Over SSH, `screencapture` and osascript UI scripting fail (no screen-recording or accessibility
   grant), so the setup goes through VNC.
 - The Apple ID sign-in on that Mac failed with "An unknown error occurred" (2026-11-13). The Apple ID
-  had been typed as a local phone number. Try the account email, or `+972…`, before deciding that
-  Apple blocks data-center Macs.
+  had been typed as a local phone number. With the account email it worked (2026-11-14): the owner
+  types the password and the code in the VNC window.
+- Before opening Xcode, put `DEVELOPMENT_TEAM = <team id>` after each `CODE_SIGN_STYLE = Automatic;`
+  in the Mac's copy of the pbxproj. Without it, Create Workflow has no team to pick. Do not commit that
+  line by reflex: it is a tracked native change and moves the iOS runtime.
+- A remote session gets about 10 minutes to activate VNC before Codemagic ends it. The repo it builds
+  can be a public one-file repo (only `codemagic.yaml` with a long `sleep`), so no deploy key is needed.
+- Over VNC the Mac took keys but not mouse clicks: `ctrl+F2` opens the menu bar, then arrows to
+  Integrate, and Return presses the default button of a dialog. Driving the VNC window uses the real
+  keyboard, and Orca keeps taking focus back. When the owner is working, wait; do not fight for focus.
+  A headless VNC client does not help: a legacy VNC password leads to the Mac's login window, not the
+  signed-in session.
+- The GitHub grant ("Grant Access…") opens App Store Connect, which stayed blank in the Mac's Safari.
+  Open the same `ci-setup/<id>` URL in the owner's own Chrome. Read it from Safari over SSH (`osascript`
+  to Safari works without the accessibility grant). The owner clicks Authorize, then installs the Xcode
+  Cloud GitHub app with "Only select repositories" and approves the GitHub Mobile prompt. A public
+  package repository may stay ungranted ("Continue").
+- Create Workflow's default starts on every push to any branch. Right after the product appears,
+  `PATCH /v1/ciWorkflows/<id>` with `branchStartCondition: null` and a `manualBranchStartCondition`
+  for the release branch. Otherwise every push to the repo spends compute hours on a build that fails.
+- Each app needs its own product, so each needs its own pass through Create Workflow.
 - The web half runs in `ci_scripts/ci_post_clone.sh` next to each `.xcodeproj`. Its client keys come
   from the workflow's environment variables, which the owner pastes. Adding `ci_scripts` changes the
   iOS runtime, because it is a tracked file under the native project. Start Xcode Cloud's build number
