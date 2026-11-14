@@ -90,6 +90,7 @@ link_rules
 link_global_claude_md
 link_git
 link_shell
+link_home_pyright
 link_shortcuts
 retire_duplicate_skills
 link_my_menu

@@ -84,6 +84,7 @@ link_git
 
 step "Shell environment (~/.bashrc sources shell/nadavai.sh)"
 link_shell
+link_home_pyright
 
 step "OMC CLI, CLAUDE.md and HUD"
 ensure_omc

@@ -520,6 +520,17 @@ report_npm_globals() {
   fi
 }
 
+link_home_pyright() {
+  # A Python language server that a session starts in the home folder would otherwise load
+  # every .py file under it: measured on the LENOVO on 2026-11-14, 2.4 GB in one minute per
+  # session, against 143 MB with this file. Open files are still analysed, and a project
+  # folder is not affected: pyright reads this file only when the home folder is its root.
+  local src="$REPO/config/home-pyrightconfig.json" dst="$HOME/pyrightconfig.json"
+  if [ ! -e "$dst" ]; then cp "$src" "$dst"; log "wrote $dst"
+  elif cmp -s "$src" "$dst"; then log "$dst is current"
+  else warn "$dst differs from config/home-pyrightconfig.json; left as it is"; fi
+}
+
 link_shell() {
   # One source line in ~/.bashrc, so the repo owns the shared shell environment
   # and ~/.bashrc keeps everything machine-specific.

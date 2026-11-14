@@ -55,6 +55,8 @@ and `.timer` into `~/.config/systemd/user/` and `systemctl --user enable --now <
 home machine except the CI agent (the MSI): `ci-policy.md` keeps other heavy jobs off it, so there
 `disk-now` shows live `df` and a map only from a `--scan` run by hand. Tests: `tests/disk-now.sh`.
 
+`~/pyrightconfig.json` (from `config/home-pyrightconfig.json`) keeps a Python language server that starts in the home folder from loading every `.py` file under it; open files are still analysed. Tests: `tests/home-pyright.sh`.
+
 ## What is inside
 
 | Part | Where | Delivered by |
