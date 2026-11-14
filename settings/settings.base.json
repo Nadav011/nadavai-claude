@@ -109,13 +109,6 @@
       },
       "autoUpdate": true
     },
-    "wondelai-skills": {
-      "source": {
-        "source": "github",
-        "repo": "wondelai/skills"
-      },
-      "autoUpdate": true
-    },
     "intent": {
       "source": {
         "source": "github",

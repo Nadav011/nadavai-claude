@@ -32,14 +32,15 @@ log "claude $(claude --version 2>/dev/null | head -1), node $(node --version), c
 
 step "Marketplaces"
 add_marketplace claude-plugins-official anthropics/claude-plugins-official
-# The oh-my-claudecode plugin is retired and not installed, but its marketplace stays registered:
-# mirror_to_antigravity (lib/common.sh) copies agents and skills from its clone in
-# ~/.claude/plugins/marketplaces/omc into Antigravity. Remove this line only together with that mirror.
+# The oh-my-claudecode plugin is retired and not installed, and nothing in this repo reads its
+# marketplace any more. The marketplace stays registered for one reason: Codex (its
+# [marketplaces.omc] source) and Grok read the clone in ~/.claude/plugins/marketplaces/omc, and
+# Nadav said on 2026-11-14 that OMC comes off Codex too, but not now. Remove this line, and
+# extraKnownMarketplaces.omc in settings.base.json, when Codex and Grok no longer read that clone.
 add_marketplace omc https://github.com/Yeachan-Heo/oh-my-claudecode.git
 add_marketplace i-have-adhd ayghri/i-have-adhd
 add_marketplace agricidaniel-claude-seo AgriciDaniel/claude-seo
 add_marketplace impeccable pbakaus/impeccable
-add_marketplace wondelai-skills wondelai/skills
 add_marketplace intent ghaida/intent
 add_marketplace posthog PostHog/ai-plugin
 add_marketplace interfaces jakubkrehel/skills

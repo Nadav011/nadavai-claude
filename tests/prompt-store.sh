@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # tests/prompt-store.sh: the /my-* prompts (plugins/nadavai/skills/my*) stay runnable.
 # They are thin on purpose: several hand the job to a tool in bin/. This fails when a prompt points at
-# something that is gone, and when a file under plugins/nadavai/, guides/ or bin/ names an oh-my-claudecode
-# skill or agent type that tests/omc-names-allow.txt does not list (the plugin is being retired).
+# something that is gone, and when a file under plugins/nadavai/, guides/, bin/, rules/ or settings/ names an
+# oh-my-claudecode skill or agent type that tests/omc-names-allow.txt does not list (the plugin is retired).
 #
 #   tests/prompt-store.sh        exit 0 when every prompt, menu row and tool lines up and no OMC name is left
 set -uo pipefail
@@ -35,11 +35,11 @@ while read -r name; do
   [ -f "$skills/$name/SKILL.md" ] && ok || bad "the menu lists /nadavai:$name, which does not exist"
 done < <(grep -o '/nadavai:my-[a-z-]*' "$menu" | sed 's#/nadavai:##' | sort -u)
 
-# oh-my-claudecode is being retired (2026-11-14): its skills and agent types will not exist, so a file of
+# oh-my-claudecode was retired on 2026-11-14: its skills and agent types do not exist, so a file of
 # ours that names one (oh-my-claudecode:<name>) points at nothing. Each such name in plugins/nadavai/,
-# guides/ or bin/ must be listed in tests/omc-names-allow.txt as "path | name | reason"; a listed line
-# that no longer appears fails too, so the list shrinks with the references. rules/ and settings/ are
-# not scanned yet: their OMC names change in the rules pass.
+# guides/, bin/, rules/ or settings/ must be listed in tests/omc-names-allow.txt as
+# "path | name | reason"; a listed line that no longer appears fails too, so the list shrinks with
+# the references.
 # `.omc/` folders are left out: the plugin's hooks write session state there (ignored by git), in
 # whatever folder a session ran, and those files name its agent types.
 allow="$here/tests/omc-names-allow.txt"
@@ -61,7 +61,7 @@ while read -r path name; do
   seen["$path $name"]=1
   if [ -n "${allowed["$path $name"]-}" ]; then ok
   else bad "$path names $name, which goes away with the plugin (replace it, or list it in tests/omc-names-allow.txt with the reason it stays)"; fi
-done < <(cd "$here" && grep -rnoE --exclude-dir=.omc 'oh-my-claudecode:[A-Za-z0-9_*-]*' plugins/nadavai guides bin 2>/dev/null \
+done < <(cd "$here" && grep -rnoE --exclude-dir=.omc 'oh-my-claudecode:[A-Za-z0-9_*-]*' plugins/nadavai guides bin rules settings 2>/dev/null \
   | awk -F: '{print $1, $3 ":" $4}' | sort -u)
 for k in "${!allowed[@]}"; do
   [ -n "${seen["$k"]-}" ] && ok || bad "omc-names-allow.txt lists '$k', which no longer appears: remove that line"

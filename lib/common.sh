@@ -871,6 +871,61 @@ mirror_guard_to_grok() {
   fi
 }
 
+# adapt_antigravity_agents <installed agents dir> <nadavai agents dir> <intent agents dir>
+# Writes the subagents Antigravity gets, each with frontmatter it accepts (name, description, a
+# model of its own enum, a tools list): nadavai's own agents from the repo, and intent's six.
+# The agents of the retired oh-my-claudecode plugin were copied here until 2026-11-14, and its
+# executor.md overwrote ours; a file of theirs that is still in the installed dir is removed,
+# unless nadavai has an agent of that name.
+adapt_antigravity_agents() {
+  node -e '
+    const fs = require("fs"), path = require("path");
+    const [outDir, ownDir, intentDir] = process.argv.slice(1);
+    fs.mkdirSync(outDir, { recursive: true });
+    const readTools = ["view_file", "grep_search", "find_by_name", "list_dir", "read_url_content", "search_web", "send_message", "call_mcp_tool"];
+    const editTools = ["replace_file_content", "multi_replace_file_content"];
+    const writeTools = [...readTools, "write_to_file", ...editTools, "run_command", "manage_task"];
+    const readOnly = new Set(["vigil.md"]);
+    const own = fs.existsSync(ownDir) ? fs.readdirSync(ownDir).filter((f) => f.endsWith(".md")) : [];
+    const retired = ["planner.md", "executor.md", "verifier.md", "code-reviewer.md", "debugger.md", "architect.md", "critic.md", "security-reviewer.md", "explore.md", "designer.md", "writer.md", "qa-tester.md"];
+    for (const f of retired) {
+      if (!own.includes(f)) fs.rmSync(path.join(outDir, f), { force: true });
+    }
+    const sources = [
+      { dir: ownDir, files: own },
+      { dir: intentDir, files: ["ember.md", "wren.md", "vigil.md", "rune.md", "noor.md", "sage.md"] }
+    ];
+    for (const src of sources) {
+      if (!fs.existsSync(src.dir)) continue;
+      for (const f of src.files) {
+        const p = path.join(src.dir, f);
+        if (!fs.existsSync(p)) continue;
+        let s = fs.readFileSync(p, "utf8");
+        s = s.replace(/^---\n([\s\S]*?)\n---\n/, (_, fm) => {
+          const keep = [];
+          let hasModel = false;
+          let tools = readOnly.has(f) ? readTools : writeTools;
+          for (const line of fm.split("\n")) {
+            if (/^(name|description):/.test(line)) keep.push(line);
+            else if (/^model:/.test(line)) {
+              hasModel = true;
+              if (line.includes("opus")) keep.push("model: pro");
+              else if (line.includes("haiku")) keep.push("model: flash");
+              else keep.push("model: inherit");
+            // An agent that may not edit (nadavai reviewer) still writes its report and runs checks.
+            } else if (/^disallowedTools:.*\bEdit\b/.test(line)) tools = tools.filter((t) => !editTools.includes(t));
+          }
+          if (!hasModel) keep.push("model: inherit");
+          keep.push("tools:");
+          for (const t of tools) keep.push(`  - ${t}`);
+          return "---\n" + keep.join("\n") + "\n---\n";
+        });
+        fs.writeFileSync(path.join(outDir, f), s);
+      }
+    }
+  ' "$1" "$2" "$3"
+}
+
 mirror_to_antigravity() {
   # Configure Google Antigravity (~/.gemini/config) to load the nadavai plugin,
   # marketplace skills/subagents, and mirrored global rules with an Antigravity adapter.
@@ -889,7 +944,7 @@ mirror_to_antigravity() {
 You are running in Google Antigravity with the `nadavai` environment. Apply the global rules below using Antigravity's native tools and model parameters:
 
 - **Subagent model parameter (`invoke_subagent`)**: Antigravity's `Model` enum accepts ONLY `inherit`, `pro`, `flash`, or `flash_lite`. Never pass Claude/Codex model names (`opus`, `sonnet`, `haiku`, `fable`) to `invoke_subagent`. Map complex architecture, debugging, security, and review work (`opus` in the rules below) to `pro` (or `inherit`), routine work (`sonnet`) to `inherit`, and quick lookups (`haiku`) to `flash`. Fable is chosen only by Nadav, never by an agent.
-- **Subagent types (`invoke_subagent`)**: Built-in types are `self` (full toolset in an isolated context), `research` (read-only exploration and web/docs lookup), and `image-generator`. Custom subagents (`ember`, `wren`, `vigil`, `rune`, `planner`, `executor`, `verifier`, `code-reviewer`, `debugger`, `architect`, `critic`, `security-reviewer`) are registered via `agents.json` or can be defined on demand with `define_subagent`.
+- **Subagent types (`invoke_subagent`)**: Built-in types are `self` (full toolset in an isolated context), `research` (read-only exploration and web/docs lookup), and `image-generator`. Custom subagents (`executor` and `reviewer` from nadavai, and `ember`, `wren`, `vigil`, `rune`, `noor`, `sage` from intent) are registered via `agents.json` or can be defined on demand with `define_subagent`.
 - **Tool mapping from Claude Code names in rules/skills**:
   - `AskUserQuestion` -> `ask_question`
   - `Bash` with `run_in_background: true` -> `run_command` (commands exceeding `WaitMsBeforeAsync` run in the background automatically and wake you on completion; never `sleep` + poll in a loop)
@@ -927,53 +982,17 @@ HEADER
   fi
   rm -f "$tmp"
 
-  # 2. Install nadavai plugin into Antigravity (40 skills, 6 MCP servers, lifecycle hooks)
-  #    and populate adapted subagents (intent + OMC) with Antigravity-valid YAML frontmatter.
+  # 2. Install nadavai plugin into Antigravity (skills, MCP servers, lifecycle hooks) and adapt
+  #    its subagents (nadavai's own and intent's) to Antigravity's YAML frontmatter.
   if command -v agy >/dev/null 2>&1; then
     rm -f "$gcfg/plugins.json" "$gcfg/agents.json" 2>/dev/null || true
     if agy plugin install "$REPO/plugins/nadavai" >/dev/null 2>&1; then
       rm -rf "$gcfg/plugins/nadavai/.omc" 2>/dev/null || true
-      node -e '
-        const fs = require("fs"), path = require("path"), os = require("os");
-        const home = os.homedir();
-        const outDir = process.argv[1];
-        fs.mkdirSync(outDir, { recursive: true });
-        const readOnly = new Set(["architect.md", "critic.md", "code-reviewer.md", "security-reviewer.md", "explore.md", "vigil.md"]);
-        const readTools = ["view_file", "grep_search", "find_by_name", "list_dir", "read_url_content", "search_web", "send_message", "call_mcp_tool"];
-        const writeTools = [...readTools, "write_to_file", "replace_file_content", "multi_replace_file_content", "run_command", "manage_task"];
-        const sources = [
-          { dir: `${home}/.claude/plugins/marketplaces/intent/agents`, files: ["ember.md", "wren.md", "vigil.md", "rune.md", "noor.md", "sage.md"] },
-          { dir: `${home}/.claude/plugins/marketplaces/omc/agents`, files: ["planner.md", "executor.md", "verifier.md", "code-reviewer.md", "debugger.md", "architect.md", "critic.md", "security-reviewer.md", "explore.md", "designer.md", "writer.md", "qa-tester.md"] }
-        ];
-        for (const src of sources) {
-          if (!fs.existsSync(src.dir)) continue;
-          for (const f of src.files) {
-            const p = path.join(src.dir, f);
-            if (!fs.existsSync(p)) continue;
-            let s = fs.readFileSync(p, "utf8");
-            const tools = readOnly.has(f) ? readTools : writeTools;
-            s = s.replace(/^---\n([\s\S]*?)\n---\n/, (_, fm) => {
-              const keep = [];
-              let hasModel = false;
-              for (const line of fm.split("\n")) {
-                if (/^(name|description):/.test(line)) keep.push(line);
-                else if (/^model:/.test(line)) {
-                  hasModel = true;
-                  if (line.includes("opus")) keep.push("model: pro");
-                  else if (line.includes("haiku")) keep.push("model: flash");
-                  else keep.push("model: inherit");
-                }
-              }
-              if (!hasModel) keep.push("model: inherit");
-              keep.push("tools:");
-              for (const t of tools) keep.push(`  - ${t}`);
-              return "---\n" + keep.join("\n") + "\n---\n";
-            });
-            fs.writeFileSync(path.join(outDir, f), s);
-          }
-        }
-      ' "$gcfg/plugins/nadavai/agents" 2>/dev/null || true
-      log "agy plugin nadavai installed (with adapted subagents)"
+      if adapt_antigravity_agents "$gcfg/plugins/nadavai/agents" "$REPO/plugins/nadavai/agents" "$HOME/.claude/plugins/marketplaces/intent/agents"; then
+        log "agy plugin nadavai installed (with adapted subagents)"
+      else
+        warn "agy plugin nadavai installed, but its subagents could not be adapted for Antigravity"
+      fi
     else
       warn "agy plugin install reported a problem"
     fi
@@ -1006,11 +1025,7 @@ HEADER
         ]
       },
       { path: `${home}/.claude/plugins/marketplaces/i-have-adhd/skills` },
-      { path: `${home}/.claude/plugins/marketplaces/claude-plugins-official/plugins/skill-creator/skills` },
-      {
-        path: `${home}/.claude/plugins/marketplaces/omc/skills`,
-        include_only: ["deep-interview", "ralplan", "ai-slop-cleaner", "skill"]
-      }
+      { path: `${home}/.claude/plugins/marketplaces/claude-plugins-official/plugins/skill-creator/skills` }
     ];
     const entries = spec.filter((e) => fs.existsSync(e.path));
     fs.writeFileSync(process.argv[1], JSON.stringify({ entries }, null, 2) + "\n");

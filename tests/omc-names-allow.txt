@@ -1,4 +1,4 @@
-# Files under plugins/nadavai/, guides/ and bin/ that may still name an oh-my-claudecode skill or agent type.
+# Files under plugins/nadavai/, guides/, bin/, rules/ and settings/ that may still name an oh-my-claudecode skill or agent type.
 # tests/prompt-store.sh reads this list. One line per file and name: path | name | reason.
 # A line whose name no longer appears in that file fails the test, so remove it with the reference.
 bin/executor-quality | oh-my-claudecode:executor | history: it counts the OMC executor runs in old transcripts beside nadavai:executor
