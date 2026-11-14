@@ -173,12 +173,17 @@ type Page = Group & { group: number; part: number; parts: number; start: number 
 // The line also says that a bug found on the way is fixed (`working-style.md`,
 // Code): in the trial runs sessions under a goal or a plan left one open.
 const GOAL_GATES =
-  'תקלה שמתגלה בדרך מתוקנת מהשורש, בנפרד, ונכתבת בדוח. בדרך לא מוותרים על שום דבר שנדב ביקש ולא מקטינים אותו, ולא עושים מה שלפי הכללים מחכה לאישור שלו: כסף, הודעה או פרסום בשמו או בשם לקוח (גם הודעה שהאפליקציה שולחת לאדם אמיתי בגלל פעולה של הסשן), שחרור ציבורי בחנות, הגשה רשמית (מס, ממשלה, בנק) או חתימה מחייבת, מחיקה בלי דרך חזרה.'
+  'לא מבקשים מנדב לנקות את היעד בעצמו. תקלה שמתגלה בדרך מתוקנת מהשורש, בנפרד, ונכתבת בדוח. בדרך לא מוותרים על שום דבר שנדב ביקש ולא מקטינים אותו, ולא עושים מה שלפי הכללים מחכה לאישור שלו: כסף, הודעה או פרסום בשמו או בשם לקוח (גם הודעה שהאפליקציה שולחת לאדם אמיתי בגלל פעולה של הסשן), שחרור ציבורי בחנות, הגשה רשמית (מס, ממשלה, בנק) או חתימה מחייבת, מחיקה בלי דרך חזרה.'
 // The closing block of a goal that works through the list "מה נחשב גמור": the
 // list a session writes under that heading when he sets a goal or runs
 // /nadavai:my-run.
 const LIST_BLOCK =
-  'שחוזר על כל שורה ברשימת "מה נחשב גמור", וליד כל אחת [סגור] עם הראיה שכבר מופיעה למעלה בשיחה (הפקודה שרצה והפלט שלה, או קישור שנפתח), או [חסום: נדב, לקוח, בדיקת חנות או פלטפורמה, תאריך או חומרה] עם מה שכבר מוכן, ואין בו שורה פתוחה שהיא של הסשן'
+  'שחוזר על כל שורה ברשימת "מה נחשב גמור", וליד כל אחת [סגור] עם הראיה שכבר מופיעה למעלה בשיחה (הפקודה שרצה והפלט שלה, או קישור שנפתח), או [חסום: נדב, לקוח, בדיקת חנות או פלטפורמה, תאריך או חומרה] עם מה שכבר מוכן, ואין בו שורה פתוחה שהיא של הסשן; שורה שחסומה כך לא מעכבת את סיום היעד'
+// A trial of the client form (2026-11-14) ended on such a block, and the judge
+// still sent the session back about nine times while four rows waited on him,
+// until the session told him he could clear the goal himself: the block now
+// says that a row blocked that way does not hold the goal, and the gates say
+// that he is not asked to clear it.
 // A long run is summarised on the way, and the judge then no longer sees the
 // evidence: the line asks for the checks again before the block.
 const goalEnd = (block: string): string =>
