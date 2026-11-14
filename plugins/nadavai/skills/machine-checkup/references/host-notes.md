@@ -147,7 +147,7 @@ Kernel panic of 2026-11-14 15:21:08 (blue screen with a QR code, gone after 10 s
 `kernel.panic=10` rebooted before Nadav could photograph it, so the cause is not known. What the
 logs do show: the last 10-minute sample had load 60, 60,000 pages a second going into zram, 85 to
 92 GB of the 124 GB swap used and 211 GB committed; five parallel `kit/test/frames-compare.test.mjs`
-runs of the SportChat v4 kit (8 to 10 GB each, started six minutes before) took swap free from 58%
+runs of the SportChat v4 kit (7 to 10.5 GB each, 43 GB together, started six minutes before) took swap free from 58%
 to 27%. The same boot had `zram: Decompression failed! err=-22` with a swap read error on
 2026-11-13 21:00:50, the second corrupt zram page in ten days after the 2026-11-04 oops (kernels
 7.3.1 and 7.3.3), 33 NVIDIA `NV_ERR_NO_MEMORY` allocation failures (22 on the crash day), a flip
@@ -162,7 +162,7 @@ single scripts with no memory cap, not the number of sessions. 03:10 that day: t
 `keycmp.mjs` calibration runs of the same kit held 22.7, 10.1 and 8.3 GB. `heavy-slot` admits by
 the memory free at the start and puts no cap on a job afterwards, so jobs that start small and
 grow to 10 GB each pass it. The standing cost is language servers (pyright and TypeScript, 43
-processes, about 25 GB, nearly all of it in swap) and about 75 MCP server processes (about 9 GB).
+processes, about 25 GB, nearly all of it in swap) and 57 MCP server processes (about 8 GB).
 Day by day, swap used average and peak: 10.11 31/52 GB, 11.11 28/48, 12.11 28/48, 13.11 34/71,
 14.11 51/98, with 59 of 93 samples on the 14th above 20,000 pages a second swapped out.
 Crash record since that day (`hosts/lenovo-83lu/`): the panic screen stays 60 s
