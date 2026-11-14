@@ -3,8 +3,8 @@
 // drives a real mouse over them.
 //   node orca-rtl-mouse.cjs <out/renderer dir> <asset file name> <pass|fault>
 // pass:  every check must hold (the pointer part is in).
-// fault: the English control must hold and the Hebrew checks must fail (the pointer part is
-//        out): proof that the checks see the fault the pointer part fixes.
+// fault: the pointer part is out. Every check it is there for must fail and the others must
+//        hold: proof that the checks see the fault the pointer part fixes.
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -140,8 +140,10 @@ async function main() {
     return selection();
   }
 
-  const results = []; // { name, hebrew, ok, got }
-  const check = (name, hebrew, ok, got) => results.push({ name, hebrew, ok: !!ok, got });
+  // faulty = the row patch alone gets this one wrong, so the fault run must see it fail; the
+  // others hold either way and only guard against a regression.
+  const results = []; // { name, faulty, ok, got }
+  const check = (name, faulty, ok, got) => results.push({ name, faulty, ok: !!ok, got });
 
   let got = await dragOver(0, 'english');
   check('control: drag over an English word selects it', false, got === 'english', got);
@@ -152,7 +154,7 @@ async function main() {
   got = await dragOver(2, 'בקובץ');
   check('drag over a Hebrew word in a row that starts in English', true, got === 'בקובץ', got);
   got = await dragOver(2, 'main.ts');
-  check('drag over an English word after Hebrew in the same row', true, got === 'main.ts', got);
+  check('guard: drag over an English word after Hebrew in the same row', false, got === 'main.ts', got);
 
   got = await dragOver(4, '123');
   check('drag over digits between Hebrew words', true, got === '123', got);
@@ -174,7 +176,7 @@ async function main() {
     const text = await rectOf(1, LINES[1]);
     await drag(box.left + 4, text.right - 1.5, box.y);
     got = await selection();
-    check('drag from the empty side of a Hebrew row takes the whole line', true, got === LINES[1], got);
+    check('guard: drag from the empty side of a Hebrew row takes the whole line', false, got === LINES[1], got);
   }
 
   // A link inside a Hebrew row: hover and click where the link is drawn.
@@ -191,11 +193,13 @@ async function main() {
     const w = await rectOf(3, 'לפרטים');
     await page.mouse.move((w.left + w.right) / 2, w.y, { steps: 3 });
     await page.waitForTimeout(250);
-    const before = await page.evaluate(() => window.link.activate);
+    const before = await page.evaluate(() => ({ ...window.link }));
     await page.mouse.down(); await page.mouse.up();
     await page.waitForTimeout(100);
-    const after = await page.evaluate(() => window.link.activate);
-    check('a Hebrew word next to the link is not the link', true, after === before && hovered > 0, `clicks on the link ${before} -> ${after}`);
+    const after = await page.evaluate(() => ({ ...window.link }));
+    // The pointer left the link (one hover, then a leave) and the click did not open it.
+    check('a Hebrew word next to the link is not the link', true, hovered === 1 && after.hover === 1 && after.leave > 0 && after.activate === before.activate,
+      `hover ${after.hover}, leave ${after.leave}, clicks on the link ${before.activate} -> ${after.activate}`);
   }
 
   // The selection block is painted on the selected cells, wherever the browser put them, and
@@ -248,17 +252,18 @@ async function main() {
 
   for (const r of results) console.log((r.ok ? 'ok   ' : 'FAIL ') + r.name + (r.ok ? '' : '   [got: ' + r.got + ']'));
   if (errors.length) console.log('page errors: ' + errors.join(' | '));
-  const control = results.filter(r => !r.hebrew), hebrew = results.filter(r => r.hebrew);
+  const control = results.filter(r => !r.faulty), faulty = results.filter(r => r.faulty);
   if (mode === 'pass') {
     if (!setup.hook) { console.log('RESULT: the pointer part is not in this asset'); process.exit(1); }
     const bad = results.filter(r => !r.ok).length + errors.length;
     console.log(bad ? `RESULT: ${bad} check(s) failed` : `RESULT: all ${results.length} checks hold`);
     process.exit(bad ? 1 : 0);
   }
-  // fault: the checks must be able to see the fault.
-  const seen = hebrew.filter(r => !r.ok).length;
-  const ok = control.every(r => r.ok) && seen >= 3 && !setup.hook;
-  console.log(ok ? `RESULT: without the pointer part ${seen} of ${hebrew.length} Hebrew checks fail, as expected` : 'RESULT: the checks do not show the fault (control ' + control.every(r => r.ok) + ', Hebrew failures ' + seen + ', hook present ' + setup.hook + ')');
+  // fault: every check the row patch alone gets wrong must fail here, and the rest must hold.
+  const seen = faulty.filter(r => !r.ok).length;
+  const ok = control.every(r => r.ok) && seen === faulty.length && !setup.hook;
+  console.log(ok ? `RESULT: without the pointer part all ${seen} checks it is there for fail, and the ${control.length} others hold, as expected`
+    : `RESULT: the checks do not show the fault (others hold: ${control.every(r => r.ok)}, failed ${seen} of ${faulty.length}, pointer part present: ${setup.hook})`);
   process.exit(ok ? 0 : 1);
 }
 main().catch(e => { console.error('orca-rtl-mouse: ' + (e && e.stack || e)); process.exit(1); });

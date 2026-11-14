@@ -6,7 +6,7 @@
 # It copies the installed Orca's renderer files to a temp dir (pristine: files this machine's
 # patch changed come from the patch's own backup), patches the copy twice and drives a real mouse
 # over Orca's own terminal code in headless Chromium:
-#   1. row patch only (ORCA_RTL_NO_MOUSE=1): the Hebrew checks must FAIL, the English one hold;
+#   1. row patch only (ORCA_RTL_NO_MOUSE=1): every check the pointer part is there for must FAIL;
 #   2. the whole patch: every check must hold; and a second run changes nothing.
 # Nothing under /opt/Orca or ~/.local/share/orca-rtl is written. Needs an installed Orca with the
 # unpacked layout, passwordless sudo (patch.mjs installs through it, here into the temp dir) and
