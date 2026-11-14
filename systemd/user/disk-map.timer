@@ -1,0 +1,10 @@
+[Unit]
+Description=Nightly disk map for disk-now
+
+[Timer]
+OnCalendar=*-*-* 04:15
+RandomizedDelaySec=20min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

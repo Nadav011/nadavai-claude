@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# docker-tidy: remove the Docker images and build cache a dev machine no longer needs.
+#
+#   docker-tidy            print what would go (changes nothing)
+#   docker-tidy --apply    remove it (what the weekly docker-tidy.timer runs)
+#   docker-tidy --keep N   newest tags kept per repository (default 2)
+#
+# An image goes only when no container, running or stopped, uses it and its repository has at
+# least N newer images (by creation time) besides it: old Playwright, Supabase and Postgres
+# versions after an upgrade. Dangling images and build cache older than 7 days go too.
+# Volumes are never touched: a named volume can be a project's only local database (the Green
+# Room supabase_* volumes look reclaimable and are not; machine-checkup).
+# Why: on 2026-11-14 the LENOVO held 32 images, 3 of them in use, at 94% full. The MSI's
+# woodpecker-prune deletes every unused image after 7 days, which suits a CI agent; on a dev
+# machine that would make every `supabase start` download 5 GB again.
+set -uo pipefail
+case "${1:-}" in -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;; esac
+
+apply=0 keep=2
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --apply) apply=1 ;;
+    --keep) keep=${2:?--keep needs a number}; shift ;;
+    *) echo "docker-tidy: unknown option $1 (see --help)" >&2; exit 2 ;;
+  esac
+  shift
+done
+
+docker info >/dev/null 2>&1 || { echo "docker-tidy: Docker is not running; nothing to do"; exit 0; }
+
+# Image IDs any container uses, running or stopped.
+used=$(docker ps -aq | xargs -r docker inspect --format '{{.Image}}' | sort -u)
+# repo<TAB>tag<TAB>id<TAB>created, newest first within each repository.
+list=$(docker images --no-trunc --format '{{.Repository}}\t{{.Tag}}\t{{.ID}}\t{{.CreatedAt}}' |
+  awk -F'\t' '$1 != "<none>" && $2 != "<none>"' | sort -t$'\t' -k1,1 -k4,4r)
+
+# Count distinct image IDs per repository, so two tags of one image count once.
+gone=$(awk -F'\t' -v keep="$keep" -v used="$used" '
+  BEGIN { n = split(used, u, "\n"); for (i = 1; i <= n; i++) inuse[u[i]] = 1 }
+  { if ($1 != repo) { repo = $1; delete seen; rank = 0 }
+    if (!($3 in seen)) { seen[$3] = 1; rank++ }
+    if (rank > keep && !($3 in inuse)) print $1 ":" $2 "\t" $3 }' <<<"$list")
+
+if [ -z "$gone" ]; then echo "docker-tidy: no superseded images"; else
+  echo "docker-tidy: superseded images (unused, $keep newer of the same repository exist):"
+  while IFS=$'\t' read -r ref id; do
+    size=$(docker image inspect --format '{{.Size}}' "$id" 2>/dev/null | awk '{ printf "%.1f GB", $1 / 1e9 }')
+    if [ "$apply" = 1 ]; then
+      if docker rmi "$ref" >/dev/null 2>&1; then echo "  removed $ref ($size)"; else echo "  kept $ref (docker rmi refused)"; fi
+    else echo "  would remove $ref ($size)"; fi
+  done <<<"$gone"
+fi
+
+if [ "$apply" = 1 ]; then
+  docker image prune -f >/dev/null && echo "docker-tidy: dangling images pruned"
+  docker builder prune -f --filter until=168h >/dev/null && echo "docker-tidy: build cache older than 7 days pruned"
+else
+  echo "docker-tidy: --apply also prunes dangling images and build cache older than 7 days"
+fi

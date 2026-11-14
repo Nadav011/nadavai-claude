@@ -1,0 +1,10 @@
+[Unit]
+Description=Weekly docker-tidy
+
+[Timer]
+OnCalendar=Sun 04:45
+RandomizedDelaySec=20min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -44,6 +44,16 @@ The weekly report is opt-in per machine, on the machine where agents create work
 `~/.config/systemd/user/` and `systemctl --user enable --now worktree-clean.timer`. Tests:
 `tests/worktree-clean.sh`.
 
+`bin/disk-now` answers "what takes the disk" in seconds on the LENOVO and the MSI together (Hebrew,
+for Nadav): live `df`, the deepest folders of 5 GB or more, and what grew or shrank by 1 GB since the
+map before. It reads a map that `disk-now --scan` writes (gdu over `/`, folders of 100 MB or more, in
+`~/.cache/disk-map/`), nightly through `systemd/user/disk-map.timer`. `bin/docker-tidy` removes Docker
+images no container uses that have two newer images of the same repository, dangling images and build
+cache older than 7 days, never volumes; `--apply` runs weekly through `systemd/user/docker-tidy.timer`
+on dev machines (the MSI keeps its own `woodpecker-prune` for CI). Both timers: symlink the `.service`
+and `.timer` into `~/.config/systemd/user/` and `systemctl --user enable --now <name>.timer`, on every
+home machine (machine-checkup). Tests: `tests/disk-now.sh`.
+
 ## What is inside
 
 | Part | Where | Delivered by |

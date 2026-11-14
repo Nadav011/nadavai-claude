@@ -65,6 +65,15 @@ machine-baseline-check      # the shared OS baseline: ok / BAD / REBOOT per line
 heavy-slot --status         # heavy jobs running and waiting, and why
 ```
 
+For the disk, start with `disk-now` (seconds, both machines): live `df`, the deepest folders of
+5 GB or more and what grew by 1 GB since the map before, read from the nightly map
+(`disk-map.timer`). `disk-now --in <path>` drills into a folder from the map; `disk-now --scan`
+refreshes it (minutes, in the background, under the heavy lock). Do not start a plain `du` of `~`
+or `/` to answer "what takes the space": on 2026-11-14 one did not finish in 2.5 minutes at 94%
+full. When the map is older than the question, run `--scan` first. A host without the timers gets
+them as the README says (`disk-map.timer`, and `docker-tidy.timer` on every machine but the CI
+agent, which has `woodpecker-prune`).
+
 Decide which resource is the bottleneck before touching anything: CPU (0% idle, run queue far
 above the thread count), memory (memory PSI, earlyoom kills in the journal), or disk (I/O PSI,
 D-state tasks in `jbd2_log_wait_commit` / `folio_wait_bit_common` / `rq_qos_wait`).
@@ -105,6 +114,7 @@ cache is not running.
 | Codex `~/.codex/.tmp/marketplaces/.staging/*` older than 1 h, `~/.cache/codex-update-manager/{workspaces,packages}` not in use | `rm -rf` by literal name; MSI has `codex-leftovers-clean.timer` for this (workspaces older than 90 minutes, `.deb` older than a day). Marketplace clones of plugins whose `config.toml` entry is `source_type=local` are orphans |
 | npm `_cacache`, deno, trivy, pip, pnpm metadata, uv, go-build caches, `go clean -modcache` | only when the tool is not running |
 | `node_modules`, `.next`, `.turbo`, `.expo`, `.vite` in worktrees idle 2+ days | skip anything `git ls-files` tracks and anything other worktrees symlink into. File mtimes are not an idleness signal (mass checkouts refresh them): use dirty/unpushed/merged, a process cwd, and the owner's skip list |
+| Superseded Docker images (unused, two newer of the same repository), dangling images, build cache older than 7 days | `docker-tidy` (dry run), then `docker-tidy --apply`; the weekly `docker-tidy.timer` does the same. It never touches volumes |
 | Anonymous Docker volumes with no container | list `docker volume ls -qf dangling=true`, inspect each (`CreatedAt`, size, a `PG_VERSION` file means a database); remove by name only the ones older than 2 days whose creating stack is gone; never `docker volume prune`, never named volumes (the Green Room `supabase_*_jfqwucrzhzojelrptqxb` volumes look reclaimable and are not) |
 | Installer downloads whose installed version is newer, old plugin cache versions no live session started from, unused Playwright browsers, apt cache | `apt-get clean`; vacuum the journal (`--vacuum-time=14d`) only after a freeze investigation is closed, the journal is its evidence |
 | Firmware for hardware the machine does not have (`/usr/lib/firmware` qcom, netronome, mellanox, amdgpu, mrvl, mediatek, ath1xk, qed: 1.1 GB on the MSI) | `path-exclude` lines in `/etc/dpkg/dpkg.cfg.d/90-firmware-exclude` so upgrades do not bring them back, then `rm -rf` the trees by literal path. Check `lspci`/`lsusb` first; do not rebuild the initramfs |

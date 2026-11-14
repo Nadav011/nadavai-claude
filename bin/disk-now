@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+# disk-now: where the disk space is on the home machines, in seconds. For Nadav, so the
+# report is Hebrew.
+#
+#   disk-now                 this machine and the other one (LENOVO <-> MSI): free space, the
+#                            biggest folders and what grew since the scan before
+#   disk-now --local         this machine only (what the remote call runs)
+#   disk-now --in <path>     the folders and files right under <path>, from the last map
+#   disk-now --scan          map this machine now (what the nightly disk-map.timer runs)
+#   disk-now --min <GB>      the size from which a folder is listed (default 5)
+#
+# The report reads a map, not the disk: `--scan` runs gdu over / (through `sudo -n`; without
+# passwordless sudo only $HOME) and keeps every folder and file of 100 MB or more, to depth 8,
+# in ~/.cache/disk-map/<host>.tsv; the map before it stays as <host>.prev.tsv for the growth
+# lines. Why: on 2026-11-14 a plain `du` of the LENOVO's home did not finish in 2.5 minutes at
+# 94% full, so "what takes the space" had no answer; a nightly map answers it at once.
+# Free space always comes from `df` live. Changes nothing outside ~/.cache/disk-map.
+set -uo pipefail
+case "${1:-}" in -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;; esac
+
+dir=${DISK_NOW_DIR:-$HOME/.cache/disk-map}
+host=$(hostname -s)
+map=$dir/$host.tsv prev=$dir/$host.prev.tsv
+min_gb=5 mode=report in_path=
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --local) mode=local ;;
+    --scan) mode=scan ;;
+    --in) mode=in; in_path=${2:?--in needs a path}; shift ;;
+    --min) min_gb=${2:?--min needs a number}; shift ;;
+    *) echo "disk-now: unknown option $1 (see --help)" >&2; exit 2 ;;
+  esac
+  shift
+done
+
+scan() {
+  mkdir -p "$dir"
+  local root=/ run=() tmp=$map.new start=$SECONDS
+  if sudo -n true 2>/dev/null; then run=(sudo -n); else root=$HOME; fi
+  # One heavy disk job at a time (machine-checkup rule 7); low CPU and IO priority.
+  if ! flock "$HOME/.cache/machine-checkup.heavy.lock" \
+    "${run[@]}" ionice -c2 -n7 nice -n 10 "${DISK_NOW_GDU:-gdu}" -x -n -p --no-prefix --depth 8 -m 6 "$root" 2>/dev/null |
+    awk -v OFS='\t' '$1 >= 104857600 { s = $1; sub(/^[ \t]*[0-9]+[ \t]+/, ""); print s, $0 }' >"$tmp" || [ ! -s "$tmp" ]; then
+    rm -f -- "$tmp"; echo "disk-now: the scan failed; the old map stays" >&2; return 1
+  fi
+  [ -f "$map" ] && mv -f -- "$map" "$prev"
+  { printf '# scanned %s root %s seconds %s\n' "$(date '+%F %H:%M')" "$root" "$((SECONDS - start))"; cat -- "$tmp"; } >"$map"
+  rm -f -- "$tmp"
+}
+
+gb() { awk -v b="$1" 'BEGIN { printf "%.1f", b / 1073741824 }'; }
+
+# The deepest entries of at least $2 bytes: an entry is listed when none of its children reaches
+# the threshold, so a big folder shows as the sub-folder that really holds the space.
+deepest() { # file threshold-bytes count
+  awk -F'\t' -v t="$2" '!/^#/ && $1 >= t { size[$2] = $1; p = $2; sub(/\/[^\/]*$/, "", p); if (p == "") p = "/"; if (p != $2) big[p] = 1 }
+    END { for (k in size) if (!(k in big)) print size[k] "\t" k }' "$1" | sort -t$'\t' -k1,1nr | head -n "$3"
+}
+
+# Growth since the map before: the deepest paths whose size changed by at least $3 bytes.
+growth() { # current previous threshold count
+  awk -F'\t' -v t="$3" 'FNR == 1 { f++ } /^#/ { next } f == 1 { cur[$2] = $1; next } { old[$2] = $1 }
+    END {
+      for (k in cur) d[k] = cur[k] - (k in old ? old[k] : 0)
+      for (k in old) if (!(k in cur)) d[k] = -old[k]
+      for (k in d) { a = d[k] < 0 ? -d[k] : d[k]; if (a < t) continue; keep[k] = d[k]; p = k; sub(/\/[^\/]*$/, "", p); if (p == "") p = "/"; if (p != k) moved[p] = 1 }
+      for (k in keep) if (!(k in moved)) print (keep[k] < 0 ? -keep[k] : keep[k]) "\t" keep[k] "\t" k
+    }' "$1" "$2" | sort -t$'\t' -k1,1nr | cut -f2- | head -n "$4"
+}
+
+report_local() {
+  local name=${host^^} line
+  line=$(df -B1 --output=size,used,avail,pcent / | awk 'NR == 2')
+  read -r size used avail pct <<<"$line"
+  echo "== $name: דיסק $(gb "$size") ג׳יגה, תפוס $pct, פנוי $(gb "$avail") ג׳יגה"
+  if [ ! -s "$map" ]; then echo "   אין מפה עדיין: disk-now --scan (רץ כמה דקות, ברקע)"; return; fi
+  local head; head=$(head -n1 "$map")
+  echo "   מפה מ-$(awk '{ print $3, $4 }' <<<"$head") (סרקה $(awk '{ print $6 }' <<<"$head"), $(awk '{ print $8 }' <<<"$head") שניות)"
+  echo "   התיקיות הכי גדולות (מ-$min_gb ג׳יגה):"
+  deepest "$map" "$(awk -v g="$min_gb" 'BEGIN { printf "%.0f", g * 1073741824 }')" 15 |
+    while IFS=$'\t' read -r b p; do printf '   %7s  %s\n' "$(gb "$b")" "$p"; done
+  if [ -s "$prev" ]; then
+    local g; g=$(growth "$map" "$prev" 1073741824 10)
+    echo "   שינוי מאז המפה הקודמת ($(head -n1 "$prev" | awk '{ print $3, $4 }'), מ-1 ג׳יגה):"
+    if [ -z "$g" ]; then echo "   אין שינוי של 1 ג׳יגה ומעלה"; else
+      while IFS=$'\t' read -r b p; do
+        if [ "$b" -ge 0 ]; then printf '   %7s+ %s\n' "$(gb "$b")" "$p"; else printf '   %7s- %s\n' "$(gb "${b#-}")" "$p"; fi
+      done <<<"$g"
+    fi
+  fi
+}
+
+case $mode in
+  scan) scan ;;
+  in)
+    [ -s "$map" ] || { echo "disk-now: no map yet, run disk-now --scan" >&2; exit 1; }
+    p=${in_path%/}; [ -z "$p" ] && p=/
+    awk -F'\t' -v p="$p" '!/^#/ { q = $2; sub(/\/[^\/]*$/, "", q); if (q == "") q = "/"; if (q == p && $2 != p) print }' "$map" |
+      sort -t$'\t' -k1,1nr | head -n 30 | while IFS=$'\t' read -r b x; do printf '%7s  %s\n' "$(gb "$b")" "$x"; done ;;
+  local) report_local ;;
+  report)
+    report_local
+    case $host in lenovo) other=msi ;; msi) other=lenovo ;; *) other= ;; esac
+    if [ -n "$other" ]; then
+      echo
+      ssh -o BatchMode=yes -o ConnectTimeout=5 "$other" bash -s <<<"export PATH=\"\$HOME/.local/bin:\$PATH\"; disk-now --local --min $min_gb" 2>/dev/null ||
+        echo "== ${other^^}: לא עונה ברשת, או ש-disk-now לא מותקן בו (update.sh)"
+    fi ;;
+esac

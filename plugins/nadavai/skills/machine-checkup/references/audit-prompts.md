@@ -16,6 +16,7 @@ Shared rules to paste into every prompt:
 
 Goal: a complete inventory of the root filesystem so nothing on the machine is unexplained, plus every way to free space.
 
+- Start from the disk map, not a fresh sweep: `~/.cache/disk-map/<host>.tsv` holds every folder and file of 100 MB or more on `/` to depth 8 (size in bytes, tab, path; `disk-now --in <path>` lists one level). Run `du` only below what the map shows, or where it is older than the question.
 - Every directory or file of 100 MB or more anywhere on `/` (system dirs via sudo, every dotdir in `~`), down to the level where it is clear what it is.
 - For each: what it is (owning package via `dpkg -S`, app, project, or "unknown"), real size (`du` counts each inode once within one invocation, so measure a set of hardlinked trees in one `du` call; never sum parents and children), last change, evidence of use (process, open file, symlink into it, config reference), regenerable or not, and a label: DELETE-SAFE / ARCHIVE / ASK-NADAV / KEEP.
 - Cover: leftover config/data of uninstalled apps, orphan dotfiles, old kernels, apt cache, journal, snap revisions, Docker (anonymous volumes, exited containers, orphan overlay2 dirs; never the Green Room volumes), Claude/Codex session data (report only), idle worktree `node_modules`/`.next` (check symlinks from other worktrees into them), duplicate large files (hardlink candidates), big media, Android SDK/AVD, toolchains, stale venvs, what regrows and why.
