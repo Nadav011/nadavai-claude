@@ -18,7 +18,8 @@ nothing that only delays.
   part held, each as the words he typed or the option text he picked together with the question it
   answered, in the language he used. Where the older part only restates a decision, his words are looked up
   where he gave them (the project's decision record, the interview file); where his words are not found,
-  point to the old line by file, line and the commit that holds it, write "words not found", and do not copy or restate that line; mark
+  point to the old line by file, line and the commit that holds it (for a file git does not track, a dated
+  copy of that older file kept beside the new plan, pointed to instead), write "words not found", and do not copy or restate that line; mark
   the point decided only when he approved the older plan that holds that line (Requests), otherwise "recommended, not decided". Where he has since typed or picked
   a change to one, his later words are written right after the older ones, with the date; where the two differ
   the later words win, and the older words stay in force for what the later ones do not change. Detail
