@@ -106,7 +106,19 @@ account holder's Apple ID, creates it under Integrate → Create Workflow.
 - Create Workflow's default starts on every push to any branch. Right after the product appears,
   `PATCH /v1/ciWorkflows/<id>` with `branchStartCondition: null` and a `manualBranchStartCondition`
   for the release branch. Otherwise every push to the repo spends compute hours on a build that fails.
-- Each app needs its own product, so each needs its own pass through Create Workflow.
+- Each app needs its own product, so each needs its own pass through Create Workflow. Quit Xcode
+  between apps (kill it over SSH and delete
+  `~/Library/Saved Application State/com.apple.dt.Xcode.savedState`). Capacitor projects all name
+  their target "App". An Xcode that has just created the product "App" reuses it for the next
+  project and moves it to the other app (2026-11-14: RetroBarber's product became Green Room's). The
+  old app's workflow is then stranded in the wrong product, and the API cannot edit it (409 "must be
+  a primary repository"). After each app, check with `GET /v1/ciProducts/<id>/app` that every
+  product points at its own bundle id.
+- The nested Xephyr window has no clipboard link to the host, so the owner types the VNC password
+  by hand.
+- The App Store Connect API can do everything after the product exists: change a workflow's
+  project, branch, start condition or `isEnabled` (`PATCH /v1/ciWorkflows/<id>`), or add a workflow
+  (`POST /v1/ciWorkflows`). Only the environment variables need App Store Connect's web page.
 - The web half runs in `ci_scripts/ci_post_clone.sh` next to each `.xcodeproj`. Its client keys come
   from the workflow's environment variables, which the owner pastes. Adding `ci_scripts` changes the
   iOS runtime, because it is a tracked file under the native project. Start Xcode Cloud's build number
