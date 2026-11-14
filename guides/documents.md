@@ -20,9 +20,9 @@ nothing that only delays.
   where he gave them (the project's decision record, the interview file, the conversation in which he typed or
   picked them, among others); where they are not found, point to the old line by file, line and the commit that
   holds it (for a file git does not track, a dated copy of that older file kept beside the new plan, pointed to
-  instead), write "words not found", and do not copy or restate that line. The point counts as decided when he
-  approved the older plan that holds that line (Requests); otherwise it goes to him as a question, never dropped
-  and never marked as his. Where he has since typed or picked
+  instead), write "words not found", and do not copy or restate that line. Such a point counts as decided only
+  when he approved the older plan that holds that line; otherwise it is handled as Requests says for a point
+  nobody decided, never dropped and never marked as his. Where he has since typed or picked
   a change to one, his later words are written right after the older ones, with the date; where the two differ
   the later words win, and the older words stay in force for what the later ones do not change. Detail
   that an agent derives from a decision is written outside the quote, as the agent's.
