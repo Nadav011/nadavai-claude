@@ -6,9 +6,11 @@ level: 3
 
 > **nadavai preface.** Copied from oh-my-claudecode (see `../VENDORED.md`). It applies to agent-facing text being
 > written new (a new rule line, guide, skill or brief), in `~/nadavai` and in projects. On existing rule, guide and
-> skill text it does not license rewording: there, move or delete only, and Nadav's dated decisions and the
-> approval-gate lines stay as written (`rules/nadavai.md`). The document process (size, one place per fact, the
-> review round) is in `~/nadavai/guides/documents.md`.
+> skill text it applies only to the lines the task adds or changes. Every other sentence stays as written; stale or
+> redundant ones found on the way are named in the report, and moving or deleting them is a change of its own, made
+> when the task asks for it. Nadav's dated decisions and the approval-gate lines stay as written in every case
+> (`rules/nadavai.md`). The document process (size, one place per fact, the review round) is in
+> `~/nadavai/guides/documents.md`.
 
 # Agent Doc Discipline
 

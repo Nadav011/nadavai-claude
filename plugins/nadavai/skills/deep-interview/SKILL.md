@@ -14,8 +14,9 @@ argument-hint: "[--frontier] <idea or vague description>"
 > - The interview state lives in `.omc/interviews/{slug}/state.json` in the project; with no project (the folder
 >   is not a git repo), in `~/.omc/interviews/{slug}/state.json`, and the spec goes to `~/.omc/specs/`.
 > - The interview ends when the spec is written: report its path. If he asked for the work to be built (in the
->   request, or by ending the interview with "build it" or "just do it"), building goes on from the spec under
->   `rules/working-style.md` (Requests: the spec does not wait for his approval). If it started from an idea or a
+>   request, or by ending the interview with "build it" or "just do it"), building goes on from the spec, completed
+>   first to a full spec as Requests defines it (every state and edge case, the PostHog events, each acceptance line
+>   with its check), under `rules/working-style.md` (Requests: the spec does not wait for his approval). If it started from an idea or a
 >   question, building starts when he says to build. This skill hands off to no other skill.
 
 <Purpose>
@@ -67,7 +68,7 @@ Inspired by the [Ouroboros project](https://github.com/Q00/ouroboros) which demo
 
 ## Phase 1: Initialize
 
-0. **Resume an open interview first**: read each `state.json` under the project's `.omc/interviews/` (with no project: `~/.omc/interviews/`). If one has `"active": true` and the skill ran with no idea or with the same idea as its `topic`, continue it from its last completed round instead of starting over (the most recently updated, if several), and say in one line which one (`slug` and `topic`). Otherwise start a new interview below.
+0. **Resume an open interview first**: read each `state.json` under the project's `.omc/interviews/` (with no project: `~/.omc/interviews/`). If one has `"active": true` and no idea was given (in the arguments or in the request that started the skill) and the state was updated in the last 7 days, or the idea given is the same as its `topic`, continue it from its last completed round instead of starting over (the most recently updated, if several), and say in one line which one (`slug` and `topic`). Otherwise start a new interview below.
 1. **Parse the user's idea** from `$ARGUMENTS`
 2. **Detect brownfield vs greenfield**:
    - Check directly (`git rev-parse --show-toplevel`, `ls`): does cwd have existing source code, package files, or git history
@@ -525,10 +526,9 @@ System: "Current ambiguity is 35% (threshold: 20%). Areas still unclear:
   - Success Criteria: 0.5 (How do we verify the search ranking algorithm works correctly?)
   - Constraints: 0.6 (No performance targets defined yet)
 
-Proceeding may require rework. Continue anyway?"
-  [Yes, proceed] [Ask 2-3 more questions] [Cancel]
+Writing the spec now, with these gaps listed as open."
 ```
-Why good: Respects user's desire to stop but transparently shows the risk.
+Why good: Respects the user's decision to stop, and states the risk once.
 </Good>
 
 <Good>
@@ -598,7 +598,7 @@ Why bad: 45% ambiguity means nearly half the requirements are unclear. The mathe
 - [ ] Challenge agents activated at correct thresholds (round 4, 6, 8)
 - [ ] Spec file written to `.omc/specs/deep-interview-{slug}.md` exactly; ephemeral artifacts stayed under `.omc/interviews/{slug}/`
 - [ ] Spec includes: topology, goal, constraints, acceptance criteria, clarity breakdown, transcript
-- [ ] Spec path reported and the next step taken as the preface's last bullet says; no other skill invoked
+- [ ] Spec path reported, and the next step taken as the preface's last bullet says; the interview itself invoked no other skill
 - [ ] Brownfield confirmation questions cite repo evidence (file/path/pattern) before asking the user to decide
 - [ ] Scope-fuzzy tasks can trigger ontology-style questioning to stabilize the core entity before feature elaboration
 - [ ] With `--frontier`, rounds ask the whole settled frontier (batched ≤4 per AskUserQuestion call), facts dispatched to subagents, and the loop ends only on an empty frontier
