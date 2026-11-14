@@ -7,7 +7,12 @@
 #   orca-update --check       exit 0 = up to date, 10 = a newer release exists
 #   orca-update --build-only  build the package and notify, install nothing (the daily timer)
 #   orca-update --restart     restart Orca at the end (closes every agent session running in it)
+#   orca-update --install-pending  install a package the timer already built, only while Orca is
+#                             not running; no network, no build (orca-start runs this before Orca)
 # Installing replaces /opt/Orca under the running app, so restart Orca soon after.
+# The PKGBUILD writes resources/package-type "rpm": no rpm tool exists here, so Orca's own updater
+# treats this copy as managed by the system and shows the new version without its Update button,
+# which could only fail (it installs a .deb with dpkg).
 set -euo pipefail
 
 PK=${ORCA_PKGBUILD_DIR:-$HOME/.local/share/pkgbuilds/orca-ide}
@@ -21,7 +26,8 @@ for a in "$@"; do
     --check) mode=check ;;
     --build-only) mode=build ;;
     --restart) restart=1 ;;
-    -h|--help) sed -n '2,10p' "$SELF"; exit 0 ;;
+    --install-pending) mode=pending ;;
+    -h|--help) sed -n '2,15p' "$SELF"; exit 0 ;;
     *) echo "orca-update: unknown option $a" >&2; exit 2 ;;
   esac
 done
@@ -47,7 +53,63 @@ restart_orca() {
   echo "[orca-update] Orca is restarting in the background (closes, then opens again)"
 }
 
+# Two records, either is enough: the runtime file Orca writes, and Electron's single-instance lock
+# (a symlink to "<host>-<pid>"). The PTY daemon outlives the window, so a process search cannot tell.
+orca_running() {
+  local pid lock
+  pid=$(jq -r '.pid // empty' "$HOME/.config/orca/orca-runtime.json" 2>/dev/null || true)
+  if [ -n "$pid" ] && grep -aq orca-ide "/proc/$pid/cmdline" 2>/dev/null; then return 0; fi
+  lock=$(readlink "$HOME/.config/orca/SingletonLock" 2>/dev/null || true)
+  pid=${lock##*-}
+  [[ $pid =~ ^[0-9]+$ ]] && grep -aq orca-ide "/proc/$pid/cmdline" 2>/dev/null
+}
+
+# Keep the two newest packages and downloads; each is ~200 MB.
+prune_old() {
+  for pat in 'orca-ide-*-x86_64.pkg.tar.zst' 'orca-ide_*_amd64.deb'; do
+    find "$PK" -maxdepth 1 -name "$pat" -printf '%T@ %p\n' | sort -rn | tail -n +3 | cut -d' ' -f2- |
+      while read -r old; do rm -f -- "${old:?}"; done
+  done
+}
+
+install_pkg() {
+  local pkg=$1
+  # The .path unit that re-applies the patch is stopped while we install; orca-rtl-apply also takes
+  # a lock, so a run of that unit already under way finishes before the explicit apply below.
+  systemctl --user stop orca-rtl-reapply.path 2>/dev/null || true
+  trap 'systemctl --user start orca-rtl-reapply.path 2>/dev/null || true' EXIT
+  sudo -n pacman -U --noconfirm "$pkg"
+  "$APPLY"
+  ELECTRON_RUN_AS_NODE=1 /opt/Orca/orca-ide "$RTL/verify-serve.cjs" /opt/Orca/resources/app.asar
+}
+
 installed=$(pacman -Q orca-ide | awk '{print $2}'); installed=${installed%-*}
+
+if [ "$mode" = pending ]; then
+  if orca_running; then echo "[orca-update] Orca is running; nothing installed"; exit 0; fi
+  pkg="" best=$installed
+  for f in "$PK"/orca-ide-*-x86_64.pkg.tar.zst; do
+    [ -f "$f" ] || continue
+    v=${f##*/orca-ide-}; v=${v%-*-x86_64.pkg.tar.zst}
+    if [ "$(vercmp "$v" "$best")" -gt 0 ] && zstd -tq "$f" 2>/dev/null; then pkg=$f best=$v; fi
+  done
+  if [ -z "$pkg" ]; then echo "[orca-update] nothing pending (installed $installed)"; exit 0; fi
+  exec 9>"$PK/.lock"
+  # A build or a second start holds the lock: start Orca now and install on a later start.
+  if ! flock -w 10 9; then echo "[orca-update] busy; starting without installing"; exit 0; fi
+  # Checked again under the lock: a second click may have waited here while the first one installed
+  # and started Orca.
+  if orca_running; then echo "[orca-update] Orca is running; nothing installed"; exit 0; fi
+  now=$(pacman -Q orca-ide | awk '{print $2}'); now=${now%-*}
+  if [ "$(vercmp "$best" "$now")" -le 0 ]; then echo "[orca-update] already installed: $now"; exit 0; fi
+  echo "[orca-update] installing $best before Orca starts"
+  notify-send -a Orca "מעדכן את Orca ל־$best" "Orca ייפתח בעוד כמה שניות" 2>/dev/null || true
+  install_pkg "$pkg"
+  prune_old
+  echo "[orca-update] installed $(pacman -Q orca-ide)"
+  exit 0
+fi
+
 latest="" sha=""
 { read -r latest || true; read -r sha || true; } < <("$PK/latest")
 if ! [[ $latest =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && $sha =~ ^[a-f0-9]{64}$ ]]; then
@@ -84,23 +146,12 @@ fi
 zstd -tq "$pkg"
 echo "[orca-update] package ready: $pkg"
 if [ "$mode" = build ]; then
-  notify-send -a Orca "Orca $latest מוכן להתקנה" "להתקנה: orca-update (הוא סוגר ופותח את Orca)" 2>/dev/null || true
+  notify-send -a Orca "Orca $latest מוכן" "הוא יותקן לבד בפעם הבאה שתסגור ותפתח את Orca" 2>/dev/null || true
   exit 0
 fi
 
-# The .path unit that re-applies the patch is stopped while we install; orca-rtl-apply also takes
-# a lock, so a run of that unit already under way finishes before the explicit apply below.
-systemctl --user stop orca-rtl-reapply.path 2>/dev/null || true
-trap 'systemctl --user start orca-rtl-reapply.path 2>/dev/null || true' EXIT
-sudo pacman -U --noconfirm "$pkg"
-"$APPLY"
-ELECTRON_RUN_AS_NODE=1 /opt/Orca/orca-ide "$RTL/verify-serve.cjs" /opt/Orca/resources/app.asar
-
-# Keep the two newest packages and downloads; each is ~200 MB.
-for pat in 'orca-ide-*-x86_64.pkg.tar.zst' 'orca-ide_*_amd64.deb'; do
-  find "$PK" -maxdepth 1 -name "$pat" -printf '%T@ %p\n' | sort -rn | tail -n +3 | cut -d' ' -f2- |
-    while read -r old; do rm -f -- "${old:?}"; done
-done
+install_pkg "$pkg"
+prune_old
 
 echo "[orca-update] installed $(pacman -Q orca-ide). Orca keeps running the old version, and the phone keeps the old bundle, until Orca is quit completely and started again."
 if [ "$restart" = 1 ]; then restart_orca; else echo "[orca-update] to finish: orca-update --restart"; fi

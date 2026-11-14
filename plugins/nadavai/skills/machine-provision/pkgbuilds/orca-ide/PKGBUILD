@@ -17,6 +17,9 @@ package() {
   bsdtar -xf "orca-ide_${pkgver}_amd64.deb"
   bsdtar -xf data.tar.* -C "$pkgdir"
   chmod 4755 "$pkgdir/opt/Orca/chrome-sandbox" 2>/dev/null || true
+  # "rpm" with no rpm tool on this system = Orca shows updates as managed by the system and has no
+  # Update button (its own updater can only fail here; orca-update installs instead).
+  printf rpm > "$pkgdir/opt/Orca/resources/package-type"
   install -d "$pkgdir/usr/local/bin"
   [ -e "$pkgdir/usr/local/bin/orca" ] || ln -s /opt/Orca/resources/bin/orca-ide "$pkgdir/usr/local/bin/orca"
 }

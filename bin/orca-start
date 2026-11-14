@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# orca-start: start Orca. When Orca is not running yet and the daily orca-update timer has already
+# built a newer release, install it first, so a new version arrives on the next start by itself
+# (Nadav, 2026-11-14: updates automatic, he restarts Orca himself). The menu entry and the login
+# autostart both run this (~/.local/share/applications/orca-ide.desktop, ~/.config/autostart/).
+# A failed install never blocks the start: Orca opens on the version that is still installed.
+set -u -o pipefail
+if ! "$HOME/.local/bin/orca-update" --install-pending 2>&1 | systemd-cat -t orca-start; then
+  # Either pacman failed (the old version stays) or the RTL patch or its check failed after the new
+  # version went in (Hebrew may read left to right until orca-rtl-apply is fixed).
+  notify-send -a Orca "בעיה בעדכון Orca" "Orca נפתח, אבל ייתכן שהעברית בטרמינל הפוכה. פירוט: journalctl --user -t orca-start" 2>/dev/null || true
+fi
+if [ ! -x /opt/Orca/orca-ide ]; then
+  notify-send -u critical -a Orca "Orca לא נפתח" "ההתקנה נקטעה באמצע. להשלמה: orca-update" 2>/dev/null || true
+  exit 1
+fi
+exec /opt/Orca/orca-ide "$@"

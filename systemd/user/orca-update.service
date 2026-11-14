@@ -1,5 +1,5 @@
 [Unit]
-Description=Build the newest Orca release package (installs nothing; run orca-update to install)
+Description=Build the newest Orca release package (orca-start installs it on the next Orca start)
 
 [Service]
 Type=oneshot

@@ -84,6 +84,10 @@ one; pacman `rust` is fine), `socket` vs `@socketsecurity/cli` under pnpm 12 (in
   (`mv /opt/Orca /opt/Orca.pre-pkg`, delete it after the app was restarted), never
   `--overwrite '*'`. Updating an app that is running finishes only on its next restart.
   After an Orca install, run `orca-rtl-apply` only if the target has nadavai.
+  With nadavai, Orca updates itself on its next start: link `bin/orca-start` and `bin/orca-update`
+  into `~/.local/bin`, enable `orca-update.timer` (it only builds), and point `Exec=` of
+  `~/.local/share/applications/orca-ide.desktop` (a copy of the system one) and of
+  `~/.config/autostart/orca-ide.desktop` at `~/.local/bin/orca-start`.
 - Codex Desktop: `github.com/ilysenko/codex-desktop-linux`, `make bootstrap-native` (pacman
   package plus `codex-update-manager`), or copy the built package from the source.
 - Claude Desktop: the `claude-desktop` package in the cachyos repo (signed), not a copied
