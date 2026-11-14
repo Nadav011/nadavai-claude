@@ -155,6 +155,14 @@ Chrome refuses passwords and can be blocked by a password manager's overlay.
   check that the bundle's `base/res/mipmap-*/ic_launcher*.png` show the listing icon (`unzip` the AAB
   and look at the images). Google may refuse a kept agent-browser profile's login ("This browser or
   app may not be secure"); `--profile Default` (a copy of Nadav's signed-in Chrome) then gets in.
+- **A 200 page is the listing, not the newest release.** With managed publishing on, an approved
+  production release waits under "השינויים מוכנים לפרסום" in the Publishing overview while the API
+  says `completed` and the page still serves the older version (Cash 1.2.0, 2026-11-14: Google had
+  approved it, store-status said live, the store session knew it waited for Nadav's yes). Before saying
+  a Play update is out, open the Publishing overview: an empty list and "פורסם לאחרונה בתאריך <today>"
+  is proof. Pressing "פרסום שינוי …" and then "פרסם שינויים" there is the public release (Nadav's yes);
+  with managed publishing off, "שליחת N שינויים לבדיקה" publishes the moment Google approves, so it
+  is the same gate (SporChat's TWA, 2026-11-14, held three such unsent changes).
 - **A reviewers' code must open the app in one step.** Cash's code, typed in the store app, redirected to a separate demo
   origin, which showed its own lock and asked again; the iPad reviewer read the second lock as a refused sign-in and rejected
   under 2.1 (2026-11-13). Carry the unlock with the redirect (Cash: `#review=<code>` that only the demo build accepts), and

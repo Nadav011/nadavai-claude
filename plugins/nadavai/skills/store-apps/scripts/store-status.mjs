@@ -5,6 +5,10 @@
 // public Play page opens. Why both: "Ready for Distribution" with no territories is off sale, and a
 // Play production release with status "completed" can still be in Google's review, so only the
 // public page counts as live (found 2026-11-09: 3 of 6 Play packages said completed with a 404 page).
+// A 200 page proves the listing is public, not that the newest release is: under managed publishing an
+// approved release waits for "Publish" in the Publishing overview while the API already says completed
+// and the page still serves the older version (Cash 1.2.0, 2026-11-14), and a production edit that was
+// never sent for review also reads completed (SporChat). So the line names the release as unconfirmed.
 // Play package = the iOS bundle id unless the config (--config, default ~/.config/nadavai/store-apps.json)
 // maps it, e.g.
 //   { "apps": { "app.sporchat.ios": { "play": "app.sporchat.twa" } }, "playOnly": ["com.example.app"] }
@@ -99,7 +103,7 @@ for (const r of rows) {
   r.play = {
     pkg: r.play.pkg, page, public: page === 200,
     state: prod.error ? `NO PLAY APP (${prod.error})` : !prod.release ? 'NO PRODUCTION RELEASE'
-      : page === 200 && prod.release.status === 'completed' ? `LIVE ${prod.release.name}`
+      : page === 200 && prod.release.status === 'completed' ? `LISTED; production ${prod.release.name} completed (published or held for Publish: see Publishing overview)`
       : prod.release.status === 'draft' ? `DRAFT ${prod.release.name}`
       : `PENDING: release ${prod.release.status}, public page ${page} ${prod.release.name}`,
   };
