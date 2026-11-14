@@ -33,8 +33,8 @@ Nadav typed this to see what he can run. Print the table below as it is, in Hebr
 | תשמור את זה לתמיד | `/nadavai:my-save` |
 | תעלה הכול ל-MAIN ולדומיין | `/nadavai:my-ship` |
 | איפה הולכים הטוקנים והכסף? | `/nadavai:my-cost` |
-| תביא חוות דעת שנייה ממודל אחר | `/nadavai:my-second` |
 | למה זה קרה, ושלא יקרה שוב | `/nadavai:my-never` |
+| תביא חוות דעת שנייה ממודל אחר | `/nadavai:my-second` |
 | דילגת על מה ששאלתי | `/nadavai:my-missed` |
 | איבדתי את הכול: מה נסגר, מה נשאר, איזה סבב | `/nadavai:my-map` |
 

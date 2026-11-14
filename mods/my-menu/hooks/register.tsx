@@ -48,8 +48,8 @@ const ORDER = [
   'save',
   'ship',
   'cost',
-  'second',
   'never',
+  'second',
   'missed',
   'map',
 ]
