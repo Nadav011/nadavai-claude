@@ -13,8 +13,9 @@ without the screen runs step 4's consent checks with its screen task (step 5).
 2. "Not for this project": add `PostHog: not used (<reason>)` under the MANUAL section of CLAUDE.md
    and commit. Done.
 3. "Connect": one PostHog project per app in the EU region, named after the repo, created through
-   the PostHog MCP. Then the plugin's `instrument-product-analytics` and `instrument-error-tracking`
-   skills with these defaults, which are not optional: keys only in `.env` (for Next:
+   the PostHog MCP. Then PostHog's `instrument-product-analytics` and `instrument-error-tracking`
+   skills (the PostHog plugin is off in Claude Code since 2026-11-14, so read each at
+   `~/.claude/plugins/marketplaces/posthog/skills/<name>/SKILL.md`) with these defaults, which are not optional: keys only in `.env` (for Next:
    `NEXT_PUBLIC_POSTHOG_KEY`, `NEXT_PUBLIC_POSTHOG_HOST=https://eu.i.posthog.com`; the framework's
    equivalent otherwise), never committed; session replay, where it is on (off in the clinic
    app, step 5), with every input and all text masked (`maskAllInputs: true`,
