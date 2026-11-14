@@ -18,7 +18,7 @@ What a from-zero run is, what it records and how its first units are measured: t
 The app is built from zero by the landed process: `built-once.md`, `standalone-demo-to-app.md` for a standalone demo
 (MediZen, the social studio), the modes. A run keeps two records, each beside that project's build plan and committed
 with it (MediZen: the redesign output repo `Nadav011/medizen-redesign`; the social studio: `~/social/spec/v5/` beside
-`08-build-plan.md`; SHIFTS: beside its build plan, `~/Projects/mexicani-shifts/docs/plan/`, below):
+`08-build-plan.md`; SHIFTS: the stuck log only, in the build session's own repo, below):
 - **`STUCK-LOG.md`**: every instruction of the skill that could not be followed, was ambiguous, contradicted another
   or cost far more than its step is worth: its file and line, what happened, what the agent did instead, time lost. A
   fault also goes where «Where a fault goes» says.
@@ -246,17 +246,21 @@ SHIFTS is already being built, and this file changes nothing in its plan [I]. It
 plan's own record and `STATUS.md` beside it; later drafts carry their own closing checks), and the build session
 builds from it in `~/Projects/shifts-app`, where units have landed on main. No unit of that plan is added, reordered
 or gated anew by this file. Its demo lives inside the app's repo (`~/Projects/mexicani-shifts`, branch
-`design/direction-and-demo`: 134 files under `src/demo` at `9300c90`, none on `main`), so there is nothing to copy
-and no look route to choose; it is not a standalone demo, so `standalone-demo-to-app.md` does not apply, except
-«Whose decision a differing behaviour is», which binds every from-zero run (above). What this file adds to SHIFTS's
-run is two things: the stuck log, kept beside the plan and reported as above, and that rule on behaviour. Unit 0 and
-the component gate reach SHIFTS only if a round of its own plan adopts them (the demo side would then be `src/demo`
-at the plan's tag); a change to a plan he approved is that plan's round, and goes to him where it changes what he
-approved.
+`design/direction-and-demo`: 134 files under `src/demo` at `9300c90`, none on `main`), so there is nothing to copy and
+no look route to choose; it is not a standalone demo, so `standalone-demo-to-app.md` does not apply, except «Whose
+decision a differing behaviour is», which binds every from-zero run (above). What this file adds to SHIFTS's run is
+two things: the stuck log, kept by the build session in its own repo (`~/Projects/shifts-app`, at a path that session
+names; the plan's folder is the planning session's and is not in git) and reported as above, and that rule on
+behaviour. Unit 0 and the component gate reach SHIFTS only if a round of its own plan adopts them (the demo side would
+then be `src/demo` at the plan's tag); a change to a plan he approved is that plan's round, and goes to him where it
+changes what he approved. His pick of 14.11 named SHIFTS among the three projects, and this section gives SHIFTS
+almost none of the new method; whether its plan adopts unit 0 and the gate is his to decide and was put to him on
+14.11.2026. Until he answers, the approved plan stands as it is [I].
 
 ## When a whole run pauses
 
 Provisional [I]. A run pauses and comes to Nadav with both records when unit A's off check fails twice (a fix round or
 a second mechanism included), three converted parts in a row fall back to hand, or the stuck log shows the same
-instruction failing in two projects. Nothing here becomes a rule by passing: a route Nadav decides from the records
-needs a new reviewed change.
+instruction failing in two projects. A pause never stops SHIFTS's build, which follows its approved plan: there the
+same finding is reported to its sessions and to Nadav. Nothing here becomes a rule by passing: a route Nadav decides
+from the records needs a new reviewed change.
