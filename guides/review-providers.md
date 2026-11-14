@@ -14,9 +14,11 @@ Read before running `omc ask` for a review. Which provider a review gets, and ho
   raw output before counting its answer.
 - `omc ask` starts Codex, Grok and Antigravity with their approvals off, so every review prompt says "read-only"
   explicitly.
-- A provider known to be out of quota (a reset date in memory that has not passed, or a failed try in this
-  session) is skipped without another try, and when one cannot run (quota, not installed, error, timeout), use
-  another in its place.
+- A provider known to be out of quota is skipped without another try: read `~/.cache/nadavai/provider-quota`
+  before `omc ask` (one line per provider: its `omc ask` name, the time it is out until, what was seen and by
+  whom), and write or replace its line when a provider answers a quota error. The file is per machine and is
+  shared by every session and Orca profile on it, which a memory is not. When a provider cannot run (quota,
+  not installed, error, timeout), use another in its place.
 - A fresh Opus is a new `nadavai:reviewer` subagent with `model: opus` (`rules/model-routing.md`).
 - From a subagent or a Workflow agent, start `omc ask` with `run_in_background` and wait in slices of at most
   140 s (`rules/model-routing.md`, Waiting), then read its artifact.
