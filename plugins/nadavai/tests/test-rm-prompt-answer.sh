@@ -34,6 +34,9 @@ check "bypass, Monitor command"           deny   "$(req bypassPermissions Monito
 check "bypass, no removal word"           deny   "$(req bypassPermissions Bash 'bash -c "$script"')" "Write tool"
 check "bypass, word that only contains rm" deny  "$(req bypassPermissions Bash 'npm run format')" "Write tool"
 check "never an allow"                    deny   "$(req bypassPermissions Bash 'rm -rf /tmp/x')"
+check "computed path: compute first"      deny   "$(req bypassPermissions Bash 'D=$(pwd); rm -rf "$D"')" "in a second command"
+check "no way around through a file"      deny   "$(req bypassPermissions Bash "$RMV")" "Do not move the removal into a script file"
+check "mounted drive is named"            deny   "$(req bypassPermissions Bash 'rm -rf /run/media/u/USB/build')" "mounted drive"
 check "default mode: the person answers"  silent "$(req default Bash "$RMV")"
 check "acceptEdits mode"                  silent "$(req acceptEdits Bash "$RMV")"
 check "auto mode"                         silent "$(req auto Bash "$RMV")"
@@ -48,9 +51,28 @@ out=$(printf '%s' "$(req bypassPermissions Bash "$RMV")" | bash "$HOOK")
 if [ "$(jq -r '.hookSpecificOutput.decision | has("updatedInput") or has("updatedPermissions")' <<<"$out")" = false ]; then
   echo "PASS: deny carries no input or permission change"; PASS=$((PASS+1))
 else echo "FAIL: deny carries an input or permission change"; FAIL=$((FAIL+1)); fi
-n=$(wc -l <"$XDG_CACHE_HOME/nadavai/rm-prompt-answer.log" 2>/dev/null || echo 0)
-if [ "$n" -ge 6 ]; then echo "PASS: answers are logged ($n lines)"; PASS=$((PASS+1))
+# The old recipe sent a computed removal into a script file, where nothing checks it.
+if grep -q -i 'put the removal in a script file\|run that file' <<<"$out"; then
+  echo "FAIL: the message still sends a removal into a script file"; FAIL=$((FAIL+1))
+else echo "PASS: the message does not send a removal into a script file"; PASS=$((PASS+1)); fi
+
+LOG="$XDG_CACHE_HOME/nadavai/rm-prompt-answer.log"
+n=$(wc -l <"$LOG" 2>/dev/null || echo 0)
+if [ "$n" -ge 9 ]; then echo "PASS: answers are logged ($n lines)"; PASS=$((PASS+1))
 else echo "FAIL: answers are not logged ($n lines)"; FAIL=$((FAIL+1)); fi
+# Each line: time, session, tool, which message, command length, the command's start on one line.
+printf '%s' "$(req bypassPermissions Bash $'rm -rf "$a"\nrm -rf "$b"')" | bash "$HOOK" >/dev/null
+last=$(tail -n 1 "$LOG")
+if [ "$(awk -F'\t' '{print NF}' <<<"$last")" = 6 ] && [ "$(cut -f3,4,5 <<<"$last")" = $'Bash\trm\t23' ] &&
+   [ "$(cut -f6 <<<"$last")" = 'rm -rf "$a" rm -rf "$b"' ] && [ "$(wc -l <"$LOG")" = $((n + 1)) ]; then
+  echo "PASS: a log line names the tool, the message kind, the length and the command on one line"; PASS=$((PASS+1))
+else echo "FAIL: log line format: $last"; FAIL=$((FAIL+1)); fi
+printf '%s' "$(req bypassPermissions Monitor 'npm run format')" | bash "$HOOK" >/dev/null
+if [ "$(tail -n 1 "$LOG" | cut -f3,4)" = $'Monitor\tparse' ]; then
+  echo "PASS: a command with no removal word is logged as parse"; PASS=$((PASS+1))
+else echo "FAIL: parse log line: $(tail -n 1 "$LOG")"; FAIL=$((FAIL+1)); fi
+if [ "$(stat -c %a "$LOG")" = 600 ]; then echo "PASS: the log is private"; PASS=$((PASS+1))
+else echo "FAIL: the log's mode is $(stat -c %a "$LOG")"; FAIL=$((FAIL+1)); fi
 
 echo "----"
 echo "rm prompt answer: $PASS passed, $FAIL failed"

@@ -14,10 +14,11 @@ per-round logs and lessons), `msi-thermal-diagnosis-2026-10.md`,
 
 1. **Never stop, restart or slow down a running session's work.** No reboot, no `docker restart`,
    no `swapoff` of zram, no `systemctl restart` of logind/display. Why: Nadav runs 10+ agent
-   sessions and 10-hour workflows at all times. A reboot is the one exception, and only while
-   nothing is running on the machine (no agent session, CI job, deploy or `heavy-slot` job;
-   Nadav, 2026-11-14); the Oracle servers always have something running, so they are not
-   rebooted without him.
+   sessions and 10-hour workflows at all times. A reboot is the one exception, and only while no
+   session is working on the machine (Nadav, 2026-11-14), read as `rules/working-style.md`
+   (Approval gates) reads it: no agent session other than this one, no CI job, deploy or
+   `heavy-slot` job, and nobody at its desktop. A reboot of the Oracle servers stays pending
+   until Nadav has answered that case.
 2. **Nothing needed is lost.** Delete only what is regenerable (caches, build output,
    `node_modules`, old downloads) or proven orphaned. User data, history and anything without a
    second copy goes to the archive on the other machine first (`scripts/archive.sh`), and is
@@ -30,7 +31,7 @@ per-round logs and lessons), `msi-thermal-diagnosis-2026-10.md`,
    AskUserQuestion batches of up to four questions, each option with size and evidence. Never ask
    about something that is provably regenerable or orphaned; delete it. Paid items are the
    money gate and a deletion with no way back waits for him (`rules/working-style.md`, Approval
-   gates). Firewall, SSH and auth changes run without asking and are named in the report; a
+   gates). Firewall and SSH changes run without asking and are named in the report; a
    BIOS, EC or firmware flash waits for his yes (Nadav, 2026-11-14).
 5. **Folders owned by a running session are cleaned by that session.** Find the owner with
    ListAgents (and by checking which session's cwd or recent commits live there), send it a

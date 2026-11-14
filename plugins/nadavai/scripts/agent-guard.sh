@@ -7,12 +7,14 @@
 # and it honors permissionDecision).
 #   Agent: subagent_type "fork" unless the description carries [fork]. A fork inherits
 #          the parent's model and its full context (median ~290K tokens per request).
-#   Agent: the OMC agent types that a nadavai agent replaces (executor, critic, code-reviewer,
-#          security-reviewer), with the nadavai type to start in their place. Why: the rule in
-#          model-routing.md was not what ran (week to 2026-11-14: 163 OMC executor calls against
-#          110 of nadavai:executor, about 12% of the week's usage), and the OMC executor's prompt
-#          carries no stop at money, migrations, deletion or deploys (Nadav approved closing this
-#          on 2026-11-14). Not seen: an agent a Workflow script starts.
+#   Agent (Claude Code only): the OMC agent types that a nadavai agent replaces (executor, critic,
+#          code-reviewer, security-reviewer), with the nadavai type to start in their place. Why:
+#          the rule in model-routing.md was not what ran (week to 2026-11-14: 163 OMC executor
+#          calls against 110 of nadavai:executor, about 12% of the week's usage), and the OMC
+#          executor's prompt carries no stop at money, migrations, deletion or deploys (Nadav
+#          approved closing this on 2026-11-14). Grok's spawn_subagent is left alone: Grok has
+#          OMC's agents and not nadavai's, so the deny could not be followed there. Not seen: an
+#          agent a Workflow script starts, and the tmux workers of the `omc team` CLI.
 #   Bash:  a sleep of 120 s or more in the foreground. It blocks the agent; long local
 #          commands go to run_in_background, CI waits to ci-wait.
 #   Bash (Claude Code subagents only: the hook input carries agent_id and no turn_id): a
@@ -46,10 +48,11 @@
 #          denies after a timeout (154 such stops from 2026-10-15 to 2026-11-03, 61 answered by Nadav
 #          by hand). Since 2026-11-14 scripts/rm-prompt-answer.sh answers that prompt at once, so this
 #          rule is no longer what keeps a session from standing still; it stays until a week of
-#          numbers shows the hook answers every such prompt. Every target must be a literal path,
-#          start with ${NAME:?}, or start with a literal absolute path, ~/ or $HOME/ plus a fixed
-#          name before the first variable (the built-in check still stops "$HOME/${rel:?}", so the
-#          deny text recommends a literal absolute path). Denied:
+#          numbers (the hook's log) shows the hook answers every such prompt. Every target must be
+#          a literal path, start with ${NAME:?}, or start with a literal absolute path, ~/ or $HOME/
+#          plus a fixed name before the first variable. This rule allows "$HOME/${rel:?}" although
+#          the built-in check stops it (5 of the 11 stops in the week to 2026-11-14); the prompt
+#          hook answers that stop, and its text gives the rewrite. Denied:
 #          a variable as a path root ($T/*, $W/$d/.vite, "$HOME/$rel"), $(...), /, ~ or /home/<user>
 #          and their top level, a relative glob ending in a bare * after cd, and, in a command that
 #          also runs sh -c, a bare variable target. Measured on that history: 138 of the 154 stops
@@ -628,7 +631,7 @@ rm_guard() { # rm_guard <command>: denies an rm the built-in removal check may h
   found=$(printf '%s\n' "$1" | check_rm)
   [ -n "$found" ] || return 0
   kind=${found%%$'\t'*}; t=${found#*$'\t'}
-  local why="Claude Code's built-in removal check ignores bypass and auto mode and would hold this session until Nadav answers, then deny it (154 such stops in the three weeks to 2026-11-03)."
+  local why="Claude Code's built-in removal check ignores bypass and auto mode and stops a command like this one (154 such stops in the three weeks to 2026-11-03)."
   case "$kind" in
     wide) deny "rm '$t' removes /, a home directory or their top level. $why Name the exact directory to remove." ;;
     cdglob) deny "rm '$t' after a cd: the check reads a relative glob against the session's own directory, not the one cd moved to. $why Write the absolute path instead (rm -f /tmp/work/out/*)." ;;
@@ -1051,10 +1054,11 @@ case "$tool" in
     ;;
   Agent|spawn_subagent)
     st=$(jq -r '.tool_input.subagent_type // .toolInput.subagent_type // .toolInput.subagentType // empty' <<<"$input")
-    case "$st" in
-      oh-my-claudecode:executor|oh-my-claudecode:executor-*)
+    # Claude Code's Agent tool only: Grok (spawn_subagent) has OMC's agents and not nadavai's.
+    case "$tool:$st" in
+      Agent:oh-my-claudecode:executor|Agent:oh-my-claudecode:executor-*)
         deny 'oh-my-claudecode:executor has no stop at money, migrations, deletion, deploys or messages to people. Start nadavai:executor with the same brief (model opus for multi-file work or for those areas; rules/model-routing.md). It builds and proves the change and returns it.' ;;
-      oh-my-claudecode:critic|oh-my-claudecode:code-reviewer|oh-my-claudecode:security-reviewer)
+      Agent:oh-my-claudecode:critic|Agent:oh-my-claudecode:code-reviewer|Agent:oh-my-claudecode:security-reviewer)
         deny "A review runs on nadavai:reviewer (clean context, read-only, it verifies instead of trusting): start it with the artifact, the criteria and the file paths, not your conclusion (rules/model-routing.md). For a review that only reads, Grok through 'omc ask grok' also counts (rules/working-style.md, Second model)." ;;
     esac
     [ "$st" = fork ] || allow

@@ -154,7 +154,7 @@ Follow `references/closing.md` §2 and run `workflows/close-all.js`:
 - finders per dimension, one ledger with eight statuses, and doc-only closers
 - a dimension critic for what nobody covered: security, accessibility, performance, data migration, support, pricing, native apps, analytics, backups, operator and admin, and the other verticals
 
-Repeat stages 4-7 until the ledger has no `doc_fix` and no `needs_nadav` rows; the review stop rule bounds the repeats outside the gated areas. Every exit row is then closed, or is a named launch gate.
+Repeat stages 4-7 until the ledger has no `doc_fix` and no `needs_nadav` rows; the review stop rule bounds the repeats outside money, messages to people, data and official filings. Every exit row is then closed, or is a named launch gate.
 
 ### 8. Build plan
 - Use the `nadav-design/redesign` step 8 format: design units and behaviour units, each with its gates (`action-safety`, `go`), and `check-anchors` at 0/0.

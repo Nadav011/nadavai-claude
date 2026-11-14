@@ -51,6 +51,9 @@ check "vault login: Read"            deny  "$(readp Read /home/u/.claude/secrets
 check "vault login: Grok read_file"  deny  "$(jq -cn '{hook_event_name:"PreToolUse",toolName:"read_file",toolInput:{target_file:"/home/u/.claude/secrets/login-x.env"}}')"
 check "grok: named subagent"        allow "$(jq -cn '{toolName:"spawn_subagent",toolInput:{subagent_type:"explore",description:"d",prompt:"p"}}')"
 check "grok: fork subagent"         deny  "$(jq -cn '{toolName:"spawn_subagent",toolInput:{subagent_type:"fork",description:"d",prompt:"p"}}')"
+# Grok has OMC's agents and not nadavai's, so the routing deny would name an agent it cannot start.
+check "grok: omc executor stays"    allow "$(jq -cn '{toolName:"spawn_subagent",toolInput:{subagent_type:"oh-my-claudecode:executor",description:"d",prompt:"p"}}')"
+check "grok: omc critic stays"      allow "$(jq -cn '{toolName:"spawn_subagent",toolInput:{subagent_type:"oh-my-claudecode:critic",description:"d",prompt:"p"}}')"
 check "genlink: QA email"             allow "$(bashc 'curl -s -X POST "$B/auth/v1/admin/generate_link" -d "{\"type\":\"magiclink\",\"email\":\"qa-batch0722-x@therapyflow.test\"}"')"
 check "genlink: client email"         deny  "$(bashc 'curl -s -X POST "$B/auth/v1/admin/generate_link" -d "{\"type\":\"magiclink\",\"email\":\"shai@gmail.com\"}"')"
 check "genlink: QA plus client"       deny  "$(bashc 'node -e "admin.generateLink" ; curl $B/auth/v1/admin/generate_link -d qa@therapyflow.test -d x@gmail.com')"
@@ -513,14 +516,16 @@ sib_use() { jq -cn --arg id "$1" --arg mid "$2" --arg ts "$(iso "$3")" '{type:"a
 {
   sib_use t1 m1 200; sib_use t2 m1 199          # a turn that began 200 s ago
   sib_use t3 m2 5; sib_use t4 m2 4              # a turn that began 5 s ago
-  sib_use t5 m3 150                             # 150 s ago
+  # 140 s ago: 10 s under the 290 s limit with the 140 s wait below. At exactly 150 s the case
+  # failed whenever a second passed between this fixture and its check.
+  sib_use t5 m3 140
 } >"$SIB/main/subagents/workflows/wf_x/agent-a1.jsonl"
 sibc() { jq -cn --arg c "$1" --argjson t "$2" --arg id "$3" --arg tp "$SIB/main.jsonl" '{agent_id:"a1",session_id:"s",transcript_path:$tp,tool_use_id:$id,cwd:"/tmp",hook_event_name:"PreToolUse",tool_name:"Bash",tool_input:({command:$c} + (if $t == null then {} else {timeout:$t} end))}'; }
 check "subagent: a 175 s wait in a turn 200 s old" deny "$(sibc 'timeout 170 tail --pid=2 -f /dev/null' 175000 t2)"
 check "subagent: a 60 s call in a turn 200 s old" allow "$(sibc 'pnpm exec vitest related a.ts' 60000 t2)"
 check "subagent: no timeout (120 s) in a turn 200 s old" deny "$(sibc 'timeout 110 tail --pid=2 -f /dev/null' null t2)"
 check "subagent: a 175 s wait in a turn 5 s old" allow "$(sibc 'timeout 170 tail --pid=4 -f /dev/null' 175000 t4)"
-check "subagent: a 140 s wait in a turn 150 s old" allow "$(sibc 'timeout 130 tail --pid=5 -f /dev/null' 140000 t5)"
+check "subagent: a 140 s wait in a turn 140 s old" allow "$(sibc 'timeout 130 tail --pid=5 -f /dev/null' 140000 t5)"
 check "subagent: long-call escape in an old turn" allow "$(sibc 'timeout 170 tail --pid=2 -f /dev/null # long-call: one wait' 175000 t2)"
 check "subagent: call not in the transcript yet" allow "$(sibc 'timeout 170 tail --pid=9 -f /dev/null' 175000 t9)"
 # A plain call from a session under .claude/worktrees: "worktree" in the cwd must not send it down the slow path.

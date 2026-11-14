@@ -311,7 +311,7 @@ block "failed units"
 echo
 if   [ -s "$F/pending" ]; then echo "RESULT: PENDING items above (fix them, then run again)"; return 1
 elif [ -s "$F/unknown" ]; then echo "RESULT: NOT VERIFIED: some checks failed, nothing is proven for them"; return 2
-elif [ -s "$F/reboot" ];  then echo "RESULT: current, but a reboot/restart is needed to finish (reboot without asking once no session is running on this machine, and say so; never while one runs)"; return 3
+elif [ -s "$F/reboot" ];  then echo "RESULT: current, but a reboot/restart is needed to finish (reboot without asking once no other agent session, CI job, deploy or heavy-slot job runs on this machine and nobody is at its desktop, and say so; until then it stays pending)"; return 3
 fi
 echo "RESULT: everything current"
 }

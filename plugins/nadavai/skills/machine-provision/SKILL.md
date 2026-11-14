@@ -14,7 +14,8 @@ hold the last run's decisions and what was intentionally left out.
    prints `ok` for every section (or each remaining line is an intended difference in the ignore
    file), and `machine-checkup/scripts/update-audit.sh` ends with `RESULT: everything current` on
    the target. On the source, fix only PENDING lines that need no restart; its REBOOT lines (and
-   any update of an app that is running there) go to Nadav, because rule 3 forbids acting on them.
+   any update of an app that is running there) stay pending and are listed for Nadav in the
+   report, because rule 3 forbids interrupting the source.
    A run without a `RESULT:` line did not finish. Why: on 2026-11-03 "done" was claimed four
    times; each new diff found more.
 2. **Nadav decides the scope.** Ask once (AskUserQuestion, multiSelect), by category, after the
@@ -27,7 +28,8 @@ hold the last run's decisions and what was intentionally left out.
    runners, dagu) is never touched without him: another session owns it.
 3. **Never interrupt the source.** No reboot, no restart of Orca, Chrome or Docker there. Ask him
    to close Chrome for the profile copy. Reboot the target without asking while nothing else
-   is running on it (`rules/working-style.md`, Approval gates); otherwise when he says so.
+   is running on it and nobody is at its desktop (`rules/working-style.md`, Approval gates);
+   otherwise the reboot stays pending and is named in the report.
 4. **Logins follow `references/logins.md`**: static and Google tokens may be copied, rotating
    refresh tokens get a fresh login on the target, WhatsApp never. Secrets are never printed.
 5. **Hardware-specific items stay hardware-specific**: host tuning (`legion-power-limits`,

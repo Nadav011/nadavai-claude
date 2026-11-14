@@ -4,6 +4,8 @@
 Counts the Stop-hook re-asks of hebrew-guard and candor-guard, and PreToolUse denials whose text
 start "PreToolUse:<tool> hook error:" (agent-guard, hebrew-guard's dialog check, OMC). Each one costs a full-context request, so a rising count
 is a cost even when the guard is right. One copy per session id (Orca profiles link the same files).
+"guard-rm" is the part of pretool-deny that is agent-guard's removal rule. Below the table: what the
+removal-prompt hook answered (its own log, ~/.cache/nadavai/rm-prompt-answer.log), per day and kind.
 """
 import glob, json, os, re, sys, time
 from collections import defaultdict
@@ -17,6 +19,7 @@ KINDS = [
     ("hebrew", re.compile(r"written in English|note\(s\) you showed Nadav")),
     ("candor", re.compile(r"praise or agreement before evidence")),
     ("pretool-deny", re.compile(r"^PreToolUse:\w+ hook error:")),
+    ("guard-rm", re.compile(r"^PreToolUse:\w+ hook error:.*built-in removal check")),
 ]
 
 for f in glob.glob(os.path.expanduser("~/.claude/projects/*/*.jsonl")):
@@ -46,10 +49,30 @@ for f in glob.glob(os.path.expanduser("~/.claude/projects/*/*.jsonl")):
                 if not t:
                     continue
                 for name, rx in KINDS:
-                    if (name != "pretool-deny" and t.startswith("Stop hook") and rx.search(t)) or \
-                       (name == "pretool-deny" and rx.search(t)):
+                    if (name in ("hebrew", "candor") and t.startswith("Stop hook") and rx.search(t)) or \
+                       (name in ("pretool-deny", "guard-rm") and rx.search(t)):
                         count[day][name] += 1
 
 print(f"{'day':10} " + " ".join(f"{k:>12}" for k, _ in KINDS))
 for d in sorted(count):
     print(f"{d:10} " + " ".join(f"{count[d][k]:>12}" for k, _ in KINDS))
+
+# The removal-prompt hook's own log: time, session, tool, kind (rm | parse), command length, command start.
+log = os.path.join(os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache"), "nadavai", "rm-prompt-answer.log")
+answers = defaultdict(lambda: defaultdict(int))
+heads = defaultdict(int)
+if os.path.exists(log):
+    with open(log, errors="ignore") as fh:
+        for line in fh:
+            parts = line.rstrip("\n").split("\t")
+            if not re.match(r"\d{4}-\d\d-\d\dT", parts[0]) or parts[0] < cutoff:
+                continue
+            kind = parts[3] if len(parts) > 3 else "?"
+            answers[parts[0][:10]][kind] += 1
+            if len(parts) > 5:
+                heads[(kind, parts[5][:70])] += 1
+print("\nremoval prompts answered by the hook (" + (log if os.path.exists(log) else "no log yet") + ")")
+for d in sorted(answers):
+    print(f"{d:10} " + " ".join(f"{k} {n}" for k, n in sorted(answers[d].items())))
+for (kind, head), n in sorted(heads.items(), key=lambda x: -x[1])[:8]:
+    print(f"  {n:4} {kind:5} {head}")
