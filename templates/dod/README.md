@@ -535,6 +535,12 @@ What the network cut does not stop, or the result does not report:
   was not measured.
 - Name lookups (DNS) after the cut were not observed: review 7's page that looks up names that do not
   resolve sent nothing to the server, and what a lookup itself sends was not measured.
+- A page whose network never stays quiet for 500 ms (measured: a request every 100 ms from the load
+  on; also a page that starts a SharedWorker, as said above) is not checked: it fails the run by
+  timeout. `settle` waits for the network to go idle with no limit of its own (Playwright Test's
+  navigation timeout is 0), so the scored test runs out its 120 s before it writes its result; the
+  route is then "NOT measured" and scores 0, the run exits with the scored phase's failure, and its
+  extended test, finding no scored result, returns without checking anything.
 - A project whose pages load only through a proxy of its own: the run's context connects directly
   through the kit's proxy, so its pages do not load as the scored phase saw them.
 - Measured on Playwright 1.64.1's Chromium over http and ws, and over https and wss with a
