@@ -214,7 +214,7 @@ tagged, the build plan is approved, and only then does a build session start, wi
 - **Screens.** Built in the app's preview from those components, as point 2 says; each screen the tagged demo drew is
   compared with it as point 3 says (`modes/screen.md` step 8b), and a screen it did not draw is designed in the
   preview.
-- **What judges a screen of the app against the tag.** Only the verifier of step 8b, by eye, which the rule calls the
+- **What judges a screen of the app against the tag.** Only the reviewer of step 8b, by eye, which the rule calls the
   weaker check. The identity check of part A compares two runs of one page; it does not compare the app with the demo,
   and nothing in this skill or in that repo does so by machine.
 
