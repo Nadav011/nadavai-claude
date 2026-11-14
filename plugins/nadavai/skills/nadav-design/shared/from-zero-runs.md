@@ -83,10 +83,11 @@ by the gate and the look-over below, not by the route, so the route with fewest 
   tools/local/component-family-nocap.mjs <class>` (it finds `proto/` from its own path), `:is(` contexts expanded by
   hand (at `c001527`: `.pbtn` 64 contexts, among them `.tp-inv .pbtn`, `v2.html`:2207; `.fld` 31; `.ev` 12). Before
   rerunning the gate, the unit's reviewer runs that command at the tag itself, same expansion, and matches its list
-  against the measurer's: a variant on the reviewer's list and not on the measurer's is an open item. The cut-over
-  unit's reviewer checks the run's completeness line against the sum of those lists. With no inventory, the demo's
-  components page stands in. Every variant maps to an app variant with a passed gate, to an open item holding
-  cut-over, or to Nadav's merge or drop in DECISIONS-ANSWERED.md; one with none at cut-over fails the run.
+  against the measurer's: a variant on the reviewer's list and not on the measurer's is an open item. Where the demo
+  has no such command, the reviewer lists the variants on its own from the demo's source. The cut-over unit's reviewer
+  checks the run's completeness line against the sum of those lists. With no inventory, the demo's components page
+  stands in. Every variant maps to an app variant with a passed gate, to an open item holding cut-over, or to Nadav's
+  merge or drop in DECISIONS-ANSWERED.md; one with none at cut-over fails the run.
 
 ## The first three component units (MediZen)
 
@@ -144,14 +145,18 @@ done** the build goes on only with units that do not depend on it (on unit A: no
 Not built yet: the first unit of the first run, written where «Where the tools live» says by a measurer who builds no
 measured unit (Playwright 1.60.0, runs through `heavy-slot --`). A gate reading counts only from an instrument commit
 an independent code review approved against the planted list below, every case reported (off reads too); a later run
-reuses that commit. A missed difference joins that list by a reviewed change of this file (the only way a case leaves
-it), and the instrument is fixed and approved again against the whole list. The measurer who fixed it names in
-`LOOK-RECORD.md` every already-passed unit the fix can affect (all of them, when unsure); each named unit counts as
-not done, and no screen using it cuts over, until its reviewer's rerun on the newly approved commit reads zero.
-
-**Contract.**
-- **Inputs.** Other repos only as `git archive <sha> | tar -x` exports after a fetch; never `worktree add`,
-  `checkout`, `switch`, `pull`, `stash`, `reset`, `clean` or edit in any other checkout. Each sha is recorded first.
+reuses the latest approved commit. A difference both missed joins the planted list or the look-over's (above) by a
+reviewed change of this file, the only way a list changes; that change's reviewer picks the list (what a
+computed-style, box or pixel reading can tell is a planted case; the rest, a look-over item) and checks the units
+named below. A planted case gets the instrument fixed and approved again on the whole list. Either way the measurer
+names in `LOOK-RECORD.md` every passed unit it can affect (all of them, when unsure); each counts as not done, and no
+screen using it cuts over, until its reviewer (or a fresh one) reruns it on the newly approved commit at zero or, for
+a look-over item, passes that item's look-over. A named unit already on a live screen is rechecked first in the order
+of work; a difference there is a fault on a live screen: the miss goes where «Where a fault goes» (`built-once.md`)
+sends a tool's fault, the fix lands as a new unit under the gate and approval gates, and the run's next report tells
+Nadav which live screens it affected and what a user would have seen. Nothing rolls back by itself. **Contract.**
+- **Inputs.** Other repos only as `git archive <sha>` exports after a fetch; never `worktree add`, `checkout`, `pull`,
+  `stash`, `reset`, `clean` or edit in another checkout. Each sha goes into `LOOK-RECORD.md` first.
 - **What is compared.** The demo at its tag against the component as the app's preview renders it (not any of its
   files). Before the builder starts, the measurer writes from the tagged demo alone, per variant, a demo-side recipe
   (the specimen element, and the classes, attributes, context, state or input that draw it) and a pair list (each
@@ -242,14 +247,12 @@ which binds every from-zero run (above). It has no build plan and no INVENTORY.m
 `modes/redesign.md` step 2 (INVENTORY.md, STORY.md, from the demo in the app) and writes the build plan of step 8
 before any build unit. Then: the stuck log, behaviour logic written once apart from the screen (`built-once.md`, «An
 app is built once», point 6), and each screen's INVENTORY.md row checked item by item (`modes/screen.md`, step 8b).
-Its component units pass the same gate, the demo side `src/demo` at the tagged commit (mostly the app's own `ui/`
-parts, so the gate falls mainly on demo-local ones such as `src/demo/shell/parts.tsx`).
+Its component units pass the same gate, the demo side `src/demo` at the tag of its step 6, named in its build plan
+(mostly the app's own `ui/` parts, so the gate falls mainly on demo-local ones such as `src/demo/shell/parts.tsx`).
 
 ## When a whole run pauses
 
-Provisional [I]. A run pauses and comes to Nadav with both records when any of these holds:
-1. Unit A's off check fails twice (a fix round or a second mechanism included).
-2. Three converted parts in a row fall back to hand.
-3. The stuck log shows the same instruction failing in two projects.
-
-Nothing here becomes a rule by passing: a route Nadav decides from the records needs a new reviewed change.
+Provisional [I]. A run pauses and comes to Nadav with both records when unit A's off check fails twice (a fix round or
+a second mechanism included), three converted parts in a row fall back to hand, or the stuck log shows the same
+instruction failing in two projects. Nothing here becomes a rule by passing: a route Nadav decides from the records
+needs a new reviewed change.
