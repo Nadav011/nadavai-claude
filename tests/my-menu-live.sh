@@ -148,4 +148,6 @@ fi
 
 ok "the box is empty at the end"                 '! plain | grep -q "^❯./"'
 echo "PASS: $PASS  FAIL: $FAIL"
-[ "$FAIL" -eq 0 ]
+[ "$FAIL" -eq 0 ] || exit 1
+# The Claude Code version this passed on: update.sh names a newer one until this runs on it.
+mkdir -p "$HOME/.cache/nadavai" && claude --version 2>/dev/null | head -1 > "$HOME/.cache/nadavai/my-menu-live.passed"

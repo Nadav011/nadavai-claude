@@ -99,6 +99,16 @@ bash "$REPO/tests/prompt-store.sh" >/dev/null 2>&1 \
 # The menu is a mod on an early-access API: a Claude Code release can stop it loading.
 bash "$REPO/tests/my-menu.sh" >/dev/null 2>&1 \
   || warn "prompt menu: the Ctrl+P menu or its key did not pass; run tests/my-menu.sh (/nadavai:my still works)"
+# The list leans on parts of Claude Code that are early access (the focus of the band above the
+# prompt). tests/my-menu-live.sh checks them in a real terminal and notes the Claude Code version it
+# passed on, so a version that came since is named here until the check is run on it.
+if command -v claude >/dev/null 2>&1; then
+  menu_now=$(claude --version 2>/dev/null | head -1)
+  menu_seen=$(cat "$HOME/.cache/nadavai/my-menu-live.passed" 2>/dev/null || true)
+  if [ -n "$menu_now" ] && [ "$menu_seen" != "$menu_now" ]; then
+    warn "prompt menu: not checked in a real terminal on Claude Code ${menu_now%% *} (last pass: ${menu_seen:-never}); run tests/my-menu-live.sh"
+  fi
+fi
 mirror_rules_to_codex
 mirror_to_antigravity
 mirror_guard_to_grok

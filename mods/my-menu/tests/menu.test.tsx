@@ -66,7 +66,7 @@ type Command = { name: string; description: string; source: (typeof COMMANDS)[nu
 
 // What `/my-menu` typed by hand answers.
 const HOW =
-  'הרשימה נפתחת ב-Ctrl+P (או Ctrl+X ואז Tab). חצים למעלה ולמטה בוחרים, ימינה ושמאלה מחליפים קבוצה, Enter מכניס את הפרומט לתיבה, Esc סוגר.'
+  'הרשימה נפתחת ב-Ctrl+P. חצים למעלה ולמטה בוחרים, ימינה ושמאלה מחליפים קבוצה, Enter מכניס את הפרומט לתיבה, Esc סוגר. אם לחצת Ctrl+P וקיבלת את השורה הזאת, המקש עוד לא עודכן במחשב הזה: Ctrl+X ואז Tab פותחים את הרשימה, וסוכן יכול לעדכן את המקש עם update.sh של nadavai.'
 const LATE = 'הבחירה התעכבה ולא נכנסה לתיבה. אפשר לבחור שוב.'
 
 // `/my-menu` as his Enter runs it, with what he typed after it.

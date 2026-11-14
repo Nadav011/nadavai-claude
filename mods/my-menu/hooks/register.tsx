@@ -106,9 +106,12 @@ const TITLE = 'הפרומטים שלי'
 const HINT =
   'חצים למעלה ולמטה בוחרים · ימינה ושמאלה מחליפים קבוצה · Enter מכניס לתיבה · Esc סוגר'
 const SHORT_HINT = '↑↓ בחירה · ←→ קבוצה · Enter · Esc'
-// What `/my-menu` typed by hand answers: the list opens only on the key.
+// What `/my-menu` answers: the list opens only on the key. It is typed by
+// hand, or it is what Ctrl+P still runs where the installer kept an earlier
+// binding of the key (lib/keybind.mjs names those cases), so it also says
+// what to do when the key itself brought this line.
 const HOW =
-  'הרשימה נפתחת ב-Ctrl+P (או Ctrl+X ואז Tab). חצים למעלה ולמטה בוחרים, ימינה ושמאלה מחליפים קבוצה, Enter מכניס את הפרומט לתיבה, Esc סוגר.'
+  'הרשימה נפתחת ב-Ctrl+P. חצים למעלה ולמטה בוחרים, ימינה ושמאלה מחליפים קבוצה, Enter מכניס את הפרומט לתיבה, Esc סוגר. אם לחצת Ctrl+P וקיבלת את השורה הזאת, המקש עוד לא עודכן במחשב הזה: Ctrl+X ואז Tab פותחים את הרשימה, וסוכן יכול לעדכן את המקש עם update.sh של nadavai.'
 // The focus ring's stops: the list of the page on screen, and the two beside it.
 const listKey = (at: number): string => `list:${at}`
 const BEFORE = 'before'

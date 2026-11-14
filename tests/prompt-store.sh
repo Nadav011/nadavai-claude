@@ -116,7 +116,8 @@ my-agents ListAgents
 my-method ListAgents
 my-method AskUserQuestion
 my-method code.claude.com/docs/en/best-practices
-my-method בלי כפילויות
+my-method without doubles
+my-method Review rounds converge
 my-ship production-change.md
 LITERALS
 # The line those three prompts look for is written by the tool: the two sides stay in step.
