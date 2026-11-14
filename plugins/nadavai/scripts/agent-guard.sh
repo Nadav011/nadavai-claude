@@ -1064,7 +1064,7 @@ case "$tool" in
       Agent:oh-my-claudecode:executor|Agent:oh-my-claudecode:executor-*)
         deny 'oh-my-claudecode:executor has no stop at money, migrations, deletion, deploys or messages to people. Start nadavai:executor with the same brief (model opus for multi-file work or for those areas; rules/model-routing.md). It builds and proves the change and returns it.' ;;
       Agent:oh-my-claudecode:critic|Agent:oh-my-claudecode:code-reviewer|Agent:oh-my-claudecode:security-reviewer)
-        deny "A review runs on nadavai:reviewer (clean context, read-only, it verifies instead of trusting): start it with the artifact, the criteria and the file paths, not your conclusion (rules/model-routing.md). For a review that only reads, Grok through 'omc ask grok' also counts (rules/working-style.md, Second model)." ;;
+        deny "A review runs on nadavai:reviewer (clean context, read-only, it verifies instead of trusting): start it with the artifact, the criteria and the file paths, not your conclusion (rules/model-routing.md). For a review that only reads, another vendor's model through 'omc ask' is the default (Argon first; rules/working-style.md, Second model, 'Which model reviews what')." ;;
     esac
     [ "$st" = fork ] || allow
     [[ $(jq -r '.tool_input.description // .toolInput.description // empty' <<<"$input") == *"[fork]"* ]] && allow

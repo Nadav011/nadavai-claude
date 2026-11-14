@@ -60,7 +60,7 @@ Measures: what we count after launch, with an ESTIMATE label when it is a target
 ## Rounds
 1. A pre-mortem by a second model on the domain split.
 2. One writer per domain.
-3. A fresh Opus critic per domain, which returns REVISE or APPROVE with findings.
+3. One critic per domain, chosen as `rules/working-style.md` (Second model, "Which model reviews what") says, which returns REVISE or APPROVE with findings.
 4. A reviser applies every finding.
 5. Recount `00-INDEX.md` and `GAPS.md`.
 

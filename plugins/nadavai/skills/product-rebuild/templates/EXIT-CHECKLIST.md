@@ -33,6 +33,6 @@ Each row is written `- [ ] <ID> <what> · evidence: <path or commit>`. A row is 
 
 ## Plan
 - [ ] P1 Build plan: Phase 0 spikes, units with gates, a calibrated estimate
-- [ ] P2 Second-model pre-mortem and fresh-Opus APPROVE recorded
+- [ ] P2 The build plan's one pre-mortem recorded (reviewer as `rules/working-style.md`, Second model, "Which model reviews what", names it), its faults fixed and checked by the same reviewer, the plan frozen
 - [ ] P3 `Status: OWNER-APPROVED answer <N> commit <sha>`
 - [ ] P4 Outside-approvals register: lead times, gated features, signer and entity; owner-time line; dated stop rule
