@@ -15,7 +15,7 @@ dir="${NADAVAI_SECRETS_DIR:-$HOME/.claude/secrets}"
 key=""
 for f in "$dir/posthog.env" "$dir/greenroom-posthog.env"; do
   [ -r "$f" ] || continue
-  key=$(sed -n 's/^\(export  *\)\{0,1\}POSTHOG_PERSONAL_API_KEY=//p' "$f" | head -n 1 | sed 's/[[:space:]]#.*$//' | tr -d "\"'\r ")
+  key=$(sed -n 's/^\(export  *\)\{0,1\}POSTHOG_PERSONAL_API_KEY=//p' "$f" | head -n 1 | sed -e 's/[[:space:]]#.*$//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' | tr -d "\"'\r")
   [ -n "$key" ] && break
 done
 # A PostHog personal key is phx_ followed by letters and digits; anything else is not sent.

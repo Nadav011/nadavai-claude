@@ -6,10 +6,12 @@ metadata:
   author: wondelai
   version: "1.0.0"
 ---
-> **nadavai preface.** Copied from wondelai/skills (see `../VENDORED.md`). The six phase skills this file names
-> (lean-analytics, cro-methodology, storybrand-messaging, hundred-million-offers, influence-psychology,
-> design-everyday-things) are not installed here and are not to be installed: never run `npx skills add`. Each
-> phase carries its method inline, so run the phase from this file. The decisions it asks "the user" are
+> **nadavai preface.** Copied from wondelai/skills (see `../VENDORED.md`). Of the skills this file names, only
+> `ux-heuristics` and `microinteractions` are in nadavai. The others (the six phase skills lean-analytics,
+> cro-methodology, storybrand-messaging, hundred-million-offers, influence-psychology, design-everyday-things; the
+> optional scorecard-marketing and hooked-ux; and the pointers to create-website, improve-website, improve-app,
+> grow-website) are not installed here and are not to be installed: never run `npx skills add`. Each phase carries
+> its method inline, so run the phase from this file. The decisions it asks "the user" are
 > Nadav's (`rules/working-style.md`, Requests), and what it writes goes in the project's `docs/` folder.
 
 
@@ -229,7 +231,7 @@ the new control; losers become learnings written down.
 | scorecard-marketing | the flow needs a lower-commitment entry — a quiz or assessment as the transitional conversion | Extends docs/WEBSITE.md `## Lead Capture` |
 | hooked-ux | the conversion sticks but the next visit doesn't — post-conversion activation is the real leak | Extends docs/PRODUCT.md `## Hook Model` |
 
-Optional phases follow the same operating rules — load and use each listed skill exactly as a core phase would; insert where the Add-when condition first becomes true. They carry no inline Brief: standalone, run ux-heuristics as a severity-rated pass over Nielsen's 10 heuristics, microinteractions as a trigger/rules/feedback/loops inventory, scorecard-marketing as a quiz-funnel design ending in a personalized result, and hooked-ux as a trigger → action → variable reward → investment loop audit — or install the named skill for its full framework.
+Optional phases follow the same operating rules — load and use each listed skill exactly as a core phase would; insert where the Add-when condition first becomes true. They carry no inline Brief: standalone, run ux-heuristics as a severity-rated pass over Nielsen's 10 heuristics, microinteractions as a trigger/rules/feedback/loops inventory, scorecard-marketing as a quiz-funnel design ending in a personalized result, and hooked-ux as a trigger → action → variable reward → investment loop audit (ux-heuristics and microinteractions are in nadavai; the other two are not installed here and are not to be installed: run them from this paragraph).
 
 ## Common Mistakes
 

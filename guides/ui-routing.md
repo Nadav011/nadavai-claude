@@ -3,7 +3,7 @@
 Moved from `rules/working-style.md` on 2026-11-07 to cut always-loaded context; the summary there
 points here. Read this before choosing a UI, UX or product skill.
 
-- Unclear problem, audience, or whether to build at all: intent agent ember (`/intent:strategize`, `/intent:investigate`). product-innovation frameworks are citable references, not the owner.
+- Unclear problem, audience, or whether to build at all: intent agent ember (`/intent:strategize`, `/intent:investigate`).
 - Flows, information architecture, wireframes, and new interface copy: intent agent wren (`/intent:journey`, `/intent:organize`, `/intent:wireframe`, `/intent:articulate`).
 - Reviewing an existing screen whose code is in the repo ("go over it", "what should I fix", "what is wrong"): `/interfaces:better-interface` (it dispatches to the better-* skills itself; never call a better-* skill as the entry point). Reviewing a diff: `/interfaces:interface-review`, which only Nadav can start (he types it); without him, run `/interfaces:better-interface` on the changed screens. A design with no code yet: intent agent vigil (`/intent:evaluate`).
 - Building, restyling, or fixing a screen's visual design in code, after a review named the problems: impeccable (`polish`, `harden`, `clarify`, `adapt`, `layout`, `typeset`; `critique` only when Nadav asks for it by name, or when the nadav-design skill names it in a step: audit step 3 and screen step 3); never `craft`, `bolder`, `overdrive` or `delight` on an existing app, because they swap its own look for the generic Impeccable look. Motion, mobile feel, copy fixes and accessibility have their own owners below and win over this line. OMC designer only when impeccable is unavailable.

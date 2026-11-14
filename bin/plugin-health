@@ -21,7 +21,9 @@ and every file listed in config/routed-skill-files.txt: skills of a plugin that 
 a guide or a skill of ours reads by path from the marketplace's folder, so a marketplace update
 that renames one would break the route without a word;
 and, without --static, what `claude mcp list` reports for every server: connected, waiting for
-a sign-in, or failed. A server on the settings' deny list is skipped.
+a sign-in, or failed. A server on the settings' deny list is skipped. While the encrypted vault is
+locked (after a reboot, until Nadav opens it), a server that waits for a sign-in is printed as a
+note and not counted, so the daily notification does not fire every morning.
 
 The config folder is $CLAUDE_CONFIG_DIR, or ~/.claude. State for --notify is kept in
 ~/.local/state/nadavai/plugin-health.txt.
@@ -176,6 +178,12 @@ def routed_files():
     return broken
 
 
+def vault_locked():
+    """The LENOVO's encrypted vault (rules/acting-on-behalf.md): the store exists and is not mounted."""
+    home = os.path.expanduser("~/.claude")
+    return os.path.isdir(os.path.join(home, "secrets.gocryptfs")) and not os.path.ismount(os.path.join(home, "secrets"))
+
+
 def live_check():
     """What `claude mcp list` says about each server. Returns (broken lines, servers seen)."""
     exe = shutil.which("claude")
@@ -198,8 +206,15 @@ def live_check():
         server, status = m.group(1), m.group(2).strip()
         if "Connected" in status:
             continue
-        what = "waits for a sign-in" if "auth" in status.lower() else f"did not connect ({status.lstrip('✗✘!⚠ ').strip()})"
-        broken.append(f"MCP server {server} {what}")
+        if "auth" in status.lower():
+            if vault_locked():
+                # A server whose key lives in the vault waits for a sign-in until Nadav opens it.
+                # That is the expected state after every reboot, so it is said and not counted.
+                print(f"note    MCP server {server} waits for a sign-in while the vault is locked")
+                continue
+            broken.append(f"MCP server {server} waits for a sign-in")
+        else:
+            broken.append(f"MCP server {server} did not connect ({status.lstrip('✗✘!⚠ ').strip()})")
     if seen == 0:
         broken.append("live check failed: `claude mcp list` listed no server")
     return broken, seen

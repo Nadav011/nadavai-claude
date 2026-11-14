@@ -202,14 +202,31 @@ merge_settings() {
   local target="$CFG/settings.json"
   mkdir -p "$CFG"
   if [ -f "$target" ]; then mkdir -p "$BACKUP"; cp "$target" "$BACKUP/settings.json"; fi
-  node -e '
+  # A plugin that an installed copy of nadavai still lists as a dependency is not turned off by
+  # the merge either (see apply_model_policy): it keeps the value it had, or is turned on.
+  local kept
+  kept="$(NADAVAI_STILL_NEEDED="$(installed_nadavai_dependencies)" node -e '
     const fs = require("fs");
     const [base, target] = process.argv.slice(1);
     const isObj = (v) => v && typeof v === "object" && !Array.isArray(v);
     const merge = (a, b) => { for (const k of Object.keys(b)) a[k] = isObj(b[k]) ? merge(isObj(a[k]) ? a[k] : {}, b[k]) : b[k]; return a; };
     const cur = fs.existsSync(target) ? JSON.parse(fs.readFileSync(target, "utf8")) : {};
-    fs.writeFileSync(target, JSON.stringify(merge(cur, JSON.parse(fs.readFileSync(base, "utf8"))), null, 2) + "\n");
-  ' "$REPO/settings/settings.base.json" "$target"
+    const before = { ...(cur.enabledPlugins || {}) };
+    const out = merge(cur, JSON.parse(fs.readFileSync(base, "utf8")));
+    const kept = [];
+    for (const p of (process.env.NADAVAI_STILL_NEEDED || "").split(/\s+/).filter(Boolean)) {
+      if (out.enabledPlugins && out.enabledPlugins[p] === false && before[p] !== false) {
+        out.enabledPlugins[p] = true;
+        kept.push(p);
+      }
+    }
+    fs.writeFileSync(target, JSON.stringify(out, null, 2) + "\n");
+    console.log(kept.join(" "));
+  ' "$REPO/settings/settings.base.json" "$target")"
+  local p
+  for p in $kept; do
+    warn "$p stays on in $target: an installed copy of nadavai still lists it as a dependency (update that copy, then run update.sh again)"
+  done
   log "merged settings.base.json into $target"
 }
 
@@ -253,15 +270,9 @@ apply_model_policy() {
   # says: an install that did not update (the project-scope one, a pull that was skipped, a commit
   # not pushed yet) would otherwise leave nadavai, and its guards, unloaded in every session.
   needed="$(installed_nadavai_dependencies)"
-  local kept
-  kept="$(NADAVAI_STILL_NEEDED="$needed" node -e '
-    const b = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
-    const need = new Set((process.env.NADAVAI_STILL_NEEDED || "").split(/\s+/).filter(Boolean));
-    console.log(Object.entries(b.enabledPlugins || {}).filter(([p, on]) => on === false && need.has(p)).map(([p]) => p).join(" "));
-  ' "$REPO/settings/settings.base.json")"
-  for f in $kept; do
-    warn "$f stays on: an installed copy of nadavai still lists it as a dependency (update that copy, then run update.sh again)"
-  done
+  if [ -z "$needed" ] && ! command -v python3 >/dev/null 2>&1; then
+    warn "python3 is missing, so the installed copies of nadavai could not be read: no plugin is protected from being turned off"
+  fi
   for f in "$target" "$HOME/.claude/settings.json" "$HOME"/.config/orca/claude-profiles/*/home/settings.json; do
     [ -f "$f" ] || continue
     n=$((n+1))
@@ -278,7 +289,10 @@ apply_model_policy() {
       for (const k of ["model", "advisorModel", "availableModels", "deniedMcpServers"]) { if (k in b) cur[k] = b[k]; else delete cur[k]; }
       // A plugin that base turns off is turned off in each profile; plugins a profile enabled itself stay.
       for (const [p, on] of Object.entries(b.enabledPlugins || {})) {
-        if (on === false && stillNeeded.has(p)) continue;
+        if (on === false && stillNeeded.has(p)) {
+          if (cur.enabledPlugins && cur.enabledPlugins[p] === true) console.log("  " + p + " stays on in " + target + ": an installed copy of nadavai still lists it as a dependency (update that copy, then run update.sh again)");
+          continue;
+        }
         if (on === false && cur.enabledPlugins && cur.enabledPlugins[p] === true) cur.enabledPlugins[p] = false;
         // A plugin synced from the claude.ai account (<name>@synced) loads with no entry at all, so
         // base turning it off has to write the entry; a profile that set it to true itself is

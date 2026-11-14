@@ -115,6 +115,11 @@ out=$(PATH="$fake:$PATH" CLAUDE_CONFIG_DIR="$cfg" python3 -I "$here/bin/plugin-h
 ok "a server that waits for a sign-in is reported" 'grep -q "MCP server plugin:other:p waits for a sign-in" <<<"$out"'
 ok "a server that failed is reported"            'grep -q "MCP server plugin:bad:q did not connect" <<<"$out"'
 ok "a connected server is not reported"          '! grep -q "plugin:good:t" <<<"$out"'
+# While the vault is locked (the store exists, nothing is mounted on secrets), a wait for a sign-in is a note.
+lockhome="$t/lockhome"; mkdir -p "$lockhome/.claude/secrets.gocryptfs" "$lockhome/.claude/secrets"
+out=$(HOME="$lockhome" PATH="$fake:$PATH" CLAUDE_CONFIG_DIR="$cfg" python3 -I "$here/bin/plugin-health" 2>&1)
+ok "with the vault locked a sign-in wait is a note, not a fault" 'grep -q "^note    MCP server plugin:other:p waits for a sign-in while the vault is locked" <<<"$out" && ! grep -q "BROKEN  MCP server plugin:other:p" <<<"$out"'
+ok "a failed server is still a fault then"       'grep -q "BROKEN  MCP server plugin:bad:q did not connect" <<<"$out"'
 
 # Enabled but never installed, and an install folder that is gone.
 printf '%s\n' '{"enabledPlugins":{"good@m":true,"ghost@m":true}}' >"$cfg/settings.json"
@@ -153,7 +158,9 @@ ok "a value that is not a plain key is not sent" '[ "$(h)" = "{}" ] || [ "$(h | 
 printf 'export POSTHOG_PERSONAL_API_KEY=phx_exp0rt  # the key\n' >"$sec/posthog.env"
 ok "an export prefix and a trailing comment are handled" '[ "$(h | jq -r .Authorization)" = "Bearer phx_exp0rt" ]'
 ok "tracing does not print the key"             '! NADAVAI_SECRETS_DIR="$sec" sh -x "$helper" 2>&1 >/dev/null | grep -q "phx_exp0rt"'
-printf 'POSTHOG_PERSONAL_API_KEY=phx_\n' >"$sec/posthog.env"; rm -f -- "$sec/greenroom-posthog.env"
+printf 'POSTHOG_PERSONAL_API_KEY=phx_a b\n' >"$sec/posthog.env"; rm -f -- "$sec/greenroom-posthog.env"
+ok "a key with a space inside is not repaired"  '[ "$(h)" = "{}" ]'
+printf 'POSTHOG_PERSONAL_API_KEY=phx_\n' >"$sec/posthog.env"
 ok "a bare prefix is not sent"                  '[ "$(h)" = "{}" ]'
 printf 'POSTHOG_PERSONAL_API_KEY=not-a-key\n' >"$sec/posthog.env"
 ok "a value without the phx_ prefix is not sent" '[ "$(h)" = "{}" ]'
