@@ -46,13 +46,14 @@ scripts/lab-emulator.sh stop --port <port>            # as soon as the work ends
   machine runs CI; one ssh tunnel carries its ports, and `stop` ends both.
 - An AVD has to exist on the machine that runs it, and runs once at a time: a second start of the
   same AVD is refused with "use your own AVD". The MSI holds the lab's `claude-probe` (Android 16)
-  and `claude-probe-37` (Android 17), in Hebrew with MediZen 1.3.0; the LENOVO holds `claude-probe`
-  as the fallback. Create your own on the MSI with the `avdmanager` line below through
-  `ssh msi bash -s` (its login shell is fish).
+  and `claude-probe-37` (Android 17), in Hebrew with MediZen 1.3.0, and `claude-probe-play`
+  (Android 17 with Play and the lab's Google account: Play updates its WebView and installs apps
+  from public listings; spend nothing there). The LENOVO holds `claude-probe` as the
+  fallback. Create your own on the MSI with the `avdmanager` line below through `ssh msi bash -s`.
 - Prefer an Android 17 image when the question is how a screen behaves. An emulator image's WebView
   never updates itself: the Android 16 image has WebView 133 (February 2025), the Android 17 image
-  has 145, and customers' phones were on 158 on 2026-11-14. On 133 MediZen's side menu was missing
-  from the accessibility tree; on 145 it is there. Read the version with
+  has 145, the Play device had 157 and phones 158 on 2026-11-14. On 133 MediZen's side menu was
+  missing from the accessibility tree; on 145 it is there. Read the version with
   `adb -s emulator-<port> shell dumpsys webviewupdate` and name it in a visual or accessibility finding.
 - The console's auth token differs per machine, so `adb ... emu` typed here fails for an emulator
   on the MSI: send console commands with `lab-emulator.sh emu`, and stop with `stop`.
@@ -70,18 +71,17 @@ adb -s emulator-<port> wait-for-device         # then getprop sys.boot_completed
 adb -s emulator-<port> emu kill                # as soon as the work ends
 ```
 
-- Name the AVD for your task and pick an even port no line of `adb devices` uses. Write the AVD
-  name and the serial where a later turn finds them, so the emulator can be stopped without guessing.
+- Name the AVD for your task, pick an even port no line of `adb devices` uses, and write both
+  where a later turn finds them.
 - `heavy-slot -- true` only gates the start: beyond the machine's first always-admitted places it
   waits while the machine is under pressure. The
   emulator itself runs outside it, because a process inside `heavy-slot` holds one of the machine's
   always-admitted places for as long as it lives (`machine-load.md`). Stop it the moment the work
   ends.
-- After `avdmanager`, confirm the AVD is in `emulator -list-avds` before starting it.
-- Two images, two uses. `google_apis` is a userdebug build: `adb root` works, the system language can
-  be changed, and MediZen's WebView exposed its DevTools socket. `google_apis_playstore` is built
-  like a retail phone: it has the Play Store, no root and no DevTools socket for a release app. Use
-  the first for work, the second only to see what a customer's phone allows.
+- After `avdmanager`, confirm the AVD is in `emulator -list-avds`.
+- Two images, two uses. `google_apis` is a userdebug build: `adb root` works, the language can be
+  changed, and MediZen's WebView exposed its DevTools socket. `google_apis_playstore` is built like
+  a retail phone: Play Store, no root, no DevTools socket for a release app.
 - A release `.aab` becomes installable with
   `heavy-slot -- bundletool build-apks --mode=universal --bundle=app.aab --output=app.apks --ks=$HOME/.android/debug.keystore --ks-key-alias=androiddebugkey --ks-pass=pass:android --key-pass=pass:android --overwrite`,
   then `unzip -o -q app.apks universal.apk` and `adb install universal.apk`. Read the package id with
