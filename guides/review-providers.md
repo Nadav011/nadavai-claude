@@ -7,23 +7,26 @@ Read before running `omc ask` for a review. Which provider a review gets, and ho
 - Gemini 4 Argon: `omc ask antigravity` (`~/.gemini/antigravity-cli/settings.json`, set to "Gemini 4 Argon (High)"
   on 2026-11-14). `omc ask gemini` is the old CLI and fails. Its individual quota ran out on 2026-11-03 and
   2026-11-13 (a 429; the reset came about six days later on 2026-11-03 and about four hours later on
-  2026-11-13): then Grok takes the review. Google's quota is per model: on 2026-11-14 Hydrogen XHigh
+  2026-11-13): then Hydrogen XHigh takes it (below), and Grok when that is out too. Google's quota is per model: on 2026-11-14 Hydrogen XHigh
   answered while Argon was out. It was tried once that day, outside the count, on the rule change that Grok
   read as its final read: of Grok's seven faults it found five, and it found four that Grok did not
   (`~/.omc/plans/method-review-2026-11-13/baseline-2026-11-14/review34-*`). So while Argon's quota is out,
-  Hydrogen XHigh stands in for it, before Grok: `agy --model gemini-4-hydrogen-xhigh -p "<prompt>"`, run from
-  the material folder with the same `env -u` list as below. It is not behind `omc ask`: its answer is its
-  stdout, so redirect it to a file. A line in the quota file names the model that was out.
+  Hydrogen XHigh stands in for it, before Grok:
+  `timeout -k 10 900 agy --model gemini-4-hydrogen-xhigh -p "$(cat prompt.txt)" > hydrogen-out.txt`, started
+  with `run_in_background` (it can outlast a foreground call and a subagent's 140 s slice) from the material
+  folder with the same `env -u` list as below, the prompt written to `prompt.txt` in that folder and the
+  material kept in files there, not pasted into the prompt. An empty output, or one with no verdict line, is
+  not a read. In the quota file its line uses the name `agy-hydrogen-xhigh`.
 - Grok: `omc ask grok` (`~/.grok/config.toml`). It can exit 0 on a quota or balance error, so read the artifact's
   raw output before counting its answer.
 - `omc ask` starts Codex, Grok and Antigravity with their approvals off, so every review prompt says "read-only"
   explicitly.
 - Every provider review (code, a plan, a spec, a message, a filing, an operation on data) is started in a new
   folder that holds only the material under review (the diff with the changed files, copies of the code the
-  review needs, the criteria, the question), not in an app's repo or a client's folder; the one exception is
-  this config repo (below): it runs in the
-  current directory with its approvals and its sandbox off, and an app's repo holds live env files. The
-  material carries no secret, no real people's rows and no personal details. Start it with the session's
+  review needs, the criteria, the question), not in an app's repo or a client's folder, because the provider runs in its current directory with its
+  approvals and its sandbox off and an app's repo holds live env files; the one exception is this config repo
+  (below). The material carries no secret, no real people's rows and no real person's identifying details
+  (`review-rounds.md`, the final read, says what is invented). Start it with the session's
   tokens removed from its environment (the providers sign in from their own config files; tried with Grok on
   2026-11-14): `env -u GITHUB_PERSONAL_ACCESS_TOKEN -u BRIGHTDATA_API_TOKEN -u ORCA_AGENT_HOOK_TOKEN
   -u ORCA_AGENT_LAUNCH_TOKEN -u CLAUDE_CODE_MESSAGING_TOKEN omc ask ...`. These are the token names a session
@@ -45,5 +48,5 @@ Read before running `omc ask` for a review. Which provider a review gets, and ho
   Orca profile on it, which a memory is not. When a provider cannot run (quota, not installed, error,
   timeout), use another in its place.
 - A fresh Opus is a new `nadavai:reviewer` subagent with `model: opus` (`rules/model-routing.md`).
-- From a subagent or a Workflow agent, start `omc ask` with `run_in_background` and wait in slices of at most
+- From a subagent or a Workflow agent, start `omc ask` or `agy` with `run_in_background` and wait in slices of at most
   140 s (`rules/model-routing.md`, Waiting), then read its artifact.
