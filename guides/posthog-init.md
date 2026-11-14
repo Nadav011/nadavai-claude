@@ -1,7 +1,7 @@
 # PostHog for an app (after the 2026-09 setup)
 
 Applies when the SessionStart hook prints POSTHOG PENDING: a UI project whose package.json has no
-PostHog SDK and whose CLAUDE.md does not mention PostHog. That is the only state; once the SDK is in
+PostHog SDK and whose CLAUDE.md does not mention PostHog. That reminder has one state; once the SDK is in
 package.json, or CLAUDE.md says "PostHog: not used", the reminder stops.
 Steps 1 to 4 are for that state. Step 5 (notice and consent) holds for every app that has PostHog,
 new or old.
@@ -30,48 +30,75 @@ new or old.
    verify script that no chunk matches `/posthog/i`. Without that assertion the alias is one
    refactor from being silently undone.
 
-4. Verify: accept the consent screen in the real browser first (until then zero events is the
-   correct result, not a broken key); then events from the deployed app show up in PostHog live
-   events. Without that it is not done. **Verify from a real browser, never from an automated one:** PostHog drops every event
+4. Verify, from a real browser. Before the consent screen is accepted, the page sends PostHog no
+   event and no recording (the network panel shows no call to `/e/`, `/i/v0/e/` or `/s/`), and a
+   unit test of the init options asserts `opt_out_capturing_by_default: true`. Then accept the
+   screen (until then zero events is the correct result, not a broken key): events from the
+   deployed app show up in PostHog live events. Without both halves it is not done.
+   **Never from an automated browser:** PostHog drops every event
    when `navigator.webdriver` is true ("Refusing to render web experiment since the viewer is a
    likely bot" in its own debug output), so a Playwright or headless run will show a loaded SDK, a
    `/flags/` response, and zero events, and look exactly like a broken key. Nadav's own browser via
    Claude in Chrome is the check. Then add `PostHog: project <name> (EU)` to CLAUDE.md and commit.
 
-5. Notice and consent, in every app that has PostHog, store or web (Nadav, 2026-11-13, picked
-   "הסכמה בכל אפליקציה": a notice and consent screen per Apple's and Google's requirements, each
-   released piece names what is measured, recordings in the clinic app wait for a lawyer's check).
+5. Notice and consent, in every app that has PostHog (Nadav, 2026-11-13, picked "הסכמה בכל
+   אפליקציה": a notice and consent screen per Apple's and Google's requirements, each released
+   piece names what is measured, recordings in the clinic app wait for a lawyer's check). The
+   agent's reading: an app outside the stores is included, with the screen on the same model. A
+   marketing site or a demo that loads PostHog is not covered by his pick: it keeps what it has,
+   and the report names it.
    - A new app: the screen ships in the deploy that first captures (step 3). It is a screen people
      see, so it gets its spec like any feature (`working-style.md`, Requests).
-   - An app that already collects without this screen (therapy-flow-v2, MediZen's live clinic
-     app, was one on 2026-11-13): when the screen is built, and what is collected until then, is
-     not decided. It is not a bug found on the way: it is not built, and capture is not switched
-     off, inside another task. The app's session puts the question to Nadav (Requests).
-   - Mechanism (PostHog's docs, read 2026-11-13 and again 2026-11-14; read the current page before
-     coding): `opt_out_capturing_by_default: true`, `posthog.opt_in_capturing()` when the person
-     accepts, `posthog.opt_out_capturing()` when they withdraw. Control capture through this API,
-     not by loading the snippet late. A switch to withdraw stays reachable in the app.
-   - What the stores require. Apple 5.1.1: the privacy policy names the analytics tool, the
-     retention and how to withdraw, and usage data needs consent with an easy way back; 2.5.14:
-     recording what a person does needs explicit consent and a visible indication; the privacy
-     label lists the SDK's data; an app in the Kids category carries no third-party analytics.
-     Google Play: a privacy policy in the listing and in the app, the Data safety form includes
-     the SDK's data, affirmative consent comes before personal or sensitive data, and an app
-     aimed at children uses approved SDKs only. Changing the privacy label or the Data safety
-     form of a live listing is a change to a live listing: it waits for Nadav (`working-style.md`,
-     Approval gates).
-   - Decided for the clinic app: no recording at all until the lawyer's check, which costs money
-     and is asked of Nadav separately.
+   - An app that already collects without this screen. On 2026-11-14 two were found:
+     therapy-flow-v2 (MediZen's live clinic app) and snooker-smart. Nadav, 2026-11-14, picked
+     "בונים מסך עכשיו": the screen is built now, as a task of its own in each; until it ships,
+     capture stays as it is today; after it ships every existing user sees the screen once, and a
+     person who refuses is not measured. Not picked: switching capture off until the screen
+     exists, and waiting for the app's next large version. The agent's detail: the screen is never
+     built, and capture is never switched off, inside a task that is not that screen (it is
+     something new for the whole app, `working-style.md`, UI and product work), and an app found
+     later in this state gets the same: its session names it in the report and adds it here.
+   - Mechanism (PostHog's docs, https://posthog.com/docs/privacy/data-collection, read 2026-11-13
+     and again 2026-11-14; read the current page before coding):
+     `opt_out_capturing_by_default: true`, `posthog.opt_in_capturing()` when the person accepts,
+     `posthog.opt_out_capturing()` when they withdraw. Control capture through this API, not by
+     loading the snippet late. Do not add `cookieless_mode` beside the opt-out default (the same
+     page: the two together send events right away). An event the server sends about a person
+     follows that person's choice: only for someone who accepted, or not at all. A switch to
+     withdraw stays reachable in the app.
+   - What the stores require. Apple 5.1.1: the privacy policy says what data is collected and what
+     it is used for, that third parties such as the analytics tool protect it equally, the
+     retention and how to withdraw; usage data needs consent with an easy way back. Apple 2.5.14:
+     recording what a person does needs explicit consent and a visible indication. The privacy
+     label lists the SDK's data. An app in the Kids category should carry no third-party
+     analytics (Apple 1.3 allows it only in narrow cases). Google Play: a privacy policy in the
+     listing and in the app, the Data safety form includes the SDK's data, affirmative consent
+     comes before personal or sensitive data, and an app aimed only at children uses approved
+     SDKs only. On a live listing the agent prepares the privacy label and the Data safety
+     answers; publishing them is a change to a live listing and waits for Nadav
+     (`working-style.md`, Approval gates).
+   - Decided for the clinic app (therapy-flow-v2 and the MediZen build that replaces it): no
+     recording at all until the lawyer's check, which costs money and is asked of Nadav
+     separately. In therapy-flow-v2 recording is also off by his decision of 2026-10-07
+     (INC-2026-008, in that repo's CLAUDE.md: leaks found even with full masking), and a lawyer's
+     yes alone does not lift that.
+   - Applied by default, because they only keep data out (the agent's defaults, listed in the
+     report so that Nadav can reverse them): no names, diagnoses or other personal details in
+     event properties, in any app; checkout and payment pages excluded from recording, as the
+     defaults of step 3 already say for routes that show personal data.
+   - Required by a source the research cites (its rows marked R; the legal ones still need a
+     professional, as the research says), so they go into the app's spec: in the clinic app, a
+     privacy notice that names PostHog, the purposes, the recipients and the retention; in a
+     staff app, a written notice to the employees; in an online store that targets EU or UK
+     visitors, a banner or opt-in for them.
    - Recommended, not decided (the research's inferences; each is proposed to Nadav in the app's
-     spec, not applied as a rule): in the clinic app, a notice that names PostHog, the purposes,
-     the recipients and the retention, and no names or diagnoses in events; in a staff app,
-     employees told in writing, usage read in aggregate, no screen or keystroke-style recording;
-     in an online store, checkout and payment pages never recorded, and a separate banner for EU
-     or UK visitors when the store targets them.
+     spec, and nothing is refused on their strength): in a staff app, usage read in aggregate and
+     no screen or keystroke-style recording.
    - Each released piece names its one to three usage events and the question each answers, or
      says that it measures nothing and why (in its spec).
    The sources, row by row, and which points need a professional: `posthog-research-2026-11-13.md`
    beside this file. The legal points there are a recommendation, not Nadav's decision.
 
 Why: since 2026-09-16 PostHog is the single owner of usage data and errors, every production app
-should report to it, and apps like TherapyFlow carry personal data, so masking is part of setup.
+should report to it from the people who accept (step 5), and apps like TherapyFlow carry personal
+data, so masking is part of setup.
