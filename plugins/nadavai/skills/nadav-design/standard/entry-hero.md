@@ -134,10 +134,9 @@ approved page as measured; `[M: fault]` lines are faults measured on it, fixed a
   with the other ways open and an error showing, everything in the sheet can still be reached:
   on the approved page the legal links could not be (`ENTRY-E-REVIEW-1.md`, F4).
 - **Contrast is measured against the sky,** at the pixels behind each text, in every sky the
-  screen can show (each hour): 4.5:1, or 3:1 for large text. In every sky but the night's the approved
-  page failed in three places [M: fault; the ratio that 90% of the pixels behind the text meet]:
-  the white date under the glow (2.11 to 2.64, the worst), the headline's gold word (2.45 in the
-  morning, 2.98 at noon) and the 12 px day letters in a film (2.72 to 3.63).
+  screen can show (each hour): 4.5:1, or 3:1 for large text. The approved page did not meet it in
+  its morning, noon and evening skies [M: fault]; which text failed in which sky is in the
+  anatomy's contrast table.
 - The sheet may come first in the source so that Tab reaches sign-in first; the heading order
   still starts at the h1. Every `id` is unique [M: fault, a repeated one left a button dead].
 - The success moment does not hold the person back: she is in while it plays [I; the approved
