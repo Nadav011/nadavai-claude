@@ -130,7 +130,7 @@ const CASES = [
   // Sockets (review 6's B2): an open socket's message from the page, a dedicated worker, a popup, a page that
   // then leaves; a new socket. The cut closes the open ones and refuses new ones. The worker's POST is recorded.
   ["forced-colors", "save-ws-open", {}],
-  // Review 7's F1: a page that keeps writing from the load until the context closes (a POST every 600 ms, a
+  // Review 7's F1: a page that keeps writing from the load until the context closes (a POST every 1500 ms, a
   // socket reopened every 200 ms), so a cut that lifts itself after a while is met: its writes reach the
   // server before the cut, none after.
   ["forced-colors", "save-keep-writing", {}, { loadWrites: true, tried: "1+", triedSay: [/the page tried to write \(POST \/save\/keep-cut\/#\)/] }],

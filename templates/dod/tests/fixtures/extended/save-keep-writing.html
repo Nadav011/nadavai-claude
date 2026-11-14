@@ -30,9 +30,9 @@
     label.append(input);
     box.append(label);
   });
-  // Writes from the load until the context closes (review 7's F1): a POST every 600 ms (a gap over the
-  // 500 ms that the network-idle wait needs, so the page settles) and a socket reopened every 200 ms that
-  // sends when it opens. A cut that lifts itself later lets them through again. Until the first of them
+  // Writes from the load until the context closes (review 7's F1): a POST every 1500 ms (about a second
+  // more than the 500 ms the network-idle wait needs, so the page settles under load) and a socket
+  // reopened every 200 ms that sends when it opens. A cut that lifts itself later lets them through again. Until the first of them
   // fails (the cut), they say "keep-load"; after it, "keep-cut", so a run without the cut's moment (the
   // phase run) can still tell the two apart.
   let failed = false;
@@ -41,7 +41,7 @@
   setInterval(() => {
     n++;
     fetch("/save/" + label() + "/" + n, { method: "POST", body: "x" }).catch(() => { failed = true; });
-  }, 600);
+  }, 1500);
   let ws = null;
   setInterval(() => {
     if (ws) {
