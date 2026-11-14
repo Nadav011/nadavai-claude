@@ -212,8 +212,11 @@ for (t, mo), c in sorted(by.items(), key=lambda x: -x[1]['w'])[:15]:
     print(f"  {t[:46]:46} {mo.replace('claude-',''):12} {c['w']/tw*100:5.1f}%  req {c['req']:6}  avg ctx {c['ctx']//max(c['req'],1)}")
 
 print('\n== model requested in Agent calls (subagent_type / model)')
-for (st, mo), n in agent_model.most_common(12):
+pairs = agent_model.most_common()
+for (st, mo), n in pairs[:40]:
     print(f"  {n:5}  {st} / {mo}")
+if len(pairs) > 40:
+    print(f"  (+{len(pairs) - 40} more pairs, {sum(n for _, n in pairs[40:])} calls)")
 
 print('\n== tool results (chars; images are counted as base64 and overstate their tokens)')
 for n, s in tool_chars.most_common(10):

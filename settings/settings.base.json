@@ -11,7 +11,7 @@
       "effortLevel": "high"
     },
     "claude-opus-5-5": {
-      "effortLevel": "xhigh"
+      "effortLevel": "high"
     },
     "claude-sonnet-5-5": {
       "effortLevel": "xhigh"
@@ -34,7 +34,8 @@
     "POSTHOG_MCP_EXEC_GATE_DISABLE": "1",
     "CLAUDE_CODE_SUBAGENT_MODEL": "claude-sonnet-5-5",
     "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
-    "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "60"
+    "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "60",
+    "OMC_QUIET": "2"
   },
   "disableClaudeAiConnectors": true,
   "skipDangerousModePermissionPrompt": true,
