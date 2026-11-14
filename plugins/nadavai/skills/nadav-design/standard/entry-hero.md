@@ -92,6 +92,14 @@ from the composition, each of these is the app's and is never carried over:
   of 4.7 to 5.7 s, each with its own length]. Everything in a film ends before the film does: on
   the approved page one line was still moving when its film switched, which is a fault. The cycle
   moves on by itself, and a tap or a swipe moves it too.
+- **A different film first on every visit.** Someone who signs in every day does not meet the same
+  film first each time: each visit starts from the film after the one the last visit started
+  from. His decision, 14.11.2026, typed to the nadav-design session when asked what a daily
+  visitor should see:
+  "להתחיל כל פעם מסרטון אחר שלא יהיה מצב שעושים את אותו סרטון תמיד יקדם אותה" [N]
+  How [I]: the device remembers only the number of the film it started from last time (no
+  personal data, nothing sent to a server), and the film shown under reduced motion moves on the
+  same way.
 - **Every film is true of the product.** What a film shows the product doing, the product does,
   in that way (MediZen: the bot's booking waits for the therapist's approval; a declaration is
   signed by a typed name and a tick, never a drawn line). The claims are listed beside the screen:
