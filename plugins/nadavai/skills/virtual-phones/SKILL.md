@@ -29,13 +29,44 @@ a 272,000-character hierarchy. mobile-mcp refused Hebrew and works by coordinate
 ### Start your own emulator
 
 ```bash
+scripts/lab-emulator.sh where --avd <name>            # both machines' load and the choice
+scripts/lab-emulator.sh start --avd <name> --port <free even port, 5554..5584> [--locale he-IL]   # Bash timeout 600000
+scripts/lab-emulator.sh status --port <port>          # `reconnect` reopens a dead tunnel
+scripts/lab-emulator.sh emu --port <port> -- sms send 0501234567 "<text>"     # a console command
+scripts/lab-emulator.sh stop --port <port>            # as soon as the work ends
+```
+
+- The emulator usually runs on the MSI and is seen on this machine as `emulator-<port>`, so `adb`,
+  `agent-device` and the WebView forward work unchanged (Nadav, 2026-11-14). The launcher measures
+  both machines on every start and picks the MSI unless it is
+  unreachable, has no such AVD, has under 6 GB of memory available, or is over one load per core
+  while this machine is clearly lighter (a CI landing there can do that); `--on msi|here` overrides.
+  On the MSI it waits on that machine's `heavy-slot -- true` and runs the emulator as the systemd
+  user unit `lab-emulator-<port>`, at low CPU and IO weight and for at most four hours, because that
+  machine runs CI; one ssh tunnel carries its ports, and `stop` ends both.
+- An AVD has to exist on the machine that runs it, and runs once at a time: a second start of the
+  same AVD is refused with "use your own AVD". The MSI holds the lab's `claude-probe` (Android 16)
+  and `claude-probe-37` (Android 17), in Hebrew with MediZen 1.3.0; the LENOVO holds `claude-probe`
+  as the fallback. Create your own on the MSI with the `avdmanager` line below through
+  `ssh msi bash -s` (its login shell is fish).
+- Prefer an Android 17 image when the question is how a screen behaves. An emulator image's WebView
+  never updates itself: the Android 16 image has WebView 133 (February 2025), the Android 17 image
+  has 145, and customers' phones were on 158 on 2026-11-14. On 133 MediZen's side menu was missing
+  from the accessibility tree; on 145 it is there. Read the version with
+  `adb -s emulator-<port> shell dumpsys webviewupdate` and name it in a visual or accessibility finding.
+- The console's auth token differs per machine, so `adb ... emu` typed here fails for an emulator
+  on the MSI: send console commands with `lab-emulator.sh emu`, and stop with `stop`.
+
+By hand, on one machine:
+
+```bash
 ~/Android/Sdk/emulator/emulator -list-avds     # these may be other sessions' AVDs
 adb devices                                    # ports already in use
 echo no | avdmanager create avd -n <your own name> -k "system-images;android-36;google_apis;x86_64" -d pixel_7
-heavy-slot -- true                             # returns when the machine has room for one more heavy start
+heavy-slot -- true
 ~/Android/Sdk/emulator/emulator -avd <name> -port <free even port> \
-  -no-window -gpu host -no-snapshot -no-audio -no-boot-anim       # run_in_background, outside heavy-slot
-adb -s emulator-<port> wait-for-device         # then wait for getprop sys.boot_completed = 1
+  -no-window -no-snapshot -no-audio -no-boot-anim -feature -Vulkan   # in the background, outside heavy-slot; host Vulkan hung it once
+adb -s emulator-<port> wait-for-device         # then getprop sys.boot_completed = 1
 adb -s emulator-<port> emu kill                # as soon as the work ends
 ```
 
@@ -98,6 +129,8 @@ agent-device close
 
 `$D` is `adb -s emulator-<port>`. The exact lines as they were run are in
 `~/Documents/mobile-lab/android/commands.md`.
+For an emulator the launcher started on the MSI, a `$D emu <command>` line below is sent as
+`scripts/lab-emulator.sh emu --port <port> -- <command>`.
 
 | Feature | Command |
 |---|---|

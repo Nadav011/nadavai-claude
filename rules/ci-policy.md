@@ -4,7 +4,7 @@ CI is built for speed: it runs only on what changed, only when a task lands, and
 
 ## Machines
 - **Oracle VM** (`ssh nadavai-vm`, Tailscale `oracle`): the Woodpecker server at https://ci.nadavc.ai and the deploy service. It runs no repo code: it is ARM, and TherapyFlow's SQL harness is x86 only. The second Oracle VM (`ssh nadavai-svc`) runs secscan, which posts `nadavai-security`; it reads git objects and runs no repo code either. Every merge and deploy gate lives on these two VMs, so a home machine that is off blocks neither.
-- **omarchy and MSI**: the Woodpecker agents (Docker, 3 workflows each); a landing goes to whichever is free. Do not start other heavy jobs there. The MSI is also a work machine (Green Room, cash), and its sessions keep local checks scoped. omarchy also runs the nightly audits on each repo's main; timers, paths and logs are in `ci-v2/README.md`, "Machines and nightly".
+- **omarchy and MSI**: the Woodpecker agents (Docker, 3 workflows each); a landing goes to whichever is free. Do not start other heavy jobs there, except the Android lab emulator, which only `lab-emulator.sh` (`virtual-phones.md`) starts on the MSI, at low CPU and IO weight and for at most four hours (Nadav, 2026-11-14). The MSI is also a work machine (Green Room, cash), and its sessions keep local checks scoped. omarchy also runs the nightly audits on each repo's main; timers, paths and logs are in `ci-v2/README.md`, "Machines and nightly".
 - **LENOVO**: Nadav's work machine. Agents' scoped checks only; no CI.
 
 ## The rules
