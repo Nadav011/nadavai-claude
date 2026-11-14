@@ -415,6 +415,21 @@ ensure_omc() {
   rm -rf -- "${tmp:?}"
 }
 
+# The i-have-adhd plugin injects its ruleset at session start only where the file
+# .i-have-adhd-always exists in the config dir the session runs in, and every Orca profile is its
+# own config dir. Until 2026-11-14 setup.sh made the file in ~/.claude only, so sessions opened
+# from Orca never got it; Nadav picked that day "להדליק בכל הפרופילים". update.sh calls this too,
+# so a profile made later gets the file on the next update.
+enable_adhd_always() {
+  local d
+  for d in "$HOME/.claude" "$HOME"/.config/orca/claude-profiles/*/home; do
+    [ -d "$d" ] || continue
+    [ -e "$d/.i-have-adhd-always" ] && continue
+    if touch "$d/.i-have-adhd-always"; then log "i-have-adhd always-on: $d"
+    else warn "could not turn i-have-adhd always-on in $d"; fi
+  done
+}
+
 ensure_continues() {
   if ! command -v continues >/dev/null 2>&1; then
     log "installing the continues CLI (npm -g continues)"

@@ -84,8 +84,7 @@ merge_settings
 apply_machine_env
 
 step "i-have-adhd always-on"
-touch "$CFG/.i-have-adhd-always"
-log "$CFG/.i-have-adhd-always"
+enable_adhd_always
 
 step "Git hooks and global ignore"
 link_git

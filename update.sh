@@ -85,6 +85,7 @@ link_home_pyright
 link_shortcuts
 retire_duplicate_skills
 link_my_menu
+enable_adhd_always
 # The /my-* prompts lean on menu rows and bin/ tools, and no file of ours may name an
 # oh-my-claudecode skill or agent type that tests/omc-names-allow.txt does not list (the plugin is retired).
 bash "$REPO/tests/prompt-store.sh" >/dev/null 2>&1 \
