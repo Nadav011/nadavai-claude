@@ -48,6 +48,11 @@ add_marketplace nadavai "$MARKETPLACE_SOURCE"
 step "Plugins"
 # nadavai declares the plugins every machine runs as dependencies, so this one install pulls them in, enabled.
 claude plugin install nadavai@nadavai --scope user
+# On a machine that already has nadavai the install above changes nothing, and the Settings step
+# below may turn off a plugin that an old copy still lists as a dependency, which would leave
+# every session without nadavai. So refresh the marketplace and every installed copy first.
+claude plugin marketplace update nadavai
+update_nadavai_copies
 # Belt and braces: the CLI has been seen to skip dependencies whose marketplace was added in the
 # same run, so install any dependency that is still missing, one by one.
 while read -r dep; do

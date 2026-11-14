@@ -7,7 +7,6 @@
     "url": "https://github.com/Nadav011"
   },
   "allowCrossMarketplaceDependenciesOn": [
-    "omc",
     "i-have-adhd",
     "claude-plugins-official",
     "impeccable",

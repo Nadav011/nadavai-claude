@@ -72,6 +72,26 @@ plugin_installed() {
   ' "$CFG/plugins/installed_plugins.json" "$1" 2>/dev/null
 }
 
+# Bring every installed copy of nadavai to the marketplace's current commit: the user-scope copy,
+# and each project-scope one (the home folder has one), which the user-scope update does not
+# touch: on 2026-10-27 /home/nadavcohen still ran 3d8e4df while the user scope had cbea8d4.
+# setup.sh and update.sh both call it before they write settings: Claude Code does not load a
+# plugin while a dependency its installed copy lists is turned off, so a copy older than the
+# commit that dropped a dependency must be replaced before the settings turn that plugin off
+# (oh-my-claudecode, 2026-11-14). `claude plugin install` on an installed plugin changes nothing.
+update_nadavai_copies() {
+  claude plugin update nadavai@nadavai
+  local proj
+  while IFS= read -r proj; do
+    (cd "$proj" && claude plugin update nadavai@nadavai --scope project) || warn "could not update nadavai for $proj"
+  done < <(python3 -I -c '
+import json, os
+d = json.load(open(os.path.expanduser("~/.claude/plugins/installed_plugins.json")))
+for e in d.get("plugins", {}).get("nadavai@nadavai", []):
+    if e.get("scope") == "project" and os.path.isdir(e.get("projectPath", "")):
+        print(e["projectPath"])' 2>/dev/null)
+}
+
 # Refresh only an already configured Codex marketplace; never write its cache directly.
 refresh_codex_plugin() {
   if ! command -v codex >/dev/null 2>&1; then
@@ -361,18 +381,23 @@ ensure_omc() {
   # The CLI stays for `omc ask` (reviews by other vendors) and for the HUD that statusLine in
   # settings.base.json runs. The oh-my-claudecode plugin itself is retired (2026-11-14), and
   # `omc setup` cannot be pointed at $CFG without it: measured that day with omc 5.8.4, in a config
-  # dir where the plugin is off it writes seven hook events into settings.json, an OMC block into
-  # CLAUDE.md, 19 agents and 84 skills, even with --skip-hooks and --plugin-dir-mode. So it runs in
-  # a throwaway HOME and config dir, and only the HUD folder it writes there is copied over.
+  # dir where the plugin is off it writes seven hook events into settings.json and an OMC block into
+  # CLAUDE.md even with --skip-hooks and --plugin-dir-mode (without them also 19 agents and 84
+  # skills). So it runs in a throwaway HOME and config dir, and only the HUD folder it writes there
+  # is copied over.
   local tmp
   tmp=$(mktemp -d) || { warn "could not make a folder for the HUD; the HUD was not refreshed"; return 0; }
   mkdir -p "$tmp/home/.claude"
   if (cd "$tmp" && env -u CLAUDE_PLUGIN_ROOT -u OMC_PLUGIN_ROOT HOME="$tmp/home" CLAUDE_CONFIG_DIR="$tmp/home/.claude" \
         omc setup --quiet --plugin-dir-mode --skip-hooks) >/dev/null 2>&1 \
      && [ -f "$tmp/home/.claude/hud/omc-hud.mjs" ]; then
-    mkdir -p "$CFG/hud"
-    cp -R "$tmp/home/.claude/hud/." "$CFG/hud/"
-    log "HUD status line installed in $CFG/hud (omc $(omc --version 2>/dev/null | head -1))"
+    # A copy that fails (a dangling hud link, a full disk) must not stop setup.sh before the
+    # throwaway OMC install below is removed.
+    if mkdir -p "$CFG/hud" && cp -R "$tmp/home/.claude/hud/." "$CFG/hud/"; then
+      log "HUD status line installed in $CFG/hud (omc $(omc --version 2>/dev/null | head -1))"
+    else
+      warn "could not copy the HUD files into $CFG/hud; the HUD was not refreshed"
+    fi
   else
     warn "omc did not produce the HUD files; $CFG/hud left as it was"
   fi
@@ -386,7 +411,7 @@ ensure_continues() {
   fi
 }
 
-# The LSP tool and OMC lsp_* need a TypeScript language server on PATH for the
+# The LSP tool needs a TypeScript language server on PATH for the
 # "LSP before grep" rule (rules/model-routing.md). It runs from its own prefix
 # with a TypeScript 6 next to it: the server prefers the project's own
 # node_modules/typescript and falls back to that one in a worktree without
