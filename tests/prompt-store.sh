@@ -36,6 +36,8 @@ done < <(grep -o '/nadavai:my-[a-z-]*' "$menu" | sed 's#/nadavai:##' | sort -u)
 # guides/ or bin/ must be listed in tests/omc-names-allow.txt as "path | name | reason"; a listed line
 # that no longer appears fails too, so the list shrinks with the references. rules/ and settings/ are
 # not scanned yet: their OMC names change in the rules pass.
+# `.omc/` folders are left out: the plugin's hooks write session state there (ignored by git), in
+# whatever folder a session ran, and those files name its agent types.
 allow="$here/tests/omc-names-allow.txt"
 declare -A allowed=() seen=()
 if [ -f "$allow" ]; then
@@ -55,7 +57,7 @@ while read -r path name; do
   seen["$path $name"]=1
   if [ -n "${allowed["$path $name"]-}" ]; then ok
   else bad "$path names $name, which goes away with the plugin (replace it, or list it in tests/omc-names-allow.txt with the reason it stays)"; fi
-done < <(cd "$here" && grep -rnoE 'oh-my-claudecode:[A-Za-z0-9_*-]*' plugins/nadavai guides bin 2>/dev/null \
+done < <(cd "$here" && grep -rnoE --exclude-dir=.omc 'oh-my-claudecode:[A-Za-z0-9_*-]*' plugins/nadavai guides bin 2>/dev/null \
   | awk -F: '{print $1, $3 ":" $4}' | sort -u)
 for k in "${!allowed[@]}"; do
   [ -n "${seen["$k"]-}" ] && ok || bad "omc-names-allow.txt lists '$k', which no longer appears: remove that line"
