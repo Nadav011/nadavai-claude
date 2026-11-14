@@ -21,7 +21,8 @@ Read before running `omc ask` for a review. Which provider a review gets, and ho
 - Grok: `omc ask grok` (`~/.grok/config.toml`). It can exit 0 on a quota or balance error, so read the artifact's
   raw output before counting its answer.
 - `omc ask` starts Codex, Grok and Antigravity with their approvals off, so every review prompt says "read-only"
-  explicitly.
+  explicitly. An empty output, or one with no verdict line, from any provider is not a read: run the next
+  provider in its place.
 - Every provider review (code, a plan, a spec, a message, a filing, an operation on data) is started in a new
   folder that holds only the material under review (the diff with the changed files, copies of the code the
   review needs, the criteria, the question), not in an app's repo or a client's folder, because the provider runs in its current directory with its
