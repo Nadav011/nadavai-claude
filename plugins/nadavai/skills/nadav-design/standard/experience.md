@@ -4,8 +4,11 @@ What every screen Nadav ships has to do for the person using it, beyond looking 
 in the MediZen redesign ("help next to everything", the box that guides you when you did
 something wrong, the AI helper) and he made it the bar for every app: "נראות פשטות ומקסימום
 יכולות והכי נוח לשימוש". It applies to a screen being built or changed, in a new project and an
-existing one. An existing app is brought up to it by `audit`, which measures every screen against
-this file and writes the gaps into `docs/ui-audit/PLAN.md` by priority.
+existing one. A gap on a screen a task works on is closed in the same session, as
+`rules/working-style.md`, "UI and product work", first bullet, says (nadav-design `SKILL.md`, «No open
+debt, ever»). `audit` measures every screen of an existing app against this file and, since it fixes
+nothing, writes the gaps into `docs/ui-audit/PLAN.md` by priority; a PLAN item stays only for what
+cannot be closed inside the screen under work.
 
 This file is the contract. It is not a process (the modes of nadav-design are the process), not
 a visual language (each project's BRIEF.md and DESIGN.md hold that), and not the action contract
