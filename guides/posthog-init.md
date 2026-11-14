@@ -33,5 +33,30 @@ package.json, or CLAUDE.md says "PostHog: not used", the reminder stops.
    `/flags/` response, and zero events, and look exactly like a broken key. Nadav's own browser via
    Claude in Chrome is the check. Then add `PostHog: project <name> (EU)` to CLAUDE.md and commit.
 
+5. Notice and consent. Nadav picked a notice and consent screen in every app on 2026-11-13
+   ("הסכמה בכל אפליקציה"). It is a screen people see, so the app's own session builds it as a feature
+   (spec first, `working-style.md`, Requests); this step says what it has to meet.
+   - Mechanism (PostHog's docs, read 2026-11-13; read the current page before coding): start with
+     `opt_out_capturing_by_default: true`, call `posthog.opt_in_capturing()` when the person
+     accepts and `posthog.opt_out_capturing()` when they withdraw. Control capture through this
+     API, not by loading the snippet late. A switch to withdraw stays reachable in the app.
+   - A store app. Apple 5.1.1: the privacy policy names the analytics tool, the retention and how
+     to withdraw, and usage data needs consent with an easy way back; 2.5.14: recording what a
+     person does needs explicit consent and a visible indication; the privacy label lists the
+     SDK's data. Google Play: a privacy policy in the listing and in the app, the Data safety form
+     includes the SDK's data, and affirmative consent comes before personal or sensitive data.
+   - The clinic app: the notice names PostHog, the purposes, the recipients and the retention; no
+     names or diagnoses in events; no recording at all until the lawyer's check, which costs
+     money and is asked of Nadav separately.
+   - A staff app (shifts): employees are told in writing; usage is read in aggregate; no screen or
+     keystroke-style recording. The last two are an inference from the Privacy Authority's
+     remote-work paper, not a ruling.
+   - An online store: checkout and payment pages are never recorded; a banner or opt-in for EU or
+     UK visitors only when the store targets them.
+   - Each released piece names its one to three usage events and the question each answers (in
+     its spec), so that there is something to read after the release.
+   The sources, row by row, and which points need a professional: `posthog-research-2026-11-13.md`
+   beside this file. The legal points there are a recommendation, not Nadav's decision.
+
 Why: since 2026-09-16 PostHog is the single owner of usage data and errors, every production app
 should report to it, and apps like TherapyFlow carry personal data, so masking is part of setup.
