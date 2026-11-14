@@ -1,7 +1,7 @@
 ---
 name: deep-interview
 description: "Socratic deep interview with ambiguity scoring that turns a vague feature idea into a spec file. Use when a new feature idea has no anchor (no file, screen or acceptance criteria), or on 'deep interview', 'interview me', 'ask me everything', 'don't assume'."
-argument-hint: "[--frontier] <idea or vague description>"
+argument-hint: "<idea or vague description>"
 ---
 
 > **nadavai preface.** Ported from oh-my-claudecode (see `../VENDORED.md`); it runs without that plugin.
@@ -47,7 +47,7 @@ Inspired by the [Ouroboros project](https://github.com/Q00/ouroboros) which demo
 </Why_This_Exists>
 
 <Execution_Policy>
-- Default is ONE question at a time -- never batch multiple questions. The only exception is Frontier Rounds Mode (`--frontier`), which asks the whole settled frontier per round (see Frontier Rounds Mode below)
+- Default is ONE question at a time -- never batch multiple questions.
 - Word each question so that answering "yes" accepts the recommended answer -- agreement should never require saying "no" first
 - Target the WEAKEST clarity dimension with each question
 - Before Round 1 ambiguity scoring, run a one-time Round 0 topology enumeration gate that confirms the top-level component list and locks it into state
@@ -187,17 +187,6 @@ Options should include contextually relevant choices such as **Looks right**, **
 5. **Single-component pass-through:** If the user confirms one active component, Phase 2 proceeds with the existing flow while still carrying `topology.components[0]` into scoring and spec output.
 
 6. **Four-component fixture shape:** For an initial idea such as "Build an intake pipeline that ingests CSVs, normalizes records, provides a detailed reviewer UI with inline comments and approvals, and exports audit-ready reports," Round 0 should surface all four top-level components — `Ingestion`, `Normalization`, `Review UI`, and `Export` — even though `Review UI` is the one detailed component. The detailed `Review UI` component must not collapse or stand in for the less-detailed sibling components. Phase 2 must ask follow-up questions until every active component has sufficient goal/constraint/criteria clarity. Phase 4 must cover each confirmed component in `## Topology` or explicitly list a user-confirmed deferral for that component.
-
-## Frontier Rounds Mode (`--frontier`)
-
-Opt-in mode, absorbed from mattpocock/skills grilling (`--frontier` flag or explicit user request). The design tree replaces weakest-dimension targeting for the round loop; everything else (threshold gating, scoring, state, spec phases) is unchanged.
-
-- Map the interview as a **design tree**: every decision branches into the decisions that hang off it. The **frontier** is every decision whose prerequisites are already settled — the questions answerable *now* without guessing at answers not yet heard.
-- **Ask the whole frontier in one round.** `AskUserQuestion` batches up to 4 numbered questions per call; each carries its recommended answer. If the frontier exceeds 4, queue the remainder for the next call in the same round. Then wait for the user's answers before the next round.
-- A question whose answer depends on another question still open in this round belongs to a **later** round, not this one. Settled answers push the frontier outward — recompute it each round and ask again until the frontier is empty.
-- **Facts are never frontier questions.** When a frontier question needs a fact from the environment, look it up (or dispatch an `Explore` subagent with `model: haiku`) instead of asking the user. Don't block on it: a running exploration is an unsettled prerequisite — only questions downstream of it wait for the subagent to report; ask the rest of the frontier now.
-- Ambiguity scoring still runs after each round (Step 2c), over all answers received. `weakest_dimension` is still computed and recorded but does not gate which questions are asked while the mode is active.
-- The interview is done when the frontier is empty: every branch of the design tree visited, nothing left silently assumed. The user's early exit and the round limits of Step 2f end it sooner, as in the normal loop.
 
 ## Phase 2: Interview Loop
 
@@ -601,7 +590,6 @@ Why bad: 45% ambiguity means nearly half the requirements are unclear. The mathe
 - [ ] Spec path reported, and the next step taken as the preface's last bullet says; the interview itself invoked no other skill
 - [ ] Brownfield confirmation questions cite repo evidence (file/path/pattern) before asking the user to decide
 - [ ] Scope-fuzzy tasks can trigger ontology-style questioning to stabilize the core entity before feature elaboration
-- [ ] With `--frontier`, rounds ask the whole settled frontier (batched ≤4 per AskUserQuestion call), facts dispatched to subagents, and the loop ends on an empty frontier, on the user's early exit or at the round cap
 - [ ] Round 0 topology gate completed before ambiguity scoring and persisted `topology.confirmed_at`
 - [ ] Per-round ambiguity report includes Topology target/coverage and Ontology row with entity count and stability ratio
 - [ ] Multi-component interviews rotate targeting across active components when N > 1
