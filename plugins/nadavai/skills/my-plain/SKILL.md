@@ -16,5 +16,5 @@ If that is empty, explain your last reply.
 2. Write it in Hebrew, in this shape where it fits: what was (the situation), what will be (what changes), and how he will see it (what he or a user notices on the screen).
 3. Replace a name that was made up during the work (a round, a lane, a unit id) with what the thing is. Say a technical term in Hebrew words. English stays only for a name he has to copy.
 4. If something in the original was wrong or overstated, correct it here.
-5. If a decision of his was buried in the original, put it last, as one clear question.
+5. If a decision of his was buried in the original, ask it after the explanation, as one clear question in AskUserQuestion.
 6. When he asks for it short ("קצר ולעניין"), give the answer in three lines at most, and the rest only if he asks.

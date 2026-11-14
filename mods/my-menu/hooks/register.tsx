@@ -166,6 +166,9 @@ const prompts = async ($: EngineInterface): Promise<Row[]> => {
     }))
 }
 
+// What he is told when a step ran past its time and left the box alone.
+const LATE_PICK = 'הבחירה התעכבה ולא נכנסה לתיבה. אפשר לבחור שוב.'
+const LATE_CLOSE = 'הסגירה התעכבה, והמילים שהקלדת לא חזרו לתיבה:'
 const MISSING =
   'הפרומטים עוד לא נטענו בסשן הזה. מקלידים /reload-plugins ואז פותחים שוב.'
 
@@ -174,17 +177,40 @@ const MISSING =
 let isInteractive = true
 
 // One open, close or pick at a time. Two presses of the key in a row would
-// otherwise both find the list closed and both take his words. The queue
-// moves on after a step that does not settle (a call another plugin's hook
-// never answers), so one stuck step does not hold every later one.
+// otherwise both find the list closed and both take his words. A step has
+// STEP_MS from the moment it starts (a call another plugin's hook answers
+// late, or never, would otherwise hold every later step). After that the
+// queue moves on, and the late step is told so: it may no longer write to
+// the box, because the next step has begun.
 let turn: Promise<unknown> = Promise.resolve()
-const inTurn = <T,>($: EngineInterface, work: () => Promise<T>): Promise<T> => {
-  const done = turn.then(work, work)
-  // Where the clock cannot wait, the queue waits for the step itself.
-  const limit = Promise.resolve()
-    .then(() => $.clock.sleep(STEP_MS))
-    .catch(() => new Promise<void>(() => undefined))
-  turn = Promise.race([done.catch(() => undefined), limit])
+const inTurn = <T,>(
+  $: EngineInterface,
+  work: (isLate: () => boolean) => Promise<T>,
+): Promise<T> => {
+  let late = false
+  let release: () => void = () => undefined
+  const after = new Promise<void>(resolve => {
+    release = resolve
+  })
+  const step = async (): Promise<T> => {
+    // Where the clock cannot wait, the queue waits for the step itself.
+    void Promise.resolve()
+      .then(() => $.clock.sleep(STEP_MS))
+      .then(
+        () => {
+          late = true
+          release()
+        },
+        () => undefined,
+      )
+    try {
+      return await work(() => late)
+    } finally {
+      release()
+    }
+  }
+  const done = turn.then(step, step)
+  turn = after
 
   return done
 }
@@ -214,13 +240,15 @@ export const register: Register = on => {
       }
     }
 
-    return inTurn($, async () => {
+    return inTurn($, async isLate => {
       if (await read($, isOpen)) {
-        await close($)
+        await close($, isLate)
 
         return {}
       }
       const { text } = await $.prompt.read()
+      // What a late step read is old: the box and the list stay as they are.
+      if (isLate()) return {}
       if (text.trim() !== '') {
         // The words leave the box only when it could be emptied: while a
         // dialog holds the keys they stay where he typed them.
@@ -315,7 +343,7 @@ export const register: Register = on => {
               plain
               hotkey={String(index + 1)}
               onPress={() => {
-                void inTurn($, () => choose($, row.name))
+                void inTurn($, isLate => choose($, row.name, isLate))
               }}
             >
               {said}
@@ -360,8 +388,8 @@ export const register: Register = on => {
     const sent = await next(e)
     // A send while the list is closed waits for nothing.
     if (e.command?.name !== COMMAND && (await read($, isOpen))) {
-      await inTurn($, async () => {
-        if (await read($, isOpen)) await close($)
+      await inTurn($, async isLate => {
+        if (await read($, isOpen)) await close($, isLate)
       })
     }
 
@@ -370,19 +398,28 @@ export const register: Register = on => {
 }
 
 // Closes the list without a pick: the held words go back in the box. When the
-// box takes nothing (a dialog holds it) he is shown the words instead, and
-// they end here: kept, they would turn up inside a later, unrelated pick.
-const close = async ($: EngineInterface): Promise<void> => {
+// box takes nothing (a dialog holds it, the call fails, or this step ran past
+// its time) he is shown the words instead, and they end here: kept, they
+// would turn up inside a later, unrelated pick.
+const close = async ($: EngineInterface, isLate: () => boolean): Promise<void> => {
   await update($, isOpen, () => false)
   const words = await read($, held)
   if (words === '') return
   await update($, held, () => '')
-  const isBack = await $.prompt
+  // A close that ran past its time no longer writes to the box (a later step
+  // may have read it already), so his words are shown, with the true reason.
+  const back = await $.prompt
     .read()
-    .then(({ text }) => $.prompt.fill({ text: joined(text, words) }))
-    .then(back => back.isFilled)
-    .catch(() => false)
-  if (!isBack) $.ui.toast(`התיבה לא פנויה כרגע. המילים שהקלדת: ${words}`)
+    .then(({ text }) =>
+      isLate()
+        ? ('late' as const)
+        : $.prompt
+            .fill({ text: joined(text, words) })
+            .then(filled => (filled.isFilled ? ('back' as const) : ('busy' as const))),
+    )
+    .catch(() => 'busy' as const)
+  if (back === 'late') $.ui.toast(`${LATE_CLOSE} ${words}`)
+  if (back === 'busy') $.ui.toast(`התיבה לא פנויה כרגע. המילים שהקלדת: ${words}`)
 }
 
 // Puts `/<prompt> ` in the prompt box, with the words he had typed as the
@@ -390,8 +427,19 @@ const close = async ($: EngineInterface): Promise<void> => {
 // command gives up that command's name, not its words. Only a real command's
 // name is given up, whole or without its plugin (`/nadavai:my-plain`,
 // `/my-plain`): a path (`/tmp why`, `/tmp/log.txt ...`) is words.
-const choose = async ($: EngineInterface, name: string): Promise<void> => {
+const choose = async (
+  $: EngineInterface,
+  name: string,
+  isLate: () => boolean,
+): Promise<void> => {
   const { text } = await $.prompt.read()
+  // A pick that ran past its time changes nothing: the box, the held words and
+  // the list are by then as the later steps set them. He is told to pick again.
+  if (isLate()) {
+    $.ui.toast(LATE_PICK)
+
+    return
+  }
   const draft = joined(await read($, held), text)
   const first = /^\/(\S+)(?:\s+|$)/.exec(draft)
   const commands = first ? await $.command.list().catch(() => []) : []
@@ -400,10 +448,17 @@ const choose = async ($: EngineInterface, name: string): Promise<void> => {
       ? draft.slice(first[0].length)
       : draft
   const line = `/${name} ${words}`
-  const filled = await $.prompt.fill({ text: line })
-  // The held words end here either way: kept after a box that took nothing,
-  // they would turn up in a later pick. He is shown the whole line instead.
+  if (isLate()) {
+    $.ui.toast(LATE_PICK)
+
+    return
+  }
+  // From here the held words are this pick's. They end here either way: kept
+  // after a box that took nothing, they would turn up in a later pick, so he
+  // is shown the whole line instead.
   await update($, held, () => '')
-  await update($, isOpen, () => false)
+  const filled = await $.prompt.fill({ text: line }).catch(() => ({ isFilled: false }))
+  // After a fill that ran past the time, the list belongs to the later steps.
+  if (!isLate()) await update($, isOpen, () => false)
   if (!filled.isFilled) $.ui.toast(`התיבה לא פנויה כרגע. מה שבחרת: ${line}`)
 }

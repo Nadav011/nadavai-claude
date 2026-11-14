@@ -1,6 +1,6 @@
 ---
 name: my-prove
-description: "אתה בטוח? בדיקה מחדש עכשיו, ומה באמת נבדק ומה רק הנחתי."
+description: "אתה בטוח? בדיקה מחדש עכשיו, ומה באמת נבדק ומה רק ניחוש."
 argument-hint: "[על איזו טענה]"
 disable-model-invocation: true
 ---

@@ -1,6 +1,6 @@
 ---
 name: my-research
-description: "מיצינו את המחקר? לכל שאלה: נענתה עם מקור, סותרת, לא נמצאה או לא נשאלה."
+description: "מיצינו את המחקר? לכל שאלה: נענתה עם מקור, יש סתירה, לא נמצאה או לא נשאלה."
 argument-hint: "[איזה מחקר]"
 disable-model-invocation: true
 ---
@@ -23,4 +23,4 @@ If that is empty, it is the research this session did.
 5. Say which findings reached a spec, a plan or a decision, and which still sit only in a research file.
 6. Answer: exhausted or not, the count in each state, and the three questions most worth closing next, each with how long it would take.
 
-A finding that a decision rests on, and that you know only from a summary, you check again at its source. Start no new research in this turn: report first.
+A finding that a decision rests on, and that you know only from a summary, you check again at its source; that recheck is not new research. Start no new research in this turn: report first.

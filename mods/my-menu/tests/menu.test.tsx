@@ -1,5 +1,5 @@
 import type { On } from 'claude-code'
-import { expect, test } from 'claude-code/testing'
+import { expect, mock, test } from 'claude-code/testing'
 
 // The band above the prompt box, as the terminal asks this mod to draw it.
 const band = (bodyColumns = 150, maxRows = 14, hasSurvey = false) =>
@@ -61,22 +61,55 @@ type Box = {
   isFree: boolean
   // Every toast shown.
   toasts: string[]
+  // Called at each toast, for a test that waits for one.
+  onToast?: () => void
 }
 
 const box = (text = '', isFree = true): Box => ({ text, fills: [], isFree, toasts: [] })
 
 // Stands in for the engine beneath the mod: the commands and a prompt box that
 // takes fills while it is free.
+// What a test can make the engine do wrong.
+type Faults = {
+  // The read answers what the box held when it was asked, after this settles.
+  slowRead?: () => Promise<void> | undefined
+  // The fill throws.
+  isFillBroken?: () => boolean
+  // The list of commands throws.
+  isListBroken?: () => boolean
+}
+
+// A promise a test opens when it wants.
+const gate = (): { wait: Promise<void>; open: () => void } => {
+  let open: () => void = () => undefined
+  const wait = new Promise<void>(resolve => {
+    open = resolve
+  })
+
+  return { wait, open }
+}
+
 const engine = (
   on: On,
   held: Box,
   commands: readonly (typeof COMMANDS)[number][] = COMMANDS,
+  faults: Faults = {},
 ): void => {
-  on('command.list', () => ({ value: [...commands] }))
+  on('command.list', () => {
+    if (faults.isListBroken?.()) throw new Error('no list')
+
+    return { value: [...commands] }
+  })
   on('command.register', () => ({ value: { command: 'my-menu' } }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
-  on('prompt.read', () => ({ value: { text: held.text, cursor: held.text.length } }))
+  on('prompt.read', async () => {
+    const text = held.text
+    await faults.slowRead?.()
+
+    return { value: { text, cursor: text.length } }
+  })
   on('prompt.fill', (_, e) => {
+    if (faults.isFillBroken?.()) throw new Error('no fill')
     if (!held.isFree) return { isFilled: false, text: held.text, cursor: 0 }
     held.text = e.text
     held.fills.push(e.text)
@@ -85,6 +118,7 @@ const engine = (
   })
   on('ui.toast', (_, e) => {
     held.toasts.push(e.text)
+    held.onToast?.()
 
     return { value: undefined }
   })
@@ -436,14 +470,131 @@ test('a draft that starts with a prompt named without its plugin gives up the na
 
 test('a send while the list is closed is not held behind a stuck step', async ($, on) => {
   const held = box()
-  engine(on, held)
+  const asked = gate()
+  // The open's read is never answered.
+  engine(on, held, COMMANDS, {
+    slowRead: () => {
+      asked.open()
+
+      return new Promise<void>(() => undefined)
+    },
+  })
   on('prompt.submit', (_, e) => ({ text: e.text }))
 
   await $.session.start(START)
+  void $.command.run(run())
+  await asked.wait
   const sent = await $.prompt.submit({ text: 'שאלה', wait: false, origin: { kind: 'composer' } })
 
   expect(sent).toBeDefined()
   expect(held.fills).toEqual([])
+})
+
+test('after three seconds the queue moves on from a step that does not settle', async ($, on) => {
+  const clock = mock.clock(on)
+  const held = box()
+  const asked = gate()
+  let isStuck = true
+  engine(on, held, COMMANDS, {
+    slowRead: () => {
+      if (!isStuck) return undefined
+      isStuck = false
+      asked.open()
+
+      return new Promise<void>(() => undefined)
+    },
+  })
+
+  await $.session.start(START)
+  void $.command.run(run())
+  await asked.wait
+  const second = $.command.run(run())
+  await clock.advance(3000)
+  await second
+  const ui = await $.ui.mount(band())
+
+  expect(await ui.find({ key: STATUS })).toBeDefined()
+  await ui.unmount()
+})
+
+test('a step that ran past its time does not take his words a second time', async ($, on) => {
+  const clock = mock.clock(on)
+  const held = box('מילים שלי')
+  const asked = gate()
+  const slow = gate()
+  let isFirst = true
+  engine(on, held, COMMANDS, {
+    slowRead: () => {
+      if (!isFirst) return undefined
+      isFirst = false
+      asked.open()
+
+      return slow.wait
+    },
+  })
+
+  await $.session.start(START)
+  // The first press reads the box and the answer is slow. He presses again.
+  const first = $.command.run(run())
+  await asked.wait
+  const second = $.command.run(run())
+  await clock.advance(3000)
+  await second
+  expect(held.text).toBe('')
+  // Now the first press gets its old answer: it must leave everything alone.
+  slow.open()
+  await first
+
+  await $.command.run(run())
+  expect(held.text).toBe('מילים שלי')
+})
+
+test('a close whose fill fails still shows his words, and they do not turn up later', async ($, on) => {
+  const held = box('מילים שלי')
+  let isBroken = false
+  engine(on, held, COMMANDS, { isFillBroken: () => isBroken })
+
+  await $.session.start(START)
+  await $.command.run(run())
+  isBroken = true
+  await $.command.run(run())
+  expect(held.toasts).toEqual(['התיבה לא פנויה כרגע. המילים שהקלדת: מילים שלי'])
+
+  isBroken = false
+  await $.command.run(run())
+  const ui = await $.ui.mount(band())
+  await ui.press({ key: STATUS })
+  expect(held.text).toBe('/nadavai:my-status ')
+  await ui.unmount()
+})
+
+test('a pick still works when the list of commands cannot be read', async ($, on) => {
+  const held = box('/x מילים')
+  let isBroken = false
+  engine(on, held, COMMANDS, { isListBroken: () => isBroken })
+
+  await $.session.start(START)
+  await $.command.run(run())
+  const ui = await $.ui.mount(band())
+  isBroken = true
+  await ui.press({ key: STATUS })
+
+  expect(held.text).toBe('/nadavai:my-status /x מילים')
+  await ui.unmount()
+})
+
+test('the way back to the first page is cut to a narrow band', async ($, on) => {
+  engine(on, box())
+
+  await $.session.start(START)
+  await $.command.run(run())
+  // 16 cells, one row a page: the third page shows the way back.
+  const ui = await $.ui.mount(band(20, 3))
+  await ui.press({ key: 'page' })
+  await ui.press({ key: 'page' })
+
+  expect((await ui.find({ key: 'page' }))?.text).toBe('חזרה לרשימה הרא…')
+  await ui.unmount()
 })
 
 test('a band of two rows drops the title and keeps a row and the page key', async ($, on) => {
@@ -493,4 +644,103 @@ test('with nobody at the keyboard the list is printed and nothing opens', async 
   )
   expect(held.text).toBe('מילים שלי')
   expect(held.fills).toEqual([])
+})
+
+test('a pick that ran past its time changes nothing he did after it, and tells him', async ($, on) => {
+  const clock = mock.clock(on)
+  const held = box('מילים')
+  const asked = gate()
+  const slow = gate()
+  const told = gate()
+  held.onToast = told.open
+  let isArmed = false
+  engine(on, held, COMMANDS, {
+    slowRead: () => {
+      if (!isArmed) return undefined
+      isArmed = false
+      asked.open()
+
+      return slow.wait
+    },
+  })
+
+  await $.session.start(START)
+  await $.command.run(run())
+  const ui = await $.ui.mount(band())
+  // He picks a row and the box is slow to answer. The queue moves on.
+  isArmed = true
+  void ui.press({ key: STATUS })
+  await asked.wait
+  await clock.advance(3000)
+  await ui.unmount()
+  // Meanwhile he types a word, closes the list and opens it again.
+  held.text = 'חדש'
+  await $.command.run(run())
+  expect(held.text).toBe('חדש מילים')
+  await $.command.run(run())
+  expect(held.text).toBe('')
+
+  // Now the pick gets its old answer. The list he opened stays open, his
+  // words stay held, and nothing is written to the box.
+  slow.open()
+  await told.wait
+  expect(held.toasts).toEqual(['הבחירה התעכבה ולא נכנסה לתיבה. אפשר לבחור שוב.'])
+  expect(held.fills.filter(text => text.startsWith('/'))).toEqual([])
+  const again = await $.ui.mount(band())
+  expect(await again.find({ key: STATUS })).toBeDefined()
+  await again.unmount()
+  await $.command.run(run())
+  expect(held.text).toBe('חדש מילים')
+})
+
+test('a close that ran past its time shows his words and says that it was late', async ($, on) => {
+  const clock = mock.clock(on)
+  const held = box('מילים')
+  const asked = gate()
+  const slow = gate()
+  let isArmed = false
+  engine(on, held, COMMANDS, {
+    slowRead: () => {
+      if (!isArmed) return undefined
+      isArmed = false
+      asked.open()
+
+      return slow.wait
+    },
+  })
+
+  await $.session.start(START)
+  await $.command.run(run())
+  // The key again closes the list, and the box is slow to answer.
+  isArmed = true
+  const closing = $.command.run(run())
+  await asked.wait
+  await clock.advance(3000)
+  slow.open()
+  await closing
+
+  expect(held.text).toBe('')
+  expect(held.toasts).toEqual(['הסגירה התעכבה, והמילים שהקלדת לא חזרו לתיבה: מילים'])
+})
+
+test('a pick whose fill fails shows what he picked, and his words do not turn up later', async ($, on) => {
+  const held = box('מילים שלי')
+  let isBroken = false
+  engine(on, held, COMMANDS, { isFillBroken: () => isBroken })
+
+  await $.session.start(START)
+  await $.command.run(run())
+  expect(held.text).toBe('')
+  const ui = await $.ui.mount(band())
+  isBroken = true
+  await ui.press({ key: STATUS })
+  expect(held.toasts).toEqual(['התיבה לא פנויה כרגע. מה שבחרת: /nadavai:my-status מילים שלי'])
+
+  // The list closed with that pick, and a later pick does not carry the words.
+  isBroken = false
+  await $.command.run(run())
+  await ui.redraw()
+  await ui.press({ key: PLAIN })
+  expect(held.text).toBe('/nadavai:my-plain ')
+  await ui.unmount()
 })
