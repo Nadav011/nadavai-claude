@@ -1,7 +1,7 @@
 ---
 name: my-resume
-description: "חזרנו עם משתמש חדש: הכול חוזר לרוץ, בלי לעשות שום דבר פעמיים."
-argument-hint: "[מה השתנה]"
+description: "חזרנו עם משתמש חדש: הכול חוזר לרוץ, גם שאר הסשנים שנעצרו, ושום דבר לא נעשה פעמיים."
+argument-hint: "[לא חובה: מה השתנה מאז שעצרנו, למשל חשבון חדש]"
 disable-model-invocation: true
 ---
 # my-resume: back after an account switch, a limit, a reboot or a crash
@@ -16,6 +16,13 @@ The session stopped in the middle (a usage limit, a new account, a reboot, a ses
 6. The check gives no permission. A step that is one of the gated actions of `working-style.md` (Approval gates), a firmware flash on his machines among them, goes ahead only on a yes he gave before the stop, for that exact action and state. This command gives none, and neither does "continue": without that yes the step waits for him while everything else restarts. A merge, a migration, a write to production data, a deletion and a deploy are taken by this session, never by a subagent or an agent it restarts. That section gives one exception, and it holds here too: a step of a Workflow this session runs, when a procedure in the project's files gives that step the action and Nadav approved that procedure.
 7. Restart within `machine-load.md`. Then tell him, for each item of that list: still running, restarted (and from which step), or not restarted and why. If a goal was set before the stop and no longer holds the session, tell him how to set it again: when it was the ready line of his Ctrl+P list, the same row (Ctrl+P, "לנעול את הסשן על היעד", Enter); when it was in his own words, print that `/goal` line again for him to send.
 
-If he is typing this into many sessions one by one, tell him once that `resume-all --send`, run on each computer, resumes that computer's stopped Orca sessions at once; a session that shows "Login expired" is only listed, because it needs his `/login`.
+8. Wake the other stopped sessions for him, so that he does not carry this prompt from session to session. He ran it in several sessions, each told him to run a command himself, and he asked: «הפעלתי נגיד את הפרומט של החזרה של סשנים לעבדו והם המלציו לי כלום לעשות משהו אחר אתה יכו ללדאוג שה יקרה ?» (2026-11-14); shown three ways, he answered «כן». That the session asks once before it wakes them is this prompt's reading of that yes.
+   - Run `resume-all` (it only lists) for this machine, and `resume-all --environment msi` for the other one. A machine that does not answer is said in one line and not retried.
+   - It lists a stopped session in one of two ways, each with its handle, its title and, in brackets, the stop notice its screen shows. "would send" is stopped for sure: the notice hangs under a message of his, nothing comes after it, nothing is working, and the prompt box is empty. "looks stopped" is the same notice under a reply or a tool's output: most stops in the middle of work are drawn this way, and so is a reply that ends on a quoted notice, and the screen cannot tell the two apart.
+   - When it lists any, show him both groups in one AskUserQuestion, each session by its title and its notice: wake all of them (first), only the ones stopped for sure, or none. Say there that this fits only after he switched to another account, and that a session of the second group which did not really stop gets one "continue" line typed into it. He picked this on 2026-11-14, when shown that the screen cannot settle the second group: they are woken too, on his yes in that dialog.
+   - On his yes, run the same commands with `--send --only <the handles he approved, comma separated>`, so that a session he did not see is not woken, then say how many were woken and which send failed. The line it types ("continue from where you stopped: the account was switched") is a case the first line of `working-style.md` (Sessions) does not cover, and it restores no approval there: each of those sessions checks what already ran, as this prompt does.
+   - With nobody to ask (a run with no person at the keyboard), list them and send nothing.
+   - A session listed as "needs /login" is named to him by its title: only he can type `/login` there. One listed as "has text in its box" (a draft of his, or a suggestion the box shows) or as "has a dialog" (it waits on a question) is named too and not typed into. One listed as "unsure" has the limit words on its screen, but not as a stop the tool knows (a reply that quotes them in a sentence, a notice drawn another way): name it as one for him to look at; the tool types into none of these, whatever `--only` names.
+   - Nothing listed: say so in one line.
 
 What he said changed, if anything: $ARGUMENTS

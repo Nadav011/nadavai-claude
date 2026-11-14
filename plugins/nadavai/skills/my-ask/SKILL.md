@@ -1,7 +1,7 @@
 ---
 name: my-ask
 description: "תשאל אותי את כל מה שפתוח: שאלון אחד, רק מה שבאמת שלי להחליט, עם דוגמאות והמלצה."
-argument-hint: "[על איזה נושא]"
+argument-hint: "[לא חובה: על איזה נושא לשאול]"
 disable-model-invocation: true
 ---
 # my-ask: ask me everything that is open

@@ -1,0 +1,23 @@
+# Words of Nadav's that a prompt quotes and that he typed after the count of his messages was
+# made (typed.jsonl, 2026-11-14 early morning), so the count cannot hold them.
+# A line "@ <session id>" names the session the quotes under it were typed in; then one quote per
+# line, as he typed it. tests/prompt-store.sh accepts a quote that is in the count or here, and
+# for a quote here it opens that session's transcript and looks for the words in a message he
+# typed, one he queued while the session worked, or his own answer in a question dialog. A
+# message from another session, a teammate's report, a task notice (typed or queued), a
+# command's output and an option the agent offered in the dialog do not count. What cannot be
+# told from his own words: text another session typed into his terminal without opening it
+# "Message from ...". When the transcript is not on the machine (Claude Code removes old ones)
+# the quote is accepted and the test prints "NOT CHECKED" with the session to the terminal;
+# update.sh does not show that line, so run the test by hand after adding a quote here.
+#
+# His answer in a question dialog of session 99e196f6, 2026-11-14 at 13:22, to a session that
+# asked him how to go on; the same answer reached five more sessions as a quotation. Quoted in
+# my-method.
+@ 99e196f6
+אני תמיד רוצה הכי מלא שיש אבלא כפוליות או דברים שסתם מעכביםפ אותנו
+מה אתה חושב שנכון ?
+# The prompt-store session, 2026-11-14 about 17:35, after sessions told him to run resume-all
+# himself; quoted in my-resume.
+@ 853fd6a7
+הפעלתי נגיד את הפרומט של החזרה של סשנים לעבדו והם המלציו לי כלום לעשות משהו אחר אתה יכו ללדאוג שה יקרה ? ואם זדה נכון ?

@@ -1,7 +1,7 @@
 ---
 name: my-map
 description: "איבדתי את הכול: מה נסגר, מה נשאר, באיזה סבב אנחנו וכמה זמן עוד."
-argument-hint: "[על מה להתמקד]"
+argument-hint: "[לא חובה: על מה להתמקד]"
 disable-model-invocation: true
 ---
 # my-map: the whole session on one page

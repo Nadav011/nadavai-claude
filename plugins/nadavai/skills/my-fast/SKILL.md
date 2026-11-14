@@ -1,7 +1,7 @@
 ---
 name: my-fast
 description: "למה זה לוקח כל כך הרבה זמן? לאן הולך הזמן, מה אפשר במקביל, ומה מקצר בלי לוותר על איכות."
-argument-hint: "[על מה]"
+argument-hint: "[לא חובה: מה לוקח הרבה זמן]"
 disable-model-invocation: true
 ---
 # my-fast: why does it take so long

@@ -86,6 +86,10 @@ enable_adhd_always
 # oh-my-claudecode skill or agent type that tests/omc-names-allow.txt does not list (the plugin is retired).
 bash "$REPO/tests/prompt-store.sh" >/dev/null 2>&1 \
   || warn "prompt store: a /my-* prompt names a missing menu row or tool, or a file names an OMC skill or agent type; run tests/prompt-store.sh"
+# resume-all types "continue" into other sessions on his yes (my-resume): its reading of a screen
+# is checked on every install.
+bash "$REPO/tests/resume-all.sh" >/dev/null 2>&1 \
+  || warn "resume-all: its reading of a session's screen did not pass; run tests/resume-all.sh before any --send"
 # The menu is a mod on an early-access API: a Claude Code release can stop it loading.
 bash "$REPO/tests/my-menu.sh" >/dev/null 2>&1 \
   || warn "prompt menu: the Ctrl+P menu or its key did not pass; run tests/my-menu.sh (/nadavai:my still works)"

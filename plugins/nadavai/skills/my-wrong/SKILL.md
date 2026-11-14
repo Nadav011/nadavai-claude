@@ -1,7 +1,7 @@
 ---
 name: my-wrong
 description: "זה לא מה שהתכוונתי: מה ביקשתי מול מה שיצא, וחלופות לפני שבונים שוב."
-argument-hint: "[מה לא טוב]"
+argument-hint: "[לא חובה: מה לא טוב]"
 disable-model-invocation: true
 ---
 # my-wrong: this is not what I meant

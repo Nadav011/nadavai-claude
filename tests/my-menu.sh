@@ -168,6 +168,14 @@ goal_row=$(sed -n '/^const GOAL_ROW/,/^}/p' "$MOD/hooks/register.tsx" | sed -n "
 for f in my-run my-resume my; do
   ok "$f names the goal row as the list shows it ($goal_row)" '[ -n "$goal_row" ] && grep -qF "$goal_row" "$here/plugins/nadavai/skills/$f/SKILL.md"'
 done
+# The goal group's forms: each is the second form of a prompt that exists, and its line sends the
+# session to that prompt's file, at the path the prompts are installed from.
+forms=$(sed -n '/^const GOAL_FORMS/,/^\]/p' "$MOD/hooks/register.tsx" | sed -n "s/^ *of: '\([a-z-]*\)',\$/\1/p")
+ok "the goal group has forms ($(echo $forms))" '[ -n "$forms" ]'
+for f in $forms; do
+  ok "the goal form of my-$f has its prompt" '[ -f "$here/plugins/nadavai/skills/my-$f/SKILL.md" ]'
+done
+ok "a goal line names the prompt's file where the installer keeps it" 'grep -qF "~/nadavai/plugins/nadavai/skills/my-\${of}/SKILL.md" "$MOD/hooks/register.tsx"'
 # The printed menu (/nadavai:my) is the same list for a session without the mod: the same groups,
 # with the same prompts in the same order.
 drift=$(python3 - "$MOD/hooks/register.tsx" "$here/plugins/nadavai/skills/my/SKILL.md" <<'PY'

@@ -1,7 +1,7 @@
 ---
 name: my-cost
 description: "איפה הולכים הטוקנים והכסף? מה עולה הכי הרבה, ומה לחסוך בלי לפגוע באיכות."
-argument-hint: "[על מה, או כמה ימים]"
+argument-hint: "[לא חובה: על איזו עבודה, או כמה ימים אחורה]"
 disable-model-invocation: true
 ---
 # my-cost: where the tokens and the money go

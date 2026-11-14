@@ -1,7 +1,7 @@
 ---
 name: my-top
 description: "תרים את זה לרמה הכי גבוהה: מה זו רמה גבוהה כאן, מה חסר, ותיקון עם לפני ואחרי."
-argument-hint: "[מה להרים]"
+argument-hint: "[לא חובה: מה להרים]"
 disable-model-invocation: true
 ---
 # my-top: bring it to the highest level

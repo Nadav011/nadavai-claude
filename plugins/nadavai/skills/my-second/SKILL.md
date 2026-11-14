@@ -1,7 +1,7 @@
 ---
 name: my-second
 description: "תביא חוות דעת שנייה: מישהו אחר בודק את העבודה, או מנסה גרסה משלו."
-argument-hint: "[על מה, ואיזה מודל]"
+argument-hint: "[לא חובה: על מה, ואיזה מודל יבדוק]"
 disable-model-invocation: true
 ---
 # my-second: a second opinion from another model

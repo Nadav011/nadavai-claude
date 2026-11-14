@@ -52,10 +52,32 @@ const GOAL = 'goal'
 // everything he typed to his agents from 2026-08 to 2026-11 (the table is in
 // ~/.omc/plans/method-review-2026-11-13/prompt-store/corpus-2026-11-14/,
 // merged/order.txt). A prompt no group names goes to a last group, by name.
+// "משימה חדשה" holds the prompts for the main goals his sessions open with
+// (read from the openings of his 654 sessions). He picked, the same day:
+// today's five groups stay as they are, the new group comes second so that
+// the list still opens on "באמצע עבודה", where his four most used sentences
+// are, and a group for goal mode comes last (GOAL_FORMS, below). Which nine
+// prompts, and their order (by how often the goal opened a session), are this
+// file's own. His picks are recorded in
+// ~/.omc/plans/method-review-2026-11-13/prompt-store/goal-2026-11-14/owner-answers.md.
 const GROUPS: readonly { title: string; names: readonly string[] }[] = [
   {
     title: 'באמצע עבודה',
     names: ['run', GOAL, 'resume', 'connected', 'status', 'self', 'fast', 'next'],
+  },
+  {
+    title: 'משימה חדשה',
+    names: [
+      'takeover',
+      'case',
+      'study',
+      'plan',
+      'design',
+      'creative',
+      'stores',
+      'tools',
+      'sweep',
+    ],
   },
   {
     title: 'בודקים',
@@ -117,27 +139,48 @@ const listKey = (at: number): string => `list:${at}`
 const BEFORE = 'before'
 const AFTER = 'after'
 
-// `line` is what a pick writes when it is not `/<name> <his words>`.
+// `line` is what a pick writes when it is not `/<name> <his words>`. A goal
+// row also has `after`, what its line adds after his words (so a pick can
+// tell when his words were cut), and may have `needs`, what he is told when
+// the row was picked with nothing in the prompt box to work on.
 type Row = {
   name: string
   sentence: string
   gloss: string
   line?: (words: string) => string
+  after?: string
+  needs?: string
 }
 type Group = { title: string; rows: Row[] }
 // One page of the list: a group, or the part of it the band has room for.
 // `start` is how many rows of the group came on the pages before it.
 type Page = Group & { group: number; part: number; parts: number; start: number }
 
-// When the goal is met. The list it names is the one a session writes under
-// that heading when he sets a goal or runs /nadavai:my-run. The line asks for
-// the list first, and for a list made for this goal, so a session that has
-// none, or only one from an earlier goal, cannot count the goal as met. The
-// ending is the one `working-style.md` (Finishing) gives every goal condition.
-const goalMet = (whose: string): string =>
-  `בסשן הזה כתובה רשימת "מה נחשב גמור" ${whose} (אם אין, קודם כותבים אותה), וכל שורה בה סגורה עם ראיה, או שכל מה שנשאר רשום עם חסימה של נדב, של לקוח, של בדיקת חנות או פלטפורמה, של תאריך או של חומרה`
-const GOAL_READY = goalMet('לעבודה שביקשתי')
-const GOAL_AFTER_WORDS = `. היעד הושג רק כש${goalMet('ליעד הזה')}`
+// What every goal line carries. The model that judges a goal reads only the
+// conversation and runs nothing (Anthropic's page on /goal), so the end state
+// and its check are in the line itself: a closing block the session prints,
+// with the evidence beside every row. A line has one way to end, the one
+// `working-style.md` (Finishing) gives a goal condition: everything closed
+// with its evidence, or listed with a blocker that is not the session's.
+// No line carries a cap of turns. A first version had one (25, or 15), from
+// Anthropic's advice for unattended runs and two outside reads; its review
+// counted his real goals, half of which ran longer than that (two overnight
+// ones more than 400 evaluations), and at a cap Claude Code records the goal
+// as achieved. His standing words are "do not stop until it is all closed",
+// so a cap is his to add, not this file's. What waits for him stays waiting.
+// The line also says that a bug found on the way is fixed (`working-style.md`,
+// Code): in the trial runs sessions under a goal or a plan left one open.
+const GOAL_GATES =
+  'תקלה שמתגלה בדרך מתוקנת מהשורש, בנפרד, ונכתבת בדוח. בדרך לא מוותרים על שום דבר שנדב ביקש ולא מקטינים אותו, ולא עושים מה שלפי הכללים מחכה לאישור שלו: כסף, הודעה או פרסום בשמו או בשם לקוח (גם הודעה שהאפליקציה שולחת לאדם אמיתי בגלל פעולה של הסשן), שחרור ציבורי בחנות, הגשה רשמית (מס, ממשלה, בנק) או חתימה מחייבת, מחיקה בלי דרך חזרה.'
+// The closing block of a goal that works through the list "מה נחשב גמור": the
+// list a session writes under that heading when he sets a goal or runs
+// /nadavai:my-run.
+const LIST_BLOCK =
+  'שחוזר על כל שורה ברשימת "מה נחשב גמור", וליד כל אחת [סגור] עם הראיה שכבר מופיעה למעלה בשיחה (הפקודה שרצה והפלט שלה, או קישור שנפתח), או [חסום: נדב, לקוח, בדיקת חנות או פלטפורמה, תאריך או חומרה] עם מה שכבר מוכן, ואין בו שורה פתוחה שהיא של הסשן'
+// A long run is summarised on the way, and the judge then no longer sees the
+// evidence: the line asks for the checks again before the block.
+const goalEnd = (block: string): string =>
+  `היעד מסתיים רק כשבתשובה האחרונה מופיע בלוק סגירה ${block}. אם השיחה סוכמה בדרך והראיה כבר לא מופיעה בה, מריצים את הבדיקה שוב לפני הבלוק. ${GOAL_GATES}`
 // Claude Code takes a goal condition of up to this many characters.
 const GOAL_CAP = 4000
 // His words as one line that a sentence can follow: no line breaks, and no
@@ -147,22 +190,113 @@ const asGoal = (words: string): string =>
     .replace(/\s+/g, ' ')
     .trim()
     .replace(/[\s.,:;!?]+$/, '')
-// How much of his words the goal line has room for.
-const GOAL_ROOM = GOAL_CAP - GOAL_AFTER_WORDS.length - 1
+// How much of his words a goal line has room for, before what the row adds.
+const goalRoom = (after: string): number => GOAL_CAP - after.length - 1
+// The first `room` units of his words, and one less when the cut would fall
+// inside a character that takes two (an emoji).
+const head = (words: string, room: number): string =>
+  words.slice(0, /[\uD800-\uDBFF]/.test(words.charAt(room - 1)) ? room - 1 : room)
+// A goal line: his words first, as the subject, then what the row adds
+// (`after`); with no words, what the row says by itself (`alone`). Words too
+// long for a goal condition are cut, so the line still sets.
+const goalLine = (words: string, after: string, alone: string): string => {
+  const goal = asGoal(words)
+  if (goal === '') return `/${GOAL} ${alone}`
+  const room = goalRoom(after)
+
+  return `/${GOAL} ${goal.length > room ? `${head(goal, room)}…` : goal}${after}`
+}
 const LONG_GOAL =
   'המילים שהקלדת ארוכות מדי לשורת יעד (עד 4000 תווים), והסוף שלהן נחתך. אפשר לשלוח את הטקסט המלא כהודעה רגילה, ואז לנעול יעד קצר.'
+// The general row: his words are the goal itself, and the list decides when
+// it is met. The line asks for the list first, and for a list made for this
+// goal, so a session that has none, or only one from an earlier goal, cannot
+// count the goal as met.
+const LOCK_TAIL = ` קודם כותבים בסשן רשימת "מה נחשב גמור" ליעד הזה (אם אין), כל שורה דבר שאפשר לבדוק, ועובדים עליה עד הסוף. ${goalEnd(LIST_BLOCK)}`
+const GOAL_READY = `היעד: לסיים את העבודה שביקשתי בסשן הזה.${LOCK_TAIL}`
+const GOAL_AFTER_WORDS = `.${LOCK_TAIL}`
 const GOAL_ROW: Row = {
   name: GOAL,
   sentence: 'לנעול את הסשן על היעד',
   gloss: 'הסשן לא עוצר עד שכל מה שנחשב גמור סגור',
-  // Words he typed are the goal itself, and the list still decides when it is
-  // met. Words too long for a goal condition are cut, so the line still sets.
-  line: words => {
-    const goal = asGoal(words)
-    if (goal === '') return `/${GOAL} ${GOAL_READY}`
+  after: GOAL_AFTER_WORDS,
+  line: words => goalLine(words, GOAL_AFTER_WORDS, GOAL_READY),
+}
 
-    return `/${GOAL} ${goal.length > GOAL_ROOM ? `${goal.slice(0, GOAL_ROOM)}…` : goal}${GOAL_AFTER_WORDS}`
+// The goal group (Nadav, 2026-11-14, asked for a group for goal mode whose
+// rows are mostly the same prompts in a second form, "one with goal and one
+// in the middle of a session", and that a row really turns goal mode on and
+// runs the prompt). He picked six rows: the general one above, and the five
+// forms here, each for work that runs without him and has an end that can be
+// checked. A form's row shows the sentence of its prompt. Its line says the
+// goal in full, because the judge of a goal cannot open a file, and names the
+// prompt's file for the whole procedure, because a prompt only he can start
+// cannot be started by the session. `needs` is what he is told when the row
+// has no subject to work on (the prompt box was empty); '' where the row
+// works without one. The texts and `needs` are this file's own.
+const GOAL_GROUP = 'goal'
+type GoalForm = {
+  of: string
+  gloss: string
+  needs: string
+  head: string
+  block: string
+}
+const GOAL_FORMS: readonly GoalForm[] = [
+  {
+    of: 'takeover',
+    gloss: 'goal: לא עוצר עד שהעבודה של הסשן ההוא באוויר',
+    needs: 'קודם כותבים בתיבה איזה סשן להמשיך, ואז בוחרים את השורה שוב.',
+    head: 'היעד: למצוא את הסשן שמתואר כאן ולסיים את העבודה שלו עד הסוף. מוצאים אותו לפי התיאור בכל כלי ובכל חשבון, גם אם הוא לא נפתח, ובודקים שהוא כבר לא רץ. קודם כותבים בעברית מה הייתה המטרה שם, איפה זה נעצר ומה פתוח, לפי בדיקה מול הקבצים, הענפים והאתר החי ולא לפי מה שנכתב שם. שום שליחה, מיזוג, העלאה, מחיקה או חיוב לא נעשים פעמיים. אחר כך כותבים רשימת "מה נחשב גמור" וסוגרים כל שורה בבדיקה אמיתית. עבודה שעולה לאוויר נגמרת כשהיא בענף הראשי, באוויר בכתובת, ונפתח לנדב קישור; תוכנית, מחקר או עיצוב נגמרים כשהם מוכנים ומוצגים לו, בלי לבנות מה שהוא לא ביקש לבנות; וגבול שנקבע בסשן ההוא נשמר.',
+    block: LIST_BLOCK,
   },
+  {
+    of: 'case',
+    gloss: 'goal: לא עוצר עד תיקון שנבדק באתר החי וטיוטת תשובה',
+    needs: 'קודם כותבים בתיבה איזה לקוח ומה הוא כתב, ואז בוחרים את השורה שוב.',
+    head: 'היעד: לטפל עד הסוף בתקלה או בבקשה של הלקוח שמתואר כאן. קוראים את כל השיחה איתו, עם התמונות והתשובות שכבר נשלחו, ורושמים כל בעיה וכל בקשה כשורה ברשימת "מה נחשב גמור". לכל תקלה: סיבת השורש (שלנו או של ספק), חיפוש של אותה תקלה במקומות אחרים, תיקון עם בדיקה אוטומטית, והעלאה לפי הכללים. שורה נסגרת רק אחרי שהמסלול שהלקוח עבר נוסה באתר החי, בחשבון הבדיקה כשהוא מראה אותו דבר, ובלי ששום הודעה תצא לאדם אמיתי. טיוטת התשובה ללקוח נכתבת לקובץ, רק ממה שנבדק, ולא נשלחת: השליחה מחכה לנדב.',
+    block: `${LIST_BLOCK}, ובסופו הנתיב של קובץ הטיוטה`,
+  },
+  {
+    of: 'study',
+    gloss: 'goal: לא עוצר עד דף עם שלוש אפשרויות והמלצה אחת',
+    needs: 'קודם כותבים בתיבה על מה המחקר ומה צריך להחליט, ואז בוחרים את השורה שוב.',
+    head: 'היעד: מחקר עד המלצה אחת, לפני החלטה, על מה שכתוב כאן. לא בונים את הדבר עצמו ולא משלמים על שום דבר; לא מתקינים בפרויקט או במחשבים. ניסיון בתיקייה זמנית או חשבון חינמי שהבדיקה צריכה מותרים, ונכתבים בדוח. קודם בודקים מה כבר קיים אצלנו ומה נדב כבר דחה בעבר (הזיכרון של הפרויקטים). לפחות שלוש אפשרויות, כולל להשתמש במה שיש וכולל "לא צריך", כל טענה עם מקור שנקרא עכשיו (מחיר, מגבלות, עברית), והפרדה בין מה שנבדק למה שמשוער. התוצאה על דף אחד שנפתח לנדב. אם חסר תקציב או אילוץ שבלעדיו ההשוואה היא ניחוש, שואלים שאלה אחת, וממשיכים בינתיים במה שלא תלוי בתשובה.',
+    block:
+      'עם ארבע שורות: האפשרויות שנבדקו (לפחות שלושה שמות), ההמלצה האחת והסיבה החזקה נגדה, הקישור לדף שנפתח, ומה מחכה להחלטה של נדב; וכל מקור שבדף מופיע למעלה בשיחה כקישור שנקרא',
+  },
+  {
+    of: 'design',
+    gloss: 'goal: לא עוצר עד שגרסה ראשונה נבדקה בדפדפן ונפתחה לי',
+    needs: 'קודם כותבים בתיבה מה לעצב, ואז בוחרים את השורה שוב.',
+    head: 'היעד: גרסה ראשונה שרואים, של המסך, העיצוב או הדמו שמתואר כאן, נבדקת בדפדפן ונפתחת לנדב. קודם מסתכלים על מוצרים דומים ועל הדוגמה שהוא נתן; אם לא ברור כמה קרוב אליה ללכת, שואלים פעם אחת. כשאין כיוון מאושר מכינים שניים או שלושה כיוונים. עובדות שרק הוא יודע (שמות, תאריכים, כתובת) לא ממציאים. בודקים בדפדפן אמיתי, ברוחב שנדב רואה ובטלפון: עברית מימין לשמאל, בלי טקסט זמני, בלי שגיאות. פותחים לו ונותנים קישור. עוצרים בגרסה הראשונה ומחכים למה שיגיד, בלי סבבי ליטוש.',
+    block:
+      'עם שורה לכל כיוון או מסך: הקישור שנפתח, הבדיקה בדפדפן ברוחב רגיל ובטלפון שמופיעה למעלה בשיחה (הפקודה, הפלט שלה ושמות קובצי הצילום), ומה עוד גולמי; ובסופו מה מחכה למילה של נדב',
+  },
+  {
+    of: 'stores',
+    gloss: 'goal: עד שכל אפליקציה שבדרך לחנות הוגשה; השחרור מחכה לי',
+    needs: '',
+    head: 'היעד: להביא עד הגשה לבדיקה בשתי החנויות את האפליקציות שכתובות כאן (אם לא כתוב אילו: את כל האפליקציות שכבר יש להן רישום או בנייה בחנות), עם עדכון אוטומטי שעובד. אפליקציה שעוד לא התחילה שום דרך לחנות היא שורה שמחכה לנדב, עם השאלה אם להתחיל. קודם מדפיסים טבלה: כל אפליקציה מול כל חנות, המצב שלה (באוויר, בבדיקה, נדחתה, לא הוגשה) ומצב העדכונים, וזו רשימת "מה נחשב גמור". עובדים לפי הסקיל nadavai:store-apps. כל כניסה שרק נדב יכול לעשות מבקשים פעם אחת, בהתחלה, לכל האתרים יחד. מחכים לו ולא נעשים: שחרור לציבור, הרחבת הפצה, שינוי ברישום או במחיר, ובנייה שעולה כסף.',
+    block: LIST_BLOCK,
+  },
+]
+// Where a goal line sends the session for the whole procedure. The path is
+// the checkout that the installer links the prompts from, on both machines.
+const skillFile = (of: string): string =>
+  `הנוהל המלא בקובץ ~/nadavai/plugins/nadavai/skills/my-${of}/SKILL.md (אם הוא לא נפתח, ממשיכים לפי מה שכתוב כאן).`
+const formRow = (form: GoalForm, said: string): Row => {
+  const alone = `${form.head} ${skillFile(form.of)} ${goalEnd(form.block)}`
+  const after = `. ${alone}`
+
+  return {
+    name: `${GOAL}-${form.of}`,
+    sentence: said,
+    gloss: form.gloss,
+    after,
+    needs: form.needs,
+    line: words => goalLine(words, after, alone),
+  }
 }
 
 // Where the list stands: closed (the row of no height waits for the focus),
@@ -257,7 +391,19 @@ const groups = async ($: EngineInterface): Promise<Group[]> => {
     .sort((a, b) => a.name.localeCompare(b.name))
     .map(row)
 
-  return [...listed, { title: REST, rows: rest }].filter(group => group.rows.length > 0)
+  // The goal group: the general row and the form of every prompt this
+  // session has. With no form to show it would only repeat the general row,
+  // which the first group already holds, so it is left out.
+  const forms = GOAL_FORMS.flatMap(form => {
+    const one = mine.find(found => found.name === `${PREFIX}${form.of}`)
+
+    return one ? [formRow(form, sentence(one.description))] : []
+  })
+  const goals = forms.length > 0 ? [GOAL_ROW, ...forms] : []
+
+  return [...listed, { title: REST, rows: rest }, { title: GOAL_GROUP, rows: goals }].filter(
+    group => group.rows.length > 0,
+  )
 }
 
 // The pages the band turns through: each group, cut where it has more rows
@@ -661,6 +807,14 @@ const choose = async (
     first && commands.some(one => one.name === first[1] || one.name.endsWith(`:${first[1]}`))
       ? draft.slice(first[0].length)
       : draft
+  // A goal row that needs a subject writes nothing over an empty box: the
+  // list closes, the keyboard is back in the box, and he is told what to type.
+  if (row.needs && asGoal(words) === '') {
+    await handBack($)
+    $.ui.toast(row.needs)
+
+    return
+  }
   const line = row.line ? row.line(words) : `/${row.name} ${words}`
   if (isLate()) {
     $.ui.toast(LATE_PICK)
@@ -671,5 +825,6 @@ const choose = async (
   // After a fill that ran past the time, the list belongs to the later steps.
   if (!isLate()) await handBack($)
   if (!filled.isFilled) $.ui.toast(`התיבה לא פנויה כרגע. מה שבחרת: ${line}`)
-  else if (row === GOAL_ROW && asGoal(words).length > GOAL_ROOM) $.ui.toast(LONG_GOAL)
+  else if (row.after !== undefined && asGoal(words).length > goalRoom(row.after))
+    $.ui.toast(LONG_GOAL)
 }

@@ -1,7 +1,7 @@
 ---
 name: my-done
 description: "סיימנו את הכול? כל בקשה שלי ומה קרה איתה, והאם אפשר לסגור את הסשן."
-argument-hint: "[על מה להתמקד]"
+argument-hint: "[לא חובה: על מה להתמקד]"
 disable-model-invocation: true
 ---
 # my-done: did we finish everything (the quick check)

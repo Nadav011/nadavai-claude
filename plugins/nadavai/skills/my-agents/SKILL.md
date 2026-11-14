@@ -1,7 +1,7 @@
 ---
 name: my-agents
 description: "למה אופוס ולא סונט? מי עושה מה ועל איזה מודל, ומה אפשר לתת לאחרים."
-argument-hint: "[מודל או כלי, אם יש]"
+argument-hint: "[לא חובה: על איזה מודל או כלי השאלה]"
 disable-model-invocation: true
 ---
 # my-agents: who is working on this, and on which model

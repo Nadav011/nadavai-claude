@@ -1,7 +1,7 @@
 ---
 name: my-status
 description: "מה מצבנו? מה נעשה, מה רץ עכשיו, מה מחכה ולמי, וכמה זמן עוד."
-argument-hint: "[על מה להתמקד]"
+argument-hint: "[לא חובה: על מה להתמקד]"
 disable-model-invocation: true
 ---
 # my-status: where the work stands and when it ends

@@ -1,7 +1,7 @@
 ---
 name: my-save
 description: "תשמור את זה לתמיד: לאן זה נכנס, באיזה נוסח, ושזה יהיה בכל המחשבים."
-argument-hint: "[מה לשמור]"
+argument-hint: "[לא חובה: מה לשמור]"
 disable-model-invocation: true
 ---
 # my-save: keep this for good

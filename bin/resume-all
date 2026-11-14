@@ -1,63 +1,219 @@
 #!/usr/bin/env bash
-# resume-all [--send] [--text "<prompt>"]: after Nadav switches to another Claude account, find
-# the Orca terminals whose Claude session stopped on a usage limit and, with --send, type a
-# "continue" prompt into each one. Without --send it only lists what it would do.
+# resume-all [--send] [--only <handle>[,<handle>...]] [--text "<prompt>"] [--environment <name>]:
+# after Nadav switches to another Claude account, find the Orca terminals whose Claude session
+# stopped on a usage limit and, with --send, type a "continue" prompt into each one. Without
+# --send it only lists what it would do.
+# --only <handles> types into those terminals only, and only if each still reads as stopped: a
+# session passes it the handles it showed Nadav, so nothing he did not see is woken, and one that
+# went on meanwhile is printed as "not stopped now". Each
+# stopped session is listed with the stop notice its screen shows, so he sees why it is listed.
+# A session that is stopped for sure is listed as "would send". One that looks stopped, where the
+# screen alone cannot tell (most stops in the middle of work), is listed as "looks stopped": plain
+# --send leaves it, and --only with its handle wakes it.
+# --environment <name> does the same on another machine's Orca that this one is paired with
+# (`orca environment list`; the MSI is "msi"), so one session covers both computers.
 #
 # Why: Claude Code resumes on its own when the SAME account's limit resets ("Automatic continue
 # at the usage-limit reset", 2.1.319), but not after a switch to another account; Nadav typed
 # "continue, we're back with a new user" 32 times in 13 sessions in the week to 2026-11-07.
-# Sessions showing "Login expired" need /login typed by Nadav and are only listed, never sent to.
-# Only Orca-managed terminals on this host whose agent is claude, whose screen's last lines show
-# the limit message, and which are not busy are touched.
+# Sessions showing "Login expired" need /login typed by Nadav and are only listed, never sent to;
+# so is a stopped session whose prompt box holds text ("has text in its box") or that shows a
+# question or a permission dialog ("has a dialog"), and one whose screen has the limit words in
+# a shape that is not a stop the tool knows ("unsure").
+# Only Orca-managed terminals whose agent is claude are read, and only one whose transcript ends
+# on the limit notice, above an empty prompt box, with nothing working, is typed into.
 set -uo pipefail
 
 SEND=0
+ONLY=''
+WHERE=()
+ORCA=${RESUME_ALL_ORCA:-orca}   # the tests point this at a made-up orca
 TEXT="המשך מאיפה שעצרת: החשבון הוחלף, והמגבלה הקודמת כבר לא חלה."
 while [ $# -gt 0 ]; do
   case "$1" in
     --send) SEND=1 ;;
+    --only) ONLY=",${2:?--only needs one or more handles},"; ONLY=${ONLY//[[:space:]]/}; shift ;;
     --text) TEXT="${2:?--text needs a value}"; shift ;;
-    -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
+    --environment) WHERE=(--environment "${2:?--environment needs a name}"); shift ;;
+    -h|--help) sed -n '2,24p' "$0"; exit 0 ;;
     *) echo "resume-all: unknown option $1" >&2; exit 2 ;;
   esac
   shift
 done
 
-# classify <screen text on stdin> -> limit | login | busy | other
+# classify <screen text on stdin> -> limit | maybe | draft | unsure | login | busy | asking | other
+#
+# A Claude Code screen (2.1.325) is: the transcript, one line where Claude Code draws a
+# right-aligned notice of its own ("◎ /goal active", "● high · /effort"), a rule of ─, the prompt
+# box (a line that starts with ❯), a second rule, and the status lines. A stop on a usage limit
+# is drawn like this (saved on 2026-11-14 from a copy of a stopped transcript, resumed in a test
+# window; three such drawings were read):
+#     ❯ his message
+#       ⎿  You've hit your weekly limit · resets Nov 16, 9pm (Asia/Jerusalem)
+#          /usage-credits to finish what you’re working on.
+# The reading follows that shape, and whatever it does not recognise is left alone.
+#   limit   stopped for sure. The notice is a whole line, not words inside a sentence; after it,
+#           down to the box, there is nothing but blank lines, a hint that starts with a slash
+#           command, the summary of the turn ("✻ Cooked for 2m 14s") and the line a restarted
+#           session adds ("● 2 background shell command tasks didn't finish before the
+#           previous session ended"); and the nearest line
+#           above it that starts at the left edge is a message of his (❯). What an agent writes
+#           (a reply, a tool's output) is always drawn indented under a mark of its own (●), so
+#           it cannot put the notice under his message.
+#   maybe   the same, but the notice hangs under a reply or a tool's output (●), or his message
+#           is off the top of the screen. Most real stops happen in the middle of work and look
+#           like this, and so does a reply that ends on a quoted notice: the screen cannot tell
+#           them apart. Listed as "looks stopped", and typed into only when --only names it,
+#           which is how a session passes what Nadav saw and approved (his pick, 2026-11-14:
+#           wake these too, on his yes).
+#   draft   stopped in one of those two ways, and the box holds text. His own sent messages are
+#           also drawn with ❯, in the transcript: only the lines between the two rules are the box.
+#   unsure  the limit words are on the screen in any other shape (inside a sentence, with an
+#           unknown line after them, cut by a narrow pane), and no reply and no message of his
+#           comes after them. Listed for him to look at, and never typed into. With a reply or a
+#           message after them the session went on: other.
+#   busy    a working line such as "* Beaming… (19m 53s · ↓ 42.2k tokens)" (with or without its
+#           timer) between the notice and the box, or a timer or the older "esc to interrupt"
+#           in the status lines. With no notice, everything above the box is read.
+#   asking  a question or a permission dialog is open: typed text would land in it.
+#   other   anything else, and any screen where the box cannot be found.
+# Found on 2026-11-14: four working sessions were listed as stopped, because the warning "You've
+# used 80% of your weekly limit · resets ..." matched and the timer line was not known. Three
+# reviews of the fixes then showed his sent message read as a draft, a session that had gone on
+# read as stopped, and a reply that only quotes the notice read as stopped. The drawings are of
+# resumed copies: a session that stops while it is open may draw the work above the notice
+# differently, which changes "limit" into "maybe" at most.
+# Every match is on bytes (LC_ALL=C), so the reading is the same under any locale.
+NBSP=$'\xc2\xa0'
+is_rule() { local t=${1//─/}; t=${t//[[:space:]]/}; [[ -z $t && $1 == *"────────────────────"* ]]; }
+# What a box line holds after its mark (❯, or > on older versions), spaces left out; exit 1 when
+# the line does not start with the mark.
+after_mark() {
+  local t=${1#"${1%%[![:space:]]*}"}
+  case "$t" in "❯"*) t=${t#"❯"} ;; ">"*) t=${t#">"} ;; *) return 1 ;; esac
+  t=${t//$NBSP/}; printf '%s' "${t//[[:space:]]/}"
+}
+TIMER='(…|\.\.\.)[[:space:]]*\([0-9]+[hms]( |\))'
+SPIN='^[[:space:]]*(✻|✽|✢|✶|✳|\*|·)[[:space:]]+[^[:space:]]+(…|\.\.\.)'
+# The words anywhere in a line; the second form is a notice cut by a narrow pane.
+WORDS="You've hit your ([A-Za-z0-9-]+ )?limit|You've hit your( [A-Za-z0-9-]+)?[[:space:]]*\$|[Uu]sage limit reached"
+MARK='^[[:space:]]*(❯|●|⏺|›|>)'  # what starts a message of his or a reply
+NOTICE="^[[:space:]]*(⎿[[:space:]]+)?(You've hit your ([A-Za-z0-9-]+ )?limit|Claude usage limit reached|Usage limit reached)"
+HINT='^[[:space:]]+/[a-z][a-z-]*( |$)'
+SUMMARY='^[[:space:]]*(✻|✽|✢|✶|✳|\*|·)[[:space:]]+[^[:space:]]+ for [0-9]+[smh]( [0-9]+[smh])*[[:space:]]*$'
+RESUMED="^● [0-9]+ background .* didn't finish before the previous session ended"
 classify() {
-  local s; s="$(tail -n 20)"
-  if grep -qE 'esc to interrupt|Esc to interrupt' <<<"$s"; then echo busy
-  elif grep -qE "Login expired|Please run /login" <<<"$s"; then echo login
-  elif grep -qE "You've hit your (session|5-hour|weekly|Opus|Sonnet)? ?limit|usage limit reached|limit · resets" <<<"$s"; then echo limit
-  else echo other; fi
+  local -x LC_ALL=C   # exported, so that the greps below match on bytes too
+  local -a L; mapfile -t L < <(tail -n 80)
+  local n=${#L[@]} i r1=-1 r2=-1
+  for ((i = 0; i < n; i++)); do L[i]=${L[i]//$NBSP/ }; done
+  local last; last=$(printf '%s\n' "${L[@]:$(( n > 25 ? n - 25 : 0 ))}")
+  if grep -qE "Esc to cancel|Enter to select|to navigate|Do you want to proceed|Would you like to proceed" <<<"$last"; then echo asking; return; fi
+  for ((i = n - 1; i >= 0; i--)); do
+    is_rule "${L[i]}" || continue
+    if ((r2 < 0)); then r2=$i; else r1=$i; break; fi
+  done
+  # No box: the reading stops here. A login notice is still worth listing, since listing types nothing.
+  local box=''
+  if ((r1 < 0)) || ((r2 - r1 < 2)) || ! box=$(after_mark "${L[r1+1]}"); then
+    if grep -qE "Login expired|Please run /login" <<<"$last"; then echo login; else echo other; fi
+    return
+  fi
+  # The transcript ends above Claude Code's own right-aligned line, when the screen has one.
+  local top=$r1 li=-1 line
+  if ((r1 > 0)) && [[ ${L[r1-1]} == "                    "* ]]; then top=$((r1 - 1)); fi
+  for ((i = top - 1; i >= 0; i--)); do
+    if grep -qE "$NOTICE" <<<"${L[i]}"; then li=$i; break; fi
+  done
+  # Working: looked for from the notice down to the box (everything above the box when there
+  # is no notice), and in the status lines.
+  local start=$(( li >= 0 ? li : 0 ))
+  local above; above=$(printf '%s\n' "${L[@]:$start:$((top - start))}")
+  local near; near=$(printf '%s\n' "$above" "${L[@]:$((r2+1))}")
+  if grep -qE "esc to interrupt|Esc to interrupt|$TIMER" <<<"$near" || grep -qE "$SPIN" <<<"$above"; then echo busy; return; fi
+  if grep -qE "Login expired|Please run /login" <<<"$near"; then echo login; return; fi
+  local stopped=0
+  if ((li >= 0)); then
+    stopped=1
+    for ((i = li + 1; i < top; i++)); do
+      line=${L[i]}
+      [[ -z ${line//[[:space:]]/} ]] && continue
+      grep -qE "$HINT|$SUMMARY|$RESUMED" <<<"$line" && continue
+      stopped=0; break
+    done
+  fi
+  if ((stopped)); then
+    # A draft of several lines fills the lines under the first one.
+    for ((i = r1 + 2; i < r2; i++)); do box+=${L[i]//[[:space:]]/}; done
+    if [[ -n $box ]]; then echo draft; return; fi
+    # For sure only under a message of his: the nearest line above that starts at the left edge.
+    for ((i = li - 1; i >= 0; i--)); do
+      line=${L[i]}
+      [[ -z ${line//[[:space:]]/} || $line == [[:space:]]* ]] && continue
+      if [[ $line == "❯ "* || $line == "❯" ]]; then echo limit; return; fi
+      break
+    done
+    echo maybe; return
+  fi
+  # Not that shape. The words with no reply and no message after them are worth his look.
+  local wi=-1
+  for ((i = top - 1; i >= 0; i--)); do
+    if grep -qE "$WORDS" <<<"${L[i]}"; then wi=$i; break; fi
+  done
+  if ((wi < 0)); then echo other; return; fi
+  for ((i = wi + 1; i < top; i++)); do
+    if grep -qE "$MARK" <<<"${L[i]}"; then echo other; return; fi
+  done
+  echo unsure
 }
 [ "${RESUME_ALL_CLASSIFY_ONLY:-}" = 1 ] && { classify; exit 0; }  # used by tests
 
-command -v orca >/dev/null || { echo "resume-all: orca CLI not found" >&2; exit 3; }
-list="$(orca terminal list --json 2>/dev/null)" || { echo "resume-all: orca terminal list failed (is Orca running?)" >&2; exit 3; }
+command -v "$ORCA" >/dev/null || { echo "resume-all: orca CLI not found" >&2; exit 3; }
+list="$("$ORCA" terminal list "${WHERE[@]}" --json 2>/dev/null)" || { echo "resume-all: orca terminal list failed (is Orca running${WHERE[1]:+ on ${WHERE[1]}, and is it paired}?)" >&2; exit 3; }
 
-n_limit=0; n_sent=0
+n_limit=0; n_sent=0; n_maybe=0
 while IFS=$'\t' read -r handle title; do
   [ -n "$handle" ] || continue
-  screen="$(orca terminal read --terminal "$handle" --screen --json 2>/dev/null | jq -r '.result.terminal.tail[]? // empty')"
+  screen="$("$ORCA" terminal read "${WHERE[@]}" --terminal "$handle" --screen --json 2>/dev/null | jq -r '.result.terminal.tail[]? // empty')"
+  screen=${screen//$NBSP/ }
   kind="$(classify <<<"$screen")"
+  # The stop notice as the screen shows it, printed beside a session that is listed as stopped.
+  why="$(LC_ALL=C grep -E "$NOTICE" <<<"$screen" | tail -n 1 | LC_ALL=C sed -E 's/^[[:space:]]*(⎿[[:space:]]+)?//; s/[[:space:]]+$//' | cut -c1-90)"
   case "$kind" in
     login) printf 'needs /login  %s  %s\n' "$handle" "$title" ;;
-    limit)
+    draft) printf 'has text in its box  %s  %s  [%s]\n' "$handle" "$title" "$why" ;;
+    unsure) printf 'unsure  %s  %s\n' "$handle" "$title" ;;
+    asking)
+      if grep -qE "$WORDS" <<<"$screen"; then printf 'has a dialog  %s  %s\n' "$handle" "$title"
+      elif [ -n "$ONLY" ] && [[ $ONLY == *",$handle,"* ]]; then printf 'not stopped now  %s  %s\n' "$handle" "$title"; fi ;;
+    # A session he was shown that has gone on since, or is working: said, so the count adds up.
+    busy|other) [ -n "$ONLY" ] && [[ $ONLY == *",$handle,"* ]] && printf 'not stopped now  %s  %s\n' "$handle" "$title" ;;
+    limit|maybe)
+      if [ -n "$ONLY" ] && [[ $ONLY != *",$handle,"* ]]; then
+        printf 'not in --only  %s  %s\n' "$handle" "$title"
+        continue
+      fi
+      # Not for sure: woken only when --only names it, which carries his yes for that session.
+      if [ "$kind" = maybe ] && [ -z "$ONLY" ]; then
+        n_maybe=$((n_maybe+1)); printf 'looks stopped  %s  %s  [%s]\n' "$handle" "$title" "$why"
+        continue
+      fi
       n_limit=$((n_limit+1))
       if [ "$SEND" = 1 ]; then
-        if orca terminal send --terminal "$handle" --text "$TEXT" --enter --wait-submit 5 --json >/dev/null 2>&1; then
-          n_sent=$((n_sent+1)); printf 'sent         %s  %s\n' "$handle" "$title"
+        if "$ORCA" terminal send "${WHERE[@]}" --terminal "$handle" --text "$TEXT" --enter --wait-submit 5 --json >/dev/null 2>&1; then
+          n_sent=$((n_sent+1)); printf 'sent         %s  %s  [%s]\n' "$handle" "$title" "$why"
         else
           printf 'SEND FAILED  %s  %s\n' "$handle" "$title"
         fi
       else
-        printf 'would send   %s  %s\n' "$handle" "$title"
+        printf 'would send   %s  %s  [%s]\n' "$handle" "$title" "$why"
       fi ;;
   esac
 done < <(jq -r '(.result.terminals // .result // [])[]
   | select(.agentIdentity == "claude" and .connected == true and .writable == true and (.orphaned | not))
   | [.handle, (.title // "-")] | @tsv' <<<"$list")
 
-if [ "$SEND" = 1 ]; then echo "resume-all: $n_sent of $n_limit limit-stopped sessions resumed"
-else echo "resume-all: $n_limit limit-stopped sessions found (dry run; add --send to resume them)"; fi
+more=''
+[ "$n_maybe" -gt 0 ] && more="; $n_maybe more look stopped, not for sure (name them in --only to wake them)"
+if [ "$SEND" = 1 ]; then echo "resume-all: $n_sent of $n_limit limit-stopped sessions resumed$more"
+else echo "resume-all: $n_limit limit-stopped sessions found (dry run; add --send to resume them)$more"; fi

@@ -1,7 +1,7 @@
 ---
 name: my-missed
 description: "דילגת על מה ששאלתי: תשובה על כל מה שנשאר בלי מענה."
-argument-hint: "[על מה דילגת]"
+argument-hint: "[לא חובה: מה נשאר בלי תשובה]"
 disable-model-invocation: true
 ---
 # my-missed: you skipped what I asked

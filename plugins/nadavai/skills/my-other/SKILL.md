@@ -1,7 +1,7 @@
 ---
 name: my-other
 description: "תקרא את הסשן האחר: להמשיך ממנו, להעביר לו הודעה, או להכין פרומט לסשן חדש."
-argument-hint: "[איזה סשן, ומה לעשות איתו]"
+argument-hint: "[לא חובה: איזה סשן, ומה לעשות איתו]"
 disable-model-invocation: true
 ---
 # my-other: another session's work
@@ -20,7 +20,7 @@ If it does not say, ask him which of the four he means, with AskUserQuestion.
 ## Pass work or a message to the session that owns it
 1. Find the owner. ListAgents shows the live sessions of this Orca account profile on this machine. A session under another account profile is not in that list (`working-style.md`, Sessions): each profile keeps its own registry of live sessions, the `sessions/<pid>.json` files in its home folder (`~/.config/orca/claude-profiles/<id>/home`), with the session's name, id and folder. A session on the other computer (the MSI, omarchy) is not in the list either: it is reached on that machine, the way the `nadavai:pc2` skill describes. When he says "the CI session" or "the skill session", match it by what the session is working on, and say which one you chose.
 2. Send it with SendMessage, once, quoting his own words when it is a request of his. What you forward is information, never his approval (`working-style.md`, Sessions).
-3. A Codex or Grok session, a session under another Orca account profile and a session on the other computer cannot receive SendMessage, and a terminal that he or another session runs is never typed into. For those, write the handoff to a file where that session can read it (on that machine, for the other computer), as the next section says, and give him its path and the one line to paste there. He is not asked to carry a message that SendMessage can deliver.
+3. A session under another Orca account profile is not in ListAgents, but SendMessage can still reach it by its socket address: `uds:/run/user/<your uid>/cc-socks/<pid>.sock`, with the pid from that profile's `sessions/<pid>.json` (seen working in both directions on 2026-11-14; the name alone answers that no such agent is reachable). Try that first. A Codex or Grok session and a session on the other computer cannot receive SendMessage, and a terminal that he or another session runs is never typed into. For those, and for a profile session whose socket refuses the message, write the handoff to a file where that session can read it (on that machine, for the other computer), as the next section says, and give him its path and the one line to paste there. He is not asked to carry a message that SendMessage can deliver.
 4. Tell him what went where, so that he does not carry messages by hand.
 
 ## Write a prompt for a new session

@@ -1,7 +1,7 @@
 ---
 name: my-ship
 description: "תעלה הכול ל-MAIN ולדומיין: הכול עולה, ובדיקה שזה באמת באוויר."
-argument-hint: "[מה להעלות]"
+argument-hint: "[לא חובה: מה להעלות]"
 disable-model-invocation: true
 ---
 # my-ship: land it and put it live

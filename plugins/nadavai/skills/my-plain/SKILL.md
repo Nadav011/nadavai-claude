@@ -1,7 +1,7 @@
 ---
 name: my-plain
 description: "תסביר לי את זה בפשטות: מה היה, מה יהיה ואיך אראה את זה, בלי מילים טכניות."
-argument-hint: "[מה להסביר]"
+argument-hint: "[לא חובה: מה להסביר]"
 disable-model-invocation: true
 ---
 # my-plain: say it simply

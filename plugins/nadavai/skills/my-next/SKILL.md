@@ -1,7 +1,7 @@
 ---
 name: my-next
 description: "מה עכשיו? הצעד הבא ומי עושה אותו, ומה מחכה לי."
-argument-hint: "[על מה]"
+argument-hint: "[לא חובה: באיזה נושא]"
 disable-model-invocation: true
 ---
 # my-next: what now

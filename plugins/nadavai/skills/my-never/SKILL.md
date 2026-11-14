@@ -1,7 +1,7 @@
 ---
 name: my-never
 description: "למה זה קרה, ושלא יקרה שוב: הסיבה, איפה עוד זה קיים, ומה עוצר את זה מעכשיו."
-argument-hint: "[מה קרה]"
+argument-hint: "[לא חובה: מה קרה]"
 disable-model-invocation: true
 ---
 # my-never: why did it happen, and make sure it does not happen again

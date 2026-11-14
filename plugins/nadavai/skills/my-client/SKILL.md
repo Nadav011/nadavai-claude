@@ -1,7 +1,7 @@
 ---
 name: my-client
 description: "תכין הודעה ללקוח: טיוטה מלאה על מה שנעשה, ונשלחת רק אחרי שאישרתי."
-argument-hint: "[למי, ועל מה]"
+argument-hint: "[לא חובה: למי ההודעה, ועל מה]"
 disable-model-invocation: true
 ---
 # my-client: prepare the message to the client

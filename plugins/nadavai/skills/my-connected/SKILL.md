@@ -1,7 +1,7 @@
 ---
 name: my-connected
 description: "התחברתי: בדיקה שהחיבור עובד, המשך מאיפה שנעצר, ושמירה שלא אתבקש שוב."
-argument-hint: "[לאן התחברת]"
+argument-hint: "[לא חובה: לאן התחברת]"
 disable-model-invocation: true
 ---
 # my-connected: I signed in, carry on

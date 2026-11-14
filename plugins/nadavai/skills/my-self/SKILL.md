@@ -1,7 +1,7 @@
 ---
 name: my-self
 description: "תעשה את זה אתה: אתה עושה בעצמך את מה שביקשת ממני, ולי נשאר רק מה שרק אני יכול."
-argument-hint: "[מה לעשות]"
+argument-hint: "[לא חובה: מה לעשות]"
 disable-model-invocation: true
 ---
 # my-self: do it yourself

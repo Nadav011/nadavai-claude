@@ -1,7 +1,7 @@
 ---
 name: my-best
 description: "זו הדרך הכי טובה? חלופות עם מחיר, משהו מוכן שכבר קיים, ואיך עושים את זה המובילים."
-argument-hint: "[על מה]"
+argument-hint: "[לא חובה: על איזו דרך או החלטה מדובר]"
 disable-model-invocation: true
 ---
 # my-best: is this the right way, and does something ready exist

@@ -1,7 +1,7 @@
 ---
 name: my-prove
 description: "אתה בטוח? בדיקה מחדש עכשיו, ומה באמת נבדק ומה רק ניחוש."
-argument-hint: "[על איזו טענה]"
+argument-hint: "[לא חובה: על איזו טענה]"
 disable-model-invocation: true
 ---
 # my-prove: are you sure, and how do you know

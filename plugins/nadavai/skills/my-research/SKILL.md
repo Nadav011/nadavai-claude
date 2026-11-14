@@ -1,7 +1,7 @@
 ---
 name: my-research
 description: "מיצינו את המחקר? לכל שאלה: נענתה עם מקור, יש סתירה, לא נמצאה או לא נשאלה."
-argument-hint: "[איזה מחקר]"
+argument-hint: "[לא חובה: על איזה מחקר]"
 disable-model-invocation: true
 ---
 # my-research: did we exhaust the research

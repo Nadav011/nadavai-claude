@@ -19,7 +19,9 @@ here="$(cd "$(dirname "$0")/.." && pwd)"
 command -v tmux >/dev/null && command -v claude >/dev/null || { echo "note: tmux or claude is missing; nothing checked"; exit 0; }
 sock="my-menu-live-$$"
 tm() { tmux -f /dev/null -L "$sock" "$@"; }
-trap 'tm kill-server 2>/dev/null' EXIT
+# The server is stopped at the end, and its socket file with it: tmux leaves the file behind.
+sockfile="${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/$sock"
+trap 'tm kill-server 2>/dev/null; [ -S "$sockfile" ] && rm -f -- "$sockfile"' EXIT
 PASS=0; FAIL=0; UNBOUND=''
 ok() { if eval "$2"; then PASS=$((PASS+1)); else echo "FAIL: $1"; FAIL=$((FAIL+1)); fi; }
 key() { tm send-keys -t t "$@"; sleep 0.8; }
@@ -79,7 +81,7 @@ tm send-keys -t t C-x; sleep 0.3; key Tab; sleep 1
 ok "the focus opens the list"                    'is_open'
 ok "first group marked ($(group))"               '[ "$(group)" = "באמצע עבודה" ]'
 ok "top row highlighted ($(row))"                'row | grep -q "^1\. תמשיך עד הסוף בלי לעצור"'
-ok "all five groups are named"                   'plain | grep -q "באמצע עבודה .*בודקים .*להבין ולהחליט .*להראות, לשלוח ולשמור .*משהו לא טוב"'
+ok "all seven groups are named"                  'plain | grep -q "באמצע עבודה .*משימה חדשה .*בודקים .*להבין ולהחליט .*להראות, לשלוח ולשמור .*משהו לא טוב .*goal"'
 
 # 3. Down and Up move the highlight.
 key Down
@@ -89,19 +91,19 @@ ok "Up: first row again"                         'row | grep -q "^1\. "'
 
 # 4. Tab turns to the next group, with its top row highlighted; Shift+Tab turns back.
 key Down; key Tab
-ok "Tab: second group ($(group))"                '[ "$(group)" = "בודקים" ]'
-ok "Tab: its top row is highlighted ($(row))"    'row | grep -q "^1\. סיימנו את הכול"'
+ok "Tab: second group ($(group))"                '[ "$(group)" = "משימה חדשה" ]'
+ok "Tab: its top row is highlighted ($(row))"    'row | grep -q "^1\. תמשיך את הסשן ההוא עד הסוף"'
 key BTab
 ok "Shift+Tab: first group again"                '[ "$(group)" = "באמצע עבודה" ]'
 
 # 5. Left and Right, where the install bound them (the list reads right to left: Left is forward).
 if bound AbovePromptSelect left abovePrompt:next && bound AbovePromptSelect right abovePrompt:previous; then
   key Left
-  ok "Left: second group ($(group))"             '[ "$(group)" = "בודקים" ]'
-  key Left; key Left; key Left; key Left
+  ok "Left: second group ($(group))"             '[ "$(group)" = "משימה חדשה" ]'
+  key Left; key Left; key Left; key Left; key Left; key Left
   ok "Left past the last group: the first"       '[ "$(group)" = "באמצע עבודה" ]'
   key Right
-  ok "Right from the first group: the last ($(group))" '[ "$(group)" = "משהו לא טוב" ]'
+  ok "Right from the first group: the last ($(group))" '[ "$(group)" = "goal" ]'
   key Left
 else
   echo "note: Left and Right are not bound for the list in this profile (update.sh binds them); checked with Tab only"
@@ -133,7 +135,29 @@ tm send-keys -t t -l ' ועוד'; sleep 0.8
 ok "typing goes on after the prompt"             'plain | grep -q "^❯./nadavai:my-status רק מאתמול ועוד"'
 key C-u
 
-# 9. His key, where the install bound it: Ctrl+P opens, Ctrl+P again closes.
+# 9. The goal group, the last one. A form that needs a subject writes nothing over an empty box
+# and says what to type; the stores form, which needs none, writes a /goal line.
+tm send-keys -t t C-x; sleep 0.3; key Tab; sleep 1
+key BTab
+ok "Shift+Tab from the first group: goal ($(group))" '[ "$(group)" = "goal" ]'
+ok "its top row is the general goal ($(row))"    'row | grep -q "^1\. לנעול את הסשן על היעד"'
+key Down
+ok "second row: another session, as a goal ($(row))" 'row | grep -q "^2\. תמשיך את הסשן ההוא עד הסוף .*goal:"'
+key Enter; sleep 1.5
+ok "no subject: the list closes"                 '! is_open'
+ok "no subject: he is told what to type"         'plain | grep -q "קודם כותבים בתיבה איזה סשן להמשיך"'
+ok "no subject: the box stays empty"             '! plain | grep -q "^❯./"'
+tm send-keys -t t C-x; sleep 0.3; key Tab; sleep 1
+# A group he comes back to keeps the highlight where he left it, so the row is reached by its digit.
+key BTab; key 6
+ok "sixth row: the stores, as a goal ($(row))"   'row | grep -q "^6\. מה מצב האפליקציות בחנויות"'
+key Enter; sleep 1.5
+ok "the box holds a goal line for the stores"    'plain | grep -q "^❯./goal היעד: להביא עד הגשה לבדיקה בשתי החנויות"'
+# The line fills several rows of the box, and Ctrl+U clears one row of it at a time.
+for _ in $(seq 30); do plain | grep -q "^❯./" || break; tm send-keys -t t C-u; sleep 0.3; done
+ok "the goal line is cleared, nothing was sent"  '! plain | grep -q "^❯./"'
+
+# 10. His key, where the install bound it: Ctrl+P opens, Ctrl+P again closes.
 if bound Chat ctrl+p abovePrompt:focus; then
   key C-p; sleep 1
   ok "Ctrl+P opens the list"                     'is_open'

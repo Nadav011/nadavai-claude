@@ -1,7 +1,7 @@
 ---
 name: my-hold
 description: "רק תענה, אל תתחיל כלום: תשובה או תוכנית בלבד, בלי שום שינוי עד שאני אומר."
-argument-hint: "[השאלה]"
+argument-hint: "[לא חובה: השאלה שלך. בלי כלום: ההודעה האחרונה שלך]"
 disable-model-invocation: true
 ---
 # my-hold: answer only, start nothing

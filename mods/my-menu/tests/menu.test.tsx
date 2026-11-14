@@ -53,12 +53,22 @@ const NEW = 'nadavai:my-new'
 const list = (at: number): string => `list:${at}`
 const BEFORE = 'before'
 const AFTER_STOP = 'after'
-// When the goal row's goal is met, as the menu writes it: for the work he
-// asked for when the box was empty, for the goal he typed otherwise.
-const met = (whose: string): string =>
-  `בסשן הזה כתובה רשימת "מה נחשב גמור" ${whose} (אם אין, קודם כותבים אותה), וכל שורה בה סגורה עם ראיה, או שכל מה שנשאר רשום עם חסימה של נדב, של לקוח, של בדיקת חנות או פלטפורמה, של תאריך או של חומרה`
-const READY = `/goal ${met('לעבודה שביקשתי')}`
-const AFTER = `. היעד הושג רק כש${met('ליעד הזה')}`
+// What every goal line ends with, as the menu writes it: the closing block
+// the session has to print, and what waits for him. No line caps the turns.
+const GATES =
+  'תקלה שמתגלה בדרך מתוקנת מהשורש, בנפרד, ונכתבת בדוח. בדרך לא מוותרים על שום דבר שנדב ביקש ולא מקטינים אותו, ולא עושים מה שלפי הכללים מחכה לאישור שלו: כסף, הודעה או פרסום בשמו או בשם לקוח (גם הודעה שהאפליקציה שולחת לאדם אמיתי בגלל פעולה של הסשן), שחרור ציבורי בחנות, הגשה רשמית (מס, ממשלה, בנק) או חתימה מחייבת, מחיקה בלי דרך חזרה.'
+const LIST_BLOCK =
+  'שחוזר על כל שורה ברשימת "מה נחשב גמור", וליד כל אחת [סגור] עם הראיה שכבר מופיעה למעלה בשיחה (הפקודה שרצה והפלט שלה, או קישור שנפתח), או [חסום: נדב, לקוח, בדיקת חנות או פלטפורמה, תאריך או חומרה] עם מה שכבר מוכן, ואין בו שורה פתוחה שהיא של הסשן'
+const ends = (block: string): string =>
+  `היעד מסתיים רק כשבתשובה האחרונה מופיע בלוק סגירה ${block}. אם השיחה סוכמה בדרך והראיה כבר לא מופיעה בה, מריצים את הבדיקה שוב לפני הבלוק. ${GATES}`
+// The general goal row: for the work he asked for when the box was empty,
+// for the goal he typed otherwise.
+const LOCK_TAIL = ` קודם כותבים בסשן רשימת "מה נחשב גמור" ליעד הזה (אם אין), כל שורה דבר שאפשר לבדוק, ועובדים עליה עד הסוף. ${ends(LIST_BLOCK)}`
+const READY = `/goal היעד: לסיים את העבודה שביקשתי בסשן הזה.${LOCK_TAIL}`
+const AFTER = `.${LOCK_TAIL}`
+// Where a goal form sends the session for the whole procedure.
+const file = (of: string): string =>
+  `הנוהל המלא בקובץ ~/nadavai/plugins/nadavai/skills/my-${of}/SKILL.md (אם הוא לא נפתח, ממשיכים לפי מה שכתוב כאן).`
 // What he is told when his words were too long for a goal line.
 const LONG =
   'המילים שהקלדת ארוכות מדי לשורת יעד (עד 4000 תווים), והסוף שלהן נחתך. אפשר לשלוח את הטקסט המלא כהודעה רגילה, ואז לנעול יעד קצר.'
@@ -304,13 +314,16 @@ test('the groups come in his order, and a prompt no group names comes last', asy
     one('status', 'מה מצבנו? מה נעשה.'),
     one('connected', 'התחברתי: בדיקה שהחיבור עובד.'),
     one('run', 'תמשיך עד הסוף בלי לעצור: רשימה.'),
+    one('study', 'צא למחקר לפני החלטה: שלוש אפשרויות.'),
+    one('takeover', 'תמשיך את הסשן ההוא עד הסוף: מוצא אותו.'),
+    one('stores', 'מה מצב האפליקציות בחנויות? טבלה.'),
   ])
 
   await $.session.start(START)
   await open($)
   const ui = await $.ui.mount(band())
   const seen: string[] = []
-  for (let n = 0; n < 6; n += 1) {
+  for (let n = 0; n < 8; n += 1) {
     const names = (await shown(ui)).options.map(option => option.value.replace('nadavai:my-', ''))
     seen.push(`${await marked(ui)} = ${names.join(' ')}`)
     await move($, AFTER_STOP)
@@ -319,13 +332,19 @@ test('the groups come in his order, and a prompt no group names comes last', asy
 
   expect(seen).toEqual([
     'באמצע עבודה = run goal connected status fast',
+    // The prompts for the main goals come second: the list still opens on
+    // the group he uses most.
+    'משימה חדשה = takeover study stores',
     'בודקים = done prove review',
     'להבין ולהחליט = best method',
     'להראות, לשלוח ולשמור = other',
     'משהו לא טוב = machine wrong never',
     'נוספים = new',
+    // The goal group is last: the general row, then the form of each prompt
+    // the session has, in the group's own order.
+    'goal = goal goal-takeover goal-study goal-stores',
   ])
-  // The sixth turn came back to the first group.
+  // The eighth turn came back to the first group.
   expect((await shown(ui)).options[0]?.value).toBe('nadavai:my-run')
   await ui.unmount()
 })
@@ -365,6 +384,230 @@ test('a pick only fills the box and submits nothing', async ($, on) => {
 
   expect(held.text).toBe('/nadavai:my-status ')
   expect(sent).toEqual([])
+  await ui.unmount()
+})
+
+// The session of these tests has the five prompts that have a goal form.
+const FORMS = [
+  { name: 'nadavai:my-status', description: 'מה מצבנו? מה נעשה.', source: 'plugin' },
+  {
+    name: 'nadavai:my-takeover',
+    description: 'תמשיך את הסשן ההוא עד הסוף: מוצא אותו, ומסיים.',
+    source: 'plugin',
+  },
+  { name: 'nadavai:my-case', description: 'לקוח דיווח על תקלה או ביקש משהו: הכול נקרא.', source: 'plugin' },
+  { name: 'nadavai:my-study', description: 'צא למחקר לפני החלטה: שלוש אפשרויות.', source: 'plugin' },
+  { name: 'nadavai:my-design', description: 'תעצב או תכין דמו שרואים: נפתח לי מיד.', source: 'plugin' },
+  { name: 'nadavai:my-stores', description: 'מה מצב האפליקציות בחנויות? טבלה.', source: 'plugin' },
+] as const
+// The page of the goal group in that session: "באמצע עבודה", "משימה חדשה", goal.
+const GOALS = 2
+// Opens the list on the goal group, with `words` in the prompt box.
+const goals = async ($: Engine, ui: Mounted, held: Box, words: string): Promise<void> => {
+  held.text = words
+  await open($)
+  await ui.redraw()
+  // The band learns how many groups there are when it draws: a turn follows a draw.
+  for (let n = 0; n < GOALS; n += 1) {
+    await move($, AFTER_STOP)
+    await ui.redraw()
+  }
+}
+
+test('the goal group shows the general row and each prompt that has a goal form, by its sentence', async ($, on) => {
+  const held = box()
+  engine(on, held, FORMS)
+
+  await $.session.start(START)
+  const ui = await $.ui.mount(band())
+  await goals($, ui, held, '')
+
+  expect(await marked(ui)).toBe('goal')
+  const { options } = await shown(ui)
+  expect(options.map(option => option.value)).toEqual([
+    GOAL,
+    'goal-takeover',
+    'goal-case',
+    'goal-study',
+    'goal-design',
+    'goal-stores',
+  ])
+  // A form's row is the prompt's own sentence, and says what the goal ends on.
+  const second = options[1]?.label ?? ''
+  expect(second.startsWith('2. תמשיך את הסשן ההוא עד הסוף  ')).toBe(true)
+  expect(second.endsWith('  goal: לא עוצר עד שהעבודה של הסשן ההוא באוויר')).toBe(true)
+  expect(options[5]?.label.startsWith('6. מה מצב האפליקציות בחנויות?')).toBe(true)
+  await ui.unmount()
+})
+
+test('a session without any of those prompts has no goal group: the general row is in the first group', async ($, on) => {
+  engine(on, box())
+
+  await $.session.start(START)
+  await open($)
+  const ui = await $.ui.mount(band())
+  const titles: string[] = []
+  // One turn more than the groups there are: it comes back to the first, so
+  // a goal group after them would show.
+  for (let n = 0; n < 4; n += 1) {
+    titles.push((await marked(ui)) ?? '')
+    await move($, AFTER_STOP)
+    await ui.redraw()
+  }
+
+  expect(titles).toEqual(['באמצע עבודה', 'להבין ולהחליט', 'נוספים', 'באמצע עבודה'])
+  await ui.unmount()
+})
+
+test('a goal form writes a goal line with his words first, its own end and what waits for him, and no cap of turns', async ($, on) => {
+  const held = box()
+  engine(on, held, FORMS)
+
+  await $.session.start(START)
+  const ui = await $.ui.mount(band())
+  await goals($, ui, held, 'הסשן של הקופה מאתמול.')
+  await ui.select({ key: list(GOALS), value: 'goal-takeover' })
+
+  const line = held.text
+  // Goal mode is what his Enter turns on: the line is a /goal command, with
+  // his words as its subject (their closing mark does not double).
+  expect(line.startsWith('/goal הסשן של הקופה מאתמול. היעד: למצוא את הסשן שמתואר כאן')).toBe(true)
+  // The whole procedure is the prompt's file, named in the line.
+  expect(line).toContain(file('takeover'))
+  // Only work that ships has to go live; a plan or a research is shown.
+  expect(line).toContain('עבודה שעולה לאוויר נגמרת כשהיא בענף הראשי, באוויר בכתובת')
+  expect(line).toContain('תוכנית, מחקר או עיצוב נגמרים כשהם מוכנים ומוצגים לו')
+  expect(line).toContain('וגבול שנקבע בסשן ההוא נשמר')
+  // The end that the judge of a goal can read in the conversation, and what
+  // stays waiting for him. Nothing in the line ends the goal with work open.
+  expect(line.endsWith(ends(LIST_BLOCK))).toBe(true)
+  expect(line).not.toContain('תורים')
+  expect(line.length).toBeLessThanOrEqual('/goal '.length + 4000)
+  expect(held.toasts).toEqual([])
+  await ui.unmount()
+})
+
+test('each form says its own end: the research ends on a page and a recommendation', async ($, on) => {
+  const held = box()
+  engine(on, held, FORMS)
+
+  await $.session.start(START)
+  const ui = await $.ui.mount(band())
+  await goals($, ui, held, 'מערכת זיכרון לסוכנים')
+  await ui.select({ key: list(GOALS), value: 'goal-study' })
+
+  expect(held.text.startsWith('/goal מערכת זיכרון לסוכנים. היעד: מחקר עד המלצה אחת')).toBe(true)
+  // Money waits for him; a free account or a trial in a scratch folder does not.
+  expect(held.text).toContain('לא בונים את הדבר עצמו ולא משלמים על שום דבר')
+  expect(held.text).toContain('חשבון חינמי שהבדיקה צריכה מותרים')
+  // A question to him does not end the goal: the work goes on meanwhile.
+  expect(held.text).toContain('שואלים שאלה אחת, וממשיכים בינתיים במה שלא תלוי בתשובה')
+  expect(held.text).toContain(file('study'))
+  expect(held.text).toContain('ההמלצה האחת והסיבה החזקה נגדה')
+  expect(held.text.endsWith(GATES)).toBe(true)
+  expect(held.text).not.toContain('תורים')
+  await ui.unmount()
+})
+
+// Each form that needs a subject, and what it says over an empty box.
+const NEEDS = [
+  ['goal-takeover', 'קודם כותבים בתיבה איזה סשן להמשיך, ואז בוחרים את השורה שוב.'],
+  ['goal-case', 'קודם כותבים בתיבה איזה לקוח ומה הוא כתב, ואז בוחרים את השורה שוב.'],
+  ['goal-study', 'קודם כותבים בתיבה על מה המחקר ומה צריך להחליט, ואז בוחרים את השורה שוב.'],
+  ['goal-design', 'קודם כותבים בתיבה מה לעצב, ואז בוחרים את השורה שוב.'],
+] as const
+for (const [value, told] of NEEDS)
+  test(`${value} needs a subject: over an empty box it writes nothing, closes the list and says what to type`, async ($, on) => {
+    const held = box()
+    engine(on, held, FORMS)
+    const clock = mock.clock(on)
+
+    await $.session.start(START)
+    const ui = await $.ui.mount(band())
+    await goals($, ui, held, '   ')
+    const said = gate()
+    held.onToast = said.open
+    const picked = ui.select({ key: list(GOALS), value })
+    await clock.advance(150)
+    await picked
+    await said.wait
+
+    expect(held.fills).toEqual([])
+    expect(held.toasts).toEqual([told])
+    // The list is closed: the row of no height is all the band holds.
+    await ui.redraw()
+    expect((await ui.findAll({ type: 'Select' })).length).toBe(0)
+    await ui.unmount()
+  })
+
+test('the stores form works over an empty box: it is about every app that is already on its way to a store', async ($, on) => {
+  const held = box()
+  engine(on, held, FORMS)
+
+  await $.session.start(START)
+  const ui = await $.ui.mount(band())
+  await goals($, ui, held, '')
+  await ui.select({ key: list(GOALS), value: 'goal-stores' })
+
+  expect(held.text.startsWith('/goal היעד: להביא עד הגשה לבדיקה בשתי החנויות')).toBe(true)
+  expect(held.text).toContain('את כל האפליקציות שכבר יש להן רישום או בנייה בחנות')
+  expect(held.text).toContain('אפליקציה שעוד לא התחילה שום דרך לחנות היא שורה שמחכה לנדב')
+  expect(held.text).toContain('שחרור לציבור, הרחבת הפצה, שינוי ברישום או במחיר')
+  // Submitting to review is the goal; what waits is an official filing.
+  expect(held.text).toContain('הגשה רשמית (מס, ממשלה, בנק) או חתימה מחייבת')
+  expect(held.text).not.toContain('תורים')
+  expect(held.toasts).toEqual([])
+  await ui.unmount()
+})
+
+test('the client form keeps the answer a draft and tries the fix as the client did, in the QA account', async ($, on) => {
+  const held = box()
+  engine(on, held, FORMS)
+
+  await $.session.start(START)
+  const ui = await $.ui.mount(band())
+  await goals($, ui, held, 'דני כתב שהייצוא לא עובד')
+  await ui.select({ key: list(GOALS), value: 'goal-case' })
+
+  expect(held.text.startsWith('/goal דני כתב שהייצוא לא עובד. היעד: לטפל עד הסוף בתקלה או בבקשה של הלקוח')).toBe(true)
+  expect(held.text).toContain('בחשבון הבדיקה כשהוא מראה אותו דבר, ובלי ששום הודעה תצא לאדם אמיתי')
+  expect(held.text).toContain('ולא נשלחת: השליחה מחכה לנדב')
+  expect(held.text).toContain(file('case'))
+  expect(held.text.endsWith(ends(`${LIST_BLOCK}, ובסופו הנתיב של קובץ הטיוטה`))).toBe(true)
+  expect(held.text).not.toContain('תורים')
+  await ui.unmount()
+})
+
+test('the design form stops at the first version and waits for his word', async ($, on) => {
+  const held = box()
+  engine(on, held, FORMS)
+
+  await $.session.start(START)
+  const ui = await $.ui.mount(band())
+  await goals($, ui, held, 'מסך הבית של הקופה')
+  await ui.select({ key: list(GOALS), value: 'goal-design' })
+
+  expect(held.text.startsWith('/goal מסך הבית של הקופה. היעד: גרסה ראשונה שרואים')).toBe(true)
+  expect(held.text).toContain('עוצרים בגרסה הראשונה ומחכים למה שיגיד, בלי סבבי ליטוש')
+  expect(held.text).toContain(file('design'))
+  expect(held.text).toContain('ובסופו מה מחכה למילה של נדב')
+  expect(held.text.endsWith(GATES)).toBe(true)
+  expect(held.text).not.toContain('תורים')
+  await ui.unmount()
+})
+
+test('words too long for a goal form are cut to a line that still sets, and he is told', async ($, on) => {
+  const held = box()
+  engine(on, held, FORMS)
+
+  await $.session.start(START)
+  const ui = await $.ui.mount(band())
+  await goals($, ui, held, 'מילה '.repeat(1000))
+  await ui.select({ key: list(GOALS), value: 'goal-takeover' })
+
+  expect(held.text.length).toBe('/goal '.length + 4000)
+  expect(held.text).toContain('…. היעד: למצוא את הסשן')
+  expect(held.toasts).toEqual([LONG])
   await ui.unmount()
 })
 
@@ -415,6 +658,9 @@ test('the goal row writes a ready goal line, and his words become the goal', asy
   expect(over).toBe(`/goal ${'א'.repeat(room)}…${AFTER}`)
   expect(over.length).toBe('/goal '.length + 4000)
   expect(held.toasts).toEqual([LONG, LONG])
+  // A character of two units at the cut is left out whole, not cut in half.
+  const half = await goal(`${'א'.repeat(room - 1)}😀`)
+  expect(half).toBe(`/goal ${'א'.repeat(room - 1)}…${AFTER}`)
   await ui.unmount()
 })
 

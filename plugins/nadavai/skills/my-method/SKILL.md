@@ -1,7 +1,7 @@
 ---
 name: my-method
 description: "הדרך שלנו נכונה, או כפולה ובזבוז זמן? מה משרת את התוצר, מה כפול, ומה לעצור או לדחות."
-argument-hint: "[על מה]"
+argument-hint: "[לא חובה: על איזה חלק בדרך העבודה]"
 disable-model-invocation: true
 ---
 # my-method: is the way we work right, or doubled and wasted

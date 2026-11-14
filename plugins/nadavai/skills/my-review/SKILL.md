@@ -1,7 +1,7 @@
 ---
 name: my-review
 description: "תעבור על כל הסשן: בודקים חדשים קוראים הכול, מה פוספס, והאם סגורים ב-100%."
-argument-hint: "[מתאריך, או על מה להתמקד]"
+argument-hint: "[לא חובה: מאיזה תאריך, או על מה להתמקד]"
 disable-model-invocation: true
 ---
 # my-review: a full review of this session

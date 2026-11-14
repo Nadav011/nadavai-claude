@@ -1,7 +1,7 @@
 ---
 name: my-show
 description: "תפתח נראה: קישור שנפתח, מה לראות בו ומה השתנה."
-argument-hint: "[מה לפתוח]"
+argument-hint: "[לא חובה: מה לפתוח]"
 disable-model-invocation: true
 ---
 # my-show: open it so I can see it

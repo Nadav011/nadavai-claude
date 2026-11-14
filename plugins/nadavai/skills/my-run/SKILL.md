@@ -1,7 +1,7 @@
 ---
 name: my-run
 description: "תמשיך עד הסוף בלי לעצור: רשימת מה נחשב גמור, עבודה במקביל, ועצירה רק על מה שמחכה לי."
-argument-hint: "[מה לסיים]"
+argument-hint: "[לא חובה: מה לסיים]"
 disable-model-invocation: true
 ---
 # my-run: carry it to the end without stopping
