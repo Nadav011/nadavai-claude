@@ -46,6 +46,9 @@ any design change after it is made in the app's preview (`shared/rules.md` of na
   release; an official filing or signature; a deletion with no way back). A migration, an auth or permission change
   and payment code are engineering actions, not `go`: they run after an independent review, with a tested way back
   and through the project's script, with a report after (that section; `~/nadavai/guides/production-change.md`).
+  Inside them the five stay asked (that section): a change to who is charged, how much or when, to refunds, or to
+  the receipts, invoices and tax documents people get, unless he decided that exact change, and a deletion of data
+  with no verified backup, are `go`.
 
 ## Units
 State is `todo` until the build session marks it `done <sha>`; the `next` gap scan counts the rows not `done`.
@@ -56,7 +59,7 @@ State is `todo` until the build session marks it `done <sha>`; the `next` gap sc
 | U-2 | Tokens and shared components | `…` | `s-home` «אחרי · …» | | M | U-1 | no | todo |
 | U-3 | <screen the demo drew> | `…` | `s-<id>` «אחרי · …» and the N «מצב ·» labels | every control and state on the cited phones at the tag is in the preview, or a numbered answer removes it (`screen` step 8b verifier, the phones at the tag beside the preview shots) | S | U-2 | no | todo |
 | U-4 | <screen the demo did not draw> | `…` | — (INVENTORY.md «<screen>»; designed in the preview) | every control, state and role variant of its INVENTORY.md row is in the preview, or has a numbered answer that removes it | S (with design time) | U-2 | no | todo |
-| U-5 | Cut-over (an app with live users): the long branch or the flag goes live | `…` | — | every unit before it `done`; when it goes live is Nadav's decision (`rules/working-style.md`, Requests), unless the plan he approved fixes it | S | U-1…U-4 | — (his decision, not `go`) | todo |
+| U-5 | Cut-over (an app with live users): the long branch or the flag goes live | `…` | — | every unit before it `done`; when it goes live is Nadav's decision (`rules/working-style.md`, Requests), unless the plan he approved fixes it [I] | S | U-1…U-4 | — (his decision, not `go`) | todo |
 
 ## After the core (from FEATURES-PROPOSED.md)
 | Unit | Proposal | Demo | Answer | Size |

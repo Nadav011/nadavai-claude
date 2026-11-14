@@ -340,7 +340,9 @@ Chat in plain Hebrew, short lines, the why before the what; code, files and comm
 - `plan/build-plan.md` from the template: it names the approved tag, and its units come in build order, each with
   acceptance, size, dependencies, `go` only where it holds one of the five actions that wait for Nadav's yes
   (`rules/working-style.md`, Approval gates; a migration, an auth or permission change and payment code are
-  engineering actions that run after an independent review, as that section says). Every answer and every feature
+  engineering actions that run after an independent review, as that section says, and inside them the five stay
+  asked: a change to who is charged, how much or when, to refunds or to receipts, invoices and tax documents that he
+  did not decide exactly, and a deletion of data with no verified backup, are `go`). Every answer and every feature
   row lands somewhere. `tools/check-anchors.py`: 0 missing, 0 wrong. It checks the demo citations only; a citation
   of an INVENTORY.md row is checked by the reviewers, not by a tool.
 - **Unit 1 is the app's preview on invented data** (the folder and the no-demo check: shifts' `src/demo/`; a new
@@ -359,11 +361,13 @@ Chat in plain Hebrew, short lines, the why before the what; code, files and comm
   says: with `args.sensitive` false (the default), three rejecting full reviews stop the workflow, which returns
   `simplify: true` (simplify the plan, keeping what it does for a person, and tell Nadav); `args.sensitive: true`,
   for a plan that covers money, messages to people, data or official filings, keeps the rounds going while one
-  finds a HIGH or MEDIUM, and from the fourth review the result's `faultsPerRound` gives what each round left.
+  finds a HIGH or MEDIUM, gives every edit after an APPROVE a full review in place of a diff-only confirm, and from
+  the fourth review the result's `faultsPerRound` gives what each round left.
 - Second model: `rules/working-style.md`, "Second model". The full reviews are already fresh Opus, so the cross-check
-  is another vendor's read: Grok, else Codex (config default, never `-m` or an effort flag), else Antigravity, else a
-  fresh Opus; `workflows/plan-review.js` holds the order. Its findings are fixed and diff-confirmed. Approval by
-  any reviewer means APPROVE with nothing HIGH or MEDIUM left, whatever the verdict word.
+  is another vendor's read [I]: Grok, else Codex (config default, never `-m` or an effort flag), else Antigravity,
+  else a fresh Opus; `workflows/plan-review.js` holds the order. Its findings are fixed and diff-confirmed (a full
+  review under `args.sensitive`). Approval by any reviewer means APPROVE with nothing HIGH or MEDIUM left, whatever
+  the verdict word.
 - Every edit after an APPROVE (LOW polish, the second model's fixes, START-BUILD itself) is followed by a diff-only
   confirm, at most 3 per chain; approval holds only when the last step is a confirm that says APPROVE, so no edit is
   left unchecked. A rejection with nothing to fix still blocks.

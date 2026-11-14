@@ -266,6 +266,21 @@ await test('RC3', 'with sensitive:true the full reviews go on past three while o
   return full === 5 && result.simplify === false && result.gates.reviewApproved === true && JSON.stringify(result.faultsPerRound) === '[4,3,2,1,0]'
     ? '' : `full ${full}, simplify ${result.simplify}, faults ${JSON.stringify(result.faultsPerRound)}, gates ${JSON.stringify(result.gates)}`;
 });
+await test('RC4', 'with sensitive:true an edit after an APPROVE gets a full review, never a diff-only confirm; without it, a diff-only confirm', async () => {
+  const lowOnce = c => (fullRound(c) === 1 ? { verdict: 'APPROVE', summary: 'ok', findings: [LOW], anchors: { ...CLEAN_ANCHORS } } : undefined);
+  const s = await plan({ sensitive: true }, { verdict: lowOnce });
+  const d = await plan({}, { verdict: lowOnce });
+  const sFull = s.calls.filter(c => c.label.startsWith('plan-review-full:')), sDiff = s.calls.filter(c => c.label.startsWith('plan-confirm'));
+  const dFull = d.calls.filter(c => c.label.startsWith('plan-review-full:')), dDiff = d.calls.filter(c => c.label.startsWith('plan-confirm'));
+  return sFull.length >= 1 && !sDiff.length && sFull.every(c => /Review the WHOLE plan/.test(c.prompt)) && s.result.gates.reviewApproved === true && !dFull.length && dDiff.length >= 1
+    ? '' : `sensitive: ${sFull.length} full, ${sDiff.length} diff-only; default: ${dFull.length} full, ${dDiff.length} diff-only; gates ${JSON.stringify(s.result.gates)}`;
+});
+await test('RC5', 'the second model runs Grok, else Codex on its config default, else Antigravity, and every question says read-only', async () => {
+  const { calls } = await plan({});
+  const c = calls.find(x => x.label === 'second-model');
+  const order = c && /omc ask grok "<question>"; else omc ask codex "<question>", never with -m or an effort flag[\s\S]*; else omc ask antigravity "<question>"/.test(c.prompt);
+  return order && /Read-only: change no file\./.test(c.prompt) && /exit 0 on a quota or balance error: read the raw output/.test(c.prompt) ? '' : `prompt: ${c ? c.prompt.slice(c.prompt.indexOf('SECOND-MODEL'), c.prompt.indexOf('SECOND-MODEL') + 300) : 'no second-model call'}`;
+});
 
 // ---------------- dry-run tool ----------------
 const dry = (script, args, ...flags) => {
@@ -697,8 +712,8 @@ await test('SLIM-4', 'the summary keeps the preview prohibitions that bind every
     ['the shell, never the port', /He opens the shell, never the app's port/],
     ['browser, never a native shell', /always in a browser, never inside a native shell/],
     ['loopback until the check', /Until the check script passes, the preview listens on loopback only/],
-    ['his own domain, never a claude.ai artifact, after his yes', /only on one of his own domains, never a claude\.ai artifact, and after his yes/],
-    ['a new host or cost is asked', /a new host, a DNS record or any cost is asked at that moment/],
+    ['his own domain, never a claude.ai artifact', /only on one of his own domains, never a claude\.ai artifact;/],
+    ['a free host or DNS record is named, a cost is asked, removing a record is his', /a host or a DNS record that costs nothing is set up without asking and named in the report with how to undo it, any cost is asked at that moment \(the money gate\), and removing an existing DNS record is his/],
     ['never production hosting', /never on the app's production hosting, the production domain, a subdomain of it, or a host inside a production cookie's `Domain=` scope/],
     ['the check against the deployed URL', /before the link is shared, the whole check script except the no-demo check runs against the deployed URL and passes/],
     ['staging is not invented data', /\(a staging or test backend is not invented data\)/],

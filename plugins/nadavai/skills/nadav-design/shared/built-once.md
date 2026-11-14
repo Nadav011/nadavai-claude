@@ -32,7 +32,7 @@ For an app (a product with screens people work in):
    of the build users get), until the plan's cut-over unit, so nothing reaches customers unit by unit. When the
    cut-over happens is Nadav's decision, a product decision that changes what every user sees
    (`rules/working-style.md`, Requests), unless the build plan he approved already fixes when; it is not one of the
-   five gates, so the unit is not marked `go`.
+   five gates, so the unit is not marked `go` [I].
    A long branch instead is an exception the plan names with its reason; then each unit runs the checks «What runs
    when» below lists before it merges into that branch, and the landing CI runs on the cut-over PR into main. Why:
    what he approves is then the code that ships, so there is nothing to drift. Examples: shifts' `src/demo/` (mock
@@ -417,10 +417,10 @@ For an app (a product with screens people work in):
         this point differ, this point holds and the difference is a fault to report.
    d. **Where it runs.** The proofs run where the preview runs. On localhost: the environment proof at every start, as
       (a) says, and the rest before anyone plays, as «What runs when» says. Anywhere else (one of his own domains,
-      never a claude.ai artifact, which cannot serve the two origins and their policy headers, and after his yes; a
-      cost is asked at that moment, as the money gate, and unit 1 is marked `go` when it needs one; a new host or a
-      new DNS record that costs nothing runs and is named in the report with how to undo it, and removing an
-      existing DNS record stays his, as a deletion with no way back): only
+      never a claude.ai artifact, which cannot serve the two origins and their policy headers; a host or a DNS
+      record that costs nothing is set up without asking and named in the report with how to undo it, any cost is
+      asked at that moment, as the money gate, and unit 1 is marked `go` when it needs one, and removing an existing
+      DNS record is his [I]): only
       as a static build on a host or project of its own (never the app's production hosting project; the host serves
       the built files only, with no functions, proxies, or rewrites to another host or a function; a fallback to its
       own `index.html` for client routes is allowed) that carries the same policy as (b) says, with the shell and the
