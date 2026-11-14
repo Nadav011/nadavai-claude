@@ -15,9 +15,17 @@ Read before running `omc ask` for a review. Which provider a review gets, and ho
 - `omc ask` starts Codex, Grok and Antigravity with their approvals off, so every review prompt says "read-only"
   explicitly.
 - A provider that reviews a change of an app is started in a new folder that holds only the material under
-  review (the diff, the changed files, the criteria), not in the app's repo: it runs in the current directory
-  with its sandbox off, and an app's repo holds live env files. This config repo holds no secret and can be
-  read in its worktree.
+  review (the diff with the changed files, the criteria, the question), not in the app's repo: it runs in the
+  current directory with its approvals and its sandbox off, and an app's repo holds live env files. Start it
+  with the session's tokens removed from its environment (the providers sign in from their own config files;
+  tried with Grok on 2026-11-14): `env -u GITHUB_PERSONAL_ACCESS_TOKEN -u BRIGHTDATA_API_TOKEN
+  -u ORCA_AGENT_HOOK_TOKEN -u ORCA_AGENT_LAUNCH_TOKEN -u CLAUDE_CODE_MESSAGING_TOKEN omc ask ...`. Outside a git
+  repo the artifact is written under `~/.omc/artifacts/ask/`, and the command prints its path. The folder lowers
+  what the provider reads; it is not a wall, because a provider with its sandbox off can still open a path the
+  prompt names, so the prompt names no path outside the folder.
+- This config repo holds no secret in its tracked files and is public; a provider may read it in a worktree
+  under `~/nadavai-worktrees/`, never in `~/nadavai` itself, whose files are live and whose ignored `.omc/`
+  holds session state.
 - A provider known to be out of quota is skipped without another try, only while its reset time is still
   ahead. Read `~/.cache/nadavai/provider-quota` before `omc ask` (one line per provider: its `omc ask` name,
   the time it is out until, the error text and who saw it): a line whose time has passed is no reason to skip,
