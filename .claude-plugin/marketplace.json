@@ -1,7 +1,7 @@
 {
   "$schema": "https://www.schemastore.org/claude-code-marketplace.json",
   "name": "nadavai",
-  "description": "Nadav Cohen's Claude Code environment as one installable bundle: OMC orchestration, official tool plugins, ADHD output shaping, personal skills and hooks.",
+  "description": "Nadav Cohen's Claude Code environment as one installable bundle: official tool plugins, ADHD output shaping, the UI/UX layer, personal skills, agents and hooks.",
   "owner": {
     "name": "Nadav Cohen",
     "url": "https://github.com/Nadav011"
@@ -17,7 +17,7 @@
   "plugins": [
     {
       "name": "nadavai",
-      "description": "Everything in one install: oh-my-claudecode, context7, LSPs, Playwright, Supabase, Chrome DevTools, skill-creator, i-have-adhd, Bright Data research MCP, the PostHog MCP server, the UI/UX and product layer (Impeccable, intent, interfaces), plus Nadav's skills and repo-sync hooks.",
+      "description": "Everything in one install: LSPs, Playwright, Supabase, Chrome DevTools, skill-creator, i-have-adhd, Bright Data research MCP, the PostHog MCP server, the UI/UX and product layer (Impeccable, intent, interfaces), plus Nadav's skills, agents, safety guards and repo-sync hooks.",
       "source": "./plugins/nadavai",
       "category": "productivity",
       "keywords": [

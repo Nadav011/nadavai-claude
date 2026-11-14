@@ -46,14 +46,14 @@ if [ "$(git -C "$D" rev-parse --show-toplevel 2>/dev/null)" = "$(cd "$D" && pwd 
    && { [ -f "$D/package.json" ] || [ -f "$D/pyproject.toml" ] || [ -f "$D/pubspec.yaml" ] || [ -f "$D/Package.swift" ]; }; then is_project=1; fi
 
 if [ "$is_project" = 1 ] && [ ! -f "$D/CLAUDE.md" ] && [ ! -f "$D/PROJECT-FACTS.md" ]; then
-  printf '%s\n' "CLAUDE.MD MISSING: this project has no CLAUDE.md. Tell Nadav once, in Hebrew, to run /init and then /oh-my-claudecode:deepinit in this session; afterwards make AGENTS.md a symlink to CLAUDE.md (for Codex) and commit."
+  printf '%s\n' "CLAUDE.MD MISSING: this project has no CLAUDE.md. Tell Nadav once, in Hebrew, to run /init in this session (Claude Code's own command, which writes the project's CLAUDE.md); afterwards make AGENTS.md a symlink to CLAUDE.md (for Codex) and commit."
 fi
 if [ "$is_project" = 1 ] && [ -f "$D/CLAUDE.md" ] && [ ! -e "$D/AGENTS.md" ]; then
   printf '%s\n' "AGENTS.MD MISSING: CLAUDE.md exists but AGENTS.md does not. Create it as a symlink to CLAUDE.md (ln -s CLAUDE.md AGENTS.md) so Codex reads the same instructions, and commit."
 fi
 
 if [ -f "$D/PROJECT-FACTS.md" ]; then
-  printf '%s\n' "PROJECT REINIT PENDING: this project has PROJECT-FACTS.md at its root, so it was cleaned but not re-initialized. Follow ~/nadavai/guides/project-reinit.md now: tell Nadav to run /init, then /oh-my-claudecode:deepinit, then paste the step-3 merge prompt from that guide."
+  printf '%s\n' "PROJECT REINIT PENDING: this project has PROJECT-FACTS.md at its root, so it was cleaned but not re-initialized. Follow ~/nadavai/guides/project-reinit.md now: tell Nadav to run /init (Claude Code's own command, which writes a new CLAUDE.md), then paste the merge prompt from that guide."
 fi
 
 if [ -f "$D/package.json" ] && grep -qE '"(react|next|vite|vue|svelte|@angular/core)"' "$D/package.json"; then

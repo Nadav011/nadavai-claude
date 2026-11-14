@@ -1,6 +1,6 @@
 {
   "name": "nadavai",
-  "description": "Nadav Cohen's complete Claude Code environment: OMC orchestration, official tool plugins, ADHD output shaping, personal skills and repo-sync hooks, in one install.",
+  "description": "Nadav Cohen's complete Claude Code environment: official tool plugins, ADHD output shaping, the UI/UX layer, personal skills and agents, safety and repo-sync hooks, in one install.",
   "author": {
     "name": "Nadav Cohen",
     "url": "https://github.com/Nadav011"
@@ -19,16 +19,8 @@
   "mcpServers": "./mcp.json",
   "dependencies": [
     {
-      "name": "oh-my-claudecode",
-      "marketplace": "omc"
-    },
-    {
       "name": "i-have-adhd",
       "marketplace": "i-have-adhd"
-    },
-    {
-      "name": "context7",
-      "marketplace": "claude-plugins-official"
     },
     {
       "name": "typescript-lsp",

@@ -95,9 +95,10 @@ link_home_pyright
 link_shortcuts
 retire_duplicate_skills
 link_my_menu
-# The /my-* prompts call OMC skills by name, and OMC renames skills between versions.
+# The /my-* prompts lean on menu rows and bin/ tools, and no file of ours may name an
+# oh-my-claudecode skill or agent type that tests/omc-names-allow.txt does not list (the plugin is retired).
 bash "$REPO/tests/prompt-store.sh" >/dev/null 2>&1 \
-  || warn "prompt store: a /my-* prompt names a skill or tool that is missing; run tests/prompt-store.sh"
+  || warn "prompt store: a /my-* prompt names a missing menu row or tool, or a file names an OMC skill or agent type; run tests/prompt-store.sh"
 # The menu is a mod on an early-access API: a Claude Code release can stop it loading.
 bash "$REPO/tests/my-menu.sh" >/dev/null 2>&1 \
   || warn "prompt menu: the Ctrl+P menu or its key did not pass; run tests/my-menu.sh (/nadavai:my still works)"

@@ -26,12 +26,15 @@ done
 step "Prerequisites"
 need claude "Install Claude Code first: https://code.claude.com/docs/en/setup"
 need git "Install git."
-need node "Install Node.js 20+ (OMC and the hooks need it)."
+need node "Install Node.js 20+ (the hooks, the omc CLI and the HUD need it)."
 need npm "Install Node.js 20+ (npm ships with it)."
 log "claude $(claude --version 2>/dev/null | head -1), node $(node --version), config dir $CFG"
 
 step "Marketplaces"
 add_marketplace claude-plugins-official anthropics/claude-plugins-official
+# The oh-my-claudecode plugin is retired and not installed, but its marketplace stays registered:
+# mirror_to_antigravity (lib/common.sh) copies agents and skills from its clone in
+# ~/.claude/plugins/marketplaces/omc into Antigravity. Remove this line only together with that mirror.
 add_marketplace omc https://github.com/Yeachan-Heo/oh-my-claudecode.git
 add_marketplace i-have-adhd ayghri/i-have-adhd
 add_marketplace agricidaniel-claude-seo AgriciDaniel/claude-seo
@@ -43,7 +46,7 @@ add_marketplace interfaces jakubkrehel/skills
 add_marketplace nadavai "$MARKETPLACE_SOURCE"
 
 step "Plugins"
-# nadavai declares every other plugin as a dependency, so this one install pulls them all in, enabled.
+# nadavai declares the plugins every machine runs as dependencies, so this one install pulls them in, enabled.
 claude plugin install nadavai@nadavai --scope user
 # Belt and braces: the CLI has been seen to skip dependencies whose marketplace was added in the
 # same run, so install any dependency that is still missing, one by one.
@@ -86,7 +89,7 @@ step "Shell environment (~/.bashrc sources shell/nadavai.sh)"
 link_shell
 link_home_pyright
 
-step "OMC CLI, CLAUDE.md and HUD"
+step "omc CLI (omc ask), the HUD status line and CLAUDE.md"
 ensure_omc
 link_global_claude_md
 
@@ -115,6 +118,5 @@ cat <<MSG
   Open a new Claude Code session, then:
     /mcp                     sign in to a server that asks for it (OAuth, once per machine)
     claude doctor            confirm plugins and hooks load
-    omc doctor conflicts     confirm nothing shadows a plugin skill
   Backups of anything replaced: ${BACKUP} (only if something was moved)
 MSG

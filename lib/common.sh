@@ -326,8 +326,9 @@ link_global_claude_md() {
   # ~/.claude/CLAUDE.md loads into every session and subagent: each Orca profile's own CLAUDE.md
   # is one line that imports it, so the target is always ~/.claude, whichever profile runs this.
   # `omc setup` used to own the file and left a 6K block whose delegation, model and verification
-  # text the rules override; the short file here replaces it. claudeMdEnabled=false makes OMC
-  # treat the file as the user's: no rewrite on setup or update, no drift warning.
+  # text the rules override; the short file here replaces it. The installer no longer runs
+  # `omc setup` on a real config dir (ensure_omc), but the omc CLI stays installed, and
+  # claudeMdEnabled=false keeps an `omc setup` or `omc update` run by hand from rewriting the file.
   link_file "$REPO/settings/CLAUDE.global.md" "$HOME/.claude/CLAUDE.md"
   # OMC reads the flag from the config dir it runs in, and every Orca profile is its own config dir.
   local d
@@ -357,8 +358,25 @@ ensure_omc() {
     log "installing the omc CLI (npm -g oh-my-claude-sisyphus)"
     npm install -g oh-my-claude-sisyphus
   fi
-  # Installs ~/.claude/CLAUDE.md (OMC block), the HUD statusline and OMC hooks.
-  omc setup --quiet || warn "omc setup reported a problem; run 'omc setup' by hand"
+  # The CLI stays for `omc ask` (reviews by other vendors) and for the HUD that statusLine in
+  # settings.base.json runs. The oh-my-claudecode plugin itself is retired (2026-11-14), and
+  # `omc setup` cannot be pointed at $CFG without it: measured that day with omc 5.8.4, in a config
+  # dir where the plugin is off it writes seven hook events into settings.json, an OMC block into
+  # CLAUDE.md, 19 agents and 84 skills, even with --skip-hooks and --plugin-dir-mode. So it runs in
+  # a throwaway HOME and config dir, and only the HUD folder it writes there is copied over.
+  local tmp
+  tmp=$(mktemp -d) || { warn "could not make a folder for the HUD; the HUD was not refreshed"; return 0; }
+  mkdir -p "$tmp/home/.claude"
+  if (cd "$tmp" && env -u CLAUDE_PLUGIN_ROOT -u OMC_PLUGIN_ROOT HOME="$tmp/home" CLAUDE_CONFIG_DIR="$tmp/home/.claude" \
+        omc setup --quiet --plugin-dir-mode --skip-hooks) >/dev/null 2>&1 \
+     && [ -f "$tmp/home/.claude/hud/omc-hud.mjs" ]; then
+    mkdir -p "$CFG/hud"
+    cp -R "$tmp/home/.claude/hud/." "$CFG/hud/"
+    log "HUD status line installed in $CFG/hud (omc $(omc --version 2>/dev/null | head -1))"
+  else
+    warn "omc did not produce the HUD files; $CFG/hud left as it was"
+  fi
+  rm -rf -- "${tmp:?}"
 }
 
 ensure_continues() {
@@ -669,7 +687,7 @@ pnpm|command -v pnpm|npm i -g pnpm
 trivy|command -v trivy|pre-push CVE scan: https://trivy.dev/latest/getting-started/installation/
 delta|command -v delta|git pager (git config core.pager): https://dandavison.github.io/delta/
 git-lfs|command -v git-lfs|https://git-lfs.com
-tmux|command -v tmux|OMC qa-tester and omc launch need tmux
+tmux|command -v tmux|tests/my-menu-live.sh and omc launch need tmux
 playwright|ls "${PLAYWRIGHT_BROWSERS_PATH:-$HOME/.cache/ms-playwright}"|npx playwright install chromium
 codex|command -v codex|omc ask codex: npm i -g @openai/codex
 android-sdk|[ -d "${ANDROID_HOME:-$HOME/Android/Sdk}" ]|Capacitor Android builds: install cmdline-tools + platform 36 + emulator
