@@ -9,6 +9,9 @@ trap 'rm -rf -- "${t:?}"' EXIT
 PASS=0; FAIL=0
 ok() { if eval "$2"; then PASS=$((PASS+1)); else echo "FAIL: $1"; FAIL=$((FAIL+1)); fi; }
 
+# A made-up home, so that the real profiles, the real vault and the notification state are not read.
+export HOME="$t/home"; mkdir -p "$HOME"
+export PLUGIN_HEALTH_ROUTES=/dev/null   # the repo's routed files live under the real home; their own test sets a list
 cfg="$t/cfg"; cache="$cfg/plugins/cache"
 mkplugin() { # name: a plugin with one hook script and one stdio server, both present
   local d="$cache/$1/1.0.0"
@@ -96,6 +99,27 @@ out=$(run)
 ok "a hook script named in an args list is checked" 'grep -q "BROKEN  good: a hook runs scripts/enforcer.mjs" <<<"$out" && ! grep -q "run.cjs" <<<"$out"'
 printf '%s\n' '{"hooks":{"PreToolUse":[{"matcher":"*","hooks":[{"type":"command","command":"node \"${CLAUDE_PLUGIN_ROOT}\"/scripts/guard.mjs"}]}]}}' >"$cache/good/1.0.0/hooks/hooks.json"
 
+# A plugin file that is there and does not parse is a fault, not an absent file.
+printf '{"hooks": {' >"$cache/good/1.0.0/hooks/hooks.json"
+out=$(run); rc=$?
+ok "a hooks.json that does not parse fails the check" '[ "$rc" = 1 ] && grep -q "BROKEN  good: hooks/hooks.json in version 1.0.0 is not valid JSON" <<<"$out"'
+printf '%s\n' '{"hooks":{"PreToolUse":[{"matcher":"*","hooks":[{"type":"command","command":"node \"${CLAUDE_PLUGIN_ROOT}\"/scripts/guard.mjs"}]}]}}' >"$cache/good/1.0.0/hooks/hooks.json"
+printf '%s\n' '{"mcpServers":{"t":{"command":null,"args":null,"headersHelper":null}}}' >"$cache/good/1.0.0/.mcp.json"
+out=$(run); rc=$?
+ok "a server with empty fields does not crash the check" '[ "$rc" = 0 ] && ! grep -q Traceback <<<"$out"'
+printf '%s\n' '{"mcpServers":{"t":{"command":"node","args":["${CLAUDE_PLUGIN_ROOT}/bridge/server.cjs"]}}}' >"$cache/good/1.0.0/.mcp.json"
+
+# Another profile's settings.json is checked too, and only what differs from the active one is said.
+prof="$HOME/.config/orca/claude-profiles/abcdef123456/home"; mkdir -p "$prof"; ln -s "$cfg/plugins" "$prof/plugins"
+printf '%s\n' '{"enabledPlugins":{"good@m":true,"ghost@m":true}}' >"$prof/settings.json"
+out=$(run); rc=$?
+ok "a fault in another profile's settings is reported with the profile" '[ "$rc" = 1 ] && grep -q "BROKEN  ghost: enabled in settings.json but not installed (in the settings of abcdef12)" <<<"$out"'
+rm -f -- "$cache/good/1.0.0/bridge/server.cjs"
+out=$(run)
+ok "a fault the active settings already show is said once" '[ "$(grep -c "MCP server t runs bridge/server.cjs" <<<"$out")" = 1 ]'
+: >"$cache/good/1.0.0/bridge/server.cjs"
+rm -f -- "$prof/settings.json"
+
 # No readable settings.json is a fault, not an empty pass.
 mv "$cfg/settings.json" "$cfg/settings.json.away"
 out=$(run); rc=$?
@@ -110,16 +134,24 @@ ok "a failing claude mcp list fails the check"   '[ "$rc" = 1 ] && grep -q "live
 printf '#!/bin/sh\necho "Checking MCP server health"\n' >"$fake/claude"
 out=$(PATH="$fake:$PATH" CLAUDE_CONFIG_DIR="$cfg" python3 -I "$here/bin/plugin-health" 2>&1); rc=$?
 ok "a claude mcp list with no server fails the check" '[ "$rc" = 1 ] && grep -q "listed no server" <<<"$out"'
-printf '#!/bin/sh\nprintf "%%s\\n" "plugin:good:t: node x - ✔ Connected" "plugin:other:p: https://x (HTTP) - ! Needs authentication" "plugin:bad:q: node y - ✗ Failed to connect"\n' >"$fake/claude"
+printf '#!/bin/sh\nprintf "%%s\\n" "plugin:good:t: node x - ✔ Connected" "plugin:other:p: https://x (HTTP) - ! Needs authentication" "plugin:bad:q: node y - ✗ Failed to connect" "plugin:nadavai:posthog: https://mcp.posthog.com/mcp (HTTP) - ! Needs authentication" "plugin:acct:Z: https://z (HTTP) - ! Needs authentication"\n' >"$fake/claude"
 out=$(PATH="$fake:$PATH" CLAUDE_CONFIG_DIR="$cfg" python3 -I "$here/bin/plugin-health" 2>&1); rc=$?
 ok "a server that waits for a sign-in is reported" 'grep -q "MCP server plugin:other:p waits for a sign-in" <<<"$out"'
+ok "the vault's server waiting with the vault open is a fault" 'grep -q "BROKEN  MCP server plugin:nadavai:posthog waits for a sign-in" <<<"$out"'
+ok "an account plugin's server waiting for a sign-in is a note" 'grep -q "^note    MCP server plugin:acct:Z of an account plugin waits" <<<"$out" && ! grep -q "BROKEN  MCP server plugin:acct:Z" <<<"$out"'
 ok "a server that failed is reported"            'grep -q "MCP server plugin:bad:q did not connect" <<<"$out"'
 ok "a connected server is not reported"          '! grep -q "plugin:good:t" <<<"$out"'
 # While the vault is locked (the store exists, nothing is mounted on secrets), a wait for a sign-in is a note.
 lockhome="$t/lockhome"; mkdir -p "$lockhome/.claude/secrets.gocryptfs" "$lockhome/.claude/secrets"
 out=$(HOME="$lockhome" PATH="$fake:$PATH" CLAUDE_CONFIG_DIR="$cfg" python3 -I "$here/bin/plugin-health" 2>&1)
-ok "with the vault locked a sign-in wait is a note, not a fault" 'grep -q "^note    MCP server plugin:other:p waits for a sign-in while the vault is locked" <<<"$out" && ! grep -q "BROKEN  MCP server plugin:other:p" <<<"$out"'
+ok "with the vault locked the vault's server waiting for a sign-in is a note" 'grep -q "^note    MCP server plugin:nadavai:posthog waits for a sign-in while the vault is locked" <<<"$out" && ! grep -q "BROKEN  MCP server plugin:nadavai:posthog" <<<"$out"'
+ok "another server waiting for a sign-in is still a fault then" 'grep -q "BROKEN  MCP server plugin:other:p waits for a sign-in" <<<"$out"'
 ok "a failed server is still a fault then"       'grep -q "BROKEN  MCP server plugin:bad:q did not connect" <<<"$out"'
+
+# The daily run with no network checks nothing, sends nothing and keeps the last state.
+out=$(PLUGIN_HEALTH_NET_HOST=nonexistent.invalid PLUGIN_HEALTH_NET_WAIT=0 PATH="$fake:$PATH" CLAUDE_CONFIG_DIR="$cfg" python3 -I "$here/bin/plugin-health" --notify 2>&1); rc=$?
+ok "with no network the daily run says so and exits 0" '[ "$rc" = 0 ] && grep -q "^note    no network" <<<"$out" && ! grep -q BROKEN <<<"$out"'
+ok "and it writes no state"                      '[ ! -e "$HOME/.local/state/nadavai/plugin-health.txt" ]'
 
 # Enabled but never installed, and an install folder that is gone.
 printf '%s\n' '{"enabledPlugins":{"good@m":true,"ghost@m":true}}' >"$cfg/settings.json"
@@ -133,7 +165,10 @@ printf '{"plugins":{"nadavai@nadavai":[{"scope":"user","version":"checkout","ins
 jq '{enabledPlugins: .enabledPlugins, deniedMcpServers: .deniedMcpServers}' "$here/settings/settings.base.json" >"$real/settings.json"
 out=$(CLAUDE_CONFIG_DIR="$real" python3 -I "$here/bin/plugin-health" --static 2>&1)
 ok "nadavai's hooks and servers name files that exist" '! grep -q "BROKEN  nadavai: .* runs " <<<"$out"'
-ok "every dependency of nadavai is enabled in the base settings" '! grep -q "BROKEN  nadavai: its dependency" <<<"$out"'
+ok "every dependency of nadavai is enabled in the base settings" '! grep -q "BROKEN  nadavai: .* lists the dependency" <<<"$out"'
+jq '.enabledPlugins["impeccable@impeccable"] = false | {enabledPlugins: .enabledPlugins}' "$here/settings/settings.base.json" >"$real/settings.json"
+out=$(CLAUDE_CONFIG_DIR="$real" python3 -I "$here/bin/plugin-health" --static 2>&1)
+ok "that check fails when a dependency of nadavai is turned off" 'grep -q "BROKEN  nadavai: .* lists the dependency impeccable@impeccable" <<<"$out"'
 
 # Files our guides read by path from a marketplace folder.
 routes="$t/routes.txt"

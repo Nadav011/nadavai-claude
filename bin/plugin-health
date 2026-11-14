@@ -11,8 +11,10 @@ anything saying so. On 2026-11-14 oh-my-claudecode 5.8.6 arrived without the fil
 runs (upstream stopped committing its build output), and every session ran without that server
 until someone looked.
 
-What is checked, for each plugin the active settings.json enables:
+What is checked, for each plugin the active settings.json enables (and, for what differs from it,
+the settings.json of ~/.claude and of every Orca account profile):
   - its install folder exists;
+  - its own JSON files (plugin.json, hooks.json, .mcp.json) parse;
   - every file a hook command or an MCP server names under ${CLAUDE_PLUGIN_ROOT} exists;
   - the command of a local (stdio) MCP server is on PATH;
   - each plugin it lists as a dependency is enabled (Claude Code unloads a plugin whose
@@ -22,8 +24,11 @@ a guide or a skill of ours reads by path from the marketplace's folder, so a mar
 that renames one would break the route without a word;
 and, without --static, what `claude mcp list` reports for every server: connected, waiting for
 a sign-in, or failed. A server on the settings' deny list is skipped. While the encrypted vault is
-locked (after a reboot, until Nadav opens it), a server that waits for a sign-in is printed as a
-note and not counted, so the daily notification does not fire every morning.
+locked (after a reboot, until Nadav opens it), the server whose key is in the vault waits for a
+sign-in: it is printed as a note and not counted, so the daily notification does not fire every
+morning. A server of a plugin that the signed-in claude.ai account brings (not in the registry) and
+that waits for a sign-in is a note too. With --notify the check first waits up to two minutes for the network, and without one
+it checks nothing and leaves the last state as it is.
 
 The config folder is $CLAUDE_CONFIG_DIR, or ~/.claude. State for --notify is kept in
 ~/.local/state/nadavai/plugin-health.txt.
@@ -32,10 +37,14 @@ import json
 import os
 import re
 import shutil
+import socket
 import subprocess
 import sys
+import time
 
 ROOT_REF = re.compile(r'\$\{?CLAUDE_PLUGIN_ROOT(?::-[^}]*)?\}?"?(/[A-Za-z0-9_./-]+)')
+# Servers whose key comes from the vault (plugins/nadavai/scripts/posthog-mcp-headers.sh).
+VAULT_SERVERS = {"plugin:nadavai:posthog"}
 
 
 def load(path):
@@ -74,9 +83,25 @@ def plugin_servers(root):
         servers.update(declared)
     for name in files:
         data = load(os.path.join(root, name))
-        if isinstance(data, dict):
-            servers.update(data.get("mcpServers", data) or {})
+        block = data.get("mcpServers", data) if isinstance(data, dict) else None
+        if isinstance(block, dict):
+            servers.update(block)
     return {k: v for k, v in servers.items() if isinstance(v, dict)}, manifest
+
+
+def unreadable_json(root, manifest):
+    """The plugin's own JSON files that are there and do not parse. Claude Code drops the hooks or
+    the servers of such a file, and load() alone would pass it as if it were absent."""
+    names = [".claude-plugin/plugin.json", "hooks/hooks.json", ".mcp.json", "mcp.json"]
+    for key in ("hooks", "mcpServers"):
+        declared = manifest.get(key)
+        names += [d for d in (declared if isinstance(declared, list) else [declared]) if isinstance(d, str)]
+    bad = []
+    for rel in names:
+        path = os.path.join(root, rel)
+        if os.path.isfile(path) and load(path) is None and rel not in bad:
+            bad.append(rel)
+    return bad
 
 
 def plugin_hooks(root, manifest):
@@ -132,6 +157,11 @@ def check_install(name, entry, enabled, denied, broken):
     servers_seen = 0
     missing = set()
     servers, manifest = plugin_servers(root)
+    for rel in unreadable_json(root, manifest):
+        missing.add(f"{name}: {rel.lstrip('./')} in version {entry.get('version')} is not valid JSON")
+    declared = manifest.get("mcpServers")
+    if isinstance(declared, str) and not os.path.exists(os.path.join(root, declared)):
+        missing.add(f"{name}: plugin.json names {declared.lstrip('./')} for its MCP servers, which is not in version {entry.get('version')}")
     for hooks in plugin_hooks(root, manifest):
         for cmd in hook_commands(hooks):
             for rel in ROOT_REF.findall(cmd):
@@ -141,8 +171,9 @@ def check_install(name, entry, enabled, denied, broken):
         if f"plugin:{name}:{sname}" in denied:
             continue
         servers_seen += 1
-        parts = [spec.get("command", ""), spec.get("headersHelper", "")] + [a for a in spec.get("args", []) if isinstance(a, str)]
-        for part in parts:
+        args = spec.get("args")
+        parts = [spec.get("command"), spec.get("headersHelper")] + (args if isinstance(args, list) else [])
+        for part in (p for p in parts if isinstance(p, str)):
             for rel in ROOT_REF.findall(part):
                 if not os.path.exists(root + rel):
                     missing.add(f"{name}: MCP server {sname} runs {rel.lstrip('/')}, which is not in version {entry.get('version')}")
@@ -159,6 +190,50 @@ def check_install(name, entry, enabled, denied, broken):
             missing.add(f"{name}: version {entry.get('version')} lists the dependency {shown}, which is not enabled, so Claude Code will not load {name}")
     broken.extend(sorted(m for m in missing if m not in broken))
     return servers_seen
+
+
+def other_profiles(cfg, already):
+    """The same file check for ~/.claude and every Orca account profile other than cfg. They share
+    one plugins folder and each keeps its own settings.json, so what can differ is which plugins
+    are on: a profile where a dependency of nadavai was turned off runs without nadavai's guards.
+    A fault cfg already has is not repeated; the others are printed once, with the profiles."""
+    home = os.path.expanduser("~")
+    dirs = [os.path.join(home, ".claude")]
+    base = os.path.join(home, ".config", "orca", "claude-profiles")
+    try:
+        dirs += [os.path.join(base, d, "home") for d in sorted(os.listdir(base))]
+    except OSError:
+        pass
+    seen, found = {os.path.realpath(cfg)}, {}
+    for d in dirs:
+        if os.path.realpath(d) in seen or not os.path.isfile(os.path.join(d, "settings.json")):
+            continue
+        seen.add(os.path.realpath(d))
+        label = "~/.claude" if d == dirs[0] else os.path.basename(os.path.dirname(d))[:8]
+        for line in static_check(d)[0]:
+            if line not in already:
+                found.setdefault(line, []).append(label)
+    return [f"{line} (in the settings of {', '.join(labels)})" for line, labels in found.items()]
+
+
+def network_up():
+    """True once a connection to Anthropic's API host opens. The daily timer also runs right after
+    a late boot (Persistent=true), sometimes before the network is up, and every server would then
+    be reported as failed and as back the day after. Waits up to two minutes."""
+    host = os.environ.get("PLUGIN_HEALTH_NET_HOST") or "api.anthropic.com"
+    try:
+        wait = float(os.environ.get("PLUGIN_HEALTH_NET_WAIT") or 120)
+    except ValueError:
+        wait = 120.0
+    deadline = time.monotonic() + wait
+    while True:
+        try:
+            socket.create_connection((host, 443), timeout=5).close()
+            return True
+        except OSError:
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(5)
 
 
 def routed_files():
@@ -184,8 +259,10 @@ def vault_locked():
     return os.path.isdir(os.path.join(home, "secrets.gocryptfs")) and not os.path.ismount(os.path.join(home, "secrets"))
 
 
-def live_check():
+def live_check(cfg):
     """What `claude mcp list` says about each server. Returns (broken lines, servers seen)."""
+    registry = (load(os.path.join(cfg, "plugins", "installed_plugins.json")) or {}).get("plugins") or {}
+    installed_names = {pid.split("@")[0] for pid in registry} if isinstance(registry, dict) else set()
     exe = shutil.which("claude")
     if not exe:
         return ["live check skipped: the claude command is not on PATH"], 0
@@ -207,10 +284,18 @@ def live_check():
         if "Connected" in status:
             continue
         if "auth" in status.lower():
-            if vault_locked():
+            if server in VAULT_SERVERS and vault_locked():
                 # A server whose key lives in the vault waits for a sign-in until Nadav opens it.
                 # That is the expected state after every reboot, so it is said and not counted.
+                # Any other server that waits for a sign-in is a fault, locked vault or not.
                 print(f"note    MCP server {server} waits for a sign-in while the vault is locked")
+                continue
+            parts = server.split(":")
+            if server not in VAULT_SERVERS and parts[0] == "plugin" and len(parts) > 2 and parts[1] not in installed_names:
+                # A plugin that is not in the registry comes from the claude.ai account that is
+                # signed in (plugins/synced). Its server is signed in to by whoever wants it, the
+                # set changes with every account switch, and no update of ours can break it.
+                print(f"note    MCP server {server} of an account plugin waits for a sign-in")
                 continue
             broken.append(f"MCP server {server} waits for a sign-in")
         else:
@@ -229,10 +314,14 @@ def main(argv):
         print(f"plugin-health: unknown option {unknown[0]} (see --help)", file=sys.stderr)
         return 2
     cfg = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude")
+    if "--notify" in argv and "--static" not in argv and not network_up():
+        print("note    no network after the wait: nothing was checked and no notification was sent")
+        return 0
     broken, plugins, servers = static_check(cfg)
+    broken += other_profiles(cfg, broken)
     broken += routed_files()
     if "--static" not in argv:
-        live, seen = live_check()
+        live, seen = live_check(cfg)
         broken += live
         servers = max(servers, seen)
     for line in broken:

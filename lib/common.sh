@@ -204,8 +204,9 @@ merge_settings() {
   if [ -f "$target" ]; then mkdir -p "$BACKUP"; cp "$target" "$BACKUP/settings.json"; fi
   # A plugin that an installed copy of nadavai still lists as a dependency is not turned off by
   # the merge either (see apply_model_policy): it keeps the value it had, or is turned on.
-  local kept
-  kept="$(NADAVAI_STILL_NEEDED="$(installed_nadavai_dependencies)" node -e '
+  local kept needed
+  needed="$(installed_nadavai_dependencies)" || die "the installed copies of nadavai could not be read, so settings.json was left as it is"
+  kept="$(NADAVAI_STILL_NEEDED="$needed" node -e '
     const fs = require("fs");
     const [base, target] = process.argv.slice(1);
     const isObj = (v) => v && typeof v === "object" && !Array.isArray(v);
@@ -233,24 +234,33 @@ merge_settings() {
 installed_nadavai_dependencies() {
   # The dependency ids (name@marketplace) of every installed copy of nadavai, all scopes, one per
   # line. Read from the copies on disk, not from this checkout: they are what Claude Code loads.
-  python3 -I - "$HOME/.claude/plugins/installed_plugins.json" "${CFG:-$HOME/.claude}/plugins/installed_plugins.json" <<'PY' 2>/dev/null | sort -u
+  # It fails (and the caller stops) only when python3 itself cannot run: a registry or a plugin.json
+  # that is missing, unreadable or of another shape is read as a copy with no dependencies.
+  python3 -I - "$HOME/.claude/plugins/installed_plugins.json" "${CFG:-$HOME/.claude}/plugins/installed_plugins.json" <<'PY' | sort -u
 import json, os, sys
+
+def load(path):
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
 seen = set()
 for registry in sys.argv[1:]:
-    try:
-        entries = json.load(open(registry)).get("plugins", {}).get("nadavai@nadavai", [])
-    except (OSError, ValueError):
-        continue
-    for e in entries:
+    data = load(registry)
+    plugins = data.get("plugins") if isinstance(data, dict) else None
+    entries = plugins.get("nadavai@nadavai") if isinstance(plugins, dict) else None
+    for e in entries if isinstance(entries, list) else []:
+        if not isinstance(e, dict):
+            continue
         path = os.path.join(e.get("installPath") or "", ".claude-plugin", "plugin.json")
         if path in seen:
             continue
         seen.add(path)
-        try:
-            deps = json.load(open(path)).get("dependencies") or []
-        except (OSError, ValueError):
-            continue
-        for d in deps:
+        manifest = load(path)
+        deps = manifest.get("dependencies") if isinstance(manifest, dict) else None
+        for d in deps if isinstance(deps, list) else []:
             if isinstance(d, dict) and d.get("name") and d.get("marketplace"):
                 print(f"{d['name']}@{d['marketplace']}")
 PY
@@ -269,7 +279,7 @@ apply_model_policy() {
   # copy of nadavai still lists as a dependency is therefore not turned off here, whatever base
   # says: an install that did not update (the project-scope one, a pull that was skipped, a commit
   # not pushed yet) would otherwise leave nadavai, and its guards, unloaded in every session.
-  needed="$(installed_nadavai_dependencies)"
+  needed="$(installed_nadavai_dependencies)" || die "the installed copies of nadavai could not be read, so no settings.json was changed"
   for f in "$target" "$HOME/.claude/settings.json" "$HOME"/.config/orca/claude-profiles/*/home/settings.json; do
     [ -f "$f" ] || continue
     n=$((n+1))
