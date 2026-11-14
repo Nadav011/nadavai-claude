@@ -15,8 +15,9 @@ nothing that only delays.
 - A plan he has to approve opens with what he decides, one line each, before any argument. A work order says what
   to build and how it is checked, without the argument.
 - A plan or a spec that replaces part of an older one lists the decisions of his that the replaced part carried,
-  each one kept as he typed or picked it. Where he has since typed or picked a change to one, name that change.
-  An agent does not mark a decision of his as changed.
+  each one kept as he typed or picked it. Where he has since typed or picked a change to one, write that change in
+  the words he typed or picked, and do not restate it in other words. An agent does not mark a decision of his as
+  changed.
 - A direction, a brief or a fix instruction that restates a pick of his quotes the words he picked, the option
   text when he picked an option or the words he typed when he did not, and does not restate them in other words.
 - A plan built on another session's spec is checked against it when that spec is frozen, not at each merge.
