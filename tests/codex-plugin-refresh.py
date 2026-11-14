@@ -63,8 +63,10 @@ esac
                 # and the run then died in the first helper it did not name). The ones left real
                 # are the step under test and the steps before it, which the mocks above answer.
                 common = (REPO / 'lib/common.sh').read_text()
-                defined = set(re.findall(r'^([a-z][a-z0-9_]*)\(\) \{', common, re.M))
-                called = set(re.findall(r'^\s*([a-z][a-z0-9_]*)\b', (REPO / 'update.sh').read_text(), re.M))
+                defined = set(re.findall(r'^([a-z][a-z0-9_]*)\s*\(\)\s*\{', common, re.M))
+                # Any word of update.sh outside a comment that is a helper's name: a call can sit
+                # after `if`, `&&`, `||`, `;` or inside `$(...)`, not only at the start of a line.
+                called = set(re.findall(r'\b([a-z][a-z0-9_]*)\b', re.sub(r'#.*', '', (REPO / 'update.sh').read_text())))
                 real = {'step', 'log', 'warn', 'die', 'pull_repo', 'update_nadavai_copies', 'refresh_codex_plugin'}
                 overrides = ''.join(f'\n{name}() {{ printf \"{name}\\n\" >> \"$COMMANDS\"; }}\n'
                     for name in sorted((defined & called) - real))

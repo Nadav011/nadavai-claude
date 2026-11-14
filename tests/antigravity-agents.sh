@@ -37,7 +37,7 @@ ok "OMC's planner is removed"                    '[ ! -e "$out/planner.md" ]'
 ok "a file that is nobody's stays"               '[ "$(cat "$out/someone-else.md")" = "keep me" ]'
 ok "intent's vigil is read-only"                 'fm "$out/vigil.md" | grep -qx "  - view_file" && ! fm "$out/vigil.md" | grep -q "write_to_file"'
 ok "intent's wren: haiku becomes flash"          'fm "$out/wren.md" | grep -qx "model: flash"'
-ok "every own agent of the repo is written"      'for f in "$here"/plugins/nadavai/agents/*.md; do [ -f "$out/$(basename "$f")" ] || exit 1; done'
+ok "every own agent of the repo is written"      '( n=0; for f in "$here"/plugins/nadavai/agents/*.md; do [ -f "$out/$(basename "$f")" ] || exit 1; n=$((n+1)); done; [ "$n" -ge 2 ] )'
 
 # A retired name that nadavai later takes for an agent of its own is written, not removed.
 own2="$tmp/own2"; out2="$tmp/out2"; mkdir -p "$own2" "$out2"
@@ -47,7 +47,10 @@ ok "an own agent with a retired name is kept"    'grep -q "our planner" "$out2/p
 
 # Nothing in the installer reads the retired plugin's marketplace clone any more.
 ok "common.sh reads nothing from marketplaces/omc" '! grep -q "marketplaces/omc" "$here/lib/common.sh"'
-ok "the adapter header names no OMC agent"       '! grep -q "code-reviewer\|security-reviewer\|ralplan" "$here/lib/common.sh" || ! sed -n "/ANTIGRAVITY ADAPTER START/,/ANTIGRAVITY ADAPTER END/p" "$here/lib/common.sh" | grep -q "code-reviewer\|security-reviewer"'
+adapter="$(sed -n '/ANTIGRAVITY ADAPTER START/,/ANTIGRAVITY ADAPTER END/p' "$here/lib/common.sh")"
+ok "the adapter header is found"                 '[ -n "$adapter" ] && grep -q "Custom subagents" <<<"$adapter"'
+ok "the adapter header names no OMC agent or skill" '! grep -qE "\\b(planner|verifier|code-reviewer|debugger|architect|critic|security-reviewer|explore|designer|writer|qa-tester|ralplan|ai-slop-cleaner)\\b" <<<"$adapter"'
+ok "the adapter header names our two agents"     'grep -q "\`executor\` and \`reviewer\` from nadavai" <<<"$adapter"'
 ok "wondelai's marketplace is not registered by setup.sh or base" '! grep -q "wondelai" "$here/setup.sh" && [ "$(jq -r ".extraKnownMarketplaces | has(\"wondelai-skills\")" "$here/settings/settings.base.json")" = false ]'
 
 printf 'antigravity-agents: %d passed, %d failed\n' "$pass" "$fail"
