@@ -82,12 +82,16 @@ type Row = {
 type Group = { title: string; rows: Row[] }
 
 // When the goal is met. The list it names is the one a session writes under
-// that heading when he sets a goal or runs /nadavai:my-run; the line asks for
-// the list first, so a session that has none cannot count the goal as met.
-// The ending is the one `working-style.md` (Finishing) gives every goal
-// condition.
-const GOAL_MET =
-  'בסשן הזה כתובה רשימת "מה נחשב גמור" (אם אין, קודם כותבים אותה), וכל שורה בה סגורה עם ראיה, או שכל מה שנשאר רשום עם חסימה של נדב, של לקוח, של בדיקת חנות או פלטפורמה, של תאריך או של חומרה'
+// that heading when he sets a goal or runs /nadavai:my-run. The line asks for
+// the list first, and for a list made for this goal, so a session that has
+// none, or only one from an earlier goal, cannot count the goal as met. The
+// ending is the one `working-style.md` (Finishing) gives every goal condition.
+const goalMet = (whose: string): string =>
+  `בסשן הזה כתובה רשימת "מה נחשב גמור" ${whose} (אם אין, קודם כותבים אותה), וכל שורה בה סגורה עם ראיה, או שכל מה שנשאר רשום עם חסימה של נדב, של לקוח, של בדיקת חנות או פלטפורמה, של תאריך או של חומרה`
+const GOAL_READY = goalMet('לעבודה שביקשתי')
+const GOAL_AFTER_WORDS = `. היעד הושג רק כש${goalMet('ליעד הזה')}`
+// Claude Code takes a goal condition of up to this many characters.
+const GOAL_CAP = 4000
 // His words as one line that a sentence can follow: no line breaks, and no
 // closing mark that would double with the period after them.
 const asGoal = (words: string): string =>
@@ -95,15 +99,21 @@ const asGoal = (words: string): string =>
     .replace(/\s+/g, ' ')
     .trim()
     .replace(/[\s.,:;!?]+$/, '')
+// How much of his words the goal line has room for.
+const GOAL_ROOM = GOAL_CAP - GOAL_AFTER_WORDS.length - 1
+const LONG_GOAL = 'המילים שהקלדת ארוכות מדי לשורת יעד (עד 4000 תווים), והסוף שלהן נחתך.'
 const GOAL_ROW: Row = {
   name: GOAL,
   sentence: 'לנעול את הסשן על היעד',
   gloss: 'הסשן לא עוצר עד שכל מה שנחשב גמור סגור',
-  // Words he typed are the goal itself, and the list still decides when it is met.
-  line: words =>
-    asGoal(words) === ''
-      ? `/${GOAL} ${GOAL_MET}`
-      : `/${GOAL} ${asGoal(words)}. היעד הושג רק כש${GOAL_MET}`,
+  // Words he typed are the goal itself, and the list still decides when it is
+  // met. Words too long for a goal condition are cut, so the line still sets.
+  line: words => {
+    const goal = asGoal(words)
+    if (goal === '') return `/${GOAL} ${GOAL_READY}`
+
+    return `/${GOAL} ${goal.length > GOAL_ROOM ? `${goal.slice(0, GOAL_ROOM)}…` : goal}${GOAL_AFTER_WORDS}`
+  },
 }
 
 // The words he had typed when he opened the menu: what the prompt box held, or
@@ -508,7 +518,7 @@ const choose = async (
     first && commands.some(one => one.name === first[1] || one.name.endsWith(`:${first[1]}`))
       ? draft.slice(first[0].length)
       : draft
-  const line = row.line ? row.line(words.trim()) : `/${row.name} ${words}`
+  const line = row.line ? row.line(words) : `/${row.name} ${words}`
   if (isLate()) {
     $.ui.toast(LATE_PICK)
 
@@ -522,4 +532,5 @@ const choose = async (
   // After a fill that ran past the time, the list belongs to the later steps.
   if (!isLate()) await update($, isOpen, () => false)
   if (!filled.isFilled) $.ui.toast(`התיבה לא פנויה כרגע. מה שבחרת: ${line}`)
+  else if (row === GOAL_ROW && asGoal(words).length > GOAL_ROOM) $.ui.toast(LONG_GOAL)
 }

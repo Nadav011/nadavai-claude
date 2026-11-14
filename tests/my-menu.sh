@@ -136,6 +136,11 @@ order=$(sed -n '/^const GROUPS/,/^\]/p' "$MOD/hooks/register.tsx" | grep -o "'[a
 prompts=$(find "$here/plugins/nadavai/skills" -maxdepth 1 -type d -name 'my-*' -printf '%f\n' | sed 's/^my-//' | sort)
 ok "the menu's groups match the prompts (groups: ${order//$'\n'/ } | prompts: ${prompts//$'\n'/ })" '[ -n "$order" ] && [ "$order" = "$prompts" ]'
 ok "the goal row and my-run name the same list" 'grep -qF "מה נחשב גמור" "$MOD/hooks/register.tsx" && grep -qF "מה נחשב גמור" "$here/plugins/nadavai/skills/my-run/SKILL.md"'
+# The prompts send him to the goal row by its sentence: a rename in the list has to reach them.
+goal_row=$(sed -n '/^const GOAL_ROW/,/^}/p' "$MOD/hooks/register.tsx" | sed -n "s/^ *sentence: '\(.*\)',\$/\1/p")
+for f in my-run my-resume my; do
+  ok "$f names the goal row as the list shows it ($goal_row)" '[ -n "$goal_row" ] && grep -qF "$goal_row" "$here/plugins/nadavai/skills/$f/SKILL.md"'
+done
 # The printed menu (/nadavai:my) is the same list for a session without the mod: the same groups,
 # with the same prompts in the same order.
 drift=$(python3 - "$MOD/hooks/register.tsx" "$here/plugins/nadavai/skills/my/SKILL.md" <<'PY'

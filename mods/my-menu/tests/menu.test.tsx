@@ -46,9 +46,12 @@ const STATUS = 'row:nadavai:my-status'
 const PLAIN = 'row:nadavai:my-plain'
 const GOAL = 'row:goal'
 const NEW = 'row:nadavai:my-new'
-// When the goal row's goal is met, as the menu writes it.
-const MET =
-  'בסשן הזה כתובה רשימת "מה נחשב גמור" (אם אין, קודם כותבים אותה), וכל שורה בה סגורה עם ראיה, או שכל מה שנשאר רשום עם חסימה של נדב, של לקוח, של בדיקת חנות או פלטפורמה, של תאריך או של חומרה'
+// When the goal row's goal is met, as the menu writes it: for the work he
+// asked for when the box was empty, for the goal he typed otherwise.
+const met = (whose: string): string =>
+  `בסשן הזה כתובה רשימת "מה נחשב גמור" ${whose} (אם אין, קודם כותבים אותה), וכל שורה בה סגורה עם ראיה, או שכל מה שנשאר רשום עם חסימה של נדב, של לקוח, של בדיקת חנות או פלטפורמה, של תאריך או של חומרה`
+const READY = `/goal ${met('לעבודה שביקשתי')}`
+const AFTER = `. היעד הושג רק כש${met('ליעד הזה')}`
 type Command = { name: string; description: string; source: (typeof COMMANDS)[number]['source'] }
 
 // `/my-menu` as his key or his Enter runs it, with what he typed after it.
@@ -237,7 +240,7 @@ test('the goal row writes a ready goal line, and his words become the goal', asy
   await $.command.run(run())
   const ui = await $.ui.mount(band())
   await ui.press({ key: GOAL })
-  expect(held.text).toBe(`/goal ${MET}`)
+  expect(held.text).toBe(READY)
   expect(await ui.find({ type: 'Button' })).toBeUndefined()
 
   // With words in the box when the list opened: they are the goal, and the
@@ -246,14 +249,14 @@ test('the goal row writes a ready goal line, and his words become the goal', asy
   await $.command.run(run())
   await ui.redraw()
   await ui.press({ key: GOAL })
-  expect(held.text).toBe(`/goal לסיים את מסך ההזמנות. היעד הושג רק כש${MET}`)
+  expect(held.text).toBe(`/goal לסיים את מסך ההזמנות${AFTER}`)
 
   // A draft that began with a prompt gives up the prompt's name, as for any row.
   held.text = '/nadavai:my-plain the login bug'
   await $.command.run(run())
   await ui.redraw()
   await ui.press({ key: GOAL })
-  expect(held.text).toBe(`/goal the login bug. היעד הושג רק כש${MET}`)
+  expect(held.text).toBe(`/goal the login bug${AFTER}`)
 
   // His closing mark does not double with the period, and a draft of several
   // lines becomes one line.
@@ -261,14 +264,25 @@ test('the goal row writes a ready goal line, and his words become the goal', asy
   await $.command.run(run())
   await ui.redraw()
   await ui.press({ key: GOAL })
-  expect(held.text).toBe(`/goal לסיים את מסך ההזמנות? וגם את הדוח. היעד הושג רק כש${MET}`)
+  expect(held.text).toBe(`/goal לסיים את מסך ההזמנות? וגם את הדוח${AFTER}`)
 
   // Only marks in the box: there are no words, so the line is the ready one.
   held.text = '...'
   await $.command.run(run())
   await ui.redraw()
   await ui.press({ key: GOAL })
-  expect(held.text).toBe(`/goal ${MET}`)
+  expect(held.text).toBe(READY)
+  expect(held.toasts).toEqual([])
+
+  // Words longer than a goal condition may be are cut so that the line still
+  // sets (Claude Code takes up to 4000 characters), and he is told.
+  held.text = 'מילה '.repeat(1000)
+  await $.command.run(run())
+  await ui.redraw()
+  await ui.press({ key: GOAL })
+  expect(held.text.length).toBe('/goal '.length + 4000)
+  expect(held.text.endsWith(`…${AFTER}`)).toBe(true)
+  expect(held.toasts).toEqual(['המילים שהקלדת ארוכות מדי לשורת יעד (עד 4000 תווים), והסוף שלהן נחתך.'])
   await ui.unmount()
 })
 
