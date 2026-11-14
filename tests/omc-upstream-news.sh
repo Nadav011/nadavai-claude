@@ -78,7 +78,7 @@ printf '%s\n' "| taken | https://github.com/Yeachan-Heo/oh-my-claudecode | $base
 out=$(OMC_UPSTREAM_TRIES=1 OMC_UPSTREAM_PAUSE=0 OMC_UPSTREAM_URL="file://$t/nowhere" OMC_UPSTREAM_CLONE="$t/clone2" OMC_VENDORED_FILE="$vend" bash "$here/bin/omc-upstream-news" 2>&1); rc=$?
 ok "an upstream that cannot be cloned fails with a message" '[ "$rc" = 1 ] && grep -q "could not read" <<<"$out"'
 out=$(run --nope); rc=$?
-ok "the service does not record a failed run as a success" '! grep -q "^SuccessExitStatus" "$here/systemd/user/omc-upstream-news.service"'
+ok "the service does not record a failed run as a success" '[ -f "$here/systemd/user/omc-upstream-news.service" ] && ! grep -qE "^[[:space:]]*SuccessExitStatus" "$here/systemd/user/omc-upstream-news.service"'
 ok "an unknown option is refused"                         '[ "$rc" = 2 ]'
 real_row=$(grep -F "github.com/Yeachan-Heo/oh-my-claudecode" "$here/plugins/nadavai/skills/VENDORED.md" | grep "^|" | head -n 1)
 ok "the repo's own VENDORED.md row has a commit" 'grep -qE "\b[0-9a-f]{40}\b" <<<"$real_row"'

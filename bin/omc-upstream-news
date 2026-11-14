@@ -4,6 +4,7 @@
 #   omc-upstream-news            write the report and print it
 #   omc-upstream-news --notify   also send a desktop notification when the list of changed or
 #                                new skills is different from the last report's and not empty
+#                                and when the run fails, that no report was made
 #                                (what the monthly omc-upstream-news.timer runs)
 #
 # On 2026-11-14 the plugin was taken apart: some of its skills and some lines of others were
@@ -28,7 +29,7 @@ tries="${OMC_UPSTREAM_TRIES:-4}"; pause="${OMC_UPSTREAM_PAUSE:-30}"
 notify=0
 case "${1:-}" in
   --notify) notify=1 ;;
-  -h|--help) sed -n "2,19p" "$0"; exit 0 ;;
+  -h|--help) sed -n "2,20p" "$0"; exit 0 ;;
   "") ;;
   *) echo "omc-upstream-news: unknown option $1 (see --help)" >&2; exit 2 ;;
 esac
