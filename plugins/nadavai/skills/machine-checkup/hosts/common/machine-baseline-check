@@ -31,7 +31,8 @@ e=; ep=$(pgrep -o -x earlyoom 2>/dev/null) && e=$(tr '\0' ' ' <"/proc/$ep/cmdlin
 [[ $e =~ ^[^\ ]+\ -r\ 60\ -m\ 25,20\ -s\ 20,12\ -n\ --ignore\ [^\ ]+\ $ && $e != *claude* ]] && s=ok || s=BAD
 row "$s" "earlyoom before oomd, by oom_score" "$(systemctl is-active earlyoom 2>/dev/null); kills in 7 days: $(journalctl -u earlyoom --since -7d -q -g 'sending SIG(TERM|KILL) to process' 2>/dev/null | wc -l)"
 o=$(sysctl -n kernel.panic_on_oops 2>/dev/null) p=$(sysctl -n kernel.panic 2>/dev/null)
-[ "$o" = 1 ] && [ "$p" = 10 ] && s=ok || s=BAD
+# 10 s is the shared value; a host may keep the panic screen longer (the LENOVO: 60 s).
+[ "$o" = 1 ] && [ "${p:-0}" -ge 10 ] && [ "${p:-0}" -le 120 ] && s=ok || s=BAD
 row "$s" "reboot after a kernel oops" "panic_on_oops=$o panic=$p"
 grep -qs '^SystemMaxUse=1G' /etc/systemd/journald.conf.d/60-journal-size.conf && s=ok || s=BAD
 row "$s" "journal keeps 1 GB" "$(journalctl --disk-usage 2>/dev/null | grep -oE '[0-9.]+[MG]' | head -1) used"

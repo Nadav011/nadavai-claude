@@ -142,6 +142,41 @@ share between the desktop and the agents is already split by cgroup (`app.slice`
 one terminal. Still pending, all needing Nadav's hands: memtest86+ overnight, BIOS Instant boot,
 the SAGV A/B.
 
+Kernel panic of 2026-11-14 15:21:08 (blue screen with a QR code, gone after 10 s, uptime 4 days
+3.5 h, kernel 7.3.3, nvidia-open 620.70.06). No text of it exists: pstore had no backend and
+`kernel.panic=10` rebooted before Nadav could photograph it, so the cause is not known. What the
+logs do show: the last 10-minute sample had load 60, 60,000 pages a second going into zram, 85 to
+92 GB of the 124 GB swap used and 211 GB committed; five parallel `kit/test/frames-compare.test.mjs`
+runs of the SportChat v4 kit (8 to 10 GB each, started six minutes before) took swap free from 58%
+to 27%. The same boot had `zram: Decompression failed! err=-22` with a swap read error on
+2026-11-13 21:00:50, the second corrupt zram page in ten days after the 2026-11-04 oops (kernels
+7.3.1 and 7.3.3), 33 NVIDIA `NV_ERR_NO_MEMORY` allocation failures (22 on the crash day), a flip
+timeout on the HDMI head, and one kswapd order-0 allocation failure. Three candidates stay open:
+memory corruption (the DIMMs are a mixed pair, Samsung M425R4GA3PB0 and SK hynix HMCG88AGBSA092N,
+no ECC, so rasdaemon's zeros clear nothing), the nvidia module failing allocations under
+pressure, and a kernel fault under extreme swap. memtest86+ and the SAGV-off A/B are what
+separate the first from the rest. A `pacman -Syu` two minutes after the crash moved the machine
+to 7.3.4 with new microcode, so later crashes are not on the same software.
+Where the memory goes on a working day (atop, 10-minute samples, `/var/log/atop`): the peaks are
+single scripts with no memory cap, not the number of sessions. 03:10 that day: three
+`keycmp.mjs` calibration runs of the same kit held 22.7, 10.1 and 8.3 GB. `heavy-slot` admits by
+the memory free at the start and puts no cap on a job afterwards, so jobs that start small and
+grow to 10 GB each pass it. The standing cost is language servers (pyright and TypeScript, 43
+processes, about 25 GB, nearly all of it in swap) and about 75 MCP server processes (about 9 GB).
+Day by day, swap used average and peak: 10.11 31/52 GB, 11.11 28/48, 12.11 28/48, 13.11 34/71,
+14.11 51/98, with 59 of 93 samples on the 14th above 20,000 pages a second swapped out.
+Crash record since that day (`hosts/lenovo-83lu/`): the panic screen stays 60 s
+(`61-lenovo-panic-screen.conf`), and the kernel's last messages go to a 4 MB RAM region
+(`reserve_mem=4M:4096:oops` in `/etc/sdboot-manage.conf`, `ramoops.modprobe.conf`) that
+`systemd-pstore.service` copies to `/var/lib/systemd/pstore` at the next boot. Not the firmware
+store: it is 268 KB with 110 KB free. The region is first reserved at the reboot after
+2026-11-14, and whether it survives a reboot on this firmware is not proven until
+`lenovo-tuning-check` shows a saved record after that reboot (every reboot writes one). If none
+appears, the region moved or was cleared: try a fixed `memmap=` address before efi-pstore.
+The dGPU: the HDMI screen is wired to it and KWin holds it, at 4 W. Node, TypeScript, Docker
+and Playwright's headless shells (`--disable-gpu-compositing`) cannot use it, so it does not
+relieve the memory or the heat that limit this machine.
+
 **Omarchy / NadavAI** (`ssh omarchy` = `nadav@100.93.63.88`, fish shell, passwordless sudo; ASUS ROG
 STRIX Z390-F GAMING, BIOS 2203 = newest on the ASUS support API, i7-9700K, 46 GB, GTX 1660 Ti,
 NVIDIA 615; usually no monitor attached). Reinstalled on 2026-11-03 as CachyOS + KDE and provisioned

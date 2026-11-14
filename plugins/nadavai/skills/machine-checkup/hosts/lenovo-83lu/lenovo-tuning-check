@@ -16,3 +16,14 @@ b(){ od -An -tu1 -j $(( $2 + 4 )) -N1 $1 | tr -d ' '; }
 ok "BIOS Instant boot (want 2 = Adapter)" "$(b $SC 0x16E)"
 ok "BIOS SAGV (1 = on, 0 = off)" "$(b $SA 0x1F7)"
 ok "i915 SAGV status" "$(sudo cat /sys/kernel/debug/dri/0000:00:02.0/i915_sagv_status 2>/dev/null | awk '/SAGV status/{print $3}')"
+# Crash record: the panic screen time, and whether the kernel's last messages survive a reboot.
+ok "panic screen seconds (want 60)" "$(sysctl -n kernel.panic)"
+if grep -q 'reserve_mem=4M:4096:oops' /proc/cmdline; then
+  be=$(cat /sys/module/pstore/parameters/backend 2>/dev/null)
+  [ "$be" = ramoops ] && cr="on (ramoops)" || cr="BAD: region reserved, but the backend is '$be'"
+elif grep -q 'reserve_mem=4M:4096:oops' /etc/sdboot-manage.conf 2>/dev/null; then cr="set, starts at the next reboot"
+else cr="BAD: not set (run install.sh)"; fi
+ok "crash record in RAM" "$cr"
+ok "systemd-pstore.service" "$(systemctl is-enabled systemd-pstore.service 2>/dev/null)"
+P=/var/lib/systemd/pstore
+ok "saved records (crashes / all)" "$(sudo grep -rlE '^(Panic|Oops)#' $P 2>/dev/null | wc -l) / $(sudo find $P -type f 2>/dev/null | wc -l) in $P"
