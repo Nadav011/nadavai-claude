@@ -19,8 +19,8 @@ write its own.
 
 Where Nadav asked for a from-zero run of a standalone demo (MediZen, the social studio), the build follows this file
 with the one exception above, and keeps the records, the measured first units and the gate of `from-zero-runs.md`
-beside this file [I]. SHIFTS's demo lives in its app, so its run follows that file and, of this one, only «Whose
-decision a differing behaviour is».
+beside this file [I]. SHIFTS's demo is not a standalone demo (`from-zero-runs.md`, «SHIFTS»), so its run follows that
+file and, of this one, only «Whose decision a differing behaviour is».
 
 ## When each part runs
 
