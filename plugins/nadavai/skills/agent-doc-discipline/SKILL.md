@@ -1,12 +1,14 @@
 ---
 name: agent-doc-discipline
-description: "Writing-time discipline for documents agents consume (the five surfaces, specs, tickets, .omc/skills/) — every rule checkable and carrying a why, steps before reference, one meaning in one home, no restating what the environment already says. For any agent-facing edit: rule, guide, skill, brief."
+description: "Writing-time discipline for documents agents consume (the five surfaces, specs, tickets, .omc/skills/) — every rule checkable and carrying a why, steps before reference, one meaning in one home, no restating what the environment already says. For new agent-facing text: rule, guide, skill, brief."
 level: 3
 ---
 
-> **nadavai preface.** Copied from oh-my-claudecode (see `../VENDORED.md`). It applies to rule, guide, skill and
-> brief text, in `~/nadavai` and in projects. The document process (size, one place per fact, the review round) is in
-> `~/nadavai/guides/documents.md`.
+> **nadavai preface.** Copied from oh-my-claudecode (see `../VENDORED.md`). It applies to agent-facing text being
+> written new (a new rule line, guide, skill or brief), in `~/nadavai` and in projects. On existing rule, guide and
+> skill text it does not license rewording: there, move or delete only, and Nadav's dated decisions and the
+> approval-gate lines stay as written (`rules/nadavai.md`). The document process (size, one place per fact, the
+> review round) is in `~/nadavai/guides/documents.md`.
 
 # Agent Doc Discipline
 

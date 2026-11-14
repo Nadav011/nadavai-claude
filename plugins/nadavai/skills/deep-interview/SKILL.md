@@ -12,12 +12,14 @@ argument-hint: "[--frontier] <idea or vague description>"
 > - Before Round 0, read the project's `GLOSSARY.md` and `~/nadavai/guides/glossary.md`: a term recorded there is
 >   not asked again, and a term he settles in the interview is written to the project's `GLOSSARY.md` (Requests).
 > - The interview state lives in `.omc/interviews/{slug}/state.json` in the project; with no project (the folder
->   is not a git repo), it stays in the conversation and the spec goes to `~/.omc/specs/`.
-> - The interview ends when the spec is written: report its path. Building starts only when he says to build
->   (Requests); this skill hands off to no other skill.
+>   is not a git repo), in `~/.omc/interviews/{slug}/state.json`, and the spec goes to `~/.omc/specs/`.
+> - The interview ends when the spec is written: report its path. If he asked for the work to be built (in the
+>   request, or by ending the interview with "build it" or "just do it"), building goes on from the spec under
+>   `rules/working-style.md` (Requests: the spec does not wait for his approval). If it started from an idea or a
+>   question, building starts when he says to build. This skill hands off to no other skill.
 
 <Purpose>
-Deep Interview implements Ouroboros-inspired Socratic questioning with mathematical ambiguity scoring. It replaces vague ideas with crystal-clear specifications by asking targeted questions that expose hidden assumptions, measuring clarity across weighted dimensions, and refusing to proceed until ambiguity drops below the resolved threshold for this run. The output is a spec file; building starts only when the user says to build, ensuring maximum clarity before any mutation starts.
+Deep Interview implements Ouroboros-inspired Socratic questioning with mathematical ambiguity scoring. It replaces vague ideas with crystal-clear specifications by asking targeted questions that expose hidden assumptions, measuring clarity across weighted dimensions, and refusing to proceed until ambiguity drops below the resolved threshold for this run. The output is a spec file (what follows it: the preface's last bullet), ensuring maximum clarity before any mutation starts.
 </Purpose>
 
 <Use_When>
@@ -33,7 +35,7 @@ Deep Interview implements Ouroboros-inspired Socratic questioning with mathemati
 - User has a detailed, specific request with file paths, function names, or acceptance criteria -- execute directly
 - User wants to explore options or brainstorm -- answer with the options instead
 - User wants a quick fix or single change -- do it directly or delegate to `nadavai:executor`
-- User says "just do it" or "skip the questions" without an explicit execution path -- respect their intent by ending interview and writing the spec, not by mutating files or delegating execution
+- User says "just do it" or "skip the questions" -- respect their intent by ending the interview and writing the spec; what follows is in the preface's last bullet
 - User already has a PRD or plan file and explicitly asks to execute it -- use the requested execution skill with that plan
 </Do_Not_Use_When>
 
@@ -55,7 +57,7 @@ Inspired by the [Ouroboros project](https://github.com/Q00/ouroboros) which demo
 - When the locked topology has multiple active components, score and target each component explicitly so depth-first clarity on one component cannot hide ambiguity in siblings
 - Keep prompt payloads budgeted: summarize or trim oversized initial context/history before composing question, scoring, spec, or handoff prompts
 - If the user's initial context is oversized, create a concise prompt-safe summary first and wait for that summary before ambiguity scoring, question generation, or downstream execution handoff
-- The ambiguity threshold is 0.2 (20%). Do not proceed to execution: the interview ends with the spec, and building starts only when the user says to build
+- The ambiguity threshold is 0.2 (20%). The interview ends with the spec; what follows is in the preface's last bullet
 - Allow early exit with a clear warning if ambiguity is still high
 - Persist interview state for resume across session interruptions
 - Challenge agents activate at specific round thresholds to shift perspective
@@ -65,6 +67,7 @@ Inspired by the [Ouroboros project](https://github.com/Q00/ouroboros) which demo
 
 ## Phase 1: Initialize
 
+0. **Resume an open interview first**: read each `state.json` under the project's `.omc/interviews/` (with no project: `~/.omc/interviews/`). If one has `"active": true` and the skill ran with no idea or with the same idea as its `topic`, continue it from its last completed round instead of starting over (the most recently updated, if several), and say in one line which one (`slug` and `topic`). Otherwise start a new interview below.
 1. **Parse the user's idea** from `$ARGUMENTS`
 2. **Detect brownfield vs greenfield**:
    - Check directly (`git rev-parse --show-toplevel`, `ls`): does cwd have existing source code, package files, or git history
@@ -83,11 +86,13 @@ Inspired by the [Ouroboros project](https://github.com/Q00/ouroboros) which demo
    - Final specs MUST be written to `.omc/specs/deep-interview-{slug}.md` exactly (with no project: `~/.omc/specs/deep-interview-{slug}.md`).
    - Ephemeral interview artifacts (scoring scratchpads, prompt-safe summaries, transient queues, resume metadata) belong in `.omc/interviews/{slug}/`, never in the repo root or arbitrary working files.
 
-4. **Initialize state** in `.omc/interviews/{slug}/state.json` (Write tool; with no project, keep it in the conversation):
+4. **Initialize state** in `.omc/interviews/{slug}/state.json` (Write tool; with no project, `~/.omc/interviews/{slug}/state.json`). `{slug}` is the idea in kebab-case, at most 40 characters, with `-2` added when that folder exists; it is fixed here and stored in the state:
 
 ```json
 {
   "active": true,
+  "slug": "<folder name>",
+  "topic": "<the idea in one line>",
   "current_phase": "deep-interview",
   "state": {
     "interview_id": "<uuid>",
@@ -369,7 +374,7 @@ When ambiguity ≤ threshold (or hard cap / early exit):
 2. **Write to file**: `.omc/specs/deep-interview-{slug}.md`
    - Always use this exact final spec path. Do not write temporary working files to the repo root or other ad hoc paths; repos may allowlist `.omc/` for planning artifacts while protecting product branches.
    - For ephemeral artifacts during interview rounds (for example scoring intermediate results, prompt-safe summaries, question queues, or resume metadata), use `.omc/interviews/{slug}/`.
-   - Persist the final `spec_path` in state when available so downstream skills and resumed sessions can pass the artifact path explicitly.
+   - Write the final `spec_path` to state and set `"active": false` there: the interview is closed, and a later run does not resume it.
 
 Spec structure:
 
@@ -470,7 +475,7 @@ Spec structure:
 - Round 0 topology confirmation happens before ambiguity scoring; Phase 2 scoring must honor locked topology and rotate targeting across active components when more than one is present
 - Use `Read` / `Write` on `.omc/interviews/{slug}/state.json` for interview state persistence
 - Use `Write` tool to save the final spec to `.omc/specs/deep-interview-{slug}.md` exactly; use `.omc/interviews/{slug}/` for ephemeral artifacts
-- End by reporting the spec path; never implement directly from this skill
+- End by reporting the spec path; what follows is in the preface's last bullet
 - Challenge agent modes are prompt injections, not separate agent spawns
 </Tool_Usage>
 
@@ -593,7 +598,7 @@ Why bad: 45% ambiguity means nearly half the requirements are unclear. The mathe
 - [ ] Challenge agents activated at correct thresholds (round 4, 6, 8)
 - [ ] Spec file written to `.omc/specs/deep-interview-{slug}.md` exactly; ephemeral artifacts stayed under `.omc/interviews/{slug}/`
 - [ ] Spec includes: topology, goal, constraints, acceptance criteria, clarity breakdown, transcript
-- [ ] Spec path reported; nothing built and no other skill invoked
+- [ ] Spec path reported and the next step taken as the preface's last bullet says; no other skill invoked
 - [ ] Brownfield confirmation questions cite repo evidence (file/path/pattern) before asking the user to decide
 - [ ] Scope-fuzzy tasks can trigger ontology-style questioning to stabilize the core entity before feature elaboration
 - [ ] With `--frontier`, rounds ask the whole settled frontier (batched ≤4 per AskUserQuestion call), facts dispatched to subagents, and the loop ends only on an empty frontier
@@ -607,7 +612,7 @@ Why bad: 45% ambiguity means nearly half the requirements are unclear. The mathe
 <Advanced>
 ## Resume
 
-If interrupted, run the skill again. It reads state from `.omc/interviews/{slug}/state.json` and resumes from the last completed round.
+If interrupted, run the skill again: Phase 1 step 0 finds the open state and resumes from the last completed round.
 
 ## Brownfield vs Greenfield Weights
 

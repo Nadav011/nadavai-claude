@@ -8,7 +8,19 @@ level: 3
 > **nadavai preface.** Copied from oh-my-claudecode (see `../VENDORED.md`). The `omc ultragoal` CLI comes from the
 > npm package `oh-my-claude-sisyphus`, which stays installed without the plugin (`omc ultragoal --help` lists the
 > subcommands). Native `/goal` holds one session; this skill is for a goal that has to survive across sessions. Only
-> Nadav can turn `/goal` on: print the line for him and keep working without waiting for it (`my-run`, step 2).
+> Nadav can turn `/goal` on: print the `/goal` line for him to send and work on the stories meanwhile, recording each
+> finished story's evidence in the plan file (`my-run`, steps 2 and 6). The CLI (5.8.4, checked 2026-11-14) runs
+> `create-goals`, `complete-goals`, `status` and `checkpoint --status failed` without a goal, but refuses
+> `checkpoint --status complete` and `record-review-blockers` unless `--claude-goal-json` carries the condition it
+> printed, word for word, with status `active` (`complete` for the final story). Write that snapshot only from a
+> `/goal` the session can see is on, as he sent it: never from a goal you cannot see, and never edited to fit. A
+> `/goal` line that ends with the blocker clause of `rules/working-style.md` (Finishing) does not match, with one
+> exception: while it is `active` no story is checkpointed complete, but once the session sees it met or cleared
+> (`complete`), the CLI
+> closes the whole run in one `aggregate_completed` entry when the evidence names the story id, the plan file,
+> finished work and a passed check, leaving each story as it was. The skill is worth using only for a story list that
+> has to outlive the session; its ledger records a finished story only under a `/goal` that is the CLI's condition
+> word for word, and otherwise the plan file carries each story's evidence.
 > Where this file or the handoff the CLI prints asks for several final checks (ai-slop-cleaner, verification,
 > `$code-review`, an architect status), Nadav's rule of one independent reviewer per piece
 > (`rules/working-style.md`, Second model) applies instead. The CLI still requires the `--quality-gate-json` shape,
@@ -34,9 +46,9 @@ Ultragoal breaks a brief into an ordered set of goals, records start/checkpoint/
 </Use_When>
 
 <Do_Not_Use_When>
-- The task is a single small change — use direct delegation or `ralph` instead
+- The task is a single small change — do it in the session or delegate it to `nadavai:executor` instead
 - The user wants the assistant to literally invoke `/goal` itself from the shell — that is not possible; `omc ultragoal` only writes artifacts and prints handoff text
-- The user wants a planning-only artifact with no execution loop — use `plan` instead
+- The user wants a planning-only artifact with no execution loop — write the plan as `~/nadavai/guides/documents.md` says instead
 </Do_Not_Use_When>
 
 <Why_This_Exists>
@@ -81,7 +93,7 @@ the commands below and in generated handoffs with `oh-my-claudecode.js`, or use
      shell nor the agent can do it, so print `/goal <aggregate objective>` for the user to
      send, and keep working. `--claude-goal-json` (below) reconciles the ledger only.
    - Work the story.
-   - When the story is complete (and for the final story, after the full quality gate), share back a snapshot of the active `/goal` state and call `checkpoint`.
+   - When the story is complete (and for the final story, after the full quality gate), share back a snapshot of the active `/goal` state (only as the preface says) and call `checkpoint`.
 
 3. Checkpoint a story:
    ```

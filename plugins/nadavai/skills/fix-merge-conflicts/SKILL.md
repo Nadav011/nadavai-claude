@@ -14,7 +14,8 @@ metadata:
 > **nadavai preface.** Copied from oh-my-claudecode (see `../VENDORED.md`). A merge into main still follows
 > `rules/ci-policy.md` (rules 3 and 6: the landing PR, rebased on main, merged with `--match-head-commit`). The
 > `--force-with-lease` push of step 6 is for your own landing branch after that rebase, never for main and never
-> for a branch another session works on.
+> for a branch another session works on. In step 5, "build/test/lint" means the scoped checks of `rules/ci-policy.md`
+> rule 1; the full suite and the build run in CI.
 
 # Fix Merge Conflicts
 

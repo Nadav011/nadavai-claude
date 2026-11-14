@@ -48,4 +48,4 @@ code, not by reasoning alone.
 - "It should be fine" is not a classification; every claim is certain,
   likely, unlikely, or unverified, with its reason in the same sentence.
 - Reasoning reduces the search space; execution settles the verdict.
-- The report never edits code; fixes found this way go through `execute`.
+- The report never edits code; fixes found this way go through the session or `nadavai:executor`.
