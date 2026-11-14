@@ -5,6 +5,10 @@ its app (a page made before that rule, as MediZen's is). It allows no new standa
 that rule: nothing of the page's code moves into the app. What moves is the page's design values, its component
 definitions as a specification, and its screens as the tagged reference the app's preview is compared with. Where this
 file and that rule differ, the rule holds and the difference is a fault to report («Where a fault goes»).
+One exception [I, chosen by the nadav-design session on Nadav's delegation of 14.11.2026]: in a from-zero run
+(`from-zero-runs.md`) the style rules of a part the app lacks, with the values they use, are copied by script into
+the app's own component form; nothing else of the page's code moves, and outside those runs this paragraph stands
+until he decides otherwise.
 
 Source [I]: MediZen's measuring lane of 11-12.11.2026 (repo `Nadav011/medizen-redesign`, branch `design/r12`, commit
 `dad4c83`: files in `research/closing/tokens/`, tools in `tools/local/`). That lane measured and changed no demo file,
@@ -12,6 +16,10 @@ so what this file says about measuring was run once, on one demo, and the rest h
 The steps and their order are the choice of the session that wrote them, not Nadav's decision. The tools are that
 repo's and are not in this skill: a second project that needs them reports it («Where a fault goes») and does not
 write its own.
+
+Where Nadav asked for a from-zero run (MediZen, SHIFTS, the social studio), the build follows this file with the one
+exception above, and keeps the records, the measured first units and the gate of `from-zero-runs.md` beside this file
+[I].
 
 ## When each part runs
 
@@ -173,6 +181,30 @@ tagged, the build plan is approved, and only then does a build session start, wi
   `--muted-foreground-subtle`, main page against kit) is settled before the tag by "one name, one value" in part A,
   and goes to him where the page was tagged as written. There the lane sent him three such motion pairs; the 40 rows
   above and each entry's "demo has, app lacks" list are the differences in all.
+- **Whose decision a differing behaviour is** [N, 14.11.2026]: «כמובן אם יש שינוים בין הדמו לאפלקיצתיה תהנהגיות ודברים
+  שלא קיבלנו אליהם החלטה שואלים אותי וגם בוחרים לפי סוקר שבוחר את הדרך הנכונה באמת זה קרה סשן של SPORCHAT» and «כי זה
+  לא ללכת בול לפי ההחלטות שלי או של הדמו וזה לבדוק את זה ממקום אחר זה הכוונה כן». A difference between what the tagged
+  page does or shows (which items a list holds, an order, a count, a state, what a control does, wording that carries
+  a rule) and what the app, its spec, model or tests do, and anything the build needs that no source decides, is a
+  named case in the project's DECISIONS-OPEN.md. The unit stops on that point and goes on with what does not depend on
+  it; neither the side built first nor the builder settles it. A test that conflicts with the page stops the unit the
+  same way and is not edited to pass; any test edit is listed with its assertion before and after (SportChat's second
+  copy pilot stopped on seven such assertions, `PILOT-S-A4a-2026-11-13.md`:258). A fresh reviewer (`working-style.md`,
+  "Second model") traces each side's cited source to Nadav's own typed or picked words, file and line (an adoption by
+  reference, a coverage note, a feasibility row, a spec line he did not approve or an agent's summary is not his
+  decision; SportChat's trace found exactly these cited as his), and then writes from outside the builder's context
+  which way is right and why: who uses the screen and what they need then, what the data supports, what his other
+  decisions imply, how an established product does it (with the URL). The page's drawing and an earlier answer are
+  evidence, not the answer. (a) His words decide it and the reviewer finds nothing against them: recorded in
+  DECISIONS-ANSWERED.md with the source, built so, not asked again. (b) Undecided: asked in the project's questions
+  round, several cases together, the sides shown as he would see them on the screen, the reviewer's side first with
+  its reason. (c) His decision or the approved page says one thing and the reviewer finds a concrete reason, with its
+  evidence, that it is wrong for users (the data cannot support it, two of his decisions conflict, the page's case was
+  an illustration, an accessibility or legal problem): asked once with that evidence, and until he answers the earlier
+  decision stands; a preference is not such a reason. A difference that is engineering only (how a value is computed
+  when the screen shows the same, which file owns a helper) is ruled by the reviewer and recorded in the unit's report
+  with its reason. While a case is open its screen does not cut over, and the preview shows the live app's behaviour
+  where it has one, otherwise the page's, marked open [I]. The reviewer recommends and he decides [I].
 - **Components.** Each is built once, in the app's own code, against its specimen at the tag, in the order the build
   plan gives. Nothing judges a component unit against its specimen by machine, and step 8b compares screens with
   phones, not a component with a specimen: until a check exists, the unit draws each variant and state of the specimen
