@@ -113,6 +113,8 @@ The understanding check is `rules/working-style.md`, "Requests"; it is not resta
 - Before a screen is planned, built, changed or audited, read `standard/experience.md` and
   `standard/profiles.md` (next to this folder). Their rules are not restated here, in SKILL.md or in a mode file.
 - `standard/rejected.md` seeds a new project's `REJECTED.md`.
+- `standard/examples.md` lists work Nadav approved in his own words, as examples to start from, never as the bar
+  (`standard/rejected.md`, "Another product as the bar").
 - `plan`, `screen`, `audit` and `ship` end their report with how many of the standard's rules were checked only
   by `reviewer` or by `none` on the screens they covered.
 

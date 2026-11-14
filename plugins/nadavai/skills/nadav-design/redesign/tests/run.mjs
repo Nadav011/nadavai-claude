@@ -4,6 +4,8 @@
 // never depends on files a fresh clone does not have.
 //
 // usage: PLAYWRIGHT_MODULE=<app>/node_modules/playwright/index.mjs node tests/run.mjs [--no-browser]
+// The run's temp folder is removed when it ends; KEEP_TMP=1 keeps it and prints its path. A run ended by a signal
+// (Ctrl-C, kill) leaves its folder behind in the system temp folder.
 // One browser at a time (the browser tests run one after another). Each test that needs a server binds 127.0.0.1:8977
 // (and 8978 for a second origin) itself and closes it; a busy port fails that test, not the suite.
 import fs from 'fs';
@@ -19,6 +21,19 @@ const MINI = path.join(SK, 'examples/mini');
 const T = path.join(SK, 'tools');
 const W = path.join(SK, 'workflows');
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'redesign-skill-tests-')); // never a fixed, shared folder
+// the run's temp folder is removed when the run ends, passing or failing; KEEP_TMP=1 keeps it and prints its path (999
+// such folders had piled up in /tmp before this)
+const KEEP_TMP = process.env.KEEP_TMP === '1';
+// no signal listener on purpose: a run ended by a signal stops at once with Node's default and leaves its folder behind
+process.on('exit', () => { if (!KEEP_TMP) fs.rmSync(TMP, { recursive: true, force: true }); });
+// --tmp-probe, for the test of the above (TMP-clean): write a file in the folder, print its path, and end at once with 0
+// (--tmp-probe) or 1 (--tmp-probe=fail); no suite test runs
+const tmpProbe = process.argv.find(a => a.startsWith('--tmp-probe'));
+if (tmpProbe) {
+  fs.writeFileSync(path.join(TMP, 'probe'), 'x');
+  fs.writeSync(1, `${TMP}\n`);
+  process.exit(tmpProbe === '--tmp-probe=fail' ? 1 : 0);
+}
 const PNG1 = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
 const noBrowser = process.argv.includes('--no-browser');
 
@@ -27,15 +42,25 @@ const routerText = () => fs.readFileSync(path.join(SK, '..', 'SKILL.md'), 'utf8'
 const skillText = () => [path.join(SK, '..', 'SKILL.md'), ...fs.readdirSync(path.join(SK, '..', 'modes')).sort().map(f => path.join(SK, '..', 'modes', f))]
   .map(f => fs.readFileSync(f, 'utf8')).join('\n');
 const results = [];
+// a child that did not run to its end (killed by a signal, or a spawn error) is its own named failure, not read as an
+// ordinary result: it still fails, and says what stopped the child (a signal can come from load or from the code itself)
+const failWhy = e => (e && e.spawnFailure ? `SPAWN FAILED: the check did not run to its end: ${e.message}` : `threw: ${String(e && e.stack || e).split('\n').slice(0, 2).join(' ')}`);
 const test = async (id, name, fn) => {
   try {
     const why = await fn();
     results.push({ id, name, ok: !why || why.startsWith('SKIP'), skip: !!why && why.startsWith('SKIP'), why: why || '' });
   } catch (e) {
-    results.push({ id, name, ok: false, why: `threw: ${String(e && e.stack || e).split('\n').slice(0, 2).join(' ')}` });
+    results.push({ id, name, ok: false, why: failWhy(e) });
   }
 };
 const sh = (cmd, args, opts = {}) => spawnSync(cmd, args, { encoding: 'utf8', cwd: MINI, ...opts });
+// sh for the tour checker's tests: a signal or a spawn error throws a spawn failure (failWhy names it)
+// its output buffer is large (64 MB), so the size of a child's output is never what stops it
+const shTour = (cmd, args, opts = {}) => {
+  const r = sh(cmd, args, { maxBuffer: 64 * 1024 * 1024, ...opts });
+  if (r.error || r.signal) throw Object.assign(new Error(`${cmd} ${args.map(a => path.basename(String(a))).join(' ')}: ${r.error ? `spawn error ${r.error.code || r.error.message}` : `ended by signal ${r.signal}`}`), { spawnFailure: true });
+  return r;
+};
 
 // ---------------- workflow harness ----------------
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
@@ -1533,10 +1558,10 @@ const offRecord = (i, anchor) => { for (const sc of Object.values(i.screens)) if
 // reviewer would after a run, so each fixture still shows only its own finding, and drops the record at stage demo. A
 // fixture that tests the record itself gives it another key, which the helper leaves alone.
 const stableJson = x => (Array.isArray(x) ? `[${x.map(stableJson).join(',')}]` : x && typeof x === 'object' ? `{${Object.keys(x).sort().map(k => `${JSON.stringify(k)}:${stableJson(x[k])}`).join(',')}}` : JSON.stringify(x));
-// the words she reads are left out of the key (tours.schema.json, inOrderRun.key): written here apart from the checker's
-// code, so TOUR-run-key compares two ways of computing it
+// the words she reads (a step's title and a tour's promise among them) and a step's part are left out of the key (tours.schema.json, inOrderRun.key): written here apart
+// from the checker's code, so TOUR-run-key compares two ways of computing it
 const withoutKeys = (o, ks) => (o && typeof o === 'object' && !Array.isArray(o) ? Object.fromEntries(Object.entries(o).filter(([k]) => !ks.includes(k))) : o);
-const keyedMan = man => { const m = withoutKeys(man, ['inOrderRun']); if (Array.isArray(m.tours)) m.tours = m.tours.map(t => { const u = withoutKeys(t, ['title', 'jobTitle', 'area', 'where', 'finish']); if (u && typeof u === 'object' && Array.isArray(u.steps)) u.steps = u.steps.map(st => { const v = withoutKeys(st, ['text', 'showText']); if (v && typeof v === 'object' && Array.isArray(v.variants)) v.variants = v.variants.map(x => withoutKeys(x, ['text'])); return v; }); return u; }); return m; };
+const keyedMan = man => { const m = withoutKeys(man, ['inOrderRun']); if (Array.isArray(m.tours)) m.tours = m.tours.map(t => { const u = withoutKeys(t, ['title', 'jobTitle', 'promise', 'area', 'where', 'finish']); if (u && typeof u === 'object' && Array.isArray(u.steps)) u.steps = u.steps.map(st => { const v = withoutKeys(st, ['title', 'text', 'showText', 'part']); if (v && typeof v === 'object' && Array.isArray(v.variants)) v.variants = v.variants.map(x => withoutKeys(x, ['text'])); return v; }); return u; }); return m; };
 const keyedInv = inv => (inv && inv.screens && typeof inv.screens === 'object' ? { ...inv, screens: Object.fromEntries(Object.entries(inv.screens).map(([k, sc]) => [k, withoutKeys(sc, ['title'])])) } : inv || null);
 const runKey = (man, inv) => createHash('sha256').update(stableJson(JSON.parse(JSON.stringify({ manifest: keyedMan(man), inventory: keyedInv(inv) })))).digest('hex');
 const EX_KEY = TOUR_EX.inOrderRun && TOUR_EX.inOrderRun.key;
@@ -1547,13 +1572,28 @@ function withRun(man, inv) {
   const { inOrderRun, ...rest } = man;
   return man.stage === 'demo' ? rest : { ...man, inOrderRun: { ...inOrderRun, key: runKey(man, inv) } };
 }
+// every step carries a title and every tour a promise at stage app (title-missing, promise-missing): a fixture that adds a
+// tour or a step without them gets a plain title and promise here, so it still shows only its own finding; a fixture
+// that tests a missing one adds its manifest to BARE, which this leaves alone
+const BARE = new WeakSet();
+const withWords = man => {
+  if (!man || typeof man !== 'object' || !Array.isArray(man.tours) || BARE.has(man)) return man;
+  const m = clone(man);
+  m.tours.forEach(t => {
+    if (!t || typeof t !== 'object' || Array.isArray(t)) return;
+    if (t.promise === undefined) t.promise = 'לדעת לעשות את זה לבד';
+    if (Array.isArray(t.steps)) t.steps.forEach((st, k) => { if (st && typeof st === 'object' && !Array.isArray(st) && st.title === undefined) st.title = `שלב ${k + 1} בסיור`; });
+  });
+  if (man.inOrderRun && KEEP_RECORD.has(man.inOrderRun)) KEEP_RECORD.add(m.inOrderRun);
+  return m;
+};
 function tourCheck(man, inv, checker = path.join(TOURS, 'tour-check.mjs'), extra = []) {
-  man = withRun(man, inv);
+  man = withRun(withWords(man), inv);
   const dir = fs.mkdtempSync(path.join(TMP, 'tours-'));
   fs.writeFileSync(path.join(dir, 'tours.json'), JSON.stringify(man));
   const args = [checker, path.join(dir, 'tours.json'), '--json', ...extra];
   if (inv) { fs.writeFileSync(path.join(dir, 'inventory.json'), JSON.stringify(inv)); args.push('--inventory', path.join(dir, 'inventory.json')); }
-  const r = sh('node', args);
+  const r = shTour('node', args);
   let out = null; try { out = JSON.parse(r.stdout); } catch { /* reported by the caller */ }
   return { status: r.status, out, raw: (r.stdout + r.stderr).slice(-400) };
 }
@@ -1699,6 +1739,27 @@ const TOUR_FIXTURES = [
   ['need-order', 'tour-no-commit', 'G-08', 'the seventeenth review\'s K1, one step: the booking tour\'s service step lists selectSample before the reopen', m => { tourOf(m, 'book').steps[3].need = [{ do: 'selectSample' }, { do: 'reopen', window: 'appt.create' }]; }],
   ['sample-not-opened', 'tour-no-commit', 'G-08', 'a tour right after the booking tour whose opener is shown on the computer only, then a note on both devices: only the phone is unopened, and the booking tour\'s picker does not carry over to it', m => { m.tours.splice(1, 0, { id: 'after-book', title: 'x', screens: ['cal-week'], area: 'יומן', where: 'יומן', tasks: [], finish: 'סוף.', steps: [{ kind: 'do', act: 'open', on: 'sample', when: 'desktop', anchor: 'cal.ended-appointment', result: { kind: 'recordOpen', arg: 'cal.ended-appointment' }, safeTest: 'e2e/x.spec.ts: y', text: 'פותחים את התור.' }, { kind: 'do', act: 'type', class: 'S', on: 'sample', anchor: 'appt.note', result: { kind: 'fieldChanged', arg: 'appt.note' }, need: [{ do: 'reopen', window: 'appt.drawer' }], safeTest: 'e2e/x.spec.ts: y', text: 'כותבים סיכום.' }] }); }],
   ['do-on-bulk', 'tour-no-commit', 'G-20', 'a do step whose result names the calendar\'s print, on an open step (the reminder tour\'s row edit)', m => { tourOf(m, 'reminder').steps[1].result = { kind: 'present', arg: 'cal.print' }; }],
+  ['part-do', 'tour-shape', 'G-16', 'a do step that names a part, a known anchor (the debt tour\'s filter, part patients.charge)', m => { tourOf(m, 'pat-debt').steps[0].part = 'patients.charge'; }],
+  ['part-do', 'tour-shape', 'G-16', 'a do step at on: sample on the sample\'s payment method that names a part, a known anchor (close-3\'s confirm)', m => { tourOf(m, 'close-3').steps[2].part = 'pay.confirm'; }],
+  ['part-same', 'tour-shape', 'G-16', 'a showing step whose part names its own anchor (the debt tour\'s phone step, part patients.row)', m => { tourOf(m, 'pat-debt').steps[2].part = 'patients.row'; }],
+  ['part-unknown', 'tour-shape', 'G-16', 'a showing step whose part no tour on its screens points at and no anchors entry lists', m => { tourOf(m, 'pat-debt').steps[2].part = 'patients.row-debt'; }],
+  ['part-unknown', 'tour-shape', 'G-16', 'a stop step whose part is known only on other screens (cal.print, an anchors entry of the calendar\'s screens)', m => { tourOf(m, 'pat-debt').steps[3].part = 'cal.print'; }],
+  ['title-words', 'tour-shape', 'G-07', 'a step title of five words, one of them a number standing alone ("קובעים תור ל 3 שעות")', m => { tourOf(m, 'reminder').steps[2].title = 'קובעים תור ל 3 שעות'; }],
+  ['title-same', 'tour-shape', 'G-07', 'a step title that repeats its sentence, but for the full stop at its end', m => { tourOf(m, 'book').steps[3].title = 'בוחרים טיפול מהרשימה'; }, 'title-same-text'],
+  ['title-same', 'tour-shape', 'G-07', 'a step title that repeats the tour\'s title, with a space more and a full stop', m => { tourOf(m, 'reminder').steps[0].title = 'לשנות  תזכורת.'; }, 'title-same-tour'],
+  ['title-missing', 'tour-shape', 'G-07', 'at stage app, a step with no title', m => { delete tourOf(m, 'book').steps[0].title; BARE.add(m); }],
+  ['promise-words', 'tour-shape', 'G-17', 'a tour promise of seven words', m => { tourOf(m, 'book').promise = 'לקבוע תור חדש למטופל ישר מתוך היומן'; }],
+  ['promise-missing', 'tour-shape', 'G-17', 'at stage app, a tour with no promise', m => { delete tourOf(m, 'reminder').promise; BARE.add(m); }],
+  ['schema', 'manifest', null, 'a step title that is empty', m => { tourOf(m, 'book').steps[0].title = ''; }],
+  ['schema', 'manifest', null, 'review 1\'s C2: a step title of spaces alone', m => { tourOf(m, 'book').steps[0].title = '   '; }],
+  ['schema', 'manifest', null, 'review 1\'s C2: a tour promise of spaces alone', m => { tourOf(m, 'book').promise = '   '; }],
+  ['schema', 'manifest', null, 'review 2\'s P4: a tour promise of punctuation alone', m => { tourOf(m, 'book').promise = '...'; }],
+  ['title-same', 'tour-shape', 'G-07', 'review 2\'s can-follow 5: a step title that repeats the tour\'s title, with a full stop and a bidi mark after it', m => { tourOf(m, 'reminder').steps[0].title = 'לשנות תזכורת.\u200f'; }, 'title-same-tour'],
+  ['title-same', 'tour-shape', 'G-07', 'review 1\'s C7: a step title that repeats the tour\'s title with an exclamation mark at its end', m => { tourOf(m, 'reminder').steps[0].title = 'לשנות תזכורת!'; }, 'title-same-tour'],
+  ['title-same', 'tour-shape', 'G-07', 'review 1\'s C7: a step title that repeats its sentence, ending in a colon where the sentence ends in a full stop', m => { tourOf(m, 'book').steps[3].title = 'בוחרים טיפול מהרשימה:'; }, 'title-same-text'],
+  ['title-same', 'tour-shape', 'G-07', 'review 1\'s C7: a step title that repeats the tour\'s title after a leading space', m => { tourOf(m, 'reminder').steps[0].title = ' לשנות תזכורת'; }, 'title-same-tour'],
+  ['title-words', 'tour-shape', 'G-07', 'review 1\'s C7: a step title of five words joined by non-breaking spaces (U+00A0, U+202F)', m => { tourOf(m, 'reminder').steps[2].title = 'קובעים\u00a0תור\u202fל\u00a03\u00a0שעות'; }],
+  ['schema', 'manifest', null, 'a part on a step with no anchor (a centred card has nothing to light a part of)', m => { delete tourOf(m, 'pat-debt').steps[2].anchor; }],
   ['sample-not-opened', 'tour-no-commit', 'G-08', 'a note classed S at on: sample after a step at on: none whose custom result names the sample (only a step at on: sample opens her record or picks her)', m => { m.tours.push({ id: 'summary', title: 'סיכום', screens: ['cal-week'], area: 'יומן', where: 'יומן · חלון התור', tasks: [], steps: [{ kind: 'do', act: 'open', on: 'none', anchor: 'cal.free-slot', result: { kind: 'custom', arg: 'appt.sample-picked' }, safeTest: 'e2e/x.spec.ts: y', text: 'לוחצים על השעה.' }, { kind: 'do', act: 'type', class: 'S', on: 'sample', anchor: 'appt.note', result: { kind: 'fieldChanged', arg: 'appt.note' }, need: [{ do: 'reopen', window: 'appt.drawer' }], safeTest: 'e2e/x.spec.ts: y', text: 'כותבים סיכום.' }], finish: 'סוף.' }); }],
 ];
 await test('TOUR-0', 'tour-check passes the example manifest clean, with and without the inventory, its bindings cover every id that is not a data-tour anchor, a reopen puts back the sample\'s record, and a resolver of a step marked "sample" selects by the sample\'s id', async () => {
@@ -1884,16 +1945,16 @@ await test('TOUR-usage', 'tour-check exits 2 with no manifest, a missing file, a
   fs.writeFileSync(bad, '{ not json');
   const cases = [[[], 'no manifest'], [[path.join(TMP, 'tours-missing.json')], 'cannot read'], [[bad], 'not JSON'], [[path.join(TOURS, 'example', 'tours.json'), '--strict'], 'unknown option'], [[path.join(TOURS, 'example', 'tours.json'), '--inventory'], 'needs a file']];
   for (const [args, re] of cases) {
-    const r = sh('node', [path.join(TOURS, 'tour-check.mjs'), ...args]);
+    const r = shTour('node', [path.join(TOURS, 'tour-check.mjs'), ...args]);
     if (r.status !== 2 || !r.stderr.includes(re)) why.push(`${args.join(' ') || '(none)'}: exit ${r.status} ${r.stderr.trim()}`);
   }
   for (const args of [['--strict', '--json'], ['--json', path.join(TOURS, 'example', 'tours.json'), '--inventory']]) {
-    const r = sh('node', [path.join(TOURS, 'tour-check.mjs'), ...args]);
+    const r = shTour('node', [path.join(TOURS, 'tour-check.mjs'), ...args]);
     let o = null; try { o = JSON.parse(r.stdout); } catch { /* reported below */ }
     if (r.status !== 2 || !o || o.ok !== false || !o.error) why.push(`${args.join(' ')}: exit ${r.status} ${r.stdout.trim()} ${r.stderr.trim()}`);
   }
   for (const [file, re] of [[path.join(TMP, 'tours-missing.json'), /cannot read/], [bad, /not JSON/]]) {
-    const r = sh('node', [path.join(TOURS, 'tour-check.mjs'), file, '--json']);
+    const r = shTour('node', [path.join(TOURS, 'tour-check.mjs'), file, '--json']);
     let o = null; try { o = JSON.parse(r.stdout); } catch { /* reported below */ }
     if (r.status !== 2 || !o || o.ok !== false || !re.test(o.error)) why.push(`${path.basename(file)} --json: exit ${r.status} ${r.stdout.trim()}`);
   }
@@ -1904,7 +1965,7 @@ await test('TOUR-text', 'tour-check prints one line per finding with the check, 
   tourOf(m, 'book').steps[0].skip = false;
   const dir = fs.mkdtempSync(path.join(TMP, 'tours-text-'));
   fs.writeFileSync(path.join(dir, 'tours.json'), JSON.stringify(m));
-  const r = sh('node', [path.join(TOURS, 'tour-check.mjs'), path.join(dir, 'tours.json')]);
+  const r = shTour('node', [path.join(TOURS, 'tour-check.mjs'), path.join(dir, 'tours.json')]);
   const fails = r.stdout.split('\n').filter(l => l.startsWith('FAIL '));
   return r.status === 1 && fails.length === 1 && /^FAIL tour-shape G-07 book step 1: /.test(fails[0]) && /not covered here:/.test(r.stdout) ? '' : `exit ${r.status}: ${r.stdout.slice(0, 400)}`;
 });
@@ -2046,7 +2107,7 @@ await test('TOUR-malformed', 'a tour or a step that is not an object, or a manif
   }
   const dir = fs.mkdtempSync(path.join(TMP, 'tours-null-'));
   fs.writeFileSync(path.join(dir, 'tours.json'), JSON.stringify({ ...TOUR_EX, tours: [null] }));
-  const t = sh('node', [path.join(TOURS, 'tour-check.mjs'), path.join(dir, 'tours.json')]);
+  const t = shTour('node', [path.join(TOURS, 'tour-check.mjs'), path.join(dir, 'tours.json')]);
   if (t.status !== 2 || !/tour 1 is not an object/.test(t.stderr) || /at file:/.test(t.stderr)) why.push(`text mode: exit ${t.status} ${t.stderr.trim()}`);
   return why.join(' · ');
 });
@@ -2095,6 +2156,114 @@ await test('TOUR-container-show', 'the tenth review\'s N: a showing step and a s
   m.tours.push({ id: 'n', title: 'x', screens: ['cal-week'], area: 'יומן', where: 'יומן', tasks: [], steps: [{ kind: 'next', anchor: 'cal.grid', text: 'זה היומן.' }, { kind: 'stop', class: 'S', anchor: 'cal.grid', text: 'גרירה ביומן מזיזה תור.' }], finish: 'סוף.' });
   const r = tourCheck(m, INV_EX, undefined, ['--require-stage', 'app']);
   return r.status === 0 && r.out && !r.out.findings.length ? '' : `exit ${r.status} ${JSON.stringify(r.out && r.out.findings.map(f => f.code))}`;
+});
+await test('TOUR-part-show', 'a showing step and a stop step whose part is a known anchor other than their own pass at stage app with the inventory, and so does the example\'s own part (the debt tour\'s phone step): only a do step\'s part, a part that names its own anchor and an unknown part are findings', async () => {
+  const why = [];
+  if (tourOf(TOUR_EX, 'pat-debt').steps[2].part !== 'patients.charge') why.push('the example\'s debt tour no longer carries its part');
+  const m = clone(TOUR_EX);
+  m.tours.push({ id: 'pt', title: 'x', screens: ['cal-week'], area: 'יומן', where: 'יומן', tasks: [], steps: [{ kind: 'next', anchor: 'cal.grid', part: 'cal.ended-appointment', text: 'זה היומן, והתור שהסתיים בתוכו.' }, { kind: 'stop', class: 'S', anchor: 'cal.grid', part: 'cal.ended-appointment', text: 'גרירה ביומן מזיזה תור.' }], finish: 'סוף.' });
+  const r = tourCheck(m, INV_EX, undefined, ['--require-stage', 'app']);
+  if (r.status !== 0 || !r.out || r.out.findings.length) why.push(`exit ${r.status} ${JSON.stringify(r.out && r.out.findings.map(f => f.code))}`);
+  // review 1's C7: a tour on two screens whose part is known on one of them only (cal.print, an anchors entry of the
+  // calendar) passes: a part is known on any of the tour's screens
+  const two = clone(TOUR_EX);
+  two.tours.push({ id: 'pt2', title: 'x', screens: ['patients', 'cal-week'], area: 'יומן', where: 'יומן', tasks: [], steps: [{ kind: 'next', anchor: 'cal.grid', part: 'cal.print', text: 'בראש היומן מדפיסים.' }], finish: 'סוף.' });
+  const r2 = tourCheck(two, INV_EX, undefined, ['--require-stage', 'app']);
+  if (r2.status !== 0 || !r2.out || r2.out.findings.length) why.push(`a part known on one of two screens: exit ${r2.status} ${JSON.stringify(r2.out && r2.out.findings.map(f => f.code))}`);
+  // review 2's K1: a part known only as a step's result (pay.practice-receipt, a present result of close-3, on the job's
+  // screens) passes
+  const res = clone(TOUR_EX); tourOf(res, 'close-1').steps[1].part = 'pay.practice-receipt';
+  const r3 = tourCheck(res, INV_EX, undefined, ['--require-stage', 'app']);
+  if (r3.status !== 0 || !r3.out || r3.out.findings.length) why.push(`a part known through a result: exit ${r3.status} ${JSON.stringify(r3.out && r3.out.findings.map(f => f.code))}`);
+  // review 2's can-follow 2: without the inventory part-unknown does not run, and a note counts the parts it left
+  const pn = 'parts not judged against the anchors known on their tours\' screens (part-unknown): 1; that needs --inventory';
+  const bare = tourCheck(TOUR_EX, null);
+  if (!bare.out || !bare.out.notes.some(n => n.check === 'tour-shape' && n.message === pn)) why.push(`no inventory: no part note ${JSON.stringify(bare.out && bare.out.notes.map(n => n.message))}`);
+  const withInv = tourCheck(TOUR_EX, INV_EX);
+  if (!withInv.out || withInv.out.notes.some(n => n.message === pn)) why.push('with the inventory the part note is still printed');
+  const mu = tourCheck(TOUR_EX, null, mutant('part-no-inventory'));
+  if (!mu.out || mu.out.notes.some(n => n.message === pn)) why.push('without M:part-no-inventory the part note is still printed');
+  return why.join(' · ');
+});
+await test('TOUR-spawn', 'review 1\'s C8: a checker child killed by a signal, or one that does not start, is a named spawn failure in the output (it still fails), and a child that exits 1 is not', async () => {
+  const why = [];
+  const caught = f => { try { f(); return null; } catch (e) { return e; } };
+  const killed = caught(() => shTour('node', ['-e', 'process.kill(process.pid, "SIGKILL")']));
+  if (!killed || !killed.spawnFailure || !/ended by signal SIGKILL/.test(killed.message) || !failWhy(killed).startsWith('SPAWN FAILED: the check did not run to its end: ')) why.push(`a killed child: ${killed && failWhy(killed)}`);
+  const missing = caught(() => shTour(path.join(TMP, 'no-such-program'), []));
+  if (!missing || !missing.spawnFailure || !/spawn error ENOENT/.test(missing.message)) why.push(`a child that does not start: ${missing && failWhy(missing)}`);
+  // review 2's can-follow 3: output past spawnSync's default 1 MB buffer is not a spawn failure
+  const big = caught(() => { const r = shTour('node', ['-e', 'process.stdout.write("x".repeat(3 * 1024 * 1024))']); if (r.status !== 0 || r.stdout.length !== 3 * 1024 * 1024) throw new Error(`status ${r.status}, ${r.stdout.length} bytes`); });
+  if (big) why.push(`3 MB of output: ${failWhy(big)}`);
+  const exit1 = caught(() => { const r = shTour('node', ['-e', 'process.exit(1)']); if (r.status !== 1) throw new Error(`status ${r.status}`); });
+  if (exit1) why.push(`a child that exits 1 threw: ${exit1.message}`);
+  if (!failWhy(new Error('x')).startsWith('threw: Error: x')) why.push('an ordinary error is no longer reported as threw');
+  return why.join(' · ');
+});
+await test('TMP-clean', 'a run removes its temp folder when it ends, passing or failing, and keeps it, with its path printed, only under KEEP_TMP=1 (this session\'s cleanup found 999 left in /tmp); each probe child ends at once by itself', async () => {
+  const why = [];
+  const base = fs.mkdtempSync(path.join(TMP, 'tmp-clean-'));
+  const env = extra => ({ ...process.env, TMPDIR: base, KEEP_TMP: '', ...extra });
+  const left = () => fs.readdirSync(base).filter(f => f.startsWith('redesign-skill-tests-'));
+  for (const [label, arg, code] of [['a run that passes', '--tmp-probe', 0], ['a run that fails', '--tmp-probe=fail', 1]]) {
+    const r = shTour('node', [path.join(HERE, 'run.mjs'), arg], { env: env({}) });
+    const dir = r.stdout.trim();
+    if (r.status !== code || !dir.startsWith(path.join(base, 'redesign-skill-tests-')) || fs.existsSync(dir) || left().length) why.push(`${label}: exit ${r.status}, printed ${JSON.stringify(dir)}, left ${JSON.stringify(left())}`);
+  }
+  const k = shTour('node', [path.join(HERE, 'run.mjs'), '--tmp-probe'], { env: env({ KEEP_TMP: '1' }) });
+  const kept = k.stdout.trim();
+  if (k.status !== 0 || !kept.startsWith(path.join(base, 'redesign-skill-tests-')) || !fs.existsSync(path.join(kept, 'probe')) || left().length !== 1) why.push(`KEEP_TMP=1: exit ${k.status}, printed ${JSON.stringify(kept)}, kept ${JSON.stringify(left())}`);
+  return why.join(' · ');
+});
+await test('TOUR-title-count', 'titles and promises are counted as tour-shape counts words, split on spaces: a four-word title with a maqaf and a number joined to it ("קובעים תור ל־3 שעות") and a six-word promise pass; the same title with the number standing alone is five words (title-words), and a seven-word promise fails (promise-words)', async () => {
+  const why = [];
+  const ok = clone(TOUR_EX); tourOf(ok, 'reminder').steps[2].title = 'קובעים תור ל־3 שעות'; tourOf(ok, 'book').promise = 'לקבוע תור חדש ישר מתוך היומן';
+  const r = tourCheck(ok, INV_EX, undefined, ['--require-stage', 'app']);
+  if (r.status !== 0 || !r.out || r.out.findings.length) why.push(`four words with a maqaf, six-word promise: exit ${r.status} ${JSON.stringify(r.out && r.out.findings.map(f => f.code))}`);
+  const no = clone(TOUR_EX); tourOf(no, 'reminder').steps[2].title = 'קובעים תור ל 3 שעות'; tourOf(no, 'book').promise = 'לקבוע תור חדש ישר מתוך היומן שלנו';
+  const f = tourCheck(no, INV_EX, undefined, ['--require-stage', 'app']);
+  const got = f.out ? f.out.findings.map(x => `${x.code}:${x.message.match(/has (\d+) words/)?.[1]}`).sort().join(',') : `exit ${f.status}`;
+  if (got !== 'promise-words:7,title-words:5') why.push(`five-word title, seven-word promise: ${got}`);
+  // review 2's survivors W3, W8, W9, S5, S6, S9 and P3, pinned as head counts them: bidi isolates between spaces are
+  // no words, a zero-width space joins, a mark inside a word does not split it; a title that differs from the tour's
+  // title only in niqqud, in word order or in a mark at its start is not the same; a title of digits is a title
+  const keep = clone(TOUR_EX);
+  Object.assign(tourOf(keep, 'book').steps[0], { title: 'משנים \u2066 את \u2069 השעות כאן' });
+  Object.assign(tourOf(keep, 'book').steps[1], { title: 'קובעים\u200bתור\u200bחדש\u200bלמטופל\u200bעכשיו' });
+  Object.assign(tourOf(keep, 'book').steps[2], { title: 'משנים את הש\u200fעות כאן' });
+  Object.assign(tourOf(keep, 'book').steps[3], { title: '24' });
+  Object.assign(tourOf(keep, 'reminder').steps[0], { title: 'לְשַׁנּוֹת תזכורת' });
+  Object.assign(tourOf(keep, 'reminder').steps[1], { title: 'תזכורת לשנות' });
+  Object.assign(tourOf(keep, 'reminder').steps[3], { title: '"לשנות תזכורת' });
+  const rk = tourCheck(keep, INV_EX, undefined, ['--require-stage', 'app']);
+  if (rk.status !== 0 || !rk.out || rk.out.findings.length) why.push(`head's counting and comparison of review 2's cases: exit ${rk.status} ${JSON.stringify(rk.out && rk.out.findings.map(x => `${x.code}@${x.tour}:${x.step}`))}`);
+  // review 1's C4: a bidi mark standing between two spaces is no word, so four words with three marks pass
+  const bidi = clone(TOUR_EX); tourOf(bidi, 'reminder').steps[2].title = 'משנים \u200f את \u200f השעות \u200f כאן';
+  const rb = tourCheck(bidi, INV_EX, undefined, ['--require-stage', 'app']);
+  if (rb.status !== 0 || !rb.out || rb.out.findings.length) why.push(`four words with bidi marks between them: exit ${rb.status} ${JSON.stringify(rb.out && rb.out.findings.map(x => x.code))}`);
+  return why.join(' · ');
+});
+await test('TOUR-demo-words', 'at stage demo, steps with no title and tours with no promise are one note each with their count, not findings; at stage app each is a finding; without the line M:demo-title or M:demo-promise its note is gone', async () => {
+  const why = [];
+  const bare = stage => { const m = clone(TOUR_EX); m.stage = stage; for (const t of m.tours) { delete t.promise; for (const st of t.steps) delete st.title; } BARE.add(m); return m; };
+  const nt = '21 steps have no title yet; each needs one, at most four words, before the app runs this tour';
+  const np = '6 tours have no promise yet; each needs one, at most six words, before the app runs this tour';
+  const d = bare('demo');
+  const r = tourCheck(d, INV_EX);
+  const has = (o, msg) => !!o && o.notes.some(n => n.check === 'tour-shape' && n.message === msg);
+  if (r.status !== 0 || !r.out || r.out.findings.length || !has(r.out, nt) || !has(r.out, np)) why.push(`demo: exit ${r.status} ${JSON.stringify(r.out && { f: r.out.findings.map(x => x.code), n: r.out.notes.map(n => n.message) })}`);
+  const a = tourCheck(bare('app'), INV_EX);
+  const codes = a.out ? a.out.findings.map(x => x.code) : [];
+  if (a.status !== 1 || codes.filter(c => c === 'title-missing').length !== 21 || codes.filter(c => c === 'promise-missing').length !== 6 || codes.length !== 27) why.push(`app: exit ${a.status} ${JSON.stringify(codes)}`);
+  const mt = tourCheck(d, INV_EX, mutant('demo-title'));
+  if (has(mt.out, nt) || !has(mt.out, np)) why.push('without M:demo-title the title note is still printed, or the promise note went too');
+  const mp = tourCheck(d, INV_EX, mutant('demo-promise'));
+  if (has(mp.out, np) || !has(mp.out, nt)) why.push('without M:demo-promise the promise note is still printed, or the title note went too');
+  // review 1's C7: one step with no title and one tour with no promise are each a note too, in the singular
+  const one = clone(TOUR_EX); one.stage = 'demo'; delete tourOf(one, 'book').steps[0].title; delete tourOf(one, 'reminder').promise; BARE.add(one);
+  const ro = tourCheck(one, INV_EX);
+  if (ro.status !== 0 || !ro.out || ro.out.findings.length || !has(ro.out, '1 step has no title yet; each needs one, at most four words, before the app runs this tour') || !has(ro.out, '1 tour has no promise yet; each needs one, at most six words, before the app runs this tour')) why.push(`demo, one of each missing: exit ${ro.status} ${JSON.stringify(ro.out && { f: ro.out.findings.map(x => x.code), n: ro.out.notes.map(n => n.message) })}`);
+  return why.join(' · ');
 });
 await test('TOUR-R1-chain', 'the twelfth review\'s R1 whole: the patient row\'s plain id at on: sample, then a note classed S on the card, fails do-on-container on the row and sample-not-opened on the note, and each line alone catches its step', async () => {
   const m = clone(TOUR_EX);
@@ -2270,7 +2439,7 @@ await test('TOUR-need-texts', 'the need rule\'s sentences (selectSample as well 
     ["../help-system.md", "and only running the tours in the recording copy, never in the live app, shows it (tour-anchors)", 1],
     ["../help-system.md", "is judged only in the screen preview, never in the live app (tour-anchors, not built)", 1],
     ["../help-system.md", "needs the screen preview (tour-anchors), defined next.", 1],
-    ["../help-system.md", "and that each control recordAnchors lists changes only the sample's own record, never a business-wide rule or many people's records (the inventory's reviewer runs every do step of every tour in order, on the sample, practice-only steps inside practice mode, in the recording copy, never in the live app, each tour from a known state of the copy (a switch left set by an earlier run turns her note's save into a template's), a save whose window holds a switch or a remembered choice that could make it business-wide once with that field in each state, and after each step looks at the sample's record (it changed as the step says), at the settings the step's window can reach and every list of other people, as the day's list (unchanged), and at the recorder, the provider gate and the browser's effects (nothing the step caused, or only what the step's class says, for the sample alone): a print, an export, a download, a send, a charge, a clipboard write or a navigation out of the app seen there means the control is not a record control, so the run fails and inOrderRun is not written (a send that leaves only when a scheduled job runs is not this look's to see: G-20's test, which runs the jobs past the latest reminder, catches it); after a run that passes, the reviewer who did it, and nobody else, writes the copy's name, the date and the key tour-check.mjs --run-key prints into the manifest's inOrderRun, which the checker requires at stage app when a tour has a do step (run-not-recorded), refuses at stage demo (run-at-demo), and holds to a day not after today (run-date) and, with --inventory, to the key of the content it was written for (run-stale); the key leaves out only the words she reads, which tours.schema.json names under inOrderRun.key, so a text-only change keeps the record, and it covers no bindings, app code or build, so it shows only that the record was written for this exact content, never that the run was done or that the app is unchanged since: a save's effect can depend on a field an earlier step set, and a wrongly listed control pressed in the live app would itself do the harm), is judged in the recording copy, never in the live app.", 1],
+    ["../help-system.md", "and that each control recordAnchors lists changes only the sample's own record, never a business-wide rule or many people's records (the inventory's reviewer runs every do step of every tour in order, on the sample, practice-only steps inside practice mode, in the recording copy, never in the live app, each tour from a known state of the copy (a switch left set by an earlier run turns her note's save into a template's), a save whose window holds a switch or a remembered choice that could make it business-wide once with that field in each state, and after each step looks at the sample's record (it changed as the step says), at the settings the step's window can reach and every list of other people, as the day's list (unchanged), and at the recorder, the provider gate and the browser's effects (nothing the step caused, or only what the step's class says, for the sample alone): a print, an export, a download, a send, a charge, a clipboard write or a navigation out of the app seen there means the control is not a record control, so the run fails and inOrderRun is not written (a send that leaves only when a scheduled job runs is not this look's to see: G-20's test, which runs the jobs past the latest reminder, catches it); after a run that passes, the reviewer who did it, and nobody else, writes the copy's name, the date and the key tour-check.mjs --run-key prints into the manifest's inOrderRun, which the checker requires at stage app when a tour has a do step (run-not-recorded), refuses at stage demo (run-at-demo), and holds to a day not after today (run-date) and, with --inventory, to the key of the content it was written for (run-stale); the key leaves out only the words she reads and a step's part (what is lit on a showing or stop step, which the run never presses), which tours.schema.json names under inOrderRun.key, so a change to those alone keeps the record (a reworded pick or type step keeps it too, though its words tell her what to pick or enter there: the manifest's reviewer checks such a change against that step's safeTest and G-20), and it covers no bindings, app code or build, so it shows only that the record was written for this exact content, never that the run was done or that the app is unchanged since: a save's effect can depend on a field an earlier step set, and a wrongly listed control pressed in the live app would itself do the harm), is judged in the recording copy, never in the live app.", 1],
     ["../experience.md", "| tour-anchors | in the screen preview for what the screen shows, and in the recording copy for what a press does, never the live app (the two are defined in help-system.md, \"The tour manifest\", with the live-app conditions), where a wrongly listed control pressed would itself save a business-wide rule or act on real people's records; a project with no recording copy gives its tours no do steps, and its showing and stop steps light no control (each a centred card), whatever preview it has, and a question only the live app answers (the sample patient exists, is marked, and is the only one marked; which automatic senders are on) is answered there by looking, never by pressing:", 1],
     ["../experience.md", "is judged in the recording copy, never the live app (tour-anchors); whether the engine itself presses anything, and asks before closing a window with unsaved input, needs the recording copy, never the live app)", 1],
     ["../experience.md", "needs the screen preview (what the screen shows) and the recording copy (what a press does), never the live app; planned for the DoD checks phase", 1],
@@ -2288,7 +2457,39 @@ await test('TOUR-need-texts', 'the need rule\'s sentences (selectSample as well 
     ["../experience.md", "proven by that mode's own tests, made in the recording copy and never in the live account", 1],
     ["../help-system.md", "Until the test exists, the hold is on in the live app, and the other two live-app conditions hold too ((c) the senders, (d) the handlers that answer a provider), the step is a \"הבנתי\" step.", 1],
     ["../help-system.md", "Until that test has passed there, no step of a tour anyone runs lights a control, whatever its class: a stop step on a control classed T or P, a stop step classed S (a press would save to whatever record the control sits on, a real person's included) and a showing step, whose control carries no class and may do anything, are each written with no anchor, a centred card that names the control, and get their anchors back once the test passes; the checker cannot know whether the test was done (NOT_COVERED).", 1],
-    ["tours.schema.json", "a digest of the manifest without this record and of the inventory, leaving out only the words she reads, which decide nothing the run presses: each tour's title, jobTitle, area, where and finish, each step's text, showText and its variants' text, and each screen's title in the inventory.", 1],
+    ["tours.schema.json", "a digest of the manifest without this record and of the inventory, leaving out only what decides nothing the run presses: the words she reads (each tour's title, jobTitle, promise, area, where and finish, each step's title, text, showText and its variants' text, and each screen's title in the inventory) and each step's part, which changes only what is lit on a showing or stop step, a step the run never presses.", 1],
+    ["tours.schema.json", "The key tour-check.mjs --run-key prints for this manifest and its inventory (it needs --inventory, and it prints none for content that does not have the shape of the two schemas, exit 2):", 1],
+    ["tours.schema.json", "A reworded pick or type step keeps it too, though its words tell her what to pick or enter there, so the manifest's reviewer checks such a change against that step's safeTest and G-20.", 1],
+    ["tours.schema.json", "A do step never names one, since its lit target is the live control she presses (part-do);", 1],
+    ["tours.schema.json", "The inOrderRun key leaves it out, since it changes only what is lit on a step the run never presses.", 1],
+    ["../help-system.md", "A do step never names one, because its lit target is the live control she presses (part-do).", 1],
+    ["../help-system.md", "Its accessible description (aria-describedby) is the step's place, its title and its sentence, in that order", 1],
+    ["../help-system.md", "On every step change the same three, in the same order, are announced in the live region too, whether focus moved or not.", 1],
+    ["../help-system.md", "The card goes below the lit control, else above it, never over it, at every screen size, a 320×568 phone included. When it fits on neither side of the whole control, a showing or stop step lights its part instead", 1],
+    ["../help-system.md", "and every later do step of the tour only shows too, as after a declined need", 1],
+    ["../help-system.md", "which is lit instead of the whole control only where the card fits on neither side of it (\"The card\", above, holds the one placement rule)", 1],
+    ["tours.schema.json", "lit instead of it where the card fits on neither side of the whole control (help-system.md, \\\"The card\\\", which holds the one placement rule)", 1],
+    ["../help-system.md", "under a title of at most four words (his pick of 14.11.2026 [A], under \"The card\"), the twelve counted without the title [I];", 1],
+    ["../help-system.md", "The numbers that option did not give are this skill's [I]: the sentence keeps its twelve words, counted without the title, and the list's line has at most six words.", 1],
+    ["../help-system.md", "one line on what she will be able to do after it (his pick of 14.11.2026 [A], under \"The card\"), at most six words [I]", 1],
+    ["../experience.md", "the twelve counted without the title: [I]", 1],
+    ["../experience.md", "its six-word limit: [I]", 1],
+    ["../help-system.md", "which includes the non-breaking spaces (U+00A0, U+202F); a word joined by a maqaf is one word", 1],
+    ["../help-system.md", "When the tour ends, focus returns to what started it", 1],
+    ["../help-system.md", "The tour's name is one string, the same on the card's line on top and in its accessible name: the tour's title, or, in a chapter, its jobTitle, a space, a middle dot and a space, then its title (\"לסגור טיפול · שולם\") [I].", 1],
+    ["../help-system.md", "The card's accessible name is the tour's name, that one string, and the step's title is not repeated in it.", 1],
+    ["tours.schema.json", "in a chapter it is the job's title (jobTitle), then a space, a middle dot (·) and a space, then this title", 1],
+    ["tours.schema.json", "and on the card's line on top, and in its accessible name, it comes before the chapter's title, joined by a space, a middle dot (·) and a space", 1],
+    ["../help-system.md", "when she answers no, nothing is closed or discarded, everything stays as it is, and the tour does not start [I]; the same holds for every start that asks first (the card, \"הראו לי\", the list) [I].", 1],
+    ["../help-system.md", "comparing them without their spacing, without direction marks, and without a full stop", 1],
+    ["tours.schema.json", "title-same; spacing, direction marks, and a full stop,", 1],
+    ["../help-system.md", "Inside a store shell, a link start is whatever the shell's deep-link routing hands to the web app: when the hash does not arrive, the tour does not start, and the other starts of G-21 are unaffected [I].", 1],
+    ["../help-system.md", "On a centred card, which lights no control, focus is on the card's main button, and at the end it returns to what started the tour as above [I].", 1],
+    ["../help-system.md", "at stage demo the steps and the tours still without one are a note with their count, so manifests already being written are not broken, and at stage app each is a finding (title-missing, promise-missing)", 1],
+    ["../help-system.md", "Nadav picked \"הכול כמו SporChat (מומלץ)\" [A]", 1],
+    ["tours.schema.json", "The sentence keeps its twelve words, counted without the title.", 1],
+    ["../help-system.md", "following it is her own start, like \"הראו לי\", not an automatic one, so none of the waits above applies to it, and the tour begins at its start state, asking first where a window holds unsaved input (G-08) [I];", 1],
+    ["../experience.md", "or from a link she follows, which is her own start, never an automatic one [I].", 1],
     ["tours.schema.json", "The bindings, the app's code and its build are not in it, so a matching key never shows that the app is unchanged since the run.", 1],
     ["tours.schema.json", "a day of the calendar not after today, today being the latest day anywhere on earth (run-date)", 1],
     ["../help-system.md", "a control's class is what pressing it does, the same in every tour, so a do step on a control (and arg) that another step stops at classed T or P is a finding (stopped-elsewhere), except a practice-only step classed P on a control no step stops at classed T; a stop with no arg covers every arg of its id, and a do step with no arg meets every stop on its id);", 1],
@@ -2436,6 +2637,15 @@ const GOLDEN = [
     ['article-anchor', (m, i) => { i.screens['cal-day'].tasks[0].anchors = ['cal.no-such-button']; }, "article-anchor", "the article on cal-day names the control \"cal.no-such-button\", which no tour on cal-day points at or names as a result and no anchors entry for cal-day lists"],
     ['article-tour (does not list the task)', (m, i) => { i.screens['cal-day'].tasks[0].tour = 'close-1'; }, "article-tour", "the article names tour \"close-1\", which does not list \"לקבוע תור\" on cal-day"],
     ['article-tour (no such tour)', (m, i) => { i.screens['cal-day'].tasks[0].tour = 'no-such-tour'; }, "article-tour", "the article names tour \"no-such-tour\", which does not exist"],
+    ['title-words', m => { tourOf(m, 'reminder').steps[2].title = 'קובעים תור ל 3 שעות'; }, 'title-words', "the step's title has 5 words, at most 4: the title names the step at a glance, and the sentence under it says the rest"],
+    ['title-same (its sentence)', m => { tourOf(m, 'book').steps[3].title = 'בוחרים טיפול מהרשימה'; }, 'title-same', "the step's title repeats its sentence: the title names the step in at most four words and the sentence under it says what to do; write a shorter title"],
+    ['title-same (the tour\'s title)', m => { tourOf(m, 'reminder').steps[0].title = 'לשנות תזכורת'; }, 'title-same', "the step's title repeats the tour's name \"לשנות תזכורת\", which the card already shows above it; name what this step is about"],
+    ['title-missing', m => { delete tourOf(m, 'book').steps[0].title; BARE.add(m); }, 'title-missing', "the step has no title: at stage app every step carries one, at most four words, shown above its sentence"],
+    ['promise-words', m => { tourOf(m, 'book').promise = 'לקבוע תור חדש למטופל ישר מתוך היומן'; }, 'promise-words', "the tour's promise has 7 words, at most 6: one short line in the tour list on what she can do after it"],
+    ['promise-missing', m => { delete tourOf(m, 'reminder').promise; BARE.add(m); }, 'promise-missing', "the tour has no promise: at stage app every tour carries one, at most six words in the tour list on what she can do after it"],
+    ['part-do', m => { tourOf(m, 'pat-debt').steps[0].part = 'patients.charge'; }, 'part-do', "a do step names part \"patients.charge\": a do step's lit target is the live control she presses, and a part would light less than what responds; drop part (the bindings scroll a tall control into view), since part is only for a showing or a stop step, on which nothing on the screen responds"],
+    ['part-same', m => { tourOf(m, 'pat-debt').steps[2].part = 'patients.row'; }, 'part-same', "part names the step's own anchor \"patients.row\": a part is a smaller place inside the anchor, lit instead of it where the card fits on neither side of the whole control; name the place inside it that the step is about, or drop part"],
+    ['part-unknown', m => { tourOf(m, 'pat-debt').steps[2].part = 'patients.row-debt'; }, 'part-unknown', "part \"patients.row-debt\" is no known anchor on the tour's screens: no step of a tour there points at it or names it as a result, and no anchors entry for them lists it; list it in the manifest's anchors with the screens that carry it and what it is, so the screen preview finds it inside the step's anchor"],
 ];
 const GOLDEN_NOT_COVERED = [
     "tour-no-commit: the engine itself dispatching a click, a submit or a key on a step target (checked by running the tours in the recording copy (defined in help-system.md, \"The tour manifest\"), never in the live app; the live app then does what was checked only under the live-app conditions there)",
@@ -2448,7 +2658,7 @@ const GOLDEN_NOT_COVERED = [
     "tour-no-commit: a step sentence that says nothing goes out, or that no one is told, where no test shows it (the reviewer, against the G-20 test or the practice mode's test)",
     "tour-no-commit: an inventory that declares no recordAnchors, or too few, leaves on: \"none\" unjudged with no note (judged by pressing in the recording copy (defined in help-system.md, \"The tour manifest\"), never in the live app)",
     "tour-inventory: a result that routes to a screen the inventory does not have (only the screens a tour lists are read)",
-    "tour-no-commit: that a do step at on: \"sample\" on a control recordAnchors lists changes only the sample's record (a save that also changes a business-wide rule), never a business-wide rule (a service's default duration) or many people's records (the day's list printed), in a window opened on her and in a window that picks a person alike: the inventory's reviewer runs every do step of every tour in order, on the sample, practice-only steps inside practice mode, in the recording copy (defined in help-system.md, \"The tour manifest\"), never in the live app, each tour from a known state of the copy (a switch left set by an earlier run is the shape below), a save whose window holds a switch or a remembered choice that could make it business-wide once with that field in each state, and after each step looks at the sample's record (it changed as the step says), at the settings the step's window can reach and every list of other people, as the day's list (unchanged), and at the recorder, the provider gate and the browser's effects (nothing the step caused, or only what the step's class says, for the sample alone): a print, an export, a download, a send, a charge, a clipboard write or a navigation out of the app seen there means the control is not a record control, so the run fails and inOrderRun is not written (a send that leaves only when a scheduled job runs is not this look's to see: G-20's test, which runs the jobs past the latest reminder, catches it); after a run that passes, the reviewer who did it writes the copy's name, the date and the key tour-check.mjs --run-key prints into the manifest's inOrderRun (tour-anchors, run-not-recorded); in order, because a save's effect can depend on a field an earlier step set (a \"save as the clinic's template\" switch set at one step, then her note saved at the next: each control pressed alone changes only her record, and the checker passes the tour), and in the recording copy, because a wrongly listed control pressed in the live app would itself save the business-wide rule or act on real people's records; the checker requires only that the control is a record control, nothing in one step or in the inventory tells a save of a business-wide rule from a save of her record (class S says the step saves, not what), across steps it reads one signal, a do step on a control another step stops at classed T or P (stopped-elsewhere), and of the run only that the manifest at stage \"app\" with do steps names a copy, a day not after today (run-date) and a key that is the digest of this manifest and inventory (run-not-recorded, run-stale, which runs only with --inventory; at stage \"demo\" a record is a finding, run-at-demo), and the key leaves out the words she reads (tours.schema.json, inOrderRun.key, names them), so a change to those keeps the record, and covers no bindings, app code or build, so it shows only that the record was written for this exact content, not that the run was done, or done in the recording copy, or after the last change to the app, a control listed in both recordAnchors and bulkAnchors fails anchor-both and its do step do-on-bulk, and the step's safeTest shows that nothing leaves, not what changed",
+    "tour-no-commit: that a do step at on: \"sample\" on a control recordAnchors lists changes only the sample's record (a save that also changes a business-wide rule), never a business-wide rule (a service's default duration) or many people's records (the day's list printed), in a window opened on her and in a window that picks a person alike: the inventory's reviewer runs every do step of every tour in order, on the sample, practice-only steps inside practice mode, in the recording copy (defined in help-system.md, \"The tour manifest\"), never in the live app, each tour from a known state of the copy (a switch left set by an earlier run is the shape below), a save whose window holds a switch or a remembered choice that could make it business-wide once with that field in each state, and after each step looks at the sample's record (it changed as the step says), at the settings the step's window can reach and every list of other people, as the day's list (unchanged), and at the recorder, the provider gate and the browser's effects (nothing the step caused, or only what the step's class says, for the sample alone): a print, an export, a download, a send, a charge, a clipboard write or a navigation out of the app seen there means the control is not a record control, so the run fails and inOrderRun is not written (a send that leaves only when a scheduled job runs is not this look's to see: G-20's test, which runs the jobs past the latest reminder, catches it); after a run that passes, the reviewer who did it writes the copy's name, the date and the key tour-check.mjs --run-key prints into the manifest's inOrderRun (tour-anchors, run-not-recorded); in order, because a save's effect can depend on a field an earlier step set (a \"save as the clinic's template\" switch set at one step, then her note saved at the next: each control pressed alone changes only her record, and the checker passes the tour), and in the recording copy, because a wrongly listed control pressed in the live app would itself save the business-wide rule or act on real people's records; the checker requires only that the control is a record control, nothing in one step or in the inventory tells a save of a business-wide rule from a save of her record (class S says the step saves, not what), across steps it reads one signal, a do step on a control another step stops at classed T or P (stopped-elsewhere), and of the run only that the manifest at stage \"app\" with do steps names a copy, a day not after today (run-date) and a key that is the digest of this manifest and inventory (run-not-recorded, run-stale, which runs only with --inventory; at stage \"demo\" a record is a finding, run-at-demo), and the key leaves out the words she reads and a step's part (tours.schema.json, inOrderRun.key, names them), so a change to those keeps the record, and covers no bindings, app code or build, so it shows only that the record was written for this exact content, not that the run was done, or done in the recording copy, or after the last change to the app, a control listed in both recordAnchors and bulkAnchors fails anchor-both and its do step do-on-bulk, and the step's safeTest shows that nothing leaves, not what changed",
     "tour-no-commit: a stop step followed by a step that depends on that control having been pressed (the manifest does not record what a control opens)",
     "tour-no-commit: that the named tests exist and pass (the project's own suite)",
     "tour-no-commit: stopped-elsewhere matches a control by its id and arg: a stop with no arg covers every arg of that id, a do step with no arg every stop on that id (its binding finds the first visible member), and two different args are two controls; the same control under another id (a resolver's own id, as patients.sample-charge for the row's patients.charge) is not matched (the reviewer makes a do step on such an alias a stop step, classed as the stop on the other id), and a control no step stops at classed T or P is not read (the reviewer)",
@@ -2458,6 +2668,8 @@ const GOLDEN_NOT_COVERED = [
     "tour-shape: that a key marked viewOf really is a view of that screen (the reviewer)",
     "tour-no-commit: that a need of reopen puts back the tour's own record, the sample's, and not the last one open, that a window opened on one person counts as open (isOpen) only while it shows the sample's record, and that the engine runs a step's need each time it reaches the step, not only after a resume or a skip: a reopen is skipped only when its window is already open on her (isOpen; a window that picks a person counts as open only while it is the tour's own and every person field it has holds only the sample, or is empty (a person field names whose record the step acts on, a patient or a client, a second one such as a family member or a referrer included, and a field that lists several people holds only the sample when she is the only one in it; a field that names staff, such as the therapist, is not one, and a binding that counts it anyway only makes the reopen run more often)), and selectSample runs after the reopen, and the need lists them in that order: every reopen closes what it replaces without saving it, through that window's own close, and where a window's own close saves, its reopen is not a need and the step only shows; a reopen of a window that picks a person closes any other window of that kind (an existing appointment's edit form included) and opens the tour's own afresh with every person field empty, so isOpen holds after it; the tour's own is the new window the tour's step opened, never an existing record's window at the same slot; the need's last reopen names the window the inventory's anchorWindows gives for the step's control; a control anchorWindows marks screen, a resolver's own control on the screen itself, is acted on only by the step that opens her record through it; a step that opens her record through a control inside a window reopens that window on her first, as every other step there does (a window opened on one person, such as a patient card, counts as open only while it shows the sample's record); the do step before the picker opened the window anchorWindows gives for the picker's control, and every later do step's control sits in that window until a step that opens her record; selectSample runs only in the tour's own window, the one the step's reopen just opened or found open on her, and only where that window picks a person (the inventory's pickingWindows marks it true): the engine passes it the id of the window the need's last reopen names, and it picks her there, asks nothing, never runs in a window that holds an existing record, and reports whether the sample is now picked in the tour's own window. After the need's reopens the engine checks the last reopen's window with isOpen: when the bindings have no such window, or it is not open on her, the step and every later do step of the tour only show, as after a decline. The need asks one thing: before a reopen closes a form that holds her input, it asks, saying her changes there will be lost; when she declines, nothing is closed and selectSample does not run; when she declines, or selectSample does not report the sample picked, the step only shows, and every later do step of the tour only shows too, never pressing, across a resume and on another device, until a later reopen she accepts opens the tour's own afresh (and, where the need names selectSample, it reports her picked); and that the engine passes selectSample the window the need's last reopen names and treats any answer but yes as a decline, that the bindings' selectSample refuses (reports no) in a window that picks no person, holds an existing record or is not the tour's own, that the engine keeps every later do step of the tour to showing only after a decline or a no, across a resume and on another device, until a reopen she accepts, and that every window's own close saves nothing (the checker takes the window a control sits in from the inventory's anchorWindows and whether a window picks a person from its pickingWindows, and does not know what a close does); and that while a window is open on her no second window of the same kind, open on someone else, holds the step's control where the binding finds it first (the bindings and the engine, checked by running the tours in the recording copy (defined in help-system.md, \"The tour manifest\"), never in the live app, which then does what was checked only under the live-app conditions there; the reviewer of the bindings checks isOpen against every person field a window has; the suite checks only the example's bindings)",
     "tour-anchors: every anchor (the anchors entries and the articles' too), result, condition, window and state id resolving on its screen (the screen preview (defined in help-system.md, \"The tour manifest\"), which counts only for what the screen shows), and a step marked on: \"sample\" resolving to the sample's record and no other (the recording copy (defined in help-system.md, \"The tour manifest\"), with the live-app conditions)); a check or a reviewer that presses or runs anything to check this list does it in the recording copy, and what the screen only shows in the screen preview, never in the live app, where a wrongly listed control pressed would itself save a business-wide rule or act on real people's records; a project with no recording copy gives its tours no do steps, and its showing and stop steps light no control (each is a centred card, as the stop-step press test below says), whatever preview it has: building one is the project's own work and cost decision; a question only the live app answers (the sample patient exists, is marked, and is the only one marked; which automatic senders are on) is answered there by looking, never by pressing",
+    "tour-anchors: that a step's part sits inside the element its anchor resolves to, is looked for only there, and is lit instead of the anchor only where the card fits on neither side of the whole control (help-system.md, \"The card\"; the screen preview (defined in help-system.md, \"The tour manifest\"), which counts only for what the screen shows)",
+    "tour-shape: whether a step's title and a tour's promise say the right thing (a title that only rewords the sentence, a promise that names a screen instead of what she can do after the tour): the checker counts their words and catches only a title equal to its sentence or to the tour's title (the reviewer)",
     "tour-shape: whether a chapter break sits at a real result (the reviewer)",
     "tour-anchors: a showing or stop step whose lit control responds; a test of the built engine presses the lit control of a stop step and shows that nothing happens (the recording copy (defined in help-system.md, \"The tour manifest\"), never the live app); until that test has passed there, no step of a tour anyone runs lights a control, whatever its class (T, P or S, or a showing step's control, which has none): the checker cannot know whether a project has a recording copy or ran the test, so a manifest whose showing and stop steps carry an anchor passes; until then write each such step with no anchor, a centred card that names the control, and give the anchors back once the test passes (the reviewer)",
     "tour-no-commit: that the inventory's three lists are complete: recordAnchors every id that resolves to the sample's record (a resolver's own id, a control in a window opened on her) and every control of a window that picks a person (the picker and that window's other controls), except, in either window, a control that acts on many people at once (a print of the day's list), which is in bulkAnchors, and one that saves a business-wide rule (a service's default duration), which is in none of the three lists and at which a tour stops: neither is ever in recordAnchors, bulkAnchors every control that acts on many people's records at once, containerAnchors every element that holds people's rows and every id each row carries; an unlisted one lets the step pass (what a press on a control reaches is judged by pressing in the recording copy (defined in help-system.md, \"The tour manifest\"), and that an id sits on every row in the screen preview (defined in help-system.md, \"The tour manifest\"), never in the live app)",
@@ -2474,10 +2686,10 @@ const GOLDEN_BESIDE = [
     ['picker-mark (review 21\'s F5: a picker-shaped step in her drawer)', m => { m.tours.push({ id: 'f5', title: 'x', screens: ['cal-week'], area: 'יומן', where: 'יומן', tasks: [], finish: 'סוף.', steps: [{ kind: 'do', act: 'open', on: 'none', anchor: 'cal.menu', result: { kind: 'open', arg: 'appt.drawer' }, safeTest: ST, text: 'פותחים.' }, { kind: 'do', act: 'pick', on: 'sample', anchor: 'appt.note', result: { kind: 'custom', arg: 'appt.note-picked' }, need: [{ do: 'reopen', window: 'appt.drawer' }], safeTest: ST, text: 'בוחרים.' }, { kind: 'do', act: 'type', on: 'sample', anchor: 'appt.note', result: { kind: 'fieldChanged', arg: 'appt.note' }, need: [{ do: 'reopen', window: 'appt.drawer' }], safeTest: ST, text: 'כותבים.' }] }); }, "picker-mark", "the picker \"appt.note\" sits in \"appt.drawer\" (anchorWindows), which pickingWindows marks false: a picker's window is one opened on nobody with a person field, a window that picks a person; if \"appt.drawer\" is one (a booking form), its mark is wrong: mark it true in pickingWindows (the inventory's reviewer opens it in the screen preview (defined in help-system.md, \"The tour manifest\"), never in the live app, and confirms the mark), and every do step at on: \"sample\" in it then names selectSample after its reopen; if \"appt.drawer\" is opened on one person (her drawer, her payment sheet), the mark is right and this step is no picker: the step at on: \"none\" before it landed on a person's window; open her record with a step at on: \"sample\" whose recordOpen result names a resolver's own id (as cal.ended-appointment), keep the mark false, and do not mark the window true: a window wrongly marked true makes every do step at on: \"sample\" in it, in every tour, only show", 'none-window@f5:1,picker-mark@f5:2'],
     ['picker-mark (review 23\'s N4: the step before the picker opened the booking window, the picker mapped to her drawer)', (m, i) => { m.tours.push({ id: 'pm', title: 'x', screens: ['cal-week'], area: 'יומן', where: 'יומן', tasks: [], finish: 'סוף.', steps: [{ kind: 'do', act: 'open', on: 'none', anchor: 'cal.free-slot', result: { kind: 'open', arg: 'appt.create' }, safeTest: ST, text: 'לוחצים על השעה.' }, { kind: 'do', act: 'pick', on: 'sample', anchor: 'appt.note', result: { kind: 'custom', arg: 'appt.x-picked' }, need: [{ do: 'reopen', window: 'appt.drawer' }], safeTest: ST, text: 'בוחרים.' }] }); }, 'picker-mark', "the picker \"appt.note\" sits in \"appt.drawer\" (anchorWindows), which pickingWindows marks false: a picker's window is one opened on nobody with a person field, a window that picks a person; if \"appt.drawer\" is one (a booking form), its mark is wrong: mark it true in pickingWindows (the inventory's reviewer opens it in the screen preview (defined in help-system.md, \"The tour manifest\"), never in the live app, and confirms the mark), and every do step at on: \"sample\" in it then names selectSample after its reopen; if \"appt.drawer\" is opened on one person (her drawer, her payment sheet), the mark is right and this step is no picker: the step at on: \"none\" before it landed on a person's window; open her record with a step at on: \"sample\" whose recordOpen result names a resolver's own id (as cal.ended-appointment), keep the mark false, and do not mark the window true: a window wrongly marked true makes every do step at on: \"sample\" in it, in every tour, only show", "picker-window@pm:2,picker-mark@pm:2"],
 ];
-await test('TOUR-run-key', 'review 26 and 27: --run-key prints the key the example records, the suite\'s helper computes the same key for changed content, the words she reads are left out and every other field is in, --run-key without --inventory is a usage error, and the usage line says so', async () => {
+await test('TOUR-run-key', 'review 26, 27 and 30: --run-key prints the key the example records, the suite\'s helper computes the same key for changed content, the words she reads (a step\'s title and a tour\'s promise among them) and a step\'s part are left out and every other field is in, --run-key without --inventory is a usage error, and the usage line says so; content that fails its schema gets no key (exit 2)', async () => {
   const why = [];
   const dir = fs.mkdtempSync(path.join(TMP, 'tours-key-'));
-  const k = (man, inv) => { fs.writeFileSync(path.join(dir, 't.json'), JSON.stringify(man)); const a = [path.join(TOURS, 'tour-check.mjs'), path.join(dir, 't.json'), '--run-key']; if (inv) { fs.writeFileSync(path.join(dir, 'i.json'), JSON.stringify(inv)); a.push('--inventory', path.join(dir, 'i.json')); } const r = sh('node', a); return r.status === 0 ? r.stdout.trim() : `exit ${r.status}`; };
+  const k = (man, inv) => { fs.writeFileSync(path.join(dir, 't.json'), JSON.stringify(man)); const a = [path.join(TOURS, 'tour-check.mjs'), path.join(dir, 't.json'), '--run-key']; if (inv) { fs.writeFileSync(path.join(dir, 'i.json'), JSON.stringify(inv)); a.push('--inventory', path.join(dir, 'i.json')); } const r = shTour('node', a); return r.status === 0 ? r.stdout.trim() : `exit ${r.status}`; };
   if (k(TOUR_EX, INV_EX) !== TOUR_EX.inOrderRun.key) why.push('the example\'s key is not the one --run-key prints');
   if (runKey(TOUR_EX, INV_EX) !== TOUR_EX.inOrderRun.key) why.push('the suite\'s runKey disagrees with the example\'s key');
   const m = clone(TOUR_EX); tourOf(m, 'book').steps[0].anchor = 'cal.other';
@@ -2490,10 +2702,14 @@ await test('TOUR-run-key', 'review 26 and 27: --run-key prints the key the examp
     ['a tour\'s finish', x => { tourOf(x, 'book').finish = 'אחר.'; }, null], ['a step\'s text', x => { tourOf(x, 'book').steps[0].text = 'אחר.'; }, null],
     ['a step\'s showText', x => { tourOf(x, 'book').steps[0].showText = 'אחר.'; }, null], ['a variant\'s text', x => { tourOf(x, 'book').steps[0].variants[0].text = 'ב'; }, null],
     ['a screen\'s title in the inventory', null, i => { i.screens['cal-week'].title = 'אחר'; }],
+    ['a step\'s part, changed', x => { tourOf(x, 'pat-debt').steps[2].part = 'patients.filter'; }, null], ['a step\'s part, removed', x => { delete tourOf(x, 'pat-debt').steps[2].part; }, null],
+    ['a part added to a stop step', x => { tourOf(x, 'pat-debt').steps[3].part = 'patients.row'; }, null],
+    ['a step\'s title', x => { tourOf(x, 'book').steps[1].title = 'שעה אחרת'; }, null], ['a tour\'s promise', x => { tourOf(x, 'book').promise = 'לקבוע תור בקלות'; }, null],
   ];
   const changed = [
     ['a variant\'s when', x => { tourOf(x, 'book').steps[0].variants[0].when = 'phone'; }, null], ['a step\'s class', x => { tourOf(x, 'book').steps[1].class = 'T'; }, null],
     ['a step\'s safeTest', x => { tourOf(x, 'book').steps[1].safeTest = 'other'; }, null], ['the version', x => { x.version = 'other'; }, null],
+    ['the anchor of the step that carries a part', x => { tourOf(x, 'pat-debt').steps[2].anchor = 'patients.list'; }, null],
     ['a tour\'s id', x => { tourOf(x, 'book').id = 'book-2'; }, null], ['a tour\'s screens', x => { tourOf(x, 'book').screens = ['cal-day']; }, null],
     ['an article task\'s text in the inventory', null, i => { i.screens['cal-day'].tasks[0].text = 'אחר'; }], ['a recordAnchors entry', null, i => { i.screens['cal-week'].recordAnchors.push('cal.other'); }],
   ];
@@ -2507,13 +2723,35 @@ await test('TOUR-run-key', 'review 26 and 27: --run-key prints the key the examp
   const m2 = clone(TOUR_EX); m2.inOrderRun = { copy: 'other', date: '2020-01-01', key: '0'.repeat(64) };
   if (k(m2, INV_EX) !== TOUR_EX.inOrderRun.key) why.push('the record itself changed the key');
   fs.writeFileSync(path.join(dir, 't.json'), JSON.stringify(TOUR_EX));
-  const ni = sh('node', [path.join(TOURS, 'tour-check.mjs'), path.join(dir, 't.json'), '--run-key']);
+  const ni = shTour('node', [path.join(TOURS, 'tour-check.mjs'), path.join(dir, 't.json'), '--run-key']);
   if (ni.status !== 2 || ni.stdout !== '' || !ni.stderr.includes('--run-key needs --inventory: the key covers the manifest and its inventory, and a key printed without it never matches the app\'s own check')) why.push(`--run-key without --inventory: exit ${ni.status}, ${JSON.stringify((ni.stdout + ni.stderr).slice(0, 120))}`);
-  const nim = sh('node', [mutant('run-key-inventory'), path.join(dir, 't.json'), '--run-key']);
+  const nim = shTour('node', [mutant('run-key-inventory'), path.join(dir, 't.json'), '--run-key']);
   if (nim.status !== 0 || !/^[0-9a-f]{64}$/.test(nim.stdout.trim())) why.push(`without M:run-key-inventory, --run-key without --inventory: exit ${nim.status}`);
-  const help = sh('node', [path.join(TOURS, 'tour-check.mjs'), '--help']);
-  if (!help.stdout.includes('[--json] [--run-key]\n  --run-key prints the key an inOrderRun record carries for this manifest and inventory (it needs --inventory), and exits\n')) why.push('the usage line does not name --run-key and its need for --inventory');
-  const codes = (man, extra = []) => { fs.writeFileSync(path.join(dir, 'c.json'), JSON.stringify(man)); const r = sh('node', [path.join(TOURS, 'tour-check.mjs'), path.join(dir, 'c.json'), '--json', ...extra]); try { return JSON.parse(r.stdout).findings.map(f => `${f.code}@${f.path || ''}`).sort().join(','); } catch { return `exit ${r.status}`; } };
+  // review 30's can-follow 4: no key for content that fails its schema (exit 2, the first gap named), manifest or
+  // inventory; without the line M:run-key-schema each prints a key
+  const RK_MSG = 'tour-check: --run-key prints no key for content that does not have the shape of its schema (';
+  const RK_END = "): an inOrderRun record is written only for content the app's own check can pass; fix what the schema names, run the check, and then --run-key";
+  const gaps = [
+    ['tours is a string', x => { x.tours = 'x'; }, null, 'the manifest at /tours: should be array'],
+    ['a field the format lacks at the root', x => { x.extra = 1; }, null, 'the manifest at /: "extra" is not a field of this format'],
+    ['a step that presses', x => { tourOf(x, 'book').steps[1].act = 'press'; }, null, 'the manifest at /tours/0/steps/1/act: should be one of open, pick, select, type'],
+    ['a part on a step with no anchor, and a field the format lacks', x => { delete tourOf(x, 'pat-debt').steps[2].anchor; x.extra = 1; }, null, 'the manifest at /tours/4/steps/2: "anchor" is missing, and 1 more'],
+    ['an inventory screen whose menu is "yes"', null, i => { i.screens['cal-day'].menu = 'yes'; }, 'the inventory at /screens/cal-day/menu: should be boolean'],
+  ];
+  for (const [label, cm, ci, first] of gaps) {
+    const x = clone(TOUR_EX); const i = clone(INV_EX); if (cm) cm(x); if (ci) ci(i);
+    fs.writeFileSync(path.join(dir, 's.json'), JSON.stringify(x)); fs.writeFileSync(path.join(dir, 'si.json'), JSON.stringify(i));
+    const a = [path.join(dir, 's.json'), '--run-key', '--inventory', path.join(dir, 'si.json')];
+    const r = shTour('node', [path.join(TOURS, 'tour-check.mjs'), ...a]);
+    if (r.status !== 2 || r.stdout !== '' || r.stderr.trim() !== `${RK_MSG}${first}${RK_END}`) why.push(`--run-key on ${label}: exit ${r.status}, ${JSON.stringify((r.stdout + r.stderr).slice(0, 200))}`);
+    const rm = shTour('node', [mutant('run-key-schema'), ...a]);
+    if (rm.status !== 0 || !/^[0-9a-f]{64}$/.test(rm.stdout.trim())) why.push(`without M:run-key-schema, --run-key on ${label}: exit ${rm.status}`);
+  }
+  const rj = (() => { fs.writeFileSync(path.join(dir, 's.json'), JSON.stringify({ ...clone(TOUR_EX), tours: 'x' })); const r = shTour('node', [path.join(TOURS, 'tour-check.mjs'), path.join(dir, 's.json'), '--run-key', '--json', '--inventory', path.join(TOURS, 'example', 'inventory.json')]); try { return [r.status, JSON.parse(r.stdout)]; } catch { return [r.status, null]; } })();
+  if (rj[0] !== 2 || !rj[1] || rj[1].ok !== false || !rj[1].error.startsWith('--run-key prints no key for content')) why.push(`--run-key --json on a schema gap: exit ${rj[0]} ${JSON.stringify(rj[1])}`);
+  const help = shTour('node', [path.join(TOURS, 'tour-check.mjs'), '--help']);
+  if (!help.stdout.includes('[--json] [--run-key]\n  --run-key prints the key an inOrderRun record carries for this manifest and inventory (it needs --inventory, and prints none for content that fails its schema, exit 2), and exits\n')) why.push('the usage line does not name --run-key and its need for --inventory');
+  const codes = (man, extra = []) => { fs.writeFileSync(path.join(dir, 'c.json'), JSON.stringify(man)); const r = shTour('node', [path.join(TOURS, 'tour-check.mjs'), path.join(dir, 'c.json'), '--json', ...extra]); try { return JSON.parse(r.stdout).findings.map(f => `${f.code}@${f.path || ''}`).sort().join(','); } catch { return `exit ${r.status}`; } };
   const d = clone(TOUR_EX); d.stage = 'demo'; d.inOrderRun = 'x';
   if (codes(d) !== 'run-at-demo@/inOrderRun,schema@/inOrderRun') why.push(`a record that is not an object at stage demo: ${codes(d)}`);
   const bk = clone(TOUR_EX); bk.inOrderRun.key = 'not-a-key';
@@ -2536,11 +2774,15 @@ await test('TOUR-run-date-clock', 'review 27: run-date on a frozen clock: the da
     ['the same, the checker in Pago Pago (UTC-11, still the 12th there)', '2026-11-13T10:30:00Z', '2026-11-14', 'Pacific/Pago_Pago', false],
     ['the same instant, no place on earth on that day yet', '2026-11-13T10:30:00Z', '2026-11-15', 'Asia/Jerusalem', true],
     ['the checker in Kiritimati, no place on earth on that day yet', '2026-11-13T09:30:00Z', '2026-11-14', 'Pacific/Kiritimati', true],
+    // review 30's can-follow 1: the last instant before Kiritimati reaches the day, and the first one (a today shifted
+    // to UTC+14:28 accepts the first case, one shifted to UTC+13:31 refuses the second)
+    ['one millisecond before Kiritimati reaches that day', '2026-11-13T09:59:59.999Z', '2026-11-14', 'UTC', true],
+    ['the instant Kiritimati reaches that day', '2026-11-13T10:00:00.000Z', '2026-11-14', 'UTC', false],
   ];
   for (const [label, now, date, tz, late] of cases) {
     const m = clone(TOUR_EX); m.inOrderRun.date = date;
     fs.writeFileSync(path.join(dir, 't.json'), JSON.stringify(m));
-    const r = sh('node', ['--import', `file://${fake}`, path.join(TOURS, 'tour-check.mjs'), path.join(dir, 't.json'), '--json', '--inventory', path.join(dir, 'i.json'), '--require-stage', 'app'], { env: { ...process.env, TZ: tz, TOUR_NOW: now } });
+    const r = shTour('node', ['--import', `file://${fake}`, path.join(TOURS, 'tour-check.mjs'), path.join(dir, 't.json'), '--json', '--inventory', path.join(dir, 'i.json'), '--require-stage', 'app'], { env: { ...process.env, TZ: tz, TOUR_NOW: now } });
     let codes; try { codes = JSON.parse(r.stdout).findings.map(f => f.code).join(','); } catch { codes = `exit ${r.status}: ${(r.stdout + r.stderr).slice(0, 160)}`; }
     if (codes !== (late ? 'run-date' : '')) why.push(`${label} (${now}, ${date}, ${tz}): ${codes || 'no finding'}`);
   }
@@ -2587,8 +2829,8 @@ await test('TOUR-message-steers', 'the twelfth review\'s B2: every finding kind 
   // named or missing, and the text output's loc, steer an author as much as a message does). A new finding, a new branch of
   // an existing message, a new write to findings, or any other edit of the checker turns this red until the table, the
   // count and the hash are updated on purpose, after a reviewer has read the change
-  const ADD_REFS = 56;
-  const CHECKER_HASH = '084462a3426c14dd5e0de7ffc9e3e9317f4693920d9a0a16afdad2e3543b8d30';
+  const ADD_REFS = 65;
+  const CHECKER_HASH = '5ea4f9268c13571a07b577bf6ccb5e859a2b4afc63d2c4e08651d5a9426d8d8e';
   const refs = (src.match(/\badd\b/g) || []).length;
   if (refs !== ADD_REFS) why.push(`the checker names add ${refs} times, not ${ADD_REFS}: a finding was added, removed or aliased without its row`);
   const pushes = (src.match(/\bfindings\s*(\.\s*(push|unshift|splice|pop|shift|fill|copyWithin|reverse|sort)\s*\(|\.\s*length\s*=[^=]|\[|=[^=>])/g) || []).length;
@@ -2615,12 +2857,12 @@ await test('TOUR-stage', 'with --require-stage app the example passes and a mani
   if (r.status !== 1 || !r.out || r.out.findings.map(f => f.code).join(',') !== 'stage-required') why.push(`demo: exit ${r.status} ${JSON.stringify(r.out && r.out.findings.map(f => f.code))}`);
   const mu = tourCheck(m, INV_EX, mutant('stage-required'), ['--require-stage', 'app']);
   if (mu.status !== 0) why.push(`mutant without M:stage-required: exit ${mu.status}`);
-  const u = sh('node', [path.join(TOURS, 'tour-check.mjs'), path.join(TOURS, 'example', 'tours.json'), '--require-stage', 'beta']);
+  const u = shTour('node', [path.join(TOURS, 'tour-check.mjs'), path.join(TOURS, 'example', 'tours.json'), '--require-stage', 'beta']);
   if (u.status !== 2) why.push(`--require-stage beta: exit ${u.status}`);
   // the app's check without --inventory is a usage error, never a pass; without its line it would pass
   const ni = tourCheck(TOUR_EX, null, undefined, ['--require-stage', 'app']);
   if (ni.status !== 2 || !ni.out || ni.out.ok !== false || !/--require-stage app needs --inventory/.test(ni.out.error)) why.push(`--require-stage app without --inventory, --json: exit ${ni.status} ${ni.raw}`);
-  const nt = sh('node', [path.join(TOURS, 'tour-check.mjs'), path.join(TOURS, 'example', 'tours.json'), '--require-stage', 'app']);
+  const nt = shTour('node', [path.join(TOURS, 'tour-check.mjs'), path.join(TOURS, 'example', 'tours.json'), '--require-stage', 'app']);
   if (nt.status !== 2 || !/--require-stage app needs --inventory/.test(nt.stderr)) why.push(`--require-stage app without --inventory, text: exit ${nt.status} ${nt.stderr.trim()}`);
   const nim = tourCheck(TOUR_EX, null, mutant('stage-app-inventory'), ['--require-stage', 'app']);
   if (nim.status !== 0) why.push(`mutant without M:stage-app-inventory: exit ${nim.status}`);
@@ -2708,7 +2950,7 @@ const report = results.map(r => `${r.skip ? 'SKIP' : r.ok ? 'PASS' : 'FAIL'} ${r
 const failed = results.filter(r => !r.ok).length;
 const skipped = results.filter(r => r.skip).length;
 report.push(`${results.length - failed - skipped} passed, ${failed} failed, ${skipped} skipped`);
-if (failed) report.push(`the fixture copies are kept in ${TMP}`);
-else fs.rmSync(TMP, { recursive: true, force: true });
+if (KEEP_TMP) report.push(`the fixture copies are kept in ${TMP}`);
+else if (failed) report.push('the fixture copies were removed; run with KEEP_TMP=1 to keep them');
 // one write, and the exit only after it has drained: process.exit right after console.log can cut a piped stdout short
 process.stdout.write(`${report.join('\n')}\n`, () => process.exit(failed ? 1 : 0));

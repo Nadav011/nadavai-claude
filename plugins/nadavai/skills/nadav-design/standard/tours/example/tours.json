@@ -15,6 +15,7 @@
     {
       "id": "book",
       "title": "לקבוע תור",
+      "promise": "לקבוע תור למטופל מהיומן",
       "screens": ["cal-week", "cal-day", "appt-new"],
       "area": "יומן",
       "where": "יומן · שבוע",
@@ -22,21 +23,21 @@
       "start": { "screen": "cal-week", "view": { "phone": "day", "desktop": "week" }, "date": "today", "close": true },
       "tasks": ["לקבוע תור"],
       "steps": [
-        { "kind": "next", "anchor": "cal.new-appointment", "text": "קובעים תור מ\"תור חדש\", או מלחיצה על שעה פנויה ביומן." },
-        { "kind": "do", "act": "open", "on": "none", "anchor": "cal.free-slot", "result": { "kind": "open", "arg": "appt.create" },
+        { "kind": "next", "title": "איפה קובעים תור", "anchor": "cal.new-appointment", "text": "קובעים תור מ\"תור חדש\", או מלחיצה על שעה פנויה ביומן." },
+        { "kind": "do", "title": "בוחרים שעה פנויה", "act": "open", "on": "none", "anchor": "cal.free-slot", "result": { "kind": "open", "arg": "appt.create" },
           "safeTest": "e2e/tours/sample-safe.spec.ts: opening the booking window sends nothing",
           "text": "לוחצים על השעה המסומנת. נפתח חלון לתור חדש." },
-        { "kind": "do", "act": "pick", "on": "sample", "anchor": "appt.patient-picker", "result": { "kind": "custom", "arg": "appt.sample-picked" },
+        { "kind": "do", "title": "בוחרים מטופלת", "act": "pick", "on": "sample", "anchor": "appt.patient-picker", "result": { "kind": "custom", "arg": "appt.sample-picked" },
           "need": [{ "do": "reopen", "window": "appt.create" }],
           "safeTest": "e2e/tours/sample-safe.spec.ts: picking the sample patient sends nothing",
           "text": "בוחרים את נועה לדוגמה, המטופלת לתרגול.",
           "showText": "כאן בוחרים מטופל מהרשימה, או כותבים שם או טלפון.",
           "variants": [{ "when": "appt.other-picked", "text": "לתרגול בוחרים את נועה לדוגמה. לוחצים \"החלפה\"." }] },
-        { "kind": "do", "act": "select", "on": "sample", "anchor": "appt.service", "result": { "kind": "step", "arg": { "window": "appt.create", "n": 3 } },
+        { "kind": "do", "title": "סוג הטיפול", "act": "select", "on": "sample", "anchor": "appt.service", "result": { "kind": "step", "arg": { "window": "appt.create", "n": 3 } },
           "need": [{ "do": "reopen", "window": "appt.create" }, { "do": "selectSample" }],
           "safeTest": "e2e/tours/sample-safe.spec.ts: choosing a service sends nothing",
           "text": "בוחרים טיפול מהרשימה." },
-        { "kind": "stop", "class": "T", "anchor": "appt.save",
+        { "kind": "stop", "title": "הכפתור ששומר ושולח", "class": "T", "anchor": "appt.save",
           "need": [{ "do": "reopen", "window": "appt.create" }, { "do": "selectSample" }],
           "text": "\"קביעת התור\" שומר ביומן ושולח אישור. לכן הסיור נעצר כאן." }
       ],
@@ -45,6 +46,7 @@
     {
       "id": "close-1",
       "title": "התקיים",
+      "promise": "לסמן שטיפול התקיים",
       "job": "close",
       "jobTitle": "לסגור טיפול",
       "chapter": [1, 3],
@@ -53,10 +55,10 @@
       "where": "יומן · חלון התור",
       "tasks": ["לסגור טיפול שהסתיים"],
       "steps": [
-        { "kind": "do", "act": "open", "on": "sample", "anchor": "cal.ended-appointment", "result": { "kind": "recordOpen", "arg": "cal.ended-appointment" },
+        { "kind": "do", "title": "פותחים את התור", "act": "open", "on": "sample", "anchor": "cal.ended-appointment", "result": { "kind": "recordOpen", "arg": "cal.ended-appointment" },
           "safeTest": "e2e/tours/sample-safe.spec.ts: opening an appointment sends nothing",
           "text": "לוחצים על תור שהסתיים. חלון התור נפתח ליד היומן." },
-        { "kind": "stop", "class": "S", "anchor": "appt.happened", "need": [{ "do": "reopen", "window": "appt.drawer" }],
+        { "kind": "stop", "title": "הסימון שהטיפול התקיים", "class": "S", "anchor": "appt.happened", "need": [{ "do": "reopen", "window": "appt.drawer" }],
           "text": "\"התקיים\" מסמן שהטיפול קרה. אפשר מתחילת התור." }
       ],
       "finish": "פרק ראשון: \"התקיים\". הבא: הסיכום."
@@ -64,6 +66,7 @@
     {
       "id": "close-2",
       "title": "סיכום",
+      "promise": "לכתוב סיכום לטיפול שהסתיים",
       "job": "close",
       "jobTitle": "לסגור טיפול",
       "chapter": [2, 3],
@@ -72,11 +75,11 @@
       "where": "יומן · חלון התור",
       "tasks": [],
       "steps": [
-        { "kind": "do", "act": "open", "on": "sample", "anchor": "cal.ended-appointment", "result": { "kind": "recordOpen", "arg": "cal.ended-appointment" },
+        { "kind": "do", "title": "חוזרים לתור", "act": "open", "on": "sample", "anchor": "cal.ended-appointment", "result": { "kind": "recordOpen", "arg": "cal.ended-appointment" },
           "need": [{ "do": "reopen", "window": "appt.drawer" }],
           "safeTest": "e2e/tours/sample-safe.spec.ts: opening an appointment sends nothing",
           "text": "פותחים שוב את התור שהסתיים." },
-        { "kind": "stop", "class": "S", "anchor": "appt.note", "need": [{ "do": "reopen", "window": "appt.drawer" }],
+        { "kind": "stop", "title": "איפה כותבים סיכום", "class": "S", "anchor": "appt.note", "need": [{ "do": "reopen", "window": "appt.drawer" }],
           "text": "\"סיכום\" פותח את הרשומה. כותבים עכשיו או אחר כך." }
       ],
       "finish": "פרק שני: הסיכום. הבא: התשלום."
@@ -84,6 +87,7 @@
     {
       "id": "close-3",
       "title": "שולם",
+      "promise": "לרשום תשלום ולהפיק קבלה",
       "job": "close",
       "jobTitle": "לסגור טיפול",
       "chapter": [3, 3],
@@ -92,22 +96,22 @@
       "where": "יומן · חלון התור · מצב תרגול",
       "tasks": [],
       "steps": [
-        { "kind": "do", "act": "open", "on": "sample", "anchor": "cal.ended-appointment", "result": { "kind": "recordOpen", "arg": "cal.ended-appointment" },
+        { "kind": "do", "title": "פותחים את התור", "act": "open", "on": "sample", "anchor": "cal.ended-appointment", "result": { "kind": "recordOpen", "arg": "cal.ended-appointment" },
           "need": [{ "do": "reopen", "window": "appt.drawer" }],
           "safeTest": "e2e/tours/sample-safe.spec.ts: opening an appointment sends nothing",
           "text": "פותחים את התור שהסתיים." },
-        { "kind": "do", "act": "open", "class": "P", "on": "sample", "anchor": "appt.paid", "result": { "kind": "open", "arg": "pay.sheet" },
+        { "kind": "do", "title": "מסמנים ששולם", "act": "open", "class": "P", "on": "sample", "anchor": "appt.paid", "result": { "kind": "open", "arg": "pay.sheet" },
           "need": [{ "do": "reopen", "window": "appt.drawer" }],
           "practiceOnly": {
             "modeTest": "e2e/practice/pay.spec.ts: opening a payment in practice mode takes no number and reaches no provider",
             "stopTest": "e2e/tours/stop-steps.spec.ts: outside practice mode \"שולם\" is a stop step and the server refuses it"
           },
           "text": "במצב תרגול לוחצים \"שולם\". נפתח חלון התשלום." },
-        { "kind": "do", "act": "pick", "on": "sample", "anchor": "pay.method", "arg": "cash", "result": { "kind": "stateEquals", "arg": { "key": "pay.method", "value": "cash" } },
+        { "kind": "do", "title": "בוחרים אמצעי תשלום", "act": "pick", "on": "sample", "anchor": "pay.method", "arg": "cash", "result": { "kind": "stateEquals", "arg": { "key": "pay.method", "value": "cash" } },
           "need": [{ "do": "reopen", "window": "pay.sheet" }],
           "safeTest": "e2e/practice/pay.spec.ts: choosing how she paid records nothing",
           "text": "בוחרים \"מזומן\". שום דבר לא נרשם עדיין." },
-        { "kind": "do", "act": "open", "class": "P", "on": "sample", "anchor": "pay.confirm", "result": { "kind": "present", "arg": "pay.practice-receipt" }, "outcome": true,
+        { "kind": "do", "title": "רושמים את התשלום", "act": "open", "class": "P", "on": "sample", "anchor": "pay.confirm", "result": { "kind": "present", "arg": "pay.practice-receipt" }, "outcome": true,
           "need": [{ "do": "reopen", "window": "pay.sheet" }],
           "practiceOnly": {
             "modeTest": "e2e/practice/pay.spec.ts: a practice receipt takes no number and reaches no provider",
@@ -120,40 +124,42 @@
     {
       "id": "pat-debt",
       "title": "לגבות ממי שלא שילם",
+      "promise": "לראות מי חייב ולגבות",
       "screens": ["patients"],
       "area": "מטופלים",
       "where": "מטופלים",
       "start": { "screen": "patients" },
       "tasks": ["לגבות ממי שלא שילם", "לראות מה המטופל חייב"],
       "steps": [
-        { "kind": "do", "act": "pick", "on": "none", "anchor": "patients.filter", "arg": "debt", "result": { "kind": "stateEquals", "arg": { "key": "patients.filter", "value": "debt" } },
+        { "kind": "do", "title": "מסננים את החייבים", "act": "pick", "on": "none", "anchor": "patients.filter", "arg": "debt", "result": { "kind": "stateEquals", "arg": { "key": "patients.filter", "value": "debt" } },
           "safeTest": "e2e/tours/sample-safe.spec.ts: a filter changes nothing",
           "text": "לוחצים \"לא שולם\". נשארים רק מי שחייבים כסף." },
-        { "kind": "next", "anchor": "patients.row", "text": "בכל שורה רואים כמה המטופל חייב, ומאז מתי." },
-        { "kind": "next", "when": "phone", "anchor": "patients.row", "text": "בטלפון החיוב נמצא בכרטיס של כל שורה." },
-        { "kind": "stop", "class": "P", "when": "desktop", "anchor": "patients.charge", "text": "\"חיוב\" גובה מהכרטיס השמור. אי אפשר לבטל אותו." }
+        { "kind": "next", "title": "כמה כל אחד חייב", "anchor": "patients.row", "text": "בכל שורה רואים כמה המטופל חייב, ומאז מתי." },
+        { "kind": "next", "title": "החיוב בטלפון", "when": "phone", "anchor": "patients.row", "part": "patients.charge", "text": "בטלפון החיוב נמצא בכרטיס של כל שורה." },
+        { "kind": "stop", "title": "חיוב מהכרטיס השמור", "class": "P", "when": "desktop", "anchor": "patients.charge", "text": "\"חיוב\" גובה מהכרטיס השמור. אי אפשר לבטל אותו." }
       ],
       "finish": "עכשיו ידוע איך מוצאים ממי לגבות, ואיפה גובים."
     },
     {
       "id": "reminder",
       "title": "לשנות תזכורת",
+      "promise": "לקבוע מתי יוצאת התזכורת",
       "screens": ["settings-msgs"],
       "area": "הגדרות",
       "where": "הגדרות · הודעות",
       "tasks": ["לשנות תזכורת"],
       "steps": [
-        { "kind": "do", "act": "open", "on": "none", "when": "settings.msgs-closed", "anchor": "settings.tab", "arg": "messages", "result": { "kind": "route", "arg": { "is": "settings-msgs" } },
+        { "kind": "do", "title": "פותחים את ההודעות", "act": "open", "on": "none", "when": "settings.msgs-closed", "anchor": "settings.tab", "arg": "messages", "result": { "kind": "route", "arg": { "is": "settings-msgs" } },
           "safeTest": "e2e/tours/sample-safe.spec.ts: opening a settings part changes nothing",
           "text": "לוחצים על \"הודעות\" ברשימת ההגדרות." },
-        { "kind": "do", "act": "open", "on": "none", "anchor": "settings.row-edit", "arg": "reminder-before", "result": { "kind": "open", "arg": "settings.edit-sheet" },
+        { "kind": "do", "title": "עורכים את התזכורת", "act": "open", "on": "none", "anchor": "settings.row-edit", "arg": "reminder-before", "result": { "kind": "open", "arg": "settings.edit-sheet" },
           "safeTest": "e2e/tours/sample-safe.spec.ts: opening an edit sheet changes nothing",
           "text": "לוחצים \"עריכה\" ליד \"תזכורת לפני תור\"." },
-        { "kind": "do", "act": "type", "on": "none", "anchor": "settings.reminder-hours", "result": { "kind": "fieldChanged", "arg": "settings.reminder-hours" },
+        { "kind": "do", "title": "משנים את השעות", "act": "type", "on": "none", "anchor": "settings.reminder-hours", "result": { "kind": "fieldChanged", "arg": "settings.reminder-hours" },
           "need": [{ "do": "reopen", "window": "settings.edit-sheet" }],
           "safeTest": "e2e/tours/sample-safe.spec.ts: typing in the sheet saves nothing",
           "text": "משנים כמה שעות לפני התור יוצאת התזכורת." },
-        { "kind": "stop", "class": "S", "anchor": "settings.save", "need": [{ "do": "reopen", "window": "settings.edit-sheet" }],
+        { "kind": "stop", "title": "השמירה חלה על כולם", "class": "S", "anchor": "settings.save", "need": [{ "do": "reopen", "window": "settings.edit-sheet" }],
           "text": "\"שמירה\" שומרת, והתזכורות הבאות יוצאות לפי השינוי." }
       ],
       "finish": "עכשיו ידוע איך משנים מתי יוצאת התזכורת."

@@ -91,7 +91,8 @@ result ([N], above). A result is a change to the record that the screen shows an
 article names as the task's outcome (a visit is booked, a note is saved); selecting, opening
 or filling something is not one, so a job is never chopped into chapters of a step or two.
 What keeps a tour light is not a count. It is one sentence a step, at most twelve words ([B];
-a step that needs more becomes two steps); her doing the step, not reading about it; and
+a step that needs more becomes two steps), under a title of at most four words (his pick of
+14.11.2026 [A], under "The card"), the twelve counted without the title [I]; her doing the step, not reading about it; and
 breaking a long job where the job itself has results. A chapter ends at its result, or at a
 stop step when the result is one a tour never lets her make (below). Its finish says what she
 did and offers the next chapter as the main button, with stopping as the quiet one; the
@@ -165,7 +166,14 @@ in MediZen no one in an existing clinic gets an automatic tour until Nadav says 
 short screen the tour still opens, because its card lies over the dimmed screen and takes no
 room from the work; the first-visit card does not follow it there (G-15). On every other core
 screen the first-visit card appears when the tour ends or is skipped, with "הראו לי". Every
-other tour is started by the person.
+other tour is started by the person. A link may start a tour (`#tour-<id>` in a web app, from
+"what's new" or a help article): following it is her own start, like "הראו לי", not an automatic
+one, so none of the waits above applies to it, and the tour begins at its start state, asking
+first where a window holds unsaved input (G-08) [I]; when she answers no, nothing is closed or
+discarded, everything stays as it is, and the tour does not start [I]; the same holds for every
+start that asks first (the card, "הראו לי", the list) [I]. Inside a store shell, a
+link start is whatever the shell's deep-link routing hands to the web app: when the hash does not
+arrive, the tour does not start, and the other starts of G-21 are unaffected [I].
 
 **A step.** Each step is classed before the tour is written: its action on the sample record is
 safe to do (G-20); or it tells a real person; or it is permanent or charges. On the first kind
@@ -253,9 +261,64 @@ with the platform's own mechanism
 `aria-hidden` on the siblings), which also stops the app's keyboard shortcuts and a screen
 reader's activation; see-through blocks over the page stop a finger only. The tour's card is not
 `aria-modal` over the control it points at, or a screen-reader user cannot do the step. The
-step's result is announced in a live region. With the on-screen keyboard open, the card and the
+step's result is announced in a live region, and so is each new step, on every step change, as
+"The card" says (its place, its title and its sentence). SportChat's partner demo announced only
+the count, so a screen-reader user who pressed "הבא" heard a number and never the step
+(`examples.md`) [I]. With the on-screen keyboard open, the card and the
 lit control are both above it. A do-it-yourself target that cannot be reached by keyboard makes
 the step a showing step. A tap outside the light pulses it again and says where to press.
+
+**The card.** On 14.11.2026, asked what to take from SportChat's partner demo for the tours inside
+the apps, Nadav picked "הכול כמו SporChat (מומלץ)" [A], whose text said, in Hebrew, on the bubble
+(the card here): the tour's name on top, a title of up to four words, and one sentence; in the
+tour list, a short line for each tour saying what she will be able to do after it; and, as its
+risk, that the taller card must not hide the marked place on a small phone. The numbers that
+option did not give are this skill's [I]: the sentence keeps its twelve words, counted without
+the title, and the list's line has at most six words.
+
+What the card shows, top to bottom: the tour's name in one short line; the step's `title`; its
+sentence; then the progress and the buttons. The tour's name is one string, the same on the card's
+line on top and in its accessible name: the tour's `title`, or, in a chapter, its `jobTitle`, a
+space, a middle dot and a space, then its `title` ("לסגור טיפול · שולם") [I].
+
+What a screen reader hears, one rule [I]. The card's accessible name is the tour's name, that one
+string, and the step's title is not repeated in it. Its
+accessible description (`aria-describedby`) is the step's place, its title and its sentence, in
+that order ("שלב 4 מתוך 5. סוג הטיפול. בוחרים טיפול מהרשימה."), and it changes with the step. On
+every step change the same three, in the same order, are announced in the live region too,
+whether focus moved or not. So no step goes unheard: a card that takes focus is read as its name
+and its description, and a card whose focus stays on its button is heard through the live region.
+What this costs is one double reading where focus moves to the card, usually at a tour's first
+step: she hears that step twice, a few seconds. A rule that skipped the announcement when focus
+moved would leave the step unheard whenever an engine got the order of the two wrong, which is
+SportChat's defect (`examples.md`).
+
+Where the card goes, the one placement rule (the bindings paragraph, the schema's `part` and
+`NOT_COVERED` point here) [I]. The card goes below the lit control, else above it, never over
+it, at every screen size, a 320×568 phone included. When it fits on neither side of the whole
+control, a showing or stop step lights its `part` instead, and the card goes below or above that;
+a step with no part, or whose card still fits on neither side, becomes a centred card that names
+the control and lights nothing, as a missing target does. A do step that becomes such a card only
+shows, since she cannot press what the card would hide, and every later do step of the tour only
+shows too, as after a declined need, because the steps after it stand on its result. The
+stop-step press test of "What responds" presses what is lit at that size, the part included. The
+screen preview shows the card beside the light at 320×568 and at the project's other sizes
+(`tour-anchors`).
+
+How words are counted, for the twelve of a sentence, the four of a title and the six of a
+promise: as `tour-shape` counts them [I]. The text is split on whitespace, which includes the
+non-breaking spaces (U+00A0, U+202F); a word joined by a maqaf is one word ("קובעים תור ל־3 שעות"
+is four); niqqud and a zero-width space stay inside their word; a bidi mark (U+200F and the other
+direction marks) is dropped before counting, so one standing between two spaces is no word; a
+number or a sign standing alone is a word ("קובעים תור ל 3 שעות" is five). A title equal to its
+sentence or to the tour's title is a finding (`title-same`), comparing them without their spacing,
+without direction marks, and without a full stop, question mark, exclamation mark, colon, semicolon
+or comma at the end.
+
+When the tour ends, focus returns to what started it (the card's "הראו לי", the list's row, the
+link), not to the screen at large, as SportChat's demo did (`examples.md`) [I]. On a centred card,
+which lights no control, focus is on the card's main button, and at the end it returns to what
+started the tour as above [I].
 
 Also part of the contract, from the built version ([B]): "דילוג" on every step and progress
 dots; a skipped tour does not open by itself again; "הראו לי שוב" resumes at the same step and
@@ -446,8 +509,11 @@ written for each of them. Two layers:
   which the checker requires at stage app when a tour has a do step (`run-not-recorded`),
   refuses at stage demo (`run-at-demo`), and holds to a day not after today (`run-date`) and,
   with `--inventory`, to the key of the content it was written for (`run-stale`); the key leaves
-  out only the words she reads, which `tours.schema.json` names under `inOrderRun.key`, so a
-  text-only change keeps the record, and it covers no bindings, app code or build, so it shows
+  out only the words she reads and a step's `part` (what is lit on a showing or stop step, which
+  the run never presses), which `tours.schema.json` names under `inOrderRun.key`, so a change to
+  those alone keeps the record (a reworded `pick` or `type` step keeps it too, though its words
+  tell her what to pick or enter there: the manifest's reviewer checks such a change against that
+  step's `safeTest` and G-20), and it covers no bindings, app code or build, so it shows
   only that the record was written for this exact content, never that the run was done or that
   the app is unchanged since: a save's effect can depend on
   a field an earlier step
@@ -498,11 +564,24 @@ its `on`, whatever the result kind; at `"none"` a result of any kind (`open`, `s
 The bindings own visibility: a hit on the target, inside it
 or on its ancestor counts as covering it, a target clipped by an ancestor's overflow is not on
 screen, and a target inside an inner scroll box is scrolled into that box's view before the step
-shows.
+shows. A showing or stop step whose control can be taller than the room the card leaves may name
+`part`, an anchor inside that control, which is lit instead of the whole control only where the
+card fits on neither side of it ("The card", above, holds the one placement rule). A do step never names one, because its lit target is the
+live control she presses (`part-do`). The engine looks for the part only inside the element the
+step's anchor resolved to; when it is not there, the step goes on as "The card" says for a step
+with no part. The screen preview shows that it sits there (`tour-anchors`). The checker also fails
+a part that names its own anchor (`part-same`) and, with the inventory, one that is no known
+anchor on the tour's screens: a step's anchor or result there, or an `anchors` entry
+(`part-unknown`). From SportChat's partner demo
+(`examples.md`), whose `short` field did this: on a 320×568 phone its light covered 0.43 of what
+it lit before and at least 0.85 after, as its own QA recorded (`partner/FLOW.md`) [I].
 
 The manifest freezes with the approved demo's tag (its `tag` field), and the app reads that same
 file; a later change to a tour is a change to the file, made once. The app's manifest is the
-same file with `stage` changed from `demo` to `app` and every do step's test named, and the
+same file with `stage` changed from `demo` to `app`, every do step's test named, and every step's
+`title` and every tour's `promise` written: at stage `demo` the steps and the tours still without
+one are a note with their count, so manifests already being written are not broken, and at stage
+`app` each is a finding (`title-missing`, `promise-missing`) [I]; and the
 app's own check run always passes `--inventory inventory.json --require-stage app`, so a
 manifest still at `demo` fails there; `--require-stage app` without `--inventory` is a usage
 error (exit 2), because the checks against `recordAnchors`, `bulkAnchors` and
@@ -582,7 +661,10 @@ starting values. A result that stays reached once seen is the engine's default, 
 demo's own checks drive a do step (its `try`) stays in each environment's tests.
 
 **The tour list (G-17, G-18).** The help panel lists every tour like the levels of a game: how
-many were learned out of how many, what is left, and a tap starts one. It is built from the
+many were learned out of how many, what is left, and a tap starts one. Each row shows the
+tour's title and its `promise`, one line on what she will be able to do after it (his pick of
+14.11.2026 [A], under "The card"), at most six words [I] ("לקבוע תור למטופל מהיומן" in the
+example). It is built from the
 inventory (G-19), so a screen or an action without a tour shows up as a gap when the list is
 generated, not when a user looks for it. The owner of the business sees, per tour, who finished
 it and who has not yet; only the owner sees the team, each team member sees her own, and there
