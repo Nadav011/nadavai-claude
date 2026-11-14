@@ -17,9 +17,9 @@ The steps and their order are the choice of the session that wrote them, not Nad
 repo's and are not in this skill: a second project that needs them reports it («Where a fault goes») and does not
 write its own.
 
-Where Nadav asked for a from-zero run (MediZen, SHIFTS, the social studio), the build follows this file with the one
-exception above, and keeps the records, the measured first units and the gate of `from-zero-runs.md` beside this file
-[I].
+Where Nadav asked for a from-zero run of a standalone demo (MediZen, the social studio), the build follows this file
+with the one exception above, and keeps the records, the measured first units and the gate of `from-zero-runs.md`
+beside this file [I]. SHIFTS's demo lives in its app, so its run follows that file alone.
 
 ## When each part runs
 
