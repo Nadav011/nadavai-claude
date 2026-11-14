@@ -17,8 +17,7 @@
 </main>
 <script>
   // A SharedWorker that saves when the page tells it forced colours switched on. Its requests never
-  // reach a context route; the extended checks take SharedWorker away from their pages, so this page
-  // runs without one and nothing is sent.
+  // reach a context route; they go through the run's proxy, whose cut stops them.
   let port = null;
   try {
     port = new SharedWorker("/save-shared-worker.js").port;

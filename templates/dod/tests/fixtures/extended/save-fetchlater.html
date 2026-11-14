@@ -19,8 +19,8 @@
   <p>כאן מעדכנים את פרטי הלקוחה של הסניף. השינויים נשמרים לבד ונשלחים לשרת, כמו באפליקציה אמיתית שעובדת עם תורים, הודעות ותשלומים.</p>
 </main>
 <script>
-  // fetchLater (round 5's B2): one at once, one after 300 ms. The guard turns both into ordinary
-  // fetches, which it holds.
+  // fetchLater (round 5's B2): one sent as the context closes, one after 300 ms. The browser sends
+  // them, unseen by the route; the cut stops both.
   const onForcedColors = (f) => matchMedia("(forced-colors: active)").addEventListener("change", (e) => { if (e.matches) f(); });
   onForcedColors(() => {
     if (!window.fetchLater) return;

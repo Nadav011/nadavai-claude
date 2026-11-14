@@ -11,15 +11,15 @@
 // page as it loaded. A run judges nothing until the access check and the scored page's fingerprint show
 // it is the page the scored phase measured. Each run has a browser context of its own, made from the
 // test's options and from the storage state the test started with (never one captured after a run),
-// with service workers blocked and the write guard of a11y-extended.ts (installWriteGuard): every write
-// of that context, except the page's own while it loads, is held, or not sent at all when a document
-// tries it as it leaves, and reported in the run's `held` field, apart from its findings; the sends the
-// guard sees and cannot hold (a WebSocket message, a WebRTC or WebTransport send) are named in
-// `notHeld`. A page that left its route during the check is "not checked". When the run ends its
-// context is closed, which runs none of the page's leaving handlers, while closing the page would. So
-// nothing a run did, and nothing the app kept for later (an outbox in localStorage, a tab-sync channel,
-// a timer), reaches the next run or outlives the context. The README's table of channels says, for
-// every way a page can send something, what the guard does and which fixture proves it.
+// with service workers blocked, through a proxy of the run's own (networkCut in a11y-extended.ts).
+// Before the check starts, the run cuts that context's network off, for good (installWriteGuard's
+// `watch`): from then on nothing the page, a popup, a frame or a worker sends leaves the browser. The
+// writes the context's route still sees are reported in the run's `tried` field, apart from its
+// findings. Then it fingerprints the page again: a page that changed when it was cut off (an offline
+// banner) says so in `changedWhenCut`. A page that left its route during the check is "not checked",
+// and so is a page that tried to start a WebRTC connection, whose UDP goes past the cut. When the run
+// ends its context is closed while still cut off, and nothing it stored is captured. The README's
+// table says what the cut was measured to stop.
 import fs from "node:fs";
 import path from "node:path";
 import { test, type BrowserContext, type Page } from "@playwright/test";
@@ -40,18 +40,18 @@ import {
   type RouteEntry,
 } from "./dod-shared";
 import { accessCheck, pageFingerprint, settle, type AccessContext } from "./dod-page";
+import type { FingerprintTolerance, PageFingerprint } from "./dod-shared";
 import {
   A11Y_CHECK_IDS,
-  countSendsFromNow,
   forcedColorsCheck,
   installWriteGuard,
   needsTakenAway,
-  sendsNotHeld,
+  networkCut,
   textReflowCheck,
   textSpacingCheck,
-  withHeld,
-  withNotHeld,
+  withTried,
   type A11yResult,
+  type NetworkCut,
   type WriteGuard,
 } from "./a11y-extended";
 import { CONSENT_CHECK_IDS, consentChecks } from "./consent-checks";
@@ -65,8 +65,10 @@ type ExtendedResult = A11yResult;
 const EXTENDED_DIR = path.join(RESULTS_DIR, "extended");
 /** A check starts only while more than this is left of the checks phase's deadline. */
 const DEADLINE_MARGIN_MS = 20_000;
-/** After a check, how long a write it set off (a popup's, a worker's) has to reach the guard before the context closes. */
+/** After a check, how long a write it set off (a popup's, a worker's) has to reach the guard's route before the context closes. */
 const SETTLE_WRITES_MS = 500;
+/** The page before and after the cut is compared with no tolerance but one control: the same page seconds apart. */
+const CUT_TOLERANCE: FingerprintTolerance = { landmarks: true, headings: 1, controls: 0, words: 1 };
 const routes = loadRoutes();
 const standard = loadStandard();
 const ACCESS: AccessContext = {
@@ -85,16 +87,18 @@ function scoredResult(name: string): EntryResult | null {
   }
 }
 
-/** Loads the route in `page` and throws unless it is the page the scored phase measured. The page is never closed (see above). */
-async function openScoredPage(page: Page, entry: RouteEntry, scored: EntryResult): Promise<void> {
+/** Loads the route in `page` and throws unless it is the page the scored phase measured; returns its fingerprint. */
+async function openScoredPage(page: Page, entry: RouteEntry, scored: EntryResult): Promise<PageFingerprint> {
   await page.setViewportSize({ width: WIDE.width, height: WIDE.height });
   const resp = await page.goto(entry.route, { waitUntil: "domcontentloaded" });
   await settle(page);
   const access = await accessCheck(page, entry.route, resp?.status() ?? null, ACCESS);
   if (access.unreachable_reason) throw new Error(`not checked: ${access.unreachable_reason}`);
   if (!scored.fingerprint) throw new Error("not checked: the scored phase recorded no fingerprint of this page");
-  const diff = fingerprintDiff(scored.fingerprint, await pageFingerprint(page), entry.fingerprint);
+  const now = await pageFingerprint(page);
+  const diff = fingerprintDiff(scored.fingerprint, now, entry.fingerprint);
   if (diff) throw new Error(`not checked: not the page the scored phase measured (${diff})`);
+  return now;
 }
 
 const merge = (parts: [string, A11yResult][]): ExtendedResult => {
@@ -174,47 +178,55 @@ if (standard)
           const settleWrites = () => new Promise((r) => setTimeout(r, SETTLE_WRITES_MS));
           // A page that left its route during the check measured another page: nothing of it is reported.
           const LEFT = (to: string) => `not checked: the page left its route during the check (it went to ${to}); nothing measured after that is reported`;
-          // One context per run: load (the page's own writes pass while it loads), check, wait, take what the
-          // guard held, close the context. Its page is never closed on its own (see the top of this file).
-          // The two consent checks share one run, since both only read the page as it loaded.
+          const TAKEN = (what: string) => `not checked: the page tries to start a ${what}, which the network cut does not reach, so these checks take it away`;
+          // One context per run: load, cut the network off, fingerprint the page again, check, wait, take the writes
+          // the route saw, close the context while it is still cut off. The two consent checks share one run.
           const run = async (ids: ExtendedId[], fn: (page: Page, guard: WriteGuard) => Promise<Partial<Record<ExtendedId, ExtendedResult>>>) => {
             if (outOfTime()) {
               for (const id of ids) checks[id] = failed(OUT_OF_TIME);
               return;
             }
+            let net: NetworkCut | null = null;
             let ctx: BrowserContext | null = null;
             let guard: WriteGuard | null = null;
             let page: Page | null = null;
             try {
+              net = await networkCut();
               ctx = await browser.newContext({
                 ...options,
                 storageState: startState,
                 viewport: { width: WIDE.width, height: WIDE.height },
                 colorScheme: "light",
                 serviceWorkers: "block",
+                proxy: net.proxy,
               });
-              guard = await installWriteGuard(ctx);
+              guard = await installWriteGuard(ctx, net);
               page = await ctx.newPage();
-              guard.loading(page);
-              await openScoredPage(page, entry, scored);
+              const before = await openScoredPage(page, entry, scored);
               const taken = await needsTakenAway(page);
-              if (taken) throw new Error(`not checked: the page tries to start a ${taken}, which these checks take away (its requests cannot be held)`);
-              await countSendsFromNow(page);
+              if (taken) throw new Error(TAKEN(taken));
+              guard.watch(page, "the network was cut off");
+              await settle(page);
+              const changed = fingerprintDiff(before, await pageFingerprint(page), CUT_TOLERANCE);
               const got = await fn(page, guard);
               await settleWrites();
               const went = guard.left(page);
-              await guard.stopped(page);
-              const sends = went ? {} : await sendsNotHeld(page);
-              const held = guard.take();
-              // Held writes and unheld sends belong to the run, so they go to its first check only.
-              for (const id of ids) checks[id] = withNotHeld(withHeld(went ? failed(LEFT(went)) : (got[id] as ExtendedResult), id === ids[0] ? held : []), id === ids[0] ? sends : {});
+              const late = await needsTakenAway(page);
+              const tried = guard.take();
+              // The writes tried belong to the run, so they go to its first check only.
+              for (const id of ids) {
+                const r = went ? failed(LEFT(went)) : late ? failed(TAKEN(late)) : (got[id] as ExtendedResult);
+                checks[id] = withTried(changed ? { ...r, changedWhenCut: changed } : r, id === ids[0] ? tried : []);
+              }
             } catch (err) {
-              if (guard && page) await guard.stopped(page);
-              const held = guard ? guard.take() : [];
+              const tried = guard ? guard.take() : [];
               const went = guard && page ? guard.left(page) : null;
-              for (const id of ids) checks[id] = withHeld(failed(went ? LEFT(went) : err), id === ids[0] ? held : []);
+              for (const id of ids) checks[id] = withTried(failed(went ? LEFT(went) : err), id === ids[0] ? tried : []);
             } finally {
+              // Cut on every path, also when the run stopped before its check: the context is closed while cut off.
+              net?.cut();
               if (ctx) await ctx.close().catch(() => {});
+              if (net) await net.close();
             }
           };
           // Both consent checks read the page as it loaded, so one page serves them.
@@ -239,11 +251,11 @@ if (standard)
         }
         fs.mkdirSync(EXTENDED_DIR, { recursive: true });
         fs.writeFileSync(path.join(EXTENDED_DIR, `${slug}.json`), JSON.stringify({ route: entry.route, mode: "report", checks }, null, 2));
-        // A held write is said apart from the findings: "clean (2 writes held)", never "found 2". A send the
-        // guard could not hold is never "clean": "no findings (1 send not held)".
+        // A write tried while cut off is said apart from the findings: "clean (2 writes tried while cut off)", never
+        // "found 2"; a page that changed when cut off says so: "found 3 (changed when cut off)".
         const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
-        const extra = (r: ExtendedResult) => [r.held?.count ? `${plural(r.held.count, "write")} held` : "", r.notHeld?.count ? `${plural(r.notHeld.count, "send")} not held` : ""].filter(Boolean).join("; ");
-        const state = (r: ExtendedResult) => (r.error ? (r.error.startsWith("not checked") ? "not checked" : "errored") : r.count ? `found ${r.count}` : r.notHeld?.count ? "no findings" : "clean");
+        const extra = (r: ExtendedResult) => [r.changedWhenCut ? "changed when cut off" : "", r.tried?.count ? `${plural(r.tried.count, "write")} tried while cut off` : ""].filter(Boolean).join("; ");
+        const state = (r: ExtendedResult) => (r.error ? (r.error.startsWith("not checked") ? "not checked" : "errored") : r.count ? `found ${r.count}` : "clean");
         const line = EXTENDED_CHECK_IDS.map((id) => `${id} ${state(checks[id])}${extra(checks[id]) ? ` (${extra(checks[id])})` : ""}`).join(", ");
         console.log(`[dod] extended ${entry.route}: ${line}`);
       });

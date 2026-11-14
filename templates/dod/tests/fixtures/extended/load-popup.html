@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>save-popup-on-load</title>
+<title>load-popup</title>
 <style>
   body { margin: 0; padding: 16px; font-family: sans-serif; font-size: 16px; background: #fff; color: #111; }
   input { font: inherit; border: 1px solid #888; padding: 6px 8px; display: block; margin-block: 8px; }
@@ -19,8 +19,8 @@
   <p>כאן מעדכנים את פרטי הלקוחה של הסניף. השינויים נשמרים לבד ונשלחים לשרת, כמו באפליקציה אמיתית שעובדת עם תורים, הודעות ותשלומים.</p>
 </main>
 <script>
-  // A popup opened while the page loads, which saves as it loads (popup-save.html): only the check's own
-  // page passes while it loads, so the popup's write is held.
+  // A popup opened while the page loads, which saves as it loads (popup-save.html): the network is cut
+  // only when the check starts, so this write reaches the server, as it does in the scored phase.
   const onForcedColors = (f) => matchMedia("(forced-colors: active)").addEventListener("change", (e) => { if (e.matches) f(); });
   window.open("/popup-save", "_blank");
 </script>

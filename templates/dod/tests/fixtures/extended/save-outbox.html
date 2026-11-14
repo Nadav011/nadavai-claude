@@ -21,7 +21,7 @@
   // An app with an outbox (the third review's B1): a save that fails waits in localStorage, and every
   // load sends what waits. It saves when a field loses focus and when forced colours switch on, which
   // only the extended checks do (the focus walk and forced colours); so no write of this page may
-  // reach the server at any time of a run: the guard holds the first try, and the next check's page
+  // reach the server at any time of a run: the cut stops the first try, and the next check's page
   // starts from the test's own storage state, with an empty outbox.
   const Q = "outbox";
   const queue = () => JSON.parse(localStorage.getItem(Q) || "[]");

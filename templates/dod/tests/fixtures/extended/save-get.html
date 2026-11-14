@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>save-get</title>
+<style>
+  body { margin: 0; padding: 16px; font-family: sans-serif; font-size: 16px; background: #fff; color: #111; }
+  input { font: inherit; border: 1px solid #888; padding: 6px 8px; display: block; margin-block: 8px; }
+  :focus-visible { outline: 3px solid #111; outline-offset: 2px; }
+  iframe { border: 1px solid #888; width: 200px; height: 60px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>קריאות שכותבות</h1>
+  <label>שם <input id="a" type="text" value="מיכל ברק"></label>
+  <p>כאן מעדכנים את פרטי הלקוחה של הסניף. השינויים נשמרים לבד ונשלחים לשרת.</p>
+</main>
+<script>
+  // GETs that write, when forced colours switch on: an image, a script, a stylesheet, an EventSource, a
+  // fetch, a link prefetch and speculation rules. A GET cannot be told from a read, so none is recorded;
+  // after the cut none reaches the server.
+  const onForcedColors = (f) => matchMedia("(forced-colors: active)").addEventListener("change", (e) => { if (e.matches) f(); });
+  const t = (f) => { try { const r = f(); if (r && r.catch) r.catch(() => {}); } catch { /* keep going */ } };
+  onForcedColors(() => {
+    t(() => { new Image().src = "/save/get/img?id=1"; });
+    t(() => { const s = document.createElement("script"); s.src = "/save/get/script?id=1"; document.head.append(s); });
+    t(() => { const l = document.createElement("link"); l.rel = "stylesheet"; l.href = "/save/get/style?id=1"; document.head.append(l); });
+    t(() => { new EventSource("/save/get/es?id=1"); });
+    t(() => fetch("/save/get/fetch?id=1"));
+    t(() => { const l = document.createElement("link"); l.rel = "prefetch"; l.href = "/save/get/prefetch"; document.head.append(l); });
+    t(() => { const s = document.createElement("script"); s.type = "speculationrules"; s.textContent = JSON.stringify({ prefetch: [{ source: "list", urls: ["/save/get/speculation"] }] }); document.head.append(s); });
+  });
+</script>
+</body>
+</html>

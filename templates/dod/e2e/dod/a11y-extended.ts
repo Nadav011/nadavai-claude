@@ -10,14 +10,17 @@
 // page.evaluate, so it is self-contained.
 //
 // The focus walk of forced-colors presses Tab and moves focus away, and every check changes the
-// window, which runs the page's own handlers. So every check runs in its own browser context under
-// `installWriteGuard`: every write of that context (a request that is not GET, HEAD or OPTIONS) is
-// aborted and recorded, except a page's own while it loads, and the caller reports it in the check's
-// `held` field, apart from its findings (see installWriteGuard).
+// window, which runs the page's own handlers. So every check runs in its own browser context, made
+// through the run's own proxy (`networkCut`), and the network of that context is cut off when the check
+// starts (`installWriteGuard`'s `watch`), for good: whatever the page then sends does not leave the
+// browser. The writes the context's route still sees are reported in the check's `tried` field, apart
+// from its findings.
 //
 // Each condition that makes or withholds a finding is one line ending in `// M:<code>`: the kit's
 // tests (`tests/extended-checks.mjs`) delete that line, and change the thresholds one at a time, and
 // check that a fixture test fails.
+import http from "node:http";
+import net, { type AddressInfo, type Socket } from "node:net";
 import type { BrowserContext, Page } from "@playwright/test";
 
 export const A11Y_CHECK_IDS = ["forced-colors", "text-reflow", "text-spacing"] as const;
@@ -31,12 +34,12 @@ export interface A11yResult {
   samples: string[];
   /** What the check could not judge, said so; never a finding. */
   notes?: string[];
-  /** The writes the page (or a popup, or a worker) tried while this check ran, which the guard stopped:
-   * what the app did at that moment, never a finding of this check, and never in `count`. */
-  held?: { count: number; samples: string[] };
-  /** Sends the guard saw and cannot hold (a WebSocket message, a WebRTC data channel message, a WebTransport
-   * session): how many, and one line per channel. Never a finding, and never "clean". */
-  notHeld?: { count: number; samples: string[] };
+  /** The writes a page of the check (or a popup, or a worker) tried after the network was cut off, as the
+   * context's route saw them: what the app did at that moment, never a finding, and never in `count`. */
+  tried?: { count: number; samples: string[] };
+  /** How the page changed between the moment before the cut and the moment after it, when it did (an
+   * offline banner, an error state): the findings may then be of that state, not of the normal screen. */
+  changedWhenCut?: string;
   error?: string;
 }
 
@@ -50,7 +53,7 @@ export const FOCUS_STEPS = 25;
 export const FOCUS_MARGIN = 6;
 const FRAME_MS = 150;
 const MAX_SAMPLES = 8;
-/** The methods the guard lets through while a check runs. */
+/** The methods the guard's route does not record as a write (a GET that writes is not told from a read). */
 export const SAFE_METHODS = ["GET", "HEAD", "OPTIONS"];
 
 export interface Item {
@@ -364,210 +367,177 @@ export function result(items: Item[], notes: string[] = []): A11yResult {
   return { count: kept.length, kinds, samples: kept.slice(0, MAX_SAMPLES).map((i) => i.sample), ...(notes.length ? { notes } : {}) };
 }
 
-/** Writes the guard held, grouped by what was sent: the method, the path with its numbers folded, who sent it. */
-export interface HeldWrite {
+/** Writes a page of the check tried after the network was cut off, grouped by what was sent: the method, the
+ * path with its numbers folded, who sent it. */
+export interface TriedWrite {
   method: string;
   path: string;
-  /** "the page" (with a dedicated worker it started), "another page of the check (a popup)", or "a new window, or a
-   * worker (no page)" (a request with no frame yet: a form posted into a new window, a service worker's). */
+  /** "the page" (with its frames, also of another origin, and a dedicated worker it started), "another page of the check (a popup)", or "a new window, or a
+   * worker (no page)" (a request with no frame yet: a form posted into a new window). */
   from: string;
-  /** What the check was doing when the first of them was held: a moment, not the cause. */
+  /** What the check was doing when the first of them was tried: a moment, not the cause. */
   moment: string;
   /** How many times; an app that retries a failed save is one line, not hundreds. */
   times: number;
 }
 
+/**
+ * The run's network: a proxy on loopback that the run's context is made with (`proxy`), so that every HTTP
+ * request and WebSocket of the context goes through it: of every page, popup and frame, every worker
+ * (dedicated, shared and service), a leaving document's beacons and keepalive fetches, a `fetchLater`,
+ * loopback included (`<-loopback>`). `cut` closes every connection it carries and refuses every new one, for good:
+ * nothing puts it back. Measured, round 6 of the review, on Playwright 1.64.1's Chromium: after the cut the
+ * server received nothing on any row of the README's table of what the cut covers; `context.setOffline`
+ * let a leaving document's beacons and an open WebSocket's messages through. A WebRTC connection's UDP
+ * does not go through a proxy, so the kit takes `RTCPeerConnection` away instead (`inEveryDocument`).
+ */
+export interface NetworkCut {
+  /** For `browser.newContext({ proxy })`. */
+  proxy: { server: string; bypass: string };
+  /** From now on, nothing of the context reaches the network. */
+  cut(): void;
+  /** Stops the proxy: after the context is closed. */
+  close(): Promise<void>;
+}
+
+export async function networkCut(): Promise<NetworkCut> {
+  let off = false;
+  const open = new Set<Socket>();
+  const keep = (s: Socket) => {
+    open.add(s);
+    s.on("close", () => open.delete(s));
+    s.on("error", () => s.destroy());
+  };
+  const server = http.createServer((req, res) => {
+    let u: URL;
+    try {
+      u = new URL(req.url ?? "");
+    } catch {
+      return void res.writeHead(400).end();
+    }
+    const headers = { ...req.headers };
+    delete headers["proxy-connection"];
+    delete headers["proxy-authorization"];
+    const up = http.request({ host: u.hostname.replace(/^\[|\]$/g, ""), port: u.port || 80, method: req.method, path: u.pathname + u.search, headers, agent: false }, (r) => {
+      res.writeHead(r.statusCode ?? 502, r.headers);
+      r.pipe(res);
+    });
+    up.on("socket", keep);
+    up.on("error", () => res.destroy());
+    req.pipe(up);
+  });
+  // A tunnel: a WebSocket comes through a proxy as CONNECT (measured for ws://), and so do https and wss.
+  server.on("connect", (req: http.IncomingMessage, client: Socket, head: Buffer) => {
+    const at = (req.url ?? "").lastIndexOf(":");
+    const up = net.connect(Number((req.url ?? "").slice(at + 1)), (req.url ?? "").slice(0, at).replace(/^\[|\]$/g, ""), () => {
+      client.write("HTTP/1.1 200 Connection Established\r\n\r\n");
+      up.write(head);
+      up.pipe(client);
+      client.pipe(up);
+    });
+    keep(up);
+  });
+  server.on("connection", (s: Socket) => {
+    if (off) return void s.destroy(); // M:refuse-new
+    keep(s);
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => resolve());
+  });
+  const { port } = server.address() as AddressInfo;
+  const cut = () => {
+    off = true;
+    for (const s of open) s.destroy(); // M:drop-open
+  };
+  return {
+    proxy: { server: `http://127.0.0.1:${port}`, bypass: "<-loopback>" },
+    cut,
+    close: () =>
+      new Promise<void>((resolve) => {
+        off = true;
+        for (const s of open) s.destroy();
+        server.close(() => resolve());
+      }),
+  };
+}
+
+/** Records a page's write after the cut, for the report; the cut, not this, keeps it from the server. */
 export interface WriteGuard {
-  /** A page about to load for a check: its requests pass until `watch`, so it loads as the scored phase saw it. */
-  loading(page: Page): void;
-  /** The check starts on this page; `moment` says what it is doing. From here on its main frame is followed. */
+  /** The check starts on this page; `moment` says what it is doing. The first call cuts the network, for good; from
+   * here on the page's main frame is followed. */
   watch(page: Page, moment: string): void;
-  /** What the check is doing now, for the record of a write held from here on. */
+  /** What the check is doing now, for the record of a write tried from here on. */
   moment(page: Page, moment: string): void;
-  /** The writes held since the last call (and forgets them). */
-  take(): HeldWrite[];
+  /** The writes tried since the cut (and forgets them). */
+  take(): TriedWrite[];
   /** Where the page went when its main frame left the route's path after `watch` (a path, or a scheme for an
    * error page or another site); null while it stays. */
   left(page: Page): string | null;
-  /** Adds to what `take` returns the writes a leaving document of this page tried and did not send
-   * (written down by inEveryDocument where this page can read them). */
-  stopped(page: Page): Promise<void>;
 }
 
-/** How many different writes the guard keeps apart; the rest are counted together, in one group. */
-export const HELD_GROUPS = 40;
+/** How many different writes the report keeps apart; the rest are counted together, in one group. */
+export const TRIED_GROUPS = 40;
 const MORE = "\u0000more";
 
 /**
  * What the guard puts in every page and frame of the check's context before it loads (Playwright runs a
- * context's init scripts in each document, popups and `about:blank` frames included; not in workers):
- * - A document is leaving while it runs a `pagehide`, `beforeunload`, `unload` or `freeze` handler (and
- *   what that handler's promises run right after), and once it is hidden (a page of the check is hidden
- *   only as it goes away; a closed popup turns hidden before its pagehide, a page that navigates after).
- *   Every write it then tries (a fetch, a beacon, an XMLHttpRequest, a `fetchLater`) is not sent at all,
- *   and is written down for the check (`stopped`). Measured: a request a document makes while it leaves
- *   (the app went to another page during a check, or closed a popup) is not seen by the context's route,
- *   and reaches the server; its own listeners for those events, added before the app's, did not run
- *   first in a popup, so the guard reads the event being handled instead.
- * - While the document lives, a beacon and a keepalive fetch go out as the app sent them, and the route
- *   holds them (measured). A `fetchLater` is sent as an ordinary fetch, after its `activateAfter` or at
- *   once: Chromium sends a `fetchLater` from the browser process, unseen by the route.
- * - `SharedWorker` is a stand-in that starts nothing, throws as a missing feature would, and marks the
- *   page (and the top page, for one started from a frame), since a SharedWorker's requests never reach a
- *   context route.
- * - the sends no route sees are counted (`window.__a11yxSends`): a WebSocket message, a WebRTC data
- *   channel message, a WebTransport session opened. They are not held: the result names them.
+ * context's init scripts in each document, popups and frames of other origins included; `RTCPeerConnection`
+ * does not exist in workers): `RTCPeerConnection` is a stand-in that starts nothing, throws as a missing
+ * feature would, and marks its document, since a WebRTC connection's UDP goes past the cut (measured). The
+ * run is then "not checked" (`needsTakenAway`).
  */
 const inEveryDocument = () => {
-  type Sends = Record<string, number>;
-  type Stop = { kind: string; method: string; url: string };
-  type Win = { __a11yxTakenAway?: string; __a11yxSends?: Sends; __a11yxStopped?: Stop[]; fetchLater?: unknown; WebTransport?: unknown };
+  type Win = { __a11yxTakenAway?: string };
   const w = window as unknown as Win;
-  // A popup's first document (about:blank) hands its window to the page it then loads, and this runs
-  // again there, wrapping what it finds; every test below reads the document of the moment.
-  const LEAVE_EVENTS = ["pagehide", "beforeunload", "unload", "freeze"];
-  const top = (): Win => {
-    try {
-      return (window.top ?? window) as unknown as Win;
-    } catch {
-      return w;
-    }
+  const peer = function RTCPeerConnection() {
+    w.__a11yxTakenAway = "WebRTC connection";
+    throw new TypeError("RTCPeerConnection is not available in the extended checks");
   };
-  const count = (channel: string) => {
-    const t = top();
-    try {
-      t.__a11yxSends = t.__a11yxSends ?? {};
-      t.__a11yxSends[channel] = (t.__a11yxSends[channel] ?? 0) + 1;
-    } catch {
-      w.__a11yxSends = { ...(w.__a11yxSends ?? {}), [channel]: (w.__a11yxSends?.[channel] ?? 0) + 1 };
-    }
-  };
-  const READS = ["GET", "HEAD", "OPTIONS"];
-  const href = (u: RequestInfo | URL) => (u instanceof Request ? u.url : String(u));
-  // A write while the document leaves: not sent, and written down where the check can read it after:
-  // in the window that stays (a frame's top, a popup's opener), or in sessionStorage, which the next
-  // document of the same tab and origin reads (measured: a message to the guard from a leaving document
-  // is lost with it).
-  const stopped = (kind: string, method: string, url: RequestInfo | URL) => {
-    const during = (window as unknown as { event?: Event }).event?.type ?? "";
-    let away = false;
-    if (LEAVE_EVENTS.includes(during)) away = true; // M:leaving-event
-    if (document.visibilityState === "hidden") away = true; // M:leaving-hidden
-    if (!away || READS.includes(method.toUpperCase())) return false;
-    const stop: Stop = { kind, method: method.toUpperCase(), url: "" };
-    try {
-      stop.url = new URL(href(url), location.href).href;
-      const stays = (window !== window.top ? top() : (window.opener as Win | null)) ?? null;
-      if (stays && stays !== w) (stays.__a11yxStopped = stays.__a11yxStopped ?? []).push(stop);
-      else sessionStorage.setItem("__a11yxStopped", JSON.stringify([...JSON.parse(sessionStorage.getItem("__a11yxStopped") ?? "[]"), stop]));
-    } catch {
-      // nowhere to write it down (another origin): the write is still not sent
-    }
-    return true;
-  };
-  const plain = window.fetch.bind(window);
-  const live = (input: RequestInfo | URL, init?: RequestInit) => {
-    if (stopped("fetch", init?.method ?? (input instanceof Request ? input.method : "GET"), input)) return Promise.reject(new TypeError("Failed to fetch"));
-    return plain(input, init);
-  };
-  const nativeBeacon = Navigator.prototype.sendBeacon;
-  const beacon = function (this: Navigator, url: string | URL, data?: BodyInit | null) {
-    if (stopped("sendBeacon", "POST", url)) return true;
-    return nativeBeacon.call(this, url, data);
-  };
-  const later = (input: RequestInfo | URL, init?: RequestInit & { activateAfter?: number }) => {
-    const { activateAfter, ...rest } = init ?? {};
-    if (!stopped("fetchLater", rest.method ?? "GET", input)) setTimeout(() => void live(input, rest).catch(() => {}), activateAfter ?? 0);
-    return { activated: false };
-  };
-  const xhrOpen = XMLHttpRequest.prototype.open;
-  const xhrSend = XMLHttpRequest.prototype.send;
-  const asked = new WeakMap<XMLHttpRequest, [string, string]>();
-  function open(this: XMLHttpRequest, ...a: unknown[]) {
-    asked.set(this, [String(a[0]), String(a[1])]);
-    return (xhrOpen as (...x: unknown[]) => void).apply(this, a);
-  }
-  function send(this: XMLHttpRequest, body?: Document | XMLHttpRequestBodyInit | null) {
-    const [method, url] = asked.get(this) ?? ["GET", ""];
-    if (stopped("XMLHttpRequest", method, url)) return;
-    return xhrSend.call(this, body);
-  }
-  const sharedWorker = function SharedWorker() {
-    w.__a11yxTakenAway = "SharedWorker";
-    try {
-      top().__a11yxTakenAway = "SharedWorker"; // M:shared-worker-top
-    } catch {
-      // a cross-origin frame's top is not ours to mark
-    }
-    throw new TypeError("SharedWorker is not available in the extended checks");
-  };
-  const wrap = (proto: { send?: (...a: unknown[]) => unknown } | undefined, channel: string) => {
-    const orig = proto?.send;
-    if (proto && orig)
-      proto.send = function (this: unknown, ...a: unknown[]) {
-        count(channel);
-        return orig.apply(this, a);
-      };
-  };
-  window.fetch = live; // M:keepalive
-  Navigator.prototype.sendBeacon = beacon; // M:beacon
-  XMLHttpRequest.prototype.open = open;
-  XMLHttpRequest.prototype.send = send; // M:xhr-leaving
-  if ("fetchLater" in window) Object.defineProperty(window, "fetchLater", { configurable: true, value: later }); // M:fetch-later
-  Object.defineProperty(window, "SharedWorker", { configurable: true, value: sharedWorker }); // M:shared-worker
-  wrap((window as unknown as { WebSocket?: { prototype: { send?: (...a: unknown[]) => unknown } } }).WebSocket?.prototype, "WebSocket message"); // M:sends-ws
-  wrap((window as unknown as { RTCDataChannel?: { prototype: { send?: (...a: unknown[]) => unknown } } }).RTCDataChannel?.prototype, "WebRTC data channel message"); // M:sends-rtc
-  const WT = w.WebTransport as (new (...a: unknown[]) => object) | undefined;
-  if (WT) w.WebTransport = new Proxy(WT, { construct: (t, a) => (count("WebTransport session"), Reflect.construct(t, a)) }); // M:sends-wt
+  for (const name of ["RTCPeerConnection", "webkitRTCPeerConnection"]) Object.defineProperty(window, name, { configurable: true, value: peer }); // M:webrtc
 };
 
 /**
- * The extended checks' write guard, for one check's own browser context, before any page loads. Every
- * request of the context whose method is not GET, HEAD or OPTIONS is aborted and recorded, whatever sent
- * it: the check's page, a popup it opened, a dedicated worker, a request a service worker forwards or
- * makes, a form posted into a new window or a frame, an `<a ping>`; except a request of a page that is
- * loading for the check (`loading`, until `watch`), so that page loads as the scored phase saw it, reads
- * through POST included. A write a document tries while it leaves is not sent at all, and `fetchLater` is
- * an ordinary fetch (`inEveryDocument`); `stopped` adds the writes a leaving document wrote down. A SharedWorker is taken away and marks the page (`needsTakenAway`), whose check is
- * then "not checked". The caller closes the context when the check ends and never closes a page: closing
- * a page runs its pagehide, visibilitychange and unload handlers, while closing the context runs none of
- * them (measured on Playwright 1.60.0 and 1.64.1). Not held: a GET that changes data, and the sends a
- * route never sees (a WebSocket, a WebRTC data channel or a WebTransport message), which are counted
- * (`sendsNotHeld`). The README's table of channels says which is which, and which fixture proves it.
+ * The extended checks' write guard, for one check's own browser context, made with `net.proxy` before any page
+ * loads. Until `watch`, the context's requests pass, so the page loads as the scored phase saw it (its reads
+ * through POST, a page view, an auth refresh). `watch` cuts the network (`network.cut`), for the rest of the
+ * context's life: the caller closes the context while it is cut and never captures its storage state. The
+ * context's route only records what a page then tries to write (a request that is not GET, HEAD or OPTIONS),
+ * for the check's `tried` field; it lets the request go on to the cut network. It sees the writes of a live
+ * page, popup, frame or dedicated worker; not those of a document that is leaving, of a shared worker or of a
+ * socket, which the cut stops as well (measured) but which are not counted. A page that tried to start a
+ * WebRTC connection is "not checked" (`needsTakenAway`).
  */
-export async function installWriteGuard(context: BrowserContext): Promise<WriteGuard> {
-  const loadingPages = new Set<Page>();
+export async function installWriteGuard(context: BrowserContext, network: NetworkCut): Promise<WriteGuard> {
   const known = new Set<Page>();
-  const held = new Map<string, HeldWrite>();
+  const tried = new Map<string, TriedWrite>();
   const starts = new Map<Page, string>();
   const left = new Map<Page, string>();
+  let cut = false;
   let now = "the check started";
-  // One write the guard stopped, grouped with the others of its kind.
+  // One write tried after the cut, grouped with the others of its kind.
   const keep = (method: string, url: string, from: string, moment: string) => {
     const path = new URL(url).pathname.replace(/\d+/g, "#");
     let key = `${method} ${path} ${from}`;
-    if (!held.has(key) && held.size >= HELD_GROUPS) key = MORE;
-    const h = held.get(key) ?? { method, path: key === MORE ? "(other paths)" : path, from, moment, times: 0 };
+    if (!tried.has(key) && tried.size >= TRIED_GROUPS) key = MORE;
+    const h = tried.get(key) ?? { method, path: key === MORE ? "(other paths)" : path, from, moment, times: 0 };
     h.times += 1;
-    if (!held.has(key)) held.set(key, h); // M:held-keep
+    if (!tried.has(key)) tried.set(key, h); // M:tried-keep
   };
   await context.addInitScript(inEveryDocument);
   await context.route("**/*", (route) => {
     const req = route.request();
-    let page: Page | null = null;
-    try {
-      page = req.frame().page();
-    } catch {
-      page = null; // no frame: a service worker's request, or a navigation into a new window not open yet
-    }
-    let hold = !SAFE_METHODS.includes(req.method());
-    if (page && loadingPages.has(page)) hold = false; // M:guard-loading
-    if (hold) {
+    if (cut && !SAFE_METHODS.includes(req.method())) {
+      let page: Page | null = null;
+      try {
+        page = req.frame().page();
+      } catch {
+        page = null; // no frame: a navigation into a new window not open yet
+      }
       let from = "the page";
       if (page && !known.has(page)) from = "another page of the check (a popup)"; // M:from-popup
       if (!page) from = "a new window, or a worker (no page)"; // M:from-worker
-      keep(req.method(), req.url(), from, now);
-      return route.abort("blockedbyclient"); // M:guard
+      keep(req.method(), req.url(), from, now); // M:tried
     }
     return route.fallback();
   });
@@ -589,9 +559,9 @@ export async function installWriteGuard(context: BrowserContext): Promise<WriteG
     }
   };
   return {
-    loading: (page) => void loadingPages.add(page),
     watch: (page, moment) => {
-      loadingPages.delete(page);
+      network.cut(); // M:cut
+      cut = true;
       known.add(page);
       now = moment; // M:watch-moment
       if (starts.has(page)) return;
@@ -605,58 +575,33 @@ export async function installWriteGuard(context: BrowserContext): Promise<WriteG
       now = moment; // M:moment
     },
     take: () => {
-      const out = [...held.values()];
-      held.clear();
+      const out = [...tried.values()];
+      tried.clear();
       return out;
     },
     left: (page) => left.get(page) ?? null,
-    stopped: async (page) => {
-      const list = await page
-        .evaluate(() => {
-          const w = window as unknown as { __a11yxStopped?: { kind: string; method: string; url: string }[] };
-          const own = JSON.parse(sessionStorage.getItem("__a11yxStopped") ?? "[]") as { kind: string; method: string; url: string }[];
-          return [...(w.__a11yxStopped ?? []), ...own];
-        })
-        .catch(() => []);
-      for (const s of list) keep(s.method, s.url, "the page or a window of it", `it was leaving (${s.kind}, not sent)`); // M:stopped-record
-    },
   };
 }
 
-/** "SharedWorker" when the page (or a frame of it) tried to start one, which the guard took away; else null. */
+/** What a document of the page's context (a frame, a popup) tried to start that the checks take away, or null. */
 export async function needsTakenAway(page: Page): Promise<string | null> {
-  return page.evaluate(() => (window as unknown as { __a11yxTakenAway?: string }).__a11yxTakenAway ?? null);
+  const frames = page.context().pages().flatMap((p) => p.frames());
+  const marks = await Promise.all(frames.map((f) => f.evaluate(() => (window as unknown as { __a11yxTakenAway?: string }).__a11yxTakenAway ?? null).catch(() => null)));
+  return marks.find((m) => m) ?? null;
 }
 
-/** Starts counting the sends no route sees from now on (the load before is the scored phase's too). */
-export async function countSendsFromNow(page: Page): Promise<void> {
-  await page.evaluate(() => void ((window as unknown as { __a11yxSends?: Record<string, number> }).__a11yxSends = {}));
-}
-
-/** The sends no route sees since `countSendsFromNow`, by channel: never held, so the result says so. */
-export async function sendsNotHeld(page: Page): Promise<Record<string, number>> {
-  return page.evaluate(() => ({ ...((window as unknown as { __a11yxSends?: Record<string, number> }).__a11yxSends ?? {}) })).catch(() => ({}));
-}
-
-/** A check's result with the sends it saw and could not hold: a note each, never a finding. */
-export function withNotHeld(r: A11yResult, sends: Record<string, number>): A11yResult {
-  const seen = Object.entries(sends).filter(([, n]) => n > 0);
-  const samples = seen.map(([ch, n]) => `the page made ${n === 1 ? "one" : n} ${ch}${n === 1 ? "" : "s"} while the check ran; the guard cannot hold this channel, so it may have reached the server`);
-  return seen.length ? { ...r, notHeld: { count: seen.reduce((a, [, n]) => a + n, 0), samples } } : r;
-}
-
-/** A check's result with the writes the guard held while it ran, in their own field: never a finding. The
+/** A check's result with the writes its page tried after the cut, in their own field: never a finding. The
  * samples describe up to MAX_SAMPLES kinds; when there are more, the last sample counts the rest. */
-export function withHeld(r: A11yResult, held: HeldWrite[]): A11yResult {
-  if (!held.length) return r;
-  const count = held.reduce((n, h) => n + h.times, r.held?.count ?? 0);
-  const say = (h: HeldWrite) => `${h.from} tried to write (${h.method} ${h.path}) ${h.times === 1 ? "once" : `${h.times} times`}, first when ${h.moment}; the guard stopped it`;
-  let lines = [...(r.held?.samples ?? []), ...held.map(say)];
+export function withTried(r: A11yResult, writes: TriedWrite[]): A11yResult {
+  if (!writes.length) return r;
+  const count = writes.reduce((n, h) => n + h.times, r.tried?.count ?? 0);
+  const say = (h: TriedWrite) => `${h.from} tried to write (${h.method} ${h.path}) ${h.times === 1 ? "once" : `${h.times} times`} while the network was cut off, first when ${h.moment}`;
+  let lines = [...(r.tried?.samples ?? []), ...writes.map(say)];
   if (lines.length > MAX_SAMPLES) {
-    const restTimes = held.slice(Math.max(0, MAX_SAMPLES - 1 - (r.held?.samples.length ?? 0))).reduce((n, h) => n + h.times, 0);
-    lines = [...lines.slice(0, MAX_SAMPLES - 1), `and ${restTimes} more write${restTimes === 1 ? "" : "s"} of other kinds, not described here; the guard stopped them`]; // M:samples-cap
+    const restTimes = writes.slice(Math.max(0, MAX_SAMPLES - 1 - (r.tried?.samples.length ?? 0))).reduce((n, h) => n + h.times, 0);
+    lines = [...lines.slice(0, MAX_SAMPLES - 1), `and ${restTimes} more write${restTimes === 1 ? "" : "s"} of other kinds, not described here`]; // M:samples-cap
   }
-  return { ...r, held: { count, samples: lines } };
+  return { ...r, tried: { count, samples: lines } };
 }
 
 /** a11yInPage in the page, with its argument typed as the union it takes. */

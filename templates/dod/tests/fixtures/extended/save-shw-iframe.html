@@ -19,8 +19,8 @@
   <p>כאן מעדכנים את פרטי הלקוחה של הסניף. השינויים נשמרים לבד ונשלחים לשרת, כמו באפליקציה אמיתית שעובדת עם תורים, הודעות ותשלומים.</p>
 </main>
 <script>
-  // A SharedWorker started from an about:blank frame: the guard's stand-in runs there too, and marks the
-  // top page, so the check is "not checked".
+  // A SharedWorker started from an about:blank frame: its requests reach no route, and the cut stops
+  // them like the page's.
   const onForcedColors = (f) => matchMedia("(forced-colors: active)").addEventListener("change", (e) => { if (e.matches) f(); });
   const f = document.createElement("iframe");
   f.style.display = "none";

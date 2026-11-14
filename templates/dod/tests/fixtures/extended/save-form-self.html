@@ -20,8 +20,8 @@
   <form id="self" method="post" action="/save/form/self"><input type="hidden" name="x" value="1"></form>
 </main>
 <script>
-  // A form posted into the page itself: the guard holds the post, Chromium shows an error page in its
-  // place, so the page left its route.
+  // A form posted into the page itself: the route records the post, the cut stops it, Chromium shows an
+  // error page in its place, so the page left its route.
   const onForcedColors = (f) => matchMedia("(forced-colors: active)").addEventListener("change", (e) => { if (e.matches) f(); });
   onForcedColors(() => document.getElementById("self").submit());
 </script>

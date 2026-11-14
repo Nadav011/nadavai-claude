@@ -17,7 +17,7 @@
 </main>
 <script>
   // A dedicated worker that saves when the page tells it forced colours switched on: a write of the
-  // check's context that leaves from a worker, which the guard holds like the page's own.
+  // check's context that leaves from a worker, which the cut stops like the page's own.
   const worker = new Worker("/save-worker.js");
   matchMedia("(forced-colors: active)").addEventListener("change", (e) => {
     if (e.matches) worker.postMessage("forced-colors");

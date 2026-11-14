@@ -15,8 +15,8 @@
   <p>הלוח מציג את התורים של השבוע, את הלקוחות שמחכים לאישור ואת ההודעות האחרונות מהסניף.</p>
 </main>
 <script>
-  // An app that reads through POST as it loads (GraphQL, an RPC): the guard lets a page's own requests
-  // pass while it loads for a check, so this read reaches the server every time.
+  // An app that reads through POST as it loads (GraphQL, an RPC): the network is cut only when the
+  // check starts, so this read reaches the server every time.
   fetch("/read?q=board", { method: "POST", body: "{}" }).then(() => (document.getElementById("out").textContent = "נטען")).catch(() => {});
 </script>
 </body>

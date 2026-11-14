@@ -9,16 +9,21 @@
 // 2. CASES: each check on its fixture pages (tests/fixtures/extended/<page>.html), each of which must
 //    make it find exactly the kinds listed (and, for consent, the notes); pass.html and clean.html
 //    hold the cases each check must not report, so an exemption is tested by a page that needs it.
+//    Each case runs as the spec runs a check, the network cut included, and asserts on the fixture
+//    server that nothing reached it after the cut (a request, a WebSocket message, a UDP packet).
 // 3. Mutants: each condition of the checks is one line marked `// M:<code>` (a copy of its module
 //    without that line), and each threshold or operator a line deletion cannot reach has a
 //    replacement mutant (REPLACE); each must change the result of the page named beside it.
-// 4. The checks phase of a real `run-dod.mjs` run on three of the pages (the spec writes its files),
+// 4. The checks phase of a real `run-dod.mjs` run on three of the pages and the pages that write (the
+//    spec writes its files), then each spec mutant (SPEC_MUTANTS) on the routes it must fail,
 //    and the deadline: run-dod.mjs in enforce mode with checksMinutes 0.6, with and without the
 //    spec, must write the same dod.json (times aside), since the extended checks run last.
 // Dependencies come from tests/package.json in DOD_TEST_WORKDIR (default <tmpdir>/dod-template-tests),
 // never the repo; every project and mutant of a run gets its own new directory inside it. One Chromium
 // at a time; the fixture server listens on 127.0.0.1, port DOD_A11Y_PORT, or a free one in 20000-32000.
 import { spawn, spawnSync } from "node:child_process";
+import crypto from "node:crypto";
+import dgram from "node:dgram";
 import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
@@ -69,52 +74,70 @@ const fresh = (name) => fs.mkdtempSync(path.join(WORK, `${name}-`));
 
 // --- what each fixture page must make its check find ---------------------------------------
 // [check, page, kinds, opts]: `kinds` are the findings, exactly; opts.notes the number of notes;
-// opts.reads a page whose own POST while it loads (/read) must reach the server and never be held;
-// opts.left a page that leaves its route during the check: "not checked", naming where it went;
-// opts.notHeld the channels the result must name as sent and not held (and none when absent);
-// opts.held the writes the guard held, in the result's own `held` field and never in `count` ("1+" is
-// at least one: the walk's exact number of focus and blur events is the browser's), with opts.heldSay
-// patterns its samples must match and opts.heldLines their exact number; opts.needs a feature the
-// checks take away, so the result is "not checked" and names it. On every page no /save reaches the
-// server, the context's close included. The save-* pages are the second and third reviews' write cases.
+// opts.reads a page whose own POST while it loads (/read) must reach the server and never be reported;
+// opts.loadWrites a page whose write while it loads (a popup it opens) reaches the server before the cut;
+// opts.left a page that leaves its route during the check: "not checked", naming where it went (under
+// the cut a navigation to another document fails, so that is "an error page");
+// opts.tried the writes the route saw after the cut, in the result's own `tried` field and never in
+// `count` ("1+" is at least one: the walk's exact number of focus and blur events is the browser's), with
+// opts.triedSay patterns its samples must match and opts.triedLines their exact number; opts.needs a
+// feature the checks take away, so the result is "not checked" and names it. On every page the server
+// receives nothing after the cut (a request to /save, any non-GET, a WebSocket message, a UDP packet),
+// the context's close included. The save-* pages are the reviews' write cases.
 const CASES = [
   ["forced-colors", "forced-colors", { boundary: 5, focus: 1, state: 1, mark: 1 }],
   ["forced-colors", "pass", {}],
   ["forced-colors", "clean", {}],
   // POST on focus, POST and a beacon on blur, PUT, PATCH and DELETE on the third field's focus; the
-  // moment is what the check was doing when the first was held.
-  ["forced-colors", "save-on-focus", {}, { held: "1+", heldSay: [/the page tried to write \(POST \/save\).*first when focus moved on with Tab/, /\(PUT \/save\)/, /\(PATCH \/save\)/, /\(DELETE \/save\)/] }],
-  ["forced-colors", "save-on-leave", {}],
-  ["forced-colors", "save-via-sw", {}, { held: "1+", heldSay: [/the page tried to write \(POST \/save\) once, first when forced colours were switched on/] }],
-  ["forced-colors", "save-in-popup", {}, { held: "1+", heldSay: [/another page of the check \(a popup\) tried to write \(POST \/save\)/] }],
+  // moment is what the check was doing when the first was tried.
+  ["forced-colors", "save-on-focus", {}, { tried: "1+", triedSay: [/the page tried to write \(POST \/save\) .*while the network was cut off, first when focus moved on with Tab/, /\(PUT \/save\)/, /\(PATCH \/save\)/, /\(DELETE \/save\)/] }],
+  ["forced-colors", "save-via-sw", {}, { tried: "1+", triedSay: [/the page tried to write \(POST \/save\) once while the network was cut off, first when forced colours were switched on/] }],
+  ["forced-colors", "save-in-popup", {}, { tried: "1+", triedSay: [/another page of the check \(a popup\) tried to write \(POST \/save\)/] }],
   // A dedicated worker's request carries its page's frame in Chromium, so it is the page's.
-  ["forced-colors", "save-in-worker", {}, { held: "1+", heldSay: [/the page tried to write \(POST \/save\)/] }],
-  ["forced-colors", "save-in-shared-worker", {}, { needs: "SharedWorker" }],
-  // Every try of a retry loop is one line of `held`, with how many times (the third review's C4).
-  ["forced-colors", "save-retry", {}, { held: "1+", heldLines: 1, heldSay: [/\(POST \/save\/retry\/try-#\) \d+ times/] }],
-  ["forced-colors", "save-outbox", {}, { held: "1+" }],
+  ["forced-colors", "save-in-worker", {}, { tried: "1+", triedSay: [/the page tried to write \(POST \/save\)/] }],
+  // A SharedWorker's requests reach no route, so nothing is recorded; the cut stops them.
+  ["forced-colors", "save-in-shared-worker", {}],
+  ["forced-colors", "save-shw-iframe", {}],
+  // Every try of a retry loop is one line of `tried`, with how many times (the third review's C4).
+  ["forced-colors", "save-retry", {}, { tried: "1+", triedLines: 1, triedSay: [/\(POST \/save\/retry\/try-#\) \d+ times/] }],
+  ["forced-colors", "save-outbox", {}, { tried: "1+" }],
   ["forced-colors", "reads-on-load", {}, { reads: true }],
-  // Round 5 (review 5): the channels of the README's table. A page that leaves its route during a check
-  // (B1, B3) is "not checked", with where it went, and none of its beacons or keepalive fetches reaches
-  // the server; fetchLater is held (B2); forms, pings and XHR are held, each under its sender.
-  ["forced-colors", "save-leave-nav", {}, { left: "/clean", held: 7, heldSay: [/\(POST \/save\/leave-nav\/hidden\) once, first when it was leaving/, /\(POST \/save\/leave-nav\/beacon\) once, first when it was leaving \(sendBeacon, not sent\)/, /\(POST \/save\/leave-nav\/keepalive\) once, first when it was leaving \(fetch, not sent\)/, /\(POST \/save\/leave-nav\/xhr\) once, first when it was leaving \(XMLHttpRequest, not sent\)/] }],
-  ["text-reflow", "save-resize-leave", {}, { left: "/clean", held: 7, heldSay: [/\(POST \/save\/resize-leave\/beacon\) once, first when it was leaving \(sendBeacon, not sent\)/, /\(POST \/save\/resize-leave\/keepalive\) once, first when it was leaving \(fetch, not sent\)/, /\(POST \/save\/resize-leave\/xhr\) once, first when it was leaving \(XMLHttpRequest, not sent\)/] }],
-  ["text-reflow", "save-spacing-redirect", {}, { left: "/text-spacing" }],
-  ["forced-colors", "save-form-self", {}, { left: "an error page", held: "1+", heldSay: [/the page tried to write \(POST \/save\/form\/self\)/] }],
-  ["forced-colors", "save-fetchlater", {}, { held: "1+", heldSay: [/\(POST \/save\/fetchlater\/at-unload\)/, /\(POST \/save\/fetchlater\/after\)/] }],
-  ["forced-colors", "save-forms", {}, { held: "1+", heldSay: [/a new window, or a worker \(no page\) tried to write \(POST \/save\/form\/blank\)/, /the page tried to write \(POST \/save\/form\/frame\)/] }],
-  ["forced-colors", "save-ping", {}, { held: "1+", heldSay: [/\(POST \/save\/ping\/fragment\)/] }],
-  ["forced-colors", "save-xhr", {}, { held: "1+", heldSay: [/\(POST \/save\/xhr\/async\)/, /\(POST \/save\/xhr\/sync\)/] }],
+  // The load window passes for every page of the context: a popup the page opens while it loads saves.
+  ["forced-colors", "load-popup", {}, { loadWrites: true }],
+  // Documents that leave (review 5's B1 and B3, review 6's B1): the network is cut, so the navigation ends
+  // on an error page and nothing the leaving document sends reaches the server, whichever realm or event
+  // sends it; the route does not see a leaving document, so nothing is recorded.
+  ["forced-colors", "save-leave-nav", {}, { left: "an error page" }],
+  ["text-reflow", "save-resize-leave", {}, { left: "an error page" }],
+  ["text-reflow", "save-spacing-redirect", {}, { left: "an error page" }],
+  ["forced-colors", "save-xrealm-leave", {}, { left: "an error page" }],
+  ["forced-colors", "save-pageswap", {}, { left: "an error page" }],
+  ["forced-colors", "save-form-self", {}, { left: "an error page", tried: "1+", triedSay: [/the page tried to write \(POST \/save\/form\/self\)/] }],
+  // fetchLater is sent by the browser, unseen by the route: nothing recorded, nothing received.
+  ["forced-colors", "save-fetchlater", {}],
+  ["forced-colors", "save-forms", {}, { tried: "1+", triedSay: [/a new window, or a worker \(no page\) tried to write \(POST \/save\/form\/blank\)/, /the page tried to write \(POST \/save\/form\/frame\)/] }],
+  ["forced-colors", "save-ping", {}, { tried: "1+", triedSay: [/\(POST \/save\/ping\/fragment\)/] }],
+  ["forced-colors", "save-xhr", {}, { tried: "1+", triedSay: [/\(POST \/save\/xhr\/async\)/, /\(POST \/save\/xhr\/sync\)/] }],
+  ["forced-colors", "save-get", {}],
   // 45 kinds: 40 kept apart, 5 counted together; 7 described, the eighth sample counts the other 38.
-  ["forced-colors", "save-many-paths", {}, { held: 45, heldLines: 8, heldSay: [/^and 38 more writes of other kinds, not described here/] }],
-  ["forced-colors", "save-popup-on-load", {}, { held: "1+", heldSay: [/another page of the check \(a popup\) tried to write \(POST \/save\) once, first when the check started/] }],
-  ["forced-colors", "save-late", {}, { held: 1, heldSay: [/\(POST \/save\/late\) once, first when the check ended/] }],
-  ["forced-colors", "save-shw-iframe", {}, { needs: "SharedWorker" }],
-  ["forced-colors", "send-unheld", {}, { notHeld: ["WebSocket message", "WebRTC data channel message", "WebTransport session"] }],
-  ["text-reflow", "save-resize-style", {}, { held: "1+", heldSay: [/\(POST \/save\/resize\)/] }],
-  ["text-spacing", "save-resize-style", {}, { held: "1+", heldSay: [/\(POST \/save\/style\)/] }],
-  ["forced-colors", "save-popup-close", {}, { held: "1+", heldSay: [/\(POST \/save\/popup-leave\/load\)/, /\(POST \/save\/popup-leave\/beacon\) once, first when it was leaving \(sendBeacon, not sent\)/] }],
-  ["text-reflow", "save-on-leave", {}],
+  ["forced-colors", "save-many-paths", {}, { tried: 45, triedLines: 8, triedSay: [/^and 38 more writes of other kinds, not described here$/] }],
+  ["forced-colors", "save-late", {}, { tried: 1, triedSay: [/\(POST \/save\/late\) once while the network was cut off, first when the check ended/] }],
+  // Sockets (review 6's B2): an open socket's message from the page, a dedicated worker, a popup, a page that
+  // then leaves; a new socket. The cut closes the open ones and refuses new ones. The worker's POST is recorded.
+  ["forced-colors", "save-ws-open", {}],
+  ["forced-colors", "save-worker-ws", {}, { tried: "1+", triedSay: [/\(POST \/save\/worker-ws\/fetch\)/] }],
+  ["forced-colors", "save-popup-ws", {}],
+  ["forced-colors", "save-ws-leave", {}, { left: "an error page" }],
+  ["forced-colors", "save-xo-frame", {}, { tried: "1+", triedSay: [/\(POST \/save\/xo\/fetch\)/] }],
+  // WebTransport goes through no proxy, so under the run's proxy no QUIC packet is sent at all.
+  ["forced-colors", "save-webtransport", {}],
+  // WebRTC's UDP goes past the cut: RTCPeerConnection is taken away and the run is "not checked".
+  ["forced-colors", "save-webrtc", {}, { needs: "WebRTC connection" }],
+  ["forced-colors", "save-webrtc-load", {}, { needs: "WebRTC connection" }],
+  ["forced-colors", "cut-banner", {}],
+  ["text-reflow", "save-resize-style", {}, { tried: "1+", triedSay: [/\(POST \/save\/resize\)/] }],
+  ["text-spacing", "save-resize-style", {}, { tried: "1+", triedSay: [/\(POST \/save\/style\)/] }],
+  ["forced-colors", "save-popup-close", {}],
   ["text-reflow", "text-reflow", { clipped: 3, unreachable: 1, sideways: 1 }],
   ["text-reflow", "text-reflow-cut", { unreachable: 1 }],
   ["text-reflow", "text-reflow-ltr", { unreachable: 1 }],
@@ -143,11 +166,14 @@ const CASES = [
   ["consent", "clean", {}],
 ];
 const caseOf = (id, page) => CASES.find(([c, p]) => c === id && p === page);
+/** Every case whose page writes after the cut: the mutant without the cut must fail each. Not the WebRTC pages
+ * (taken away, cut or not) nor save-webtransport (no QUIC under any proxy, cut or not: R:no-proxy fails it). */
+const SAVE_CASES = CASES.filter(([, p, , o = {}]) => p.startsWith("save-") && !o.needs && p !== "save-webtransport").map(([id, p]) => [id, p]);
 // Each marked condition: the check it belongs to, and the page whose result must change without it.
 // A mutant may name several [check, page] pairs; it must fail each. Not marked, with the reason: the
 // walk's `break` when focus comes back to the start (`continue` there ends the walk the same way, at
 // FOCUS_STEPS), forced-color-adjust:none on a state pair (its colours stay, so the pair still differs;
-// the line only saves work), and `held.clear()` in `take` (each guard's `take` runs once, then its
+// the line only saves work), and `tried.clear()` in `take` (each guard's `take` runs once, then its
 // context closes).
 const MUTANTS = {
   "vis-opacity": ["forced-colors", "pass"],
@@ -162,38 +188,19 @@ const MUTANTS = {
   state: ["forced-colors", "forced-colors"],
   mark: ["forced-colors", "forced-colors"],
   focus: ["forced-colors", "forced-colors"],
-  guard: [
-    ["forced-colors", "save-on-focus"],
-    ["forced-colors", "save-xhr"],
-    ["forced-colors", "save-forms"],
-    ["forced-colors", "save-form-self"],
-    ["forced-colors", "save-ping"],
-    ["forced-colors", "save-in-popup"],
-    ["forced-colors", "save-in-worker"],
-    ["forced-colors", "save-via-sw"],
-    ["text-reflow", "save-resize-style"],
-    ["text-spacing", "save-resize-style"],
-  ],
-  "guard-loading": ["forced-colors", "reads-on-load"],
-  "shared-worker": ["forced-colors", "save-in-shared-worker"],
-  "shared-worker-top": ["forced-colors", "save-shw-iframe"],
-  beacon: [["forced-colors", "save-leave-nav"], ["forced-colors", "save-popup-close"]],
-  keepalive: ["forced-colors", "save-leave-nav"],
-  "xhr-leaving": ["forced-colors", "save-leave-nav"],
-  "leaving-event": [["forced-colors", "save-leave-nav"], ["text-reflow", "save-resize-leave"]],
-  "leaving-hidden": [["forced-colors", "save-leave-nav"], ["forced-colors", "save-popup-close"]],
-  "stopped-record": ["forced-colors", "save-leave-nav"],
-  "fetch-later": ["forced-colors", "save-fetchlater"],
-  "sends-ws": ["forced-colors", "send-unheld"],
-  "sends-rtc": ["forced-colors", "send-unheld"],
-  "sends-wt": ["forced-colors", "send-unheld"],
+  // The cut, its drop of open connections, and its refusal of new ones (no reconnect).
+  cut: SAVE_CASES,
+  "drop-open": [["forced-colors", "save-ws-open"], ["forced-colors", "save-worker-ws"]],
+  "refuse-new": [["forced-colors", "save-on-focus"], ["forced-colors", "save-ws-open"], ["forced-colors", "save-retry"]],
+  webrtc: [["forced-colors", "save-webrtc"], ["forced-colors", "save-webrtc-load"]],
+  tried: ["forced-colors", "save-on-focus"],
+  "tried-keep": [["forced-colors", "save-on-focus"], ["forced-colors", "save-many-paths"]],
   "from-worker": ["forced-colors", "save-forms"],
-  "held-keep": [["forced-colors", "save-on-focus"], ["forced-colors", "save-many-paths"]],
+  "from-popup": ["forced-colors", "save-in-popup"],
   "watch-moment": ["forced-colors", "save-via-sw"],
+  moment: ["forced-colors", "save-on-focus"],
   left: [["text-reflow", "save-spacing-redirect"], ["forced-colors", "save-form-self"]],
   "samples-cap": ["forced-colors", "save-many-paths"],
-  "from-popup": ["forced-colors", "save-in-popup"],
-  moment: ["forced-colors", "save-on-focus"],
   "grid-table": ["text-reflow", "text-reflow-grid"],
   "layout-role": ["text-reflow", "text-reflow-presentation"],
   "layout-table": ["text-reflow", "text-reflow-layout-table"],
@@ -239,11 +246,16 @@ const REPLACE = [
   ["opacity-off", "consent", "o *= parseFloat(st.opacity);", "o *= 1;", "consent", "consent"],
   ["canvas-white", "consent", "(under, top) => over(top, under), canvasBase)", "(under, top) => over(top, under), [255, 255, 255, 1])", "consent", "consent-dark"],
   ["application-exempt", "a11y", "[role=\"img\"]';", "[role=\"img\"], [role=\"application\"]';", "text-reflow", "text-reflow-application"],
-  ["overflow-drops", "a11y", "if (!held.has(key) && held.size >= HELD_GROUPS) key = MORE;", "if (!held.has(key) && held.size >= HELD_GROUPS) return;", "forced-colors", "save-many-paths"],
-  ["loading-any", "a11y", "if (page && loadingPages.has(page)) hold = false;", "if (loadingPages.size) hold = false;", "forced-colors", "save-popup-on-load"],
-  ["guard-post-only", "a11y", "let hold = !SAFE_METHODS.includes(req.method());", 'let hold = req.method() === "POST";', "forced-colors", "save-on-focus"],
-  ["held-groups-1", "a11y", "export const HELD_GROUPS = 40;", "export const HELD_GROUPS = 1;", "forced-colors", "save-on-focus"],
-  ["held-no-fold", "a11y", '.pathname.replace(/\\d+/g, "#")', ".pathname", "forced-colors", "save-retry"],
+  ["overflow-drops", "a11y", "if (!tried.has(key) && tried.size >= TRIED_GROUPS) key = MORE;", "if (!tried.has(key) && tried.size >= TRIED_GROUPS) return;", "forced-colors", "save-many-paths"],
+  ["guard-post-only", "a11y", "if (cut && !SAFE_METHODS.includes(req.method())) {", 'if (cut && req.method() === "POST") {', "forced-colors", "save-on-focus"],
+  ["tried-groups-1", "a11y", "export const TRIED_GROUPS = 40;", "export const TRIED_GROUPS = 1;", "forced-colors", "save-on-focus"],
+  ["tried-no-fold", "a11y", '.pathname.replace(/\\d+/g, "#")', ".pathname", "forced-colors", "save-retry"],
+  // The proxy carries loopback (a bypass of `<loopback>` would send the app's own localhost past it; with no
+  // bypass Playwright adds `<-loopback>` itself, measured), the context goes through the proxy at all, and the
+  // cut comes after the load, not before it.
+  ["no-loopback", "a11y", 'bypass: "<-loopback>" },', 'bypass: "<loopback>" },', "forced-colors", "save-on-focus"],
+  ["no-proxy", "a11y", 'proxy: { server: `http://127.0.0.1:${port}`, bypass: "<-loopback>" },', "proxy: undefined as unknown as { server: string; bypass: string },", "forced-colors", "save-webtransport"],
+  ["cut-at-load", "a11y", "await context.addInitScript(inEveryDocument);", "network.cut();\n  await context.addInitScript(inEveryDocument);", "forced-colors", "reads-on-load"],
   ["guard-lets-post", "a11y", 'export const SAFE_METHODS = ["GET", "HEAD", "OPTIONS"];', 'export const SAFE_METHODS = ["GET", "HEAD", "OPTIONS", "POST"];', "forced-colors", "save-on-focus"],
   ["reflow-320-to-360", "a11y", "{ width: 320, height: 256, sideways: true }", "{ width: 360, height: 256, sideways: true }", "text-reflow", "text-reflow"],
   ["reflow-640-to-1280", "a11y", "{ width: 640, height: 512, sideways: false }", "{ width: 1280, height: 512, sideways: false }", "text-reflow", "text-reflow"],
@@ -286,60 +298,40 @@ const RUN = {
   ],
 };
 
-// --- every way a page can send something: the README's table, as data -------------------------------
-// [channel, what the guard does, proved by]: "proved by" names fixtures ("<check> <page>" for a browser case,
-// "phase /<route>" for the phase run) and the mutants that remove the guard of that row (M: a marked line,
-// R: a replacement, S: a spec mutant), each of which must fail one of those fixtures. A row the guard does
-// not hold says so; a "not held" row with a fixture is one whose sends the result names (`notHeld`).
-// `channelTable` checks this list against CASES, the mutants and the README's table, row by row.
+// --- what the cut stops, what passes before it, and what makes a run refuse: the README's table, as data -----
+// [what the page sends, what happens to it, proved by]: "proved by" names fixtures ("<check> <page>" for a
+// browser case, "phase /<route>" for the phase run) and the mutants that remove what the row says (M: a marked
+// line, R: a replacement, S: a spec mutant), each of which must fail one of those fixtures. Every row that says
+// "cut" is a row of the round 6 measurement where the server received nothing after the cut; its fixtures assert
+// that on the server. `channelTable` checks this list against CASES, the mutants and the README's table.
 const CHANNELS = [
-  ["`fetch`", "held: aborted by the context's route", ["forced-colors save-on-focus"], ["M:guard", "R:guard-post-only"]],
-  ["`XMLHttpRequest`, asynchronous and synchronous", "held: aborted by the route", ["forced-colors save-xhr"], ["M:guard"]],
-  ["`navigator.sendBeacon`, `fetch` with `keepalive`, while the page lives", "held: aborted by the route", ["forced-colors save-on-focus"], ["M:guard"]],
-  ["any write while a document leaves (a redirect, a navigation, a popup closed): `fetch`, a beacon, XHR, `fetchLater`", "held: not sent at all, and written down for the check", ["forced-colors save-leave-nav", "text-reflow save-resize-leave", "forced-colors save-popup-close", "phase /save-popup-close"], ["M:leaving-event", "M:leaving-hidden", "M:beacon", "M:keepalive", "M:xhr-leaving", "M:stopped-record", "S:no-stopped"]],
-  ["`fetchLater`", "held: sent as an ordinary fetch, which the route aborts", ["forced-colors save-fetchlater"], ["M:fetch-later"]],
-  ["a form posted into the page", "held; the page then shows an error page, so the check is not checked", ["forced-colors save-form-self"], ["M:guard", "M:left"]],
-  ["a form posted into a new window", 'held: named "a new window, or a worker (no page)"', ["forced-colors save-forms"], ["M:guard", "M:from-worker"]],
-  ["a form posted into a frame", "held", ["forced-colors save-forms"], ["M:guard"]],
-  ["`window.open`, a popup (also one opened while the page loads)", 'held: named "another page of the check (a popup)"', ["forced-colors save-in-popup", "forced-colors save-popup-on-load"], ["M:guard", "M:from-popup", "R:loading-any"]],
-  ["`<a ping>`", "held", ["forced-colors save-ping"], ["M:guard"]],
-  ["a dedicated worker", "held: its requests carry its page's frame", ["forced-colors save-in-worker"], ["M:guard"]],
-  ["a service worker the page registers", "held: service workers are blocked, so the page sends its write itself", ["forced-colors save-via-sw"], ["M:guard"]],
-  ["a SharedWorker, also one started from a frame", "taken away: the route is not checked", ["forced-colors save-in-shared-worker", "forced-colors save-shw-iframe"], ["M:shared-worker", "M:shared-worker-top"]],
-  ["a write set off by the check: focus and blur, forced colours, a resize, a style tag", "held, under the check that set it off, with its moment", ["forced-colors save-on-focus", "forced-colors save-via-sw", "text-reflow save-resize-style", "text-spacing save-resize-style"], ["M:guard", "M:watch-moment", "M:moment"]],
-  ["a write set off as a check ends", "held and counted: the spec waits 500 ms before it takes them", ["forced-colors save-late", "phase /save-late"], ["S:no-settle"]],
-  ["many writes of different kinds", "held: 40 kinds apart, the rest together; 7 samples and a count of the rest", ["forced-colors save-many-paths"], ["M:samples-cap", "M:held-keep", "R:overflow-drops"]],
-  ["an outbox replayed on load", "held: each check starts from the test's storage state", ["phase /save-outbox"], ["S:chain-state"]],
-  ["`BroadcastChannel` or a `storage` event to another tab", "held: each run has a context of its own", ["phase /save-tabsync"], ["S:one-context"]],
-  ["a timer or a retry loop", "held; it ends with its context", ["forced-colors save-retry", "phase /save-retry"], ["R:held-no-fold", "S:no-close"]],
-  ["`pagehide`, `visibilitychange`, `beforeunload`, `unload` as a check ends", "none run: the context is closed, never the page", ["phase /save-on-leave"], ["S:close-page"]],
-  ["a page that leaves its route during a check", "not checked, with where it went; nothing it measured there is reported", ["text-reflow save-spacing-redirect", "phase /save-spacing-redirect"], ["M:left", "S:no-left-check"]],
-  ["a WebSocket message", "not held: counted, and named in `notHeld`", ["forced-colors send-unheld"], ["M:sends-ws"]],
-  ["a WebRTC data channel message", "not held: counted, and named in `notHeld`", ["forced-colors send-unheld"], ["M:sends-rtc"]],
-  ["a WebTransport session", "not held: counted, and named in `notHeld`", ["forced-colors send-unheld"], ["M:sends-wt"]],
-  ["a write while the page loads (a timer, a page view, an error report, an auth refresh)", "passes, as in the scored phase", ["forced-colors reads-on-load", "phase /reads-on-load"], ["M:guard-loading", "S:no-loading"]],
-  ["a GET that writes: a link or a `location` change, an image, script or style URL, `EventSource`", "not held and not seen: a GET cannot be told from a read", [], []],
-  ["link prefetch, prerender, speculation rules", "not held (GETs); a prerender did not run in headless Chromium", [], []],
-  ["a service worker installed before the check", "cannot happen: a context made from a storage state has none", [], []],
-  ["a write from a frame of another origin as it leaves", "not sent, and not reported: it has nowhere to write itself down", [], []],
-  ["a write from a worker as its page leaves", "not measured: the kit's scripts do not run in workers", [], []],
+  ["a write of a live page, a popup, a frame (also of another origin) or a dedicated worker: `fetch` (also `keepalive`), `XMLHttpRequest`, `sendBeacon`, a form posted into the page, a frame or a new window, `<a ping>`; also one set off by the check (focus, forced colours, a resize, a style tag) or as it ends", "cut; recorded in `tried`, with who sent it and what the check was doing (the spec waits 500 ms after a check before it takes them; 40 kinds kept apart, 7 described)", ["forced-colors save-on-focus", "forced-colors save-xhr", "forced-colors save-forms", "forced-colors save-form-self", "forced-colors save-ping", "forced-colors save-in-popup", "forced-colors save-in-worker", "forced-colors save-via-sw", "forced-colors save-xo-frame", "text-reflow save-resize-style", "text-spacing save-resize-style", "forced-colors save-late", "forced-colors save-many-paths", "phase /save-on-focus", "phase /save-late"], ["M:cut", "M:refuse-new", "R:no-loopback", "S:spec-no-proxy", "M:tried", "M:from-popup", "M:from-worker", "M:watch-moment", "M:moment", "S:no-settle", "M:samples-cap", "M:tried-keep", "R:overflow-drops"]],
+  ["a write of a document as it leaves (a redirect, a navigation, a popup closed), also through another frame's realm or in `pageswap` or `navigate`; `fetchLater`, at once, later or as the context closes", "cut; not recorded (no route sees them)", ["forced-colors save-leave-nav", "text-reflow save-resize-leave", "forced-colors save-xrealm-leave", "forced-colors save-pageswap", "forced-colors save-popup-close", "forced-colors save-fetchlater"], ["M:cut"]],
+  ["a WebSocket message, on a socket open since the load (from the page, a dedicated worker, a popup, a page that then leaves) or on a new one; a SharedWorker's requests; a GET (an image, a script, `EventSource`, a prefetch, speculation rules)", "cut: the proxy closes every open connection and refuses new ones; not recorded", ["forced-colors save-ws-open", "forced-colors save-worker-ws", "forced-colors save-popup-ws", "forced-colors save-ws-leave", "forced-colors save-in-shared-worker", "forced-colors save-shw-iframe", "forced-colors save-get", "phase /save-ws-open"], ["M:cut", "M:drop-open", "M:refuse-new", "S:spec-no-proxy"]],
+  ["a WebTransport session", "not sent at all: Chromium sends no QUIC through a proxy, cut or not", ["forced-colors save-webtransport"], ["R:no-proxy"]],
+  ["a timer or a retry loop, an outbox kept in localStorage, `BroadcastChannel` or a `storage` event to another tab", "cut; the context is closed while cut off and nothing it stored is captured, so the next run starts from the test's storage state", ["forced-colors save-retry", "forced-colors save-outbox", "phase /save-retry", "phase /save-outbox", "phase /save-tabsync"], ["M:cut", "S:chain-state"]],
+  ["a write while the page loads, from the page or a popup it opens (a page view, an error report, an auth refresh, a read through POST)", "passes, as in the scored phase: the cut comes after the load", ["forced-colors reads-on-load", "forced-colors load-popup", "phase /reads-on-load"], ["R:cut-at-load"]],
+  ["a GET that writes before the cut (a page view logged by GET)", "passes, as in the scored phase", [], []],
+  ["a WebRTC connection, as the page loads or during the check (its UDP goes past the proxy)", "refused: `RTCPeerConnection` is taken away, and the run is not checked", ["forced-colors save-webrtc", "forced-colors save-webrtc-load", "phase /save-webrtc", "phase /save-webrtc-load"], ["M:webrtc", "S:no-refusal"]],
+  ["a page that changes when cut off (an offline banner, an error state)", "checked as it is then; `changedWhenCut` names the change, and the log says \"changed when cut off\"", ["phase /cut-banner"], ["S:no-second-fingerprint"]],
+  ["a page that leaves its route during a check (under the cut, a navigation to another document ends on an error page)", "not checked, with where it went; nothing it measured there is reported", ["text-reflow save-spacing-redirect", "phase /save-spacing-redirect"], ["M:left", "S:no-left-check"]],
 ];
 
 /** The table as the README prints it. */
 const channelTableText = () =>
   [
-    "| Channel | The guard | Proved by |",
+    "| What the page sends | What happens to it | Proved by |",
     "|---|---|---|",
     ...CHANNELS.map(([ch, how, fx, mu]) => `| ${ch} | ${how} | ${fx.length ? `${fx.map((f) => (f.startsWith("phase ") ? `the phase run, \`${f.slice(6)}\`` : `\`${f.split(" ")[1]}.html\` (${f.split(" ")[0]})`)).join(", ")}; ${mu.join(", ")}` : "none"} |`),
   ].join("\n");
 
-/** Every held row has a fixture and a mutant that targets it; the README's table is this one. */
+/** Every row but the one that only passes has a fixture and a mutant that targets it; the README's table is this one. */
 function channelTable() {
   const why = [];
   for (const [ch, how, fx, mu] of CHANNELS) {
     const pages = fx.filter((f) => !f.startsWith("phase ")).map((f) => f.split(" "));
     const phase = fx.filter((f) => f.startsWith("phase ")).map((f) => f.slice(6));
-    if (!how.startsWith("not held and not seen") && !how.startsWith("not held (") && !how.startsWith("cannot happen") && !how.startsWith("not sent, and not reported") && !how.startsWith("not measured") && (!fx.length || !mu.length)) why.push(`${ch}: a guarded row needs a fixture and a mutant`);
+    if (!(how.startsWith("passes") && !fx.length) && (!fx.length || !mu.length)) why.push(`${ch}: a row needs a fixture and a mutant`);
     for (const [id, page] of pages) if (!caseOf(id, page)) why.push(`${ch}: no case ${id} on ${page}`);
     for (const r of phase) if (!SAVE_ROUTES.includes(r)) why.push(`${ch}: ${r} is not a phase route`);
     for (const m of mu) {
@@ -355,53 +347,58 @@ function channelTable() {
     }
   }
   const readme = fs.readFileSync(path.join(TEMPLATE, "README.md"), "utf8");
-  if (!readme.includes(channelTableText())) why.push("the README's table of channels is not this one (print it with --print-channel-table)");
-  ok(!why.length, `the channel table: ${CHANNELS.length} rows, every guarded row with a fixture and a mutant run on it, and the README prints it`, why.join("; "));
+  if (!readme.includes(channelTableText())) why.push("the README's table is not this one (print it with --print-channel-table)");
+  ok(!why.length, `the cut table: ${CHANNELS.length} rows, every row with a fixture and a mutant run on it, and the README prints it`, why.join("; "));
 }
 
-/** How a result differs from its case, or "" when it is the case. */
-function differs(r, kase, posts) {
-  const [, , kinds, { notes = 0, reads = false, held = undefined, heldSay = [], heldLines = null, needs = null, left = null, notHeld = [] } = {}] = kase;
-  const saves = posts.filter((p) => p.includes("/save"));
-  if (saves.length) return `writes reached the server: ${saves.join(", ")}`;
-  if (reads && !posts.some((p) => p.includes("/read"))) return "the page's read while it loads did not reach the server";
-  const said = [...r.samples, ...(r.held?.samples ?? [])];
-  if (said.some((s) => s.includes("/read"))) return `a read while the page loaded was held: ${said.join(" | ")}`;
+/** What reached the server and counts as a write: a request that is not GET or HEAD, a request to /save, a WebSocket message, a UDP packet. */
+const isWrite = (w) => /^(WS|UDP) /.test(w) || !/^(GET|HEAD) /.test(w) || /\/save([/?]|$)/.test(w.split(" ")[1] ?? "");
+
+/** How a result differs from its case, or "" when it is the case. `before` and `after` are what reached the server before and after the cut. */
+function differs(r, kase, before, after) {
+  const [, , kinds, { notes = 0, reads = false, loadWrites = false, tried = undefined, triedSay = [], triedLines = null, needs = null, left = null } = {}] = kase;
+  const writes = after.filter(isWrite);
+  if (writes.length) return `the server received after the cut: ${writes.join(", ")}`;
+  if (reads && !before.some((p) => p.includes("/read"))) return "the page's read while it loads did not reach the server";
+  if (loadWrites && !before.some((p) => /\/save([/?]|$)/.test(p))) return "the popup's write while the page loaded did not reach the server";
+  const said = [...r.samples, ...(r.tried?.samples ?? [])];
+  if (said.some((s) => s.includes("/read"))) return `a read while the page loaded was reported: ${said.join(" | ")}`;
   if (needs) return r.error && r.error.startsWith("not checked") && r.error.includes(needs) ? "" : `want "not checked" naming ${needs}, got ${JSON.stringify(r)}`;
   if (left && !(r.error && r.error.startsWith("not checked: the page left its route") && r.error.includes(`it went to ${left}`))) return `want "not checked: the page left its route" to ${left}, got ${JSON.stringify(r)}`;
   if (r.error && !left) return `errored: ${r.error}`;
   if (!left && (Object.keys(r.kinds).length !== Object.keys(kinds).length || Object.entries(kinds).some(([k, n]) => (r.kinds[k] ?? 0) !== n))) return `kinds ${JSON.stringify(r.kinds)} != ${JSON.stringify(kinds)}`;
-  const unheld = r.notHeld?.samples ?? [];
-  if (notHeld.length !== unheld.length || notHeld.some((ch) => !unheld.some((l) => l.includes(ch)))) return `not held ${JSON.stringify(unheld)}, want ${JSON.stringify(notHeld)}`;
   const want = Object.entries(kinds);
-  // A held write is never a finding: the count is the findings' alone.
+  // A write tried is never a finding: the count is the findings' alone.
   if (r.count !== want.reduce((a, [, n]) => a + n, 0)) return `count ${r.count} is not the findings' ${JSON.stringify(r.kinds)}`;
-  const got = r.held?.count ?? 0;
-  // A page that left: what it held as it went is the browser's timing, so only a stated number is checked.
-  const wantHeld = held ?? (left ? null : 0);
-  if (wantHeld !== null && (wantHeld === "1+" ? got < 1 : got !== wantHeld)) return `held ${got}, want ${wantHeld}: ${JSON.stringify(r.held)}`;
-  const lines = r.held?.samples ?? [];
-  if (heldLines !== null && lines.length !== heldLines) return `held in ${lines.length} lines, want ${heldLines}: ${lines.join(" | ")}`;
-  for (const re of heldSay) if (!lines.some((l) => re.test(l))) return `no held line matches ${re}: ${lines.join(" | ")}`;
+  const got = r.tried?.count ?? 0;
+  // A page that left: what it tried as it went is the browser's timing, so only a stated number is checked.
+  const wantTried = tried ?? (left ? null : 0);
+  if (wantTried !== null && (wantTried === "1+" ? got < 1 : got !== wantTried)) return `tried ${got}, want ${wantTried}: ${JSON.stringify(r.tried)}`;
+  const lines = r.tried?.samples ?? [];
+  if (triedLines !== null && lines.length !== triedLines) return `tried in ${lines.length} lines, want ${triedLines}: ${lines.join(" | ")}`;
+  for (const re of triedSay) if (!lines.some((l) => re.test(l))) return `no tried line matches ${re}: ${lines.join(" | ")}`;
   if ((r.notes ?? []).length !== notes) return `notes ${JSON.stringify(r.notes ?? [])}, want ${notes}`;
   return "";
 }
 
-// --- the fixture server: pages by name, and a log of every write that reached it ----------
+// --- the fixture server: pages by name, and a log of what reached it: every request, every WebSocket
+// message, every UDP packet on the same port (a WebRTC STUN request, a QUIC packet) --------------------
 function serve(port) {
-  const posts = [];
-  const times = [];
-  const alive = [];
+  const log = [];
+  const rec = (what) => log.push({ what, at: Date.now() });
   const server = http.createServer((req, res) => {
-    if (req.url.startsWith("/alive/")) alive.push({ what: req.url, at: Date.now() });
+    rec(`${req.method} ${req.url}`);
     if (req.method !== "GET" && req.method !== "HEAD") {
-      posts.push(`${req.method} ${req.url}`);
-      times.push(Date.now());
       req.resume();
-      res.writeHead(204);
+      res.writeHead(204, { "access-control-allow-origin": "*" });
       return res.end();
     }
-    const name = path.basename(new URL(req.url, "http://x").pathname.replace(/\/$/, "/clean")) || "clean";
+    const u = new URL(req.url, "http://x");
+    if (/^\/save([/?]|$)/.test(u.pathname)) {
+      res.writeHead(204, { "access-control-allow-origin": "*" });
+      return res.end();
+    }
+    const name = path.basename(u.pathname.replace(/\/$/, "/clean")) || "clean";
     const script = path.join(FIXTURES, name);
     if (name.endsWith(".js") && fs.existsSync(script)) {
       res.writeHead(200, { "content-type": "text/javascript; charset=utf-8" });
@@ -415,9 +412,26 @@ function serve(port) {
     res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
     res.end(fs.readFileSync(file));
   });
+  // A WebSocket: the handshake, then every text frame the browser sends (masked, short frames: the fixtures').
+  server.on("upgrade", (req, sock) => {
+    const accept = crypto.createHash("sha1").update(`${req.headers["sec-websocket-key"]}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`).digest("base64");
+    sock.write(`HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`);
+    sock.on("data", (buf) => {
+      if ((buf[0] & 0x0f) !== 1) return;
+      const len = buf[1] & 0x7f;
+      const mask = buf.subarray(2, 6);
+      rec(`WS ${Buffer.from(buf.subarray(6, 6 + len).map((b, i) => b ^ mask[i % 4])).toString()}`);
+    });
+    sock.on("error", () => {});
+  });
+  const udp = dgram.createSocket("udp4");
+  udp.on("message", (m) => rec(`UDP ${m.length} bytes`));
   return new Promise((resolve, reject) => {
     server.once("error", reject);
-    server.listen(port, "127.0.0.1", () => resolve({ server, posts, times, alive, port }));
+    server.listen(port, "127.0.0.1", () => {
+      udp.once("error", (err) => server.close(() => reject(err)));
+      udp.bind(port, "127.0.0.1", () => resolve({ server, udp, log, port }));
+    });
   });
 }
 async function serveFree() {
@@ -430,7 +444,12 @@ async function serveFree() {
     }
   }
 }
-const close = (s) => new Promise((r) => s.server.close(r));
+// Nothing waits on the close: the run reads no more of the server once it calls this.
+const close = async (s) => {
+  s.udp.close();
+  s.server.closeAllConnections();
+  s.server.close();
+};
 
 function typecheck() {
   const dir = fresh("a11y-tsc");
@@ -474,53 +493,66 @@ async function browserTests() {
   const real = { a11y: await import(pathToFileURL(MODULES.a11y).href), consent: await import(pathToFileURL(MODULES.consent).href) };
   const srv = await serveFree();
   const browser = await chromium.launch({ ignoreDefaultArgs: ["--disable-dev-shm-usage"] });
-  // One check on one page, as the spec runs it: a context of its own with the write guard and service
-  // workers blocked, a new page marked loading, "not checked" when the page tried to start what the
-  // guard takes away, the sends no route sees counted from here, the check, 500 ms, then "not checked"
-  // if the page left its route, else the writes the guard held in `held` and the unheld sends in
-  // `notHeld`; the page is never closed, the context is, on every path, and what reached the server is
-  // read after.
+  // One check on one page, as the spec's `run` runs it: the run's network (a proxy of its own), a context made
+  // through it with service workers blocked and the write guard, a new page, loaded and settled, "not checked"
+  // when the page tried to start what the checks take away, the cut (`watch`), settled again, the check,
+  // 500 ms, then "not checked" if the page left its route or started what is taken away, else the writes the
+  // route saw in `tried`; the context is closed while cut off, on every path, then the proxy; what reached
+  // the server is read after, split at the moment of the cut.
+  const wait = (ms) => new Promise((res) => setTimeout(res, ms));
   const check = async (mods, id, page) => {
-    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: "light", locale: "he-IL", serviceWorkers: "block" });
-    const before = srv.posts.length;
+    const net = await mods.a11y.networkCut();
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: "light", locale: "he-IL", serviceWorkers: "block", proxy: net.proxy });
+    const start = srv.log.length;
+    let cutAt = Infinity;
     const failed = (err) => ({ count: 0, kinds: {}, samples: [], error: String(err?.message ?? err) });
     const LEFT = (to) => `not checked: the page left its route during the check (it went to ${to}); nothing measured after that is reported`;
+    const TAKEN = (what) => `not checked: the page tries to start a ${what}, which the network cut does not reach, so these checks take it away`;
     let r;
     let guard = null;
     let p = null;
     try {
-      guard = await mods.a11y.installWriteGuard(ctx);
+      guard = await mods.a11y.installWriteGuard(ctx, net);
+      const watch = guard.watch;
+      guard.watch = (pg, moment) => {
+        if (cutAt === Infinity) cutAt = Date.now();
+        watch(pg, moment);
+      };
       p = await ctx.newPage();
-      guard.loading(p);
       await p.goto(`http://127.0.0.1:${srv.port}/${page}`);
       await p.waitForLoadState("networkidle").catch(() => {});
+      await wait(1200);
       const taken = await mods.a11y.needsTakenAway(p);
-      if (taken) throw new Error(`not checked: the page tries to start a ${taken}, which these checks take away`);
-      await mods.a11y.countSendsFromNow(p);
+      if (taken) throw new Error(TAKEN(taken));
+      guard.watch(p, "the network was cut off");
+      await p.waitForLoadState("networkidle").catch(() => {});
+      await wait(1200);
       r = await RUN[id][1](mods, p, guard);
-      await new Promise((res) => setTimeout(res, 500));
+      await wait(500);
       const went = guard.left(p);
-      await guard.stopped(p);
-      const sends = went ? {} : await mods.a11y.sendsNotHeld(p);
-      r = mods.a11y.withNotHeld(mods.a11y.withHeld(went ? failed(LEFT(went)) : r, guard.take()), sends);
+      const late = await mods.a11y.needsTakenAway(p);
+      r = mods.a11y.withTried(went ? failed(LEFT(went)) : late ? failed(TAKEN(late)) : r, guard.take());
     } catch (err) {
-      if (guard && p) await guard.stopped(p);
       const went = guard && p ? guard.left(p) : null;
-      r = mods.a11y.withHeld(failed(went ? LEFT(went) : err), guard ? guard.take() : []);
+      r = mods.a11y.withTried(failed(went ? LEFT(went) : err), guard ? guard.take() : []);
     } finally {
+      net.cut();
       await ctx.close();
+      await net.close();
     }
-    await new Promise((res) => setTimeout(res, 300));
-    return { r, posts: srv.posts.slice(before) };
+    await wait(300);
+    const mine = srv.log.slice(start);
+    return { r, before: mine.filter((e) => e.at < cutAt).map((e) => e.what), after: mine.filter((e) => e.at >= cutAt).map((e) => e.what) };
   };
   try {
     for (const kase of CASES) {
       const [id, page, kinds, opts = {}] = kase;
-      const { r, posts } = await check(real, id, page);
-      const why = differs(r, kase, posts);
-      const extra = [opts.notes ? `${opts.notes} note` : "", opts.held ? `${opts.held} held apart` : "", opts.needs ? `"not checked" for ${opts.needs}` : ""].filter(Boolean).join(", ");
-      ok(!why, `${id} on ${page}.html finds ${JSON.stringify(kinds)}${extra ? ` (${extra})` : ""}`, `${why}; ${JSON.stringify(r)}`);
-      console.log(`       ${id} on ${page}.html: ${JSON.stringify({ count: r.count, kinds: r.kinds, notes: r.notes, held: r.held, error: r.error, samples: r.samples.slice(0, 3) })}${posts.length ? ` posts ${posts.join(", ")}` : ""}`);
+      const { r, before, after } = await check(real, id, page);
+      const why = differs(r, kase, before, after);
+      const extra = [opts.notes ? `${opts.notes} note` : "", opts.tried ? `${opts.tried} tried while cut off` : "", opts.needs ? `"not checked" for ${opts.needs}` : "", opts.left ? `left to ${opts.left}` : ""].filter(Boolean).join(", ");
+      ok(!why, `${id} on ${page}.html finds ${JSON.stringify(kinds)}${extra ? ` (${extra})` : ""}, and the server received nothing after the cut`, `${why}; ${JSON.stringify(r)}`);
+      const w = (xs) => xs.filter(isWrite);
+      console.log(`       ${id} on ${page}.html: ${JSON.stringify({ count: r.count, kinds: r.kinds, notes: r.notes, tried: r.tried, error: r.error, samples: r.samples.slice(0, 3) })}; server writes before the cut ${w(before).length}, after ${w(after).length}`);
       if (id === "text-reflow" && page === "text-reflow-fig9") ok(r.samples.some((s) => /sideways: .*widest <p> /.test(s)), "Figure 9: the sideways finding names the widened paragraph, not the table", JSON.stringify(r.samples));
       if (id === "text-reflow" && page === "text-reflow") ok(r.samples.some((s) => /sideways: .*widest <div> "טבלה רחבה" 500px/.test(s)), "the sideways finding names the widest element", JSON.stringify(r.samples));
     }
@@ -542,9 +574,9 @@ async function browserTests() {
         continue;
       }
       const mod = await import(pathToFileURL(file).href);
-      const { r, posts } = await check({ ...real, [module]: mod }, id, page);
-      const why = differs(r, caseOf(id, page), posts);
-      ok(!!why, `${id}: the mutant ${name} fails the ${page}.html case`, `the mutant still gives ${JSON.stringify({ kinds: r.kinds, held: r.held, notHeld: r.notHeld, error: r.error })}`);
+      const { r, before, after } = await check({ ...real, [module]: mod }, id, page);
+      const why = differs(r, caseOf(id, page), before, after);
+      ok(!!why, `${id}: the mutant ${name} fails the ${page}.html case`, `the mutant still gives ${JSON.stringify({ kinds: r.kinds, tried: r.tried, error: r.error })}`);
       console.log(`       mutant ${name} on ${page}.html: ${why}`);
     }
   } finally {
@@ -580,18 +612,14 @@ function runDod(dir, port) {
   });
 }
 const ROUTES = ["/clean", "/forced-colors", "/consent"];
-// The phase run also takes the pages that try to save (the second review's C7): the spec's own guard
-// wiring, end to end. Only the extended checks switch forced colours on, press Tab or resize a loaded
-// page, but the other phases navigate, which runs save-on-leave.html's pagehide handlers: so the server
-// must get no /save from the moment the extended checks start (2 s after the last standard result is
-// written). save-in-shared-worker.html and save-shw-iframe.html are tested in the browser cases only: the
-// scored phase (dod.spec.ts, not these checks) times out on a page that starts a SharedWorker (all four
-// entries, 120 s each). WHOLE_RUN: pages that write only when something of an earlier check outlives it
-// (an outbox in localStorage, another open tab, a retry loop) or when forced colours switch on, which no
-// other phase does: none of their writes may reach the server at any time of the run.
+// The phase run also takes the pages that try to write (the second review's C7): the spec's own wiring of
+// the cut, end to end. Only the extended checks switch forced colours on, press Tab or resize a loaded page,
+// and the pages below write only then (or when something of an earlier run outlives it: an outbox in
+// localStorage, another open tab, a retry loop), so the server must get none of their writes at any time of
+// the run (WHOLE_RUN), and no write at all from the moment the extended checks start (2 s after the last
+// standard result is written) but the reads of reads-on-load as it loads.
 const SAVE_ROUTES = [
   "/save-on-focus",
-  "/save-on-leave",
   "/save-via-sw",
   "/save-in-popup",
   "/save-in-worker",
@@ -605,29 +633,37 @@ const SAVE_ROUTES = [
   "/save-ping",
   "/save-popup-close",
   "/save-late",
-  "/send-unheld",
+  "/save-xrealm-leave",
+  "/save-pageswap",
+  "/save-worker-ws",
+  "/save-popup-ws",
+  "/save-ws-leave",
+  "/save-ws-open",
+  "/save-webrtc",
+  "/save-webrtc-load",
+  "/cut-banner",
   "/reads-on-load",
 ];
-const WHOLE_RUN = /\/save\/(outbox|tabsync|retry|fetchlater|form|ping|popup-leave|late)\b/;
+// save-xrealm-leave and save-pageswap write as a page leaves, which the other phases' navigations set off too.
+const WHOLE_RUN = /\/save\/(outbox|tabsync|retry|fetchlater|form|ping|popup-leave|late|worker-ws)\b|ev=(via-sw|popup)|^(WS|UDP) /;
 const IDS = ["forced-colors", "text-reflow", "text-spacing", "consent-prechecked", "consent-refuse"];
 const sum = (kinds) => Object.values(kinds).reduce((a, b) => a + b, 0);
 
 /**
  * What a checks-phase run must show, as [name, routes it needs, holds, detail] rows: every row whose routes
- * all ran is judged. `posts` and `alive` are what reached the server during the run judged, `extStart` the
- * moment the extended checks started, `log` its output.
+ * all ran is judged. `got` is what reached the server during the run judged, `extStart` the moment the
+ * extended checks started, `log` the run's output.
  */
-function phaseRows({ dir, routes, posts, alive, extStart, log }) {
+function phaseRows({ dir, routes, got, extStart, log }) {
   const out = path.join(dir, "reports", "dod", "results", "extended");
   const read = (slug) => (fs.existsSync(path.join(out, `${slug}.json`)) ? JSON.parse(fs.readFileSync(path.join(out, `${slug}.json`), "utf8")) : null);
-  const mtime = (slug) => (fs.existsSync(path.join(out, `${slug}.json`)) ? fs.statSync(path.join(out, `${slug}.json`)).mtimeMs : 0);
-  const saves = posts.filter((p) => p.what.includes("/save") && p.at >= extStart).map((p) => p.what);
-  const savesBefore = posts.filter((p) => p.what.includes("/save") && p.at < extStart).length;
-  const wholeRun = posts.filter((p) => WHOLE_RUN.test(p.what)).map((p) => p.what);
-  const reads = posts.filter((p) => p.what.includes("/read"));
+  const writes = got.filter((p) => isWrite(p.what) && p.at >= extStart && !p.what.startsWith("POST /read")).map((p) => p.what);
+  const writesBefore = got.filter((p) => isWrite(p.what) && p.at < extStart).length;
+  const wholeRun = got.filter((p) => WHOLE_RUN.test(p.what)).map((p) => p.what);
+  const reads = got.filter((p) => p.what.startsWith("POST /read"));
   const chk = (slug, id) => read(slug)?.checks[id];
-  const heldOf = (slug, id) => chk(slug, id)?.held?.count ?? 0;
-  const heldSays = (slug, id, re) => (chk(slug, id)?.held?.samples ?? []).some((l) => re.test(l));
+  const triedOf = (slug, id) => chk(slug, id)?.tried?.count ?? 0;
+  const triedSays = (slug, id, re) => (chk(slug, id)?.tried?.samples ?? []).some((l) => re.test(l));
   const counts = (slug) => IDS.map((id) => chk(slug, id)?.count);
   const errs = (slug) => IDS.filter((id) => chk(slug, id)?.error);
   const logLine = (slug) => log.split("\n").find((l) => l.includes(`[dod] extended /${slug}:`)) ?? "";
@@ -635,29 +671,31 @@ function phaseRows({ dir, routes, posts, alive, extStart, log }) {
   const rows = [];
   const row = (name, need, holds, detail = "") => rows.push([name, need, holds, detail]);
   const all = routes.map((r) => read(r.slice(1))).filter(Boolean);
-  row(`no /save reached the server while the extended checks ran (${savesBefore} came earlier, from the other phases' navigations)`, [], !saves.length, saves.join(", "));
-  row(`no write of the pages that write only in these checks reached the server at any time of the run (${posts.length} writes reached it in all)`, [], !wholeRun.length, wholeRun.join(", "));
-  for (const slug of ["save-on-focus", "save-via-sw", "save-in-popup", "save-in-worker", "save-outbox", "save-retry", "save-fetchlater", "save-forms", "save-ping", "save-popup-close", "save-late"])
-    row(`${slug}.json: forced-colors held ${heldOf(slug, "forced-colors")} write(s) apart, every count 0, and the log says "forced-colors clean (N writes held)"`, [`/${slug}`], heldOf(slug, "forced-colors") >= 1 && counts(slug).every((n) => n === 0) && !errs(slug).length && /forced-colors clean \(\d+ writes? held\)/.test(logLine(slug)), JSON.stringify(read(slug)));
-  row(`save-retry.json: no other check holds a try of the loop or counts one (${IDS.map((id) => `${id} ${heldOf("save-retry", id)}`).join(", ")})`, ["/save-retry"], IDS.filter((id) => id !== "forced-colors").every((id) => heldOf("save-retry", id) === 0 && chk("save-retry", id)?.count === 0), JSON.stringify(read("save-retry")));
-  const lateAlive = alive.filter((a) => a.what.startsWith("/alive/save-retry") && a.at > mtime("save-retry") + 1500);
-  row(`save-retry ends with its check's context: no read of the page's heartbeat came more than 1.5 s after its result was written (${alive.length} heartbeats in all)`, ["/save-retry", "/reads-on-load"], mtime("save-retry") > 0 && !lateAlive.length, `${lateAlive.length} late, the last at +${lateAlive.length ? Math.round(lateAlive.at(-1).at - mtime("save-retry")) : 0} ms`);
-  row("save-late.json: the write set off as forced-colors ends (200 ms after) is held under forced-colors", ["/save-late"], heldSays("save-late", "forced-colors", /\(POST \/save\/late\)/), JSON.stringify(chk("save-late", "forced-colors")));
-  row('save-forms.json: the form posted into a new window is held as "a new window, or a worker (no page)"', ["/save-forms"], heldSays("save-forms", "forced-colors", /a new window, or a worker \(no page\) tried to write \(POST \/save\/form\/blank\)/), JSON.stringify(chk("save-forms", "forced-colors")));
-  row("save-popup-close.json: the popup's beacon as its opener closed it was not sent, and is held under forced-colors", ["/save-popup-close"], heldSays("save-popup-close", "forced-colors", /\/save\/popup-leave\/beacon\) once, first when it was leaving \(sendBeacon, not sent\)/), JSON.stringify(chk("save-popup-close", "forced-colors")));
-  // Review 5's B1 and B3: the app leaves its route during a check.
-  row('save-resize-leave.json: text-reflow and text-spacing are "not checked: the page left its route" (it went to /clean), its beacons held, and the log says "not checked"', ["/save-resize-leave"], ["text-reflow", "text-spacing"].every((id) => leftTo("save-resize-leave", id, "/clean") && heldSays("save-resize-leave", id, /it was leaving \(sendBeacon, not sent\)/)) && /text-reflow not checked \(\d+ writes? held\), text-spacing not checked/.test(logLine("save-resize-leave")), JSON.stringify(read("save-resize-leave")));
-  row("save-spacing-redirect.json: nothing of /text-spacing is reported under it (text-spacing not checked, 0 findings)", ["/save-spacing-redirect"], leftTo("save-spacing-redirect", "text-spacing", "/text-spacing") && !/found/.test(logLine("save-spacing-redirect")), JSON.stringify(read("save-spacing-redirect")));
-  row('send-unheld.json: the WebSocket, WebRTC and WebTransport sends are named "not held", and the log says "no findings", never "clean"', ["/send-unheld"], (chk("send-unheld", "forced-colors")?.notHeld?.samples ?? []).length === 3 && /forced-colors no findings \(\d+ sends not held\)/.test(logLine("send-unheld")), JSON.stringify(chk("send-unheld", "forced-colors")));
-  const leaveRan = alive.filter((a) => a.what.startsWith("/alive/save-on-leave") && a.at >= extStart);
-  row(`save-on-leave: its pagehide handler did not run while the extended checks ran (${leaveRan.length} reads from it)`, ["/save-on-leave"], !leaveRan.length, leaveRan.map((a) => a.what).join(", "));
-  for (const slug of ["save-on-leave", "save-tabsync", "reads-on-load"])
-    row(`${slug}.json: nothing to hold, nothing found, no check errored`, [`/${slug}`], IDS.every((id) => heldOf(slug, id) === 0) && counts(slug).every((n) => n === 0) && !errs(slug).length, JSON.stringify(read(slug)));
-  row("no result counts a held write as a finding (no `write-held` kind)", [], !all.some((j) => IDS.some((id) => j.checks[id]?.kinds?.["write-held"] !== undefined)), "");
-  // Review 5's C4: a held read is in `held.samples`, so both lists are read.
-  const heldRead = all.flatMap((j) => IDS.flatMap((id) => [...(j.checks[id]?.samples ?? []), ...(j.checks[id]?.held?.samples ?? [])])).filter((x) => x.includes("/read"));
+  row(`no write reached the server while the extended checks ran, but reads-on-load's reads as it loads (${writesBefore} came earlier, from the other phases)`, [], !writes.length, writes.join(", "));
+  row(`no write of the pages that write only in these checks reached the server at any time of the run (${got.length} requests and messages reached it in all)`, [], !wholeRun.length, wholeRun.join(", "));
+  for (const slug of ["save-on-focus", "save-via-sw", "save-in-worker", "save-outbox", "save-retry", "save-forms", "save-ping", "save-late", "save-worker-ws"])
+    row(`${slug}.json: forced-colors recorded ${triedOf(slug, "forced-colors")} write(s) tried while cut off, every count 0, and the log says "forced-colors clean (N writes tried while cut off)"`, [`/${slug}`], triedOf(slug, "forced-colors") >= 1 && counts(slug).every((n) => n === 0) && !errs(slug).length && /forced-colors clean \(\d+ writes? tried while cut off\)/.test(logLine(slug)), JSON.stringify(read(slug)));
+  for (const slug of ["save-in-popup", "save-fetchlater", "save-popup-close", "save-popup-ws", "save-ws-open", "save-tabsync"])
+    row(`${slug}.json: every check clean, nothing errored`, [`/${slug}`], counts(slug).every((n) => n === 0) && !errs(slug).length, JSON.stringify(read(slug)));
+  row(`save-retry.json: no other check records a try of the loop or counts one (${IDS.map((id) => `${id} ${triedOf("save-retry", id)}`).join(", ")})`, ["/save-retry"], IDS.filter((id) => id !== "forced-colors").every((id) => triedOf("save-retry", id) === 0 && chk("save-retry", id)?.count === 0), JSON.stringify(read("save-retry")));
+  row("save-late.json: the write set off as forced-colors ends (200 ms after) is recorded under forced-colors", ["/save-late"], triedSays("save-late", "forced-colors", /\(POST \/save\/late\)/), JSON.stringify(chk("save-late", "forced-colors")));
+  row('save-forms.json: the form posted into a new window is recorded as "a new window, or a worker (no page)"', ["/save-forms"], triedSays("save-forms", "forced-colors", /a new window, or a worker \(no page\) tried to write \(POST \/save\/form\/blank\)/), JSON.stringify(chk("save-forms", "forced-colors")));
+  // Pages that leave their route during a check: under the cut the navigation ends on an error page.
+  row('save-resize-leave.json: text-reflow and text-spacing are "not checked: the page left its route" (it went to an error page), and the log says "not checked"', ["/save-resize-leave"], ["text-reflow", "text-spacing"].every((id) => leftTo("save-resize-leave", id, "an error page")) && /text-reflow not checked.*text-spacing not checked/.test(logLine("save-resize-leave")), JSON.stringify(read("save-resize-leave")));
+  row("save-spacing-redirect.json: nothing of where it went is reported under it (text-spacing not checked, 0 findings)", ["/save-spacing-redirect"], leftTo("save-spacing-redirect", "text-spacing", "an error page") && !/found/.test(logLine("save-spacing-redirect")), JSON.stringify(read("save-spacing-redirect")));
+  for (const slug of ["save-xrealm-leave", "save-pageswap", "save-ws-leave"])
+    row(`${slug}.json: forced-colors is "not checked: the page left its route" (an error page)`, [`/${slug}`], leftTo(slug, "forced-colors", "an error page"), JSON.stringify(chk(slug, "forced-colors")));
+  // The refusal: a page that tries to start a WebRTC connection, during the check or as it loads.
+  row('save-webrtc.json: forced-colors is "not checked", naming the WebRTC connection, and the log says so', ["/save-webrtc"], /^not checked: the page tries to start a WebRTC connection/.test(chk("save-webrtc", "forced-colors")?.error ?? "") && /forced-colors not checked/.test(logLine("save-webrtc")), JSON.stringify(chk("save-webrtc", "forced-colors")));
+  row('save-webrtc-load.json: every check is "not checked", naming the WebRTC connection', ["/save-webrtc-load"], IDS.every((id) => /^not checked: the page tries to start a WebRTC connection/.test(chk("save-webrtc-load", id)?.error ?? "")), JSON.stringify(read("save-webrtc-load")));
+  // The page under the cut: its banner is named on every check, and the log says so.
+  row('cut-banner.json: every check carries `changedWhenCut`, and the log says "changed when cut off" for each', ["/cut-banner"], IDS.every((id) => typeof chk("cut-banner", id)?.changedWhenCut === "string") && (logLine("cut-banner").match(/changed when cut off/g) ?? []).length === IDS.length, `${logLine("cut-banner")} ${JSON.stringify(read("cut-banner"))}`);
+  row("no other page changed when cut off", [], !all.some((j) => j.route !== "/cut-banner" && IDS.some((id) => j.checks[id]?.changedWhenCut)), all.filter((j) => j.route !== "/cut-banner" && IDS.some((id) => j.checks[id]?.changedWhenCut)).map((j) => j.route).join(", "));
+  row("no result counts a write tried as a finding (no `write-held` kind)", [], !all.some((j) => IDS.some((id) => j.checks[id]?.kinds?.["write-held"] !== undefined)), "");
+  // Review 5's C4: a recorded read would be in `tried.samples`, so both lists are read.
+  const triedRead = all.flatMap((j) => IDS.flatMap((id) => [...(j.checks[id]?.samples ?? []), ...(j.checks[id]?.tried?.samples ?? [])])).filter((x) => x.includes("/read"));
   row(`a page's own POST while it loads reaches the server (${reads.length} reads)`, ["/reads-on-load"], reads.length > 0, `reads ${reads.length}`);
-  row("no result holds a page's own POST while it loads (its samples and its held samples)", ["/reads-on-load"], !heldRead.length, heldRead.join(" | "));
+  row("no result records a page's own POST while it loads (its samples and its tried samples)", ["/reads-on-load"], !triedRead.length, triedRead.join(" | "));
   return rows;
 }
 
@@ -678,10 +716,8 @@ function spawnIn(dir, name, cmd, argv, env) {
 // Spec mutants (review 5's C3): [name, [[text, replacement], ...], the routes it runs on, the row it must fail].
 // Each runs the extended project alone on a copy of the measured project, routes.json cut to its routes.
 const SPEC_MUTANTS = [
-  ["no-close", [["if (ctx) await ctx.close().catch(() => {});", ""]], ["/save-retry", "/reads-on-load"], "save-retry ends with its check's context"],
+  ["spec-no-proxy", [["proxy: net.proxy,", ""]], ["/save-on-focus", "/save-ws-open"], "no write reached the server while the extended checks ran"],
   ["no-settle", [["await settleWrites();", ""]], ["/save-late"], "save-late.json: the write set off as forced-colors ends"],
-  ["no-loading", [["guard.loading(page);", ""]], ["/reads-on-load"], "no result holds a page's own POST while it loads"],
-  ["close-page", [["if (ctx) await ctx.close().catch(() => {});", "if (page) await page.close().catch(() => {});\n              if (ctx) await ctx.close().catch(() => {});"]], ["/save-on-leave"], "save-on-leave: its pagehide handler did not run"],
   [
     "chain-state",
     [
@@ -692,24 +728,22 @@ const SPEC_MUTANTS = [
     ["/save-outbox"],
     "no write of the pages that write only in these checks",
   ],
+  ["no-left-check", [["const went = guard.left(page);", "const went = null as string | null;"]], ["/save-spacing-redirect"], "save-spacing-redirect.json: nothing of where it went"],
   [
-    "one-context",
+    "no-refusal",
     [
-      ["ctx = await browser.newContext({", "ctx = (globalThis as unknown as { __c?: BrowserContext }).__c ??= await browser.newContext({"],
-      ["guard = await installWriteGuard(ctx);", "guard = (globalThis as unknown as { __g?: WriteGuard }).__g ??= await installWriteGuard(ctx);"],
-      ["if (ctx) await ctx.close().catch(() => {});", ""],
+      ["if (taken) throw new Error(TAKEN(taken));", ""],
+      ["const late = await needsTakenAway(page);", "const late = null as string | null;"],
     ],
-    ["/save-tabsync"],
-    "no /save reached the server while the extended checks ran",
+    ["/save-webrtc", "/save-webrtc-load"],
+    "save-webrtc.json: forced-colors is \"not checked\"",
   ],
-  ["no-left-check", [["const went = guard.left(page);", "const went = null as string | null;"]], ["/save-spacing-redirect"], "save-spacing-redirect.json: nothing of /text-spacing"],
-  ["no-stopped", [["              await guard.stopped(page);\n", ""]], ["/save-popup-close"], "save-popup-close.json: the popup's beacon"],
+  ["no-second-fingerprint", [["const changed = fingerprintDiff(before, await pageFingerprint(page), CUT_TOLERANCE);", "const changed = before ? null : null;"]], ["/cut-banner"], "cut-banner.json: every check carries `changedWhenCut`"],
 ];
 
 /** The checks phase of a real run: run-dod.mjs on a throwaway project with the routes above, then each spec mutant. */
 async function phaseTest() {
   const srv = await serveFree();
-  const at = () => srv.posts.map((what, i) => ({ what, at: srv.times[i] }));
   try {
     const routes = [...ROUTES, ...SAVE_ROUTES];
     const dir = project("extended-run", routes, { profile: "work-tool" });
@@ -734,7 +768,7 @@ async function phaseTest() {
     const std = fs.readdirSync(resDir).filter((f) => f.endsWith(".standard.json")).map((f) => mt(resDir, f));
     const ext = fs.existsSync(out) ? fs.readdirSync(out).map((f) => mt(out, f)) : [];
     ok(std.length > 0 && ext.length === routes.length && Math.min(...ext) >= Math.max(...std), "the extended checks run after every standard check (their own project, the checks project's teardown)", `standard results ${std.length}, last at ${Math.max(...std)}; extended ${ext.length}, first at ${Math.min(...ext)}`);
-    for (const [name, , holds, detail] of phaseRows({ dir, routes, posts: at(), alive: srv.alive, extStart, log })) ok(holds, name, detail);
+    for (const [name, , holds, detail] of phaseRows({ dir, routes, got: srv.log, extStart, log })) ok(holds, name, detail);
     const dod = JSON.parse(fs.readFileSync(path.join(dir, "reports", "dod", "dod.json"), "utf8"));
     // No key of dod.json is one of these check ids (a route named /forced-colors is a route, "/forced-colors").
     const keys = new Set();
@@ -742,7 +776,7 @@ async function phaseTest() {
       if (o && typeof o === "object") for (const [k, v] of Object.entries(o)) (keys.add(k), walk(v));
     };
     walk(dod);
-    const leaked = [...IDS, "extended", "write-held", "held", "notHeld"].filter((id) => keys.has(id));
+    const leaked = [...IDS, "extended", "write-held", "tried", "changedWhenCut"].filter((id) => keys.has(id));
     ok(!leaked.length && dod.totals && typeof dod.totals.score === "number", `dod.json carries nothing of these checks (report only, outside the score); score ${dod.totals && dod.totals.score}`, `keys: ${leaked.join(", ")}`);
     if (args.includes("--skip-spec-mutants")) return;
     // Each spec mutant: the extended project alone, on a copy of the measured project, with its own routes.
@@ -765,14 +799,13 @@ async function phaseTest() {
         continue;
       }
       fs.writeFileSync(specFile, spec);
-      const before = srv.posts.length;
-      const aliveBefore = srv.alive.length;
+      const before = srv.log.length;
       const t0 = Date.now();
       const env = { ...process.env, PORT: String(srv.port), DOD_WORKERS: "1", DOD_USER: "", DOD_PASSWORD: "", DOD_PHASE: "checks" };
       delete env.CI;
       const r = await spawnIn(mdir, "run", process.execPath, [cli, "test", "-c", "playwright.dod.config.ts", "--project", "extended", "--reporter=line"], env);
       await new Promise((res) => setTimeout(res, 2000));
-      const rows = phaseRows({ dir: mdir, routes: mroutes, posts: at().slice(before), alive: srv.alive.slice(aliveBefore), extStart: t0, log: r.log });
+      const rows = phaseRows({ dir: mdir, routes: mroutes, got: srv.log.slice(before), extStart: t0, log: r.log });
       const judged = rows.filter(([, need]) => need.every((x) => mroutes.includes(x)));
       const target = judged.find(([n]) => n.startsWith(mustFail));
       ok(!!target && !target[2], `spec mutant ${name} fails "${mustFail}..." (on ${mroutes.join(" ")})`, target ? `it still holds: ${target[3]}` : `no such row among ${judged.map(([n]) => n.slice(0, 50)).join(" | ")}`);

@@ -27,7 +27,7 @@
     a.send("x");
     const s = new XMLHttpRequest();
     s.open("POST", "/save/xhr/sync", false);
-    try { s.send("x"); } catch { /* held: the request fails */ }
+    try { s.send("x"); } catch { /* cut off: the request fails */ }
   });
 </script>
 </body>

@@ -19,9 +19,9 @@
 </main>
 <script>
   // An app that retries a failed save every 100 ms, up to 300 times (the third review's B1 and C4),
-  // from the moment forced colours switch on. The guard holds every try; the tries are one line of
-  // the forced-colors check's `held`, with their number, and the loop ends with that check's context,
-  // so no later check holds any of them and none reaches the server.
+  // from the moment forced colours switch on. The cut stops every try; the tries are one line of the
+  // forced-colors check's `tried`, with their number, and the loop ends with that check's context, so
+  // no later check records any of them and none reaches the server.
   let tries = 0;
   const go = () =>
     fetch("/save/retry/try-" + ++tries, { method: "POST", body: "x" })
@@ -36,9 +36,6 @@
     if (e.matches && !started) {
       started = true;
       go();
-      // A read every 250 ms for as long as the page lives: the kit's test sees from these that the page
-      // ends with its check's context (a GET passes the guard).
-      setInterval(() => fetch("/alive/save-retry").catch(() => {}), 250);
     }
   });
 </script>

@@ -19,9 +19,8 @@
   <p>כאן מעדכנים את פרטי הלקוחה של הסניף. השינויים נשמרים לבד ונשלחים לשרת, כמו באפליקציה אמיתית שעובדת עם תורים, הודעות ותשלומים.</p>
 </main>
 <script>
-  // A popup the page opens on forced colours and closes 700 ms later; the popup saves as it loads (held)
-  // and by beacon and keepalive fetches as it is closed (sent as ordinary fetches, which do not reach the
-  // server).
+  // A popup the page opens on forced colours and closes 700 ms later; the popup would save as it loads
+  // and by beacon and keepalive fetches as it is closed. Under the cut it cannot load at all.
   const onForcedColors = (f) => matchMedia("(forced-colors: active)").addEventListener("change", (e) => { if (e.matches) f(); });
   onForcedColors(() => {
     const w = window.open("/popup-leave", "_blank");

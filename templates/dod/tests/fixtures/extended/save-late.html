@@ -20,7 +20,7 @@
 </main>
 <script>
   // A save 200 ms after forced colours switch off again, which is how forced-colors ends: the spec waits
-  // 500 ms after a check before it takes what the guard held, so this write is counted under it.
+  // 500 ms after a check before it takes what the route recorded, so this write is counted under it.
   const onForcedColors = (f) => matchMedia("(forced-colors: active)").addEventListener("change", (e) => { if (e.matches) f(); });
   matchMedia("(forced-colors: active)").addEventListener("change", (e) => {
     if (!e.matches) setTimeout(() => fetch("/save/late", { method: "POST", body: "x" }).catch(() => {}), 200);

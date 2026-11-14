@@ -20,9 +20,9 @@
 </main>
 <script>
   // The app goes to another page when forced colours switch on, and saves its draft as it leaves, by
-  // sendBeacon and keepalive fetches (round 5's B1): the guard sends those as ordinary fetches, which the
-  // browser cancels with the document, so none reaches the server; the check is "not checked: the page
-  // left its route", since what it measures after that is another page.
+  // sendBeacon and keepalive fetches (round 5's B1): the network is cut, so the navigation ends on an
+  // error page and none of them reaches the server; the check is "not checked: the page left its route",
+  // since what it measures after that is another page.
   const onForcedColors = (f) => matchMedia("(forced-colors: active)").addEventListener("change", (e) => { if (e.matches) f(); });
   addEventListener("pagehide", () => {
     navigator.sendBeacon("/save/leave-nav/beacon", "x");

@@ -21,8 +21,8 @@
   // An app that syncs its open tabs (the third review's B1): a new tab says hello on a BroadcastChannel
   // and in localStorage, and saves when another tab of the same browser answers. A tab is alone in a
   // browser context of its own; if a check's page shared one with an earlier check's page, the new
-  // page would save while it loads, a write the guard lets pass. So no write of this page may reach
-  // the server at any time of a run.
+  // page would save while it loads, before the cut. So no write of this page may reach the server at
+  // any time of a run.
   const bc = new BroadcastChannel("app");
   bc.onmessage = (e) => {
     if (e.data === "hello") bc.postMessage("here");
