@@ -119,6 +119,9 @@ account holder's Apple ID, creates it under Integrate → Create Workflow.
 - The App Store Connect API can do everything after the product exists: change a workflow's
   project, branch, start condition or `isEnabled` (`PATCH /v1/ciWorkflows/<id>`), or add a workflow
   (`POST /v1/ciWorkflows`). Only the environment variables need App Store Connect's web page.
+  `POST /v1/ciBuildRuns` with only the workflow relationship starts a manual build on the workflow's
+  branch. Green Room's first Archive (remote-URL shell, `ci_post_clone.sh` with pnpm install and cap
+  sync) succeeded in about 4 minutes (2026-11-14, build 1).
 - The web half runs in `ci_scripts/ci_post_clone.sh` next to each `.xcodeproj`. Its client keys come
   from the workflow's environment variables, which the owner pastes. Adding `ci_scripts` changes the
   iOS runtime, because it is a tracked file under the native project. Start Xcode Cloud's build number
