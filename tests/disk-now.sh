@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for bin/disk-now and bin/docker-tidy with fake gdu, docker, sudo and hostname on PATH and
+# Tests for bin/disk-now and bin/docker-tidy with fake du, docker, sudo and hostname on PATH and
 # HOME in a temp dir, so no real disk scan, image or other machine is touched.
 #   tests/disk-now.sh
 set -u
@@ -16,9 +16,11 @@ printf '#!/bin/sh\nexit 1\n' >"$t/fakebin/sudo"
 # `du -B1` prints them) and exits with $DT_T/du.rc (default 0).
 cat >"$t/fakebin/du" <<'EOF'
 #!/bin/sh
+echo "start $$" >>"$DT_T/du.order"
 [ -n "$DT_SLOW" ] && sleep "$DT_SLOW"
 echo "$*" >"$DT_T/du.args"
-sed -E 's/^ *([0-9]+) +/\1\t/' "$DT_T/gdu.out"
+tac "$DT_T/gdu.out" | sed -E 's/^ *([0-9]+) +/\1\t/'
+echo "end $$" >>"$DT_T/du.order"
 exit "$(cat "$DT_T/du.rc" 2>/dev/null || echo 0)"
 EOF
 chmod +x "$t/fakebin/"*
@@ -86,9 +88,34 @@ ls -A "$HOME/.cache/disk-map" | grep -q '^\.scan\.' && bad "no temp file is left
 
 # Two scans at once: the second waits for the lock, and the map is whole afterwards.
 cp "$t/gdu.keep" "$t/gdu.out"; echo 0 >"$t/du.rc"
+rm -f "$t/du.order"
 DT_SLOW=1 "$dn" --scan & p1=$!
-sleep 0.2; "$dn" --scan; wait "$p1"
+sleep 0.3; "$dn" --scan; wait "$p1"
+[ "$(awk '{ print $1 }' "$t/du.order" | tr '\n' ' ')" = "start end start end " ] && ok "a second scan waits for the first" || bad "du order: $(cat "$t/du.order")"
 [ "$(grep -vc '^#' "$m")" = "$(grep -c '' "$t/gdu.keep")" ] && [ "$(grep -c '^#' "$m")" = 1 ] && ok "two scans at once leave one whole map" || bad "map after two scans: $(cat "$m")"
+
+# A cut-off map (du exit 1 on a full disk, the root line missing) keeps the old map.
+before=$(md5sum <"$m"); echo 1 >"$t/du.rc"; tail -n +3 "$t/gdu.keep" >"$t/gdu.out"
+"$dn" --scan 2>/dev/null && bad "a cut-off map exits non-zero" || ok "a cut-off map exits non-zero"
+[ "$(md5sum <"$m")" = "$before" ] && ok "a cut-off map keeps the old one" || bad "a cut-off map replaced the old one"
+echo 0 >"$t/du.rc"; cp "$t/gdu.keep" "$t/gdu.out"
+
+# A scan of a smaller root (sudo stopped working) does not replace a map of /.
+sed -i "1s|root [^ ]* |root / |" "$m"; before=$(md5sum <"$m")
+"$dn" --scan 2>/dev/null && bad "a scan of another root exits non-zero" || ok "a scan of another root exits non-zero"
+[ "$(md5sum <"$m")" = "$before" ] && ok "a scan of another root keeps the map of /" || bad "the map of / was replaced"
+sed -i "1s|root / |root $r |" "$m"
+
+# --in takes a relative path.
+out=$(cd "$r" && "$dn" --in Projects)
+grep -q '/Projects/big$' <<<"$out" && ok "--in resolves a relative path" || bad "--in relative: $out"
+
+# A change two levels down counts against the nearest changed ancestor.
+"$dn" --scan
+sed -i -E "s|^ *[0-9]+ $r/Projects/big/node_modules\$| $((14 * G)) $r/Projects/big/node_modules|; s|^ *[0-9]+ $r/Projects/big\$| $((25 * G)) $r/Projects/big|; s|^ *[0-9]+ $r/Projects\$| $((35 * G)) $r/Projects|; s|^ *[0-9]+ $r\$| $((45 * G)) $r|" "$t/gdu.out"
+sed -i -E "s|^ *[0-9]+ $r/Projects/big\$| $((23 * G + G / 2)) $r/Projects/big|" "$t/gdu.out"
+"$dn" --scan && out=$("$dn" --local)
+grep -qE '5\.0\+ .*/node_modules$' <<<"$out" && ! grep -qE '\+ .*/Projects( |$)' <<<"$out" && ok "a change below a small change counts once" || bad "nested growth: $out"
 
 # docker-tidy: fake docker. Images (repo, tag, id, created); c1 uses pg:3 (the oldest).
 cat >"$t/fakebin/docker" <<'EOF'
@@ -97,7 +124,7 @@ case "$1" in
   info) exit 0 ;;
   ps) echo c1 ;;
   inspect) echo sha256:pg3 ;;
-  images) printf 'pw\tv4\tsha256:pw4\t2026-11-01 10:00:00 +0200 IST\npw\tv3\tsha256:pw3\t2026-10-01 10:00:00 +0200 IST\npw\tv2\tsha256:pw2\t2026-09-01 10:00:00 +0200 IST\npw\tv1\tsha256:pw1\t2026-08-01 10:00:00 +0200 IST\npg\t5\tsha256:pg5\t2026-11-01 10:00:00 +0200 IST\npg\t4\tsha256:pg4\t2026-10-01 10:00:00 +0200 IST\npg\t3\tsha256:pg3\t2026-09-01 10:00:00 +0200 IST\nredis\ta\tsha256:r1\t2026-11-01 10:00:00 +0200 IST\nredis\tb\tsha256:r1\t2026-11-01 10:00:00 +0200 IST\nredis\tc\tsha256:r0\t2026-10-01 10:00:00 +0200 IST\n<none>\t<none>\tsha256:x\t2026-01-01 10:00:00 +0200 IST\n' ;;
+  images) printf 'pw\tv4\tsha256:pw4\t2026-11-01 10:00:00 +0200 IST\npw\tv3\tsha256:pw3\t2026-10-01 10:00:00 +0200 IST\npw\tv2\tsha256:pw2\t2026-09-01 10:00:00 +0200 IST\npw\tv1\tsha256:pw1\t2026-08-01 10:00:00 +0200 IST\npr\tv14.14\tsha256:pr14\t2026-08-01 10:00:00 +0200 IST\npr\tv14.5\tsha256:pr5\t2026-08-01 10:00:00 +0200 IST\npr\tv15.0\tsha256:pr15\t2026-08-01 10:00:00 +0200 IST\npg\t5\tsha256:pg5\t2026-11-01 10:00:00 +0200 IST\npg\t4\tsha256:pg4\t2026-10-01 10:00:00 +0200 IST\npg\t3\tsha256:pg3\t2026-09-01 10:00:00 +0200 IST\nredis\ta\tsha256:r1\t2026-11-01 10:00:00 +0200 IST\nredis\tb\tsha256:r1\t2026-11-01 10:00:00 +0200 IST\nredis\tc\tsha256:r0\t2026-10-01 10:00:00 +0200 IST\n<none>\t<none>\tsha256:x\t2026-01-01 10:00:00 +0200 IST\n' ;;
   image) if [ "$2" = inspect ]; then echo 1000000000; else echo "$*" >>"$DT_T/other.log"; fi ;;
   rmi) echo "$2" >>"$DT_T/rmi.log" ;;
   volume) echo "volume $*" >>"$DT_T/volume.log" ;;
@@ -112,10 +139,11 @@ out=$("$dt")
 grep -q 'would remove pw:v1' <<<"$out" && ok "older than the two newest goes" || bad "pw: $out"
 grep -q 'pw:v2' <<<"$out" && bad "a tag a project pins stays" || ok "a tag a project pins stays"
 grep -q 'pw:v3\|pw:v4' <<<"$out" && bad "the two newest stay" || ok "the two newest stay"
+grep -q 'would remove pr:v14.5' <<<"$out" && ! grep -q 'pr:v15.0\|pr:v14.14' <<<"$out" && ok "same creation time: the newest versions stay" || bad "tie: $out"
 grep -q 'pg:3' <<<"$out" && bad "an image a container uses stays" || ok "an image a container uses stays"
 grep -q 'redis' <<<"$out" && bad "two tags of one image count once" || ok "two tags of one image count once"
 "$dt" --apply >/dev/null
-[ "$(sort "$t/rmi.log" | tr '\n' ' ')" = "pw:v1 " ] && ok "--apply removes exactly the superseded tags" || bad "rmi: $(cat "$t/rmi.log")"
+[ "$(sort "$t/rmi.log" | tr '\n' ' ')" = "pr:v14.5 pw:v1 " ] && ok "--apply removes exactly the superseded tags" || bad "rmi: $(cat "$t/rmi.log")"
 [ ! -e "$t/volume.log" ] && ok "volumes are never touched" || bad "volume called"
 grep -qx 'image prune -f' "$t/other.log" && grep -qx 'builder prune -f --filter until=168h' "$t/other.log" && ok "--apply prunes dangling images and old build cache" || bad "prune calls: $(cat "$t/other.log" 2>/dev/null)"
 exit $fail

@@ -49,13 +49,21 @@ scan() {
   # pressure). heavy-slot admits it by measured load; lowest best-effort IO and CPU priority.
   local rc=0
   "${DISK_NOW_HEAVY[@]}" "${run[@]}" ionice -c2 -n7 nice -n 10 "${DISK_NOW_DU:-du}" -x -a -B1 -t 100M -d 8 "$root" 2>/dev/null >"$tmp" || rc=$?
-  # du exits 1 when a file was unreadable or vanished mid-scan, and the map is still whole;
-  # anything else (killed, no du) keeps the old map.
-  if [ "$rc" -gt 1 ] || [ ! -s "$tmp" ]; then
+  # du exits 1 both when a file was unreadable or vanished mid-scan (the map is whole) and when
+  # it could not write (a full disk: the map is cut off). du prints the root last, so a map is
+  # whole only when its last line is the root. Anything else keeps the old map.
+  local last; last=$(tail -n1 "$tmp" 2>/dev/null | cut -f2-)
+  if [ "$rc" -gt 1 ] || [ "$last" != "$root" ] ||
+    ! sed -i "1i # scanned $(date '+%F %H:%M') root $root seconds $((SECONDS - start))" "$tmp"; then
     rm -f -- "$tmp"; echo "disk-now: the scan failed (exit $rc); the old map stays" >&2; return 1
   fi
-  sed -i "1i # scanned $(date '+%F %H:%M') root $root seconds $((SECONDS - start))" "$tmp"
-  [ -f "$map" ] && ln -f -- "$map" "$prev"
+  # A map of another root (only $HOME, when sudo stopped working) does not replace a map of /.
+  if [ -f "$map" ] && [ "$(head -n1 "$map" | awk '{ print $6 }')" != "$root" ]; then
+    rm -f -- "$tmp"; echo "disk-now: this scan covers $root but the map covers more; the old map stays (check sudo -n)" >&2; return 1
+  fi
+  if [ -f "$map" ] && ! ln -f -- "$map" "$prev"; then
+    rm -f -- "$tmp"; echo "disk-now: could not keep the previous map; the old map stays" >&2; return 1
+  fi
   mv -f -- "$tmp" "$map"
 }
 
@@ -76,7 +84,10 @@ growth() { # current previous threshold count
     END {
       for (k in cur) d[k] = cur[k] - (k in old ? old[k] : 0)
       for (k in old) if (!(k in cur)) d[k] = -old[k]
-      for (k in d) { a = d[k] < 0 ? -d[k] : d[k]; if (a < t) continue; keep[k] = d[k]; p = k; sub(/\/[^\/]*$/, "", p); if (p == "") p = "/"; if (p != k) { kids[p] += d[k]; hasbig[p] = 1 } }
+      for (k in d) { a = d[k] < 0 ? -d[k] : d[k]; if (a >= t) keep[k] = d[k] }
+      # Each kept change counts against its nearest kept ancestor, so a change two levels down
+      # is not lost when the folder between them changed by less than the threshold.
+      for (k in keep) { p = k; while (p != "/" && p != "") { sub(/\/[^\/]*$/, "", p); if (p == "") p = "/"; if (p in keep) { kids[p] += keep[k]; hasbig[p] = 1; break } } }
       for (k in keep) { r = keep[k] - kids[k]; a = r < 0 ? -r : r; if (a >= t) print a "\t" r "\t" k "\t" (k in hasbig ? "rest" : "") }
     }' "$1" "$2" | sort -t$'\t' -k1,1nr | cut -f2- | head -n "$4"
 }
@@ -92,7 +103,9 @@ report_local() {
   echo "   התיקיות הכי גדולות (מ-$min_gb ג׳יגה):"
   deepest "$map" "$(awk -v g="$min_gb" 'BEGIN { printf "%.0f", g * 1073741824 }')" 15 |
     while IFS=$'\t' read -r b p rest; do printf '   %7s  %s%s\n' "$(gb "$b")" "$p" "${rest:+ (שאר התיקייה)}"; done
-  if [ -s "$prev" ]; then
+  if [ -s "$prev" ] && [ "$(head -n1 "$prev" | awk '{ print $6 }')" != "$(awk '{ print $6 }' <<<"$head")" ]; then
+    echo "   המפה הקודמת סרקה תיקייה אחרת, אז אין השוואה"
+  elif [ -s "$prev" ]; then
     local g; g=$(growth "$map" "$prev" 1073741824 10)
     echo "   שינוי מאז המפה הקודמת ($(head -n1 "$prev" | awk '{ print $3, $4 }'), מ-1 ג׳יגה):"
     if [ -z "$g" ]; then echo "   אין שינוי של 1 ג׳יגה ומעלה"; else
@@ -108,7 +121,7 @@ case $mode in
   scan) scan ;;
   in)
     [ -s "$map" ] || { echo "disk-now: no map yet, run disk-now --scan" >&2; exit 1; }
-    p=${in_path%/}; [ -z "$p" ] && p=/
+    p=$(realpath -m -- "$in_path")
     awk -F'\t' -v p="$p" '!/^#/ { q = $2; sub(/\/[^\/]*$/, "", q); if (q == "") q = "/"; if (q == p && $2 != p) print }' "$map" |
       sort -t$'\t' -k1,1nr | head -n 30 | while IFS=$'\t' read -r b x; do printf '%7s  %s\n' "$(gb "$b")" "$x"; done ;;
   local) report_local ;;

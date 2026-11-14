@@ -37,11 +37,12 @@ docker info >/dev/null 2>&1 || { echo "docker-tidy: Docker is not running; nothi
 used=$(docker ps -aq | xargs -r docker inspect --format '{{.Image}}' | sort -u)
 # Tags that projects pin (one per line).
 read -r -a roots <<<"${DOCKER_TIDY_ROOTS:-$HOME/Projects $HOME/Desktop}"
-pinned=$(find "${roots[@]}" -maxdepth 4 -path '*/supabase/.temp/*version' -type f 2>/dev/null |
-  xargs -r awk '{ print }' 2>/dev/null | sort -u)
-# repo<TAB>tag<TAB>id<TAB>created, newest first within each repository.
+pinned=$(find "${roots[@]}" -maxdepth 4 -path '*/supabase/.temp/*version' -type f -print0 2>/dev/null |
+  xargs -0 -r awk '{ print }' 2>/dev/null | sort -u)
+# repo<TAB>tag<TAB>id<TAB>created, newest first within each repository; images created in the
+# same second (postgrest v14.14 and v14.5 here) are ordered by version, newest first.
 list=$(docker images --no-trunc --format '{{.Repository}}\t{{.Tag}}\t{{.ID}}\t{{.CreatedAt}}' |
-  awk -F'\t' '$1 != "<none>" && $2 != "<none>"' | sort -t$'\t' -k1,1 -k4,4r)
+  awk -F'\t' '$1 != "<none>" && $2 != "<none>"' | sort -t$'\t' -k1,1 -k4,4r -k2,2Vr)
 
 # Count distinct image IDs per repository, so two tags of one image count once.
 gone=$(awk -F'\t' -v keep="$keep" -v used="$used" -v pinned="$pinned" '
