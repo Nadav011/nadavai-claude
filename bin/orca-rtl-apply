@@ -57,6 +57,15 @@ if ! patched; then
 fi
 echo "[orca-rtl] verified: live Orca carries the patch."
 
+# The pointer part (selection, double click and link clicks landing on the characters under the
+# pointer in a Hebrew row) is left out when its hooks do not fit this Orca build, while Hebrew
+# itself keeps reading right to left. Say so where Nadav sees it: without this he only meets it
+# as a selection that takes the wrong text.
+if [ -d "$CSSDIR" ] && [ -z "${ORCA_RTL_NO_MOUSE:-}" ] && ! grep -lq '__orcaRtlMouse.coords(' "$CSSDIR"/*.js 2>/dev/null; then
+  echo "[orca-rtl] WARNING: the pointer part is NOT in this Orca: selection and link clicks in Hebrew rows are off until lib/orca-rtl/patch.mjs fits this build (tests/orca-rtl-mouse.sh shows what fails)"
+  notify-send -a Orca "סימון בעברית ב-Orca לא מדויק בגרסה הזאת" "העברית בטרמינל תקינה, אבל סימון ולחיצה על קישורים בשורות עברית יפגעו במקום אחר עד שהתיקון יותאם לגרסה. פירוט: orca-rtl-apply" 2>/dev/null || true
+fi
+
 # Unpacked layout: Electron reads those files by the size in app.asar's header, so a
 # patched file that grew is cut off and Orca opens a white window (1.4.246, 2026-11-03).
 # Record the new sizes; if that cannot be done safely, put the originals back.

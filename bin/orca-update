@@ -9,6 +9,8 @@
 #   orca-update --restart     restart Orca at the end (closes every agent session running in it)
 #   orca-update --install-pending  install a package the timer already built, only while Orca is
 #                             not running; no network, no build (orca-start runs this before Orca)
+#                             Also brings the RTL patch inside Orca up to date when lib/orca-rtl
+#                             is newer than the copy that was applied.
 # Installing replaces /opt/Orca under the running app, so restart Orca soon after.
 # The PKGBUILD writes resources/package-type "rpm": no rpm tool exists here, so Orca's own updater
 # treats this copy as managed by the system and shows the new version without its Update button,
@@ -93,7 +95,16 @@ if [ "$mode" = pending ]; then
     v=${f##*/orca-ide-}; v=${v%-*-x86_64.pkg.tar.zst}
     if [ "$(vercmp "$v" "$best")" -gt 0 ] && zstd -tq "$f" 2>/dev/null; then pkg=$f best=$v; fi
   done
-  if [ -z "$pkg" ]; then echo "[orca-update] nothing pending (installed $installed)"; exit 0; fi
+  if [ -z "$pkg" ]; then
+    # The patch can be newer than the copy inside this Orca: lib/orca-rtl changed since it was
+    # applied, or it went into the desktop files only because Orca was running (ORCA_RTL_ONLY).
+    # Orca is closed here, so nothing is loaded and the phone bundle can change safely.
+    if ! ORCA_RTL_DRY=1 node "$RTL/patch.mjs" 2>/dev/null | grep -q 'nothing to change'; then
+      echo "[orca-update] the RTL patch inside Orca is not current; applying it"
+      "$APPLY"
+    fi
+    echo "[orca-update] nothing pending (installed $installed)"; exit 0
+  fi
   exec 9>"$PK/.lock"
   # A build or a second start holds the lock: start Orca now and install on a later start.
   if ! flock -w 10 9; then echo "[orca-update] busy; starting without installing"; exit 0; fi
