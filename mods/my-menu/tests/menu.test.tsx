@@ -58,7 +58,12 @@ type Box = {
 
 // Stands in for the engine beneath the mod: the commands, a prompt box that
 // takes fills while it is free, and a pane that opens.
-const engine = (on: On, box: Box, isPlaced = true): void => {
+const engine = (
+  on: On,
+  box: Box,
+  isPlaced = true,
+  whileOpening: () => void = () => {},
+): void => {
   on('command.list', () => ({ value: [...COMMANDS] }))
   on('command.register', () => ({ value: { command: 'my-menu' } }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
@@ -70,9 +75,13 @@ const engine = (on: On, box: Box, isPlaced = true): void => {
 
     return { isFilled: true, text: box.text, cursor: box.text.length }
   })
-  on('ui.open', () => ({
-    value: isPlaced ? { isPlaced: true } : { isPlaced: false, reason: 'no-surface' },
-  }))
+  on('ui.open', () => {
+    whileOpening()
+
+    return {
+      value: isPlaced ? { isPlaced: true } : { isPlaced: false, reason: 'no-surface' },
+    }
+  })
   on('ui.close', () => ({ value: undefined }))
 }
 
@@ -169,7 +178,7 @@ test('a pick only fills the box and submits nothing', async ($, on) => {
   await ui.unmount()
 })
 
-test('words stay in a box that could not be emptied, and wait while it is busy', async ($, on) => {
+test('a box that takes nothing keeps his words, and old words do not turn up later', async ($, on) => {
   const box: Box = { text: 'מילים שלי', fills: [], isFree: false }
   engine(on, box)
 
@@ -183,7 +192,8 @@ test('words stay in a box that could not be emptied, and wait while it is busy',
   await $.command.run(run())
   expect(box.text).toBe('')
 
-  // A pick while the box is busy again loses nothing: the words wait.
+  // A pick while the box is busy again cannot fill it. The held words end
+  // there (he is shown the line), so a later pick does not carry them.
   box.isFree = false
   const ui = await $.ui.mount(PANE)
   await ui.select({ key: 'prompt', value: 'nadavai:my-status' })
@@ -191,8 +201,50 @@ test('words stay in a box that could not be emptied, and wait while it is busy',
 
   box.isFree = true
   await ui.select({ key: 'prompt', value: 'nadavai:my-plain' })
-  expect(box.text).toBe('/nadavai:my-plain מילים שלי')
+  expect(box.text).toBe('/nadavai:my-plain ')
   await ui.unmount()
+})
+
+test('a draft that starts with a path keeps the path', async ($, on) => {
+  const box: Box = { text: '/tmp/log.txt למה זה נכשל', fills: [], isFree: true }
+  engine(on, box)
+
+  await $.session.start(START)
+  await $.command.run(run())
+  const ui = await $.ui.mount(PANE)
+  await ui.select({ key: 'prompt', value: 'nadavai:my-status' })
+
+  expect(box.text).toBe('/nadavai:my-status /tmp/log.txt למה זה נכשל')
+  await ui.unmount()
+})
+
+test('opening the menu twice keeps both sets of words', async ($, on) => {
+  const box: Box = { text: 'ראשון', fills: [], isFree: true }
+  engine(on, box)
+
+  await $.session.start(START)
+  await $.command.run(run())
+  // The pane is open without the keys and he typed more in the box.
+  box.text = 'שני'
+  await $.command.run(run())
+  const ui = await $.ui.mount(PANE)
+  await ui.select({ key: 'prompt', value: 'nadavai:my-status' })
+
+  expect(box.text).toBe('/nadavai:my-status ראשון שני')
+  await ui.unmount()
+})
+
+test('words given back go after what he typed since', async ($, on) => {
+  const box: Box = { text: 'מילים שלי', fills: [], isFree: true }
+  // No pane can be drawn, and by then he has typed something new in the box.
+  engine(on, box, false, () => {
+    box.text = 'חדש'
+  })
+
+  await $.session.start(START)
+  await $.command.run(run())
+
+  expect(box.text).toBe('חדש מילים שלי')
 })
 
 test('where no pane can be drawn the list is printed and his words stay', async ($, on) => {

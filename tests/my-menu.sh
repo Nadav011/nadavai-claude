@@ -81,6 +81,10 @@ f="$t/same.json"
 printf '%s\n' '{"bindings":[{"context":"Chat","bindings":{"Control+P":"command:my-menu","ctrl+shift+p":"command:my-menu"}}]}' > "$f"
 before=$(sha256sum < "$f"); out=$(bind "$f")
 ok "already bound under another spelling: untouched and silent" '[ "$(sha256sum < "$f")" = "$before" ] && [ -z "$out" ]'
+f="$t/ours-global.json"
+printf '%s\n' '{"bindings":[{"context":"Global","bindings":{"ctrl+p":"command:my-menu"}},{"context":"chat","bindings":{"ctrl+shift+p":"command:my-menu"}}]}' > "$f"
+before=$(sha256sum < "$f"); out=$(bind "$f")
+ok "our own action in Global or a lowercase block: untouched and silent ($out)" '[ "$(sha256sum < "$f")" = "$before" ] && [ -z "$out" ]'
 
 # 5. Another context only: a Chat block is added beside it.
 f="$t/global.json"

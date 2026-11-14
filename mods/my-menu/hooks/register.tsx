@@ -138,15 +138,18 @@ export const register: Register = on => {
     )
   })
 
-  // He closed the menu without choosing: his words go back in the box. A pick
-  // closes the pane too, as the plugin, and puts them in the box itself.
+  // The menu closed without a pick (his Esc, or another plugin's close): his
+  // words go back in the box. A pick closes the pane too and fills the box itself.
   on('ui.close', async ($, e, next) => {
     const closed = await next(e)
-    if (e.id === PANE && e.origin.kind !== 'plugin') await giveBack($)
+    if (e.id === PANE && !picking) await giveBack($)
 
     return closed
   })
 }
+
+// True while a pick is closing the pane, so that close gives nothing back.
+let picking = false
 
 // Puts the held words back, after anything he typed since, and forgets them
 // only once the box has taken them.
@@ -160,12 +163,21 @@ const giveBack = async ($: EngineInterface): Promise<void> => {
 
 // Puts `/<prompt> ` in the prompt box, with the words he had typed as the
 // prompt's arguments, and hands the keyboard back by closing the pane. A draft
-// that began with another command gives up that command's name, not its words.
+// that began with another command gives up that command's name, not its words;
+// a path (`/tmp/log.txt ...`) is words, not a command.
 const choose = async ($: EngineInterface, name: string): Promise<void> => {
   const { text } = await $.prompt.read()
-  const words = joined(await read($, held), text).replace(/^\/\S*\s*/, '')
-  await $.ui.close({ id: PANE })
-  const filled = await $.prompt.fill({ text: `/${name} ${words}` })
-  if (filled.isFilled) await update($, held, () => '')
-  else $.ui.toast(`התיבה לא פנויה כרגע. הפרומט שבחרת: /${name}`)
+  const words = joined(await read($, held), text).replace(/^\/[^\s/]*(?:\s+|$)/, '')
+  picking = true
+  try {
+    await $.ui.close({ id: PANE })
+  } finally {
+    picking = false
+  }
+  const line = `/${name} ${words}`
+  const filled = await $.prompt.fill({ text: line })
+  // The held words end here either way: kept after a box that took nothing,
+  // they would turn up in a later pick. He is shown the whole line instead.
+  await update($, held, () => '')
+  if (!filled.isFilled) $.ui.toast(`התיבה לא פנויה כרגע. מה שבחרת: ${line}`)
 }
