@@ -7,8 +7,14 @@
 // statuses under our name; its look is his to design elsewhere. The renderer is still the HUD
 // module of the `omc` CLI's npm package (oh-my-claude-sisyphus, kept for `omc ask`): this file
 // loads it straight from that package, with no copy of it under ~/.claude and nothing read from
-// the plugin's cache. Two things change in what it prints: the label `[OMC#<version>]` becomes
-// `[NadavAI]`, and anything that tells him to update the plugin is dropped.
+// the plugin's cache. Two things change in what it prints: the label `[OMC#<version>]` at the
+// start of a line becomes `[NadavAI]`, and the renderer's own line that asks for an update of the
+// plugin is dropped. Nothing else in a line is touched (an agent's description may well say
+// "omc" or "[OMC-12]").
+//
+// To change the look, change this file (or the command in settings.base.json): update.sh writes
+// that command into the statusLine of every profile, so a status line set in one profile with
+// /statusline is replaced on the next update.
 //
 // CommonJS on purpose: the file has no extension, and Node decides the module kind by extension.
 "use strict";
@@ -20,10 +26,12 @@ const NAME = "NadavAI";
 const PKG = "oh-my-claude-sisyphus";
 const SP = "[ \\u00A0]"; // the renderer turns spaces into non-breaking spaces
 const ANSI = /\x1b\[[0-9;]*m/g;
-// "[OMC#5.8.4]", "[OMC#5.8.5L] -> 5.8.6 omc update", "[OMC]"
-const LABEL = new RegExp(`\\[OMC[^\\]\\n]*\\](?:${SP}->${SP}[^\\s\\u00A0|\\x1b]+${SP}omc${SP}update)?`, "g");
-// A whole line that only asks for an update of the plugin ("[!] omc 5.8.6 - paste: ! claude plugin ...").
-const UPDATE_LINE = new RegExp(`\\[!\\]${SP}omc${SP}|claude${SP}plugin${SP}(?:marketplace${SP})?update`);
+// The renderer's label, only where the renderer puts it, at the start of a line (colour codes
+// may come first): "[OMC#5.8.4]", "[OMC#5.8.5L] -> 5.8.6 omc update", "[OMC]".
+const LABEL = new RegExp(`^((?:\\x1b\\[[0-9;]*m)*)\\[OMC[^\\]\\n]*\\](?:${SP}->${SP}[^\\s\\u00A0|\\x1b]+${SP}omc${SP}update)?`);
+// The renderer's own line that asks for an update of the plugin, tested with the colour codes
+// stripped: "[!] omc 5.8.6 - paste: ! claude plugin marketplace update omc && ...".
+const UPDATE_LINE = new RegExp(`^\\[!\\]${SP}omc${SP}\\S+${SP}-${SP}paste:`);
 
 function relabel(text) {
   return String(text)
@@ -32,9 +40,9 @@ function relabel(text) {
     .map((line) => {
       const plain = line.replace(ANSI, "");
       // The renderer's own failure lines name OMC commands that no longer exist here.
-      if (/\[OMC\][  ]run[  ]\/omc-setup/.test(plain)) return `[${NAME}] the status line could not load its renderer`;
-      if (/\[OMC\][  ]HUD[  ]error/.test(plain)) return `[${NAME}] status line error`;
-      return line.replace(LABEL, `[${NAME}]`);
+      if (/^\[OMC\][  ]run[  ]\/omc-setup/.test(plain)) return `[${NAME}] the status line could not load its renderer`;
+      if (/^\[OMC\][  ]HUD[  ]error/.test(plain)) return `[${NAME}] status line error`;
+      return line.replace(LABEL, (match, colours) => `${colours}[${NAME}]`);
     })
     .join("\n");
 }

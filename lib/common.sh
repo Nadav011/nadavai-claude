@@ -404,14 +404,20 @@ ensure_omc() {
 # apply_model_policy and merge_settings write before this runs), and nothing runs `omc setup`.
 # Only OMC's own files, by name: the five files of its status line wrapper under hud/ (a profile's
 # hud is a link to ~/.claude/hud), its config and version files, and the two update-check files
-# its hooks wrote under .omc/, which made the status line ask for an update of the plugin.
+# its session hook wrote under .omc/. The status line read two notices from that cache: "update
+# the plugin", and "a newer Claude Code is out". Only the plugin's hook wrote the cache, so both
+# notices ended with the plugin (a frozen cache never shows a newer version); bringing the second
+# one back would need a writer of our own.
 # Everything else under .omc/ stays, and so do ~/.omc and every project's .omc/ (working files).
 retire_omc_files() {
   local d f n=0 wrapper_in_use=0
   # The wrapper is one folder that every profile links to, so it stays while any settings file
   # still runs it (setup.sh writes the new statusLine into one profile only).
   for d in "$HOME/.claude" "$HOME"/.config/orca/claude-profiles/*/home; do
-    if [ -f "$d/settings.json" ] && grep -q 'hud/omc-hud\.mjs' "$d/settings.json"; then wrapper_in_use=1; fi
+    [ -f "$d/settings.json" ] || continue
+    # grep exits 1 only when it read the file and found nothing; a file it cannot read counts as in use.
+    grep -q 'hud/omc-hud\.mjs' "$d/settings.json" 2>/dev/null || { [ $? -eq 1 ] && continue; }
+    wrapper_in_use=1
   done
   for d in "$HOME/.claude" "$HOME"/.config/orca/claude-profiles/*/home; do
     [ -d "$d" ] || continue

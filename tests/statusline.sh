@@ -25,6 +25,20 @@ ok "it prints the renderer's line under our label"        '[ "$rc" = 0 ] && grep
 ok "the other lines of the renderer stay"                 'grep -qxF "branch:main | profile:home" <<<"$out"'
 ok "nothing names OMC or asks for a plugin update"        '! grep -q -i "omc\|claude plugin" <<<"$out" && [ "$(wc -l <<<"$out")" = 2 ]'
 
+# Only the renderer's own label and its own update line are touched: a row of an agent whose
+# description says "omc", "[OMC-12]" or "claude plugin update" stays word for word (review round 1).
+cat >"$t/rows.mjs" <<'JS'
+const nb = (s) => s.replace(/ /g, "\u00A0");
+console.log("\x1b[1m" + nb("[OMC#5.8.4]") + "\x1b[0m" + nb(" | Model: Opus 5.5 | agents:3") + "\n" +
+  nb("├─ G general-purpose  3m  Run claude plugin update nadavai after the pull") + "\n" +
+  nb("├─ G general-purpose  1m  grep for [!] omc lines") + "\n" +
+  nb("└─ G general-purpose  1m  Fix [OMC-12] planner comparison"));
+JS
+out=$(NADAVAI_STATUSLINE_RENDERER="$t/rows.mjs" node "$sl" </dev/null 2>&1 | plain)
+ok "an agent row that says 'claude plugin update' stays"   'grep -qF "Run claude plugin update nadavai after the pull" <<<"$out"'
+ok "an agent row that says '[!] omc' stays"                'grep -qF "grep for [!] omc lines" <<<"$out"'
+ok "a bracket that is not the label is not renamed"        'grep -qF "Fix [OMC-12] planner comparison" <<<"$out" && [ "$(wc -l <<<"$out")" = 4 ] && grep -q "^\[NadavAI\] | Model" <<<"$out"'
+
 printf 'console.log("[OMC#5.8.4] | Model: Opus 5.5");\n' >"$t/plain.mjs"
 out=$(NADAVAI_STATUSLINE_RENDERER="$t/plain.mjs" node "$sl" </dev/null 2>&1 | plain)
 ok "a label with no update notice is renamed too"         '[ "$out" = "[NadavAI] | Model: Opus 5.5" ]'
@@ -67,6 +81,16 @@ sh_run() { HOME="$home" CLAUDE_CONFIG_DIR="$pa" REPO="$here" bash -c 'set -euo p
 out=$(sh_run retire_omc_files); rc=$?
 ok "while a settings file still runs the old wrapper, the wrapper stays" '[ "$rc" = 0 ] && [ -f "$home/.claude/hud/omc-hud.mjs" ] && [ -L "$pa/hud" ] && grep -q "stays until update.sh has run" <<<"$out"'
 
+# A settings file that cannot be read may still run the old wrapper: the wrapper stays (review round 1, note 2).
+printf '%s\n' '{}' >"$home/.claude/settings.json"; printf '%s\n' "$old" >"$pb/settings.json"; chmod 000 "$pb/settings.json"
+printf '%s\n' '{}' >"$pa/settings.json"
+out=$(sh_run retire_omc_files); rc=$?
+ok "an unreadable settings file counts as still running the old wrapper" '[ "$rc" = 0 ] && [ -f "$home/.claude/hud/omc-hud.mjs" ] && [ -L "$pb/hud" ]'
+chmod 644 "$pb/settings.json"; printf '%s\n' '{}' >"$pb/settings.json"
+printf '%s\n' "$old" >"$home/.claude/settings.json"; printf '%s\n' "$old" >"$pa/settings.json"
+for d in "$home/.claude" "$pa" "$pb"; do echo '{"claudeMdEnabled":false}' >"$d/.omc-config.json"; echo '{}' >"$d/.omc-version.json"; done
+echo '{"latestVersion":"9.9.9"}' >"$home/.claude/.omc/update-check.json"; echo '{}' >"$pb/.omc/update-state.json"
+
 sh_run apply_model_policy >/dev/null
 want=$(jq -c .statusLine "$here/settings/settings.base.json")
 ok "the base's status line runs bin/nadavai-statusline"   'grep -q "bin/nadavai-statusline" <<<"$want" && ! grep -q "omc-hud" <<<"$want"'
@@ -79,7 +103,8 @@ ok "the base's command line itself runs, from a shell"    '[ "$out" = "[NadavAI]
 
 echo mine >"$home/.claude/hud/mine.txt"   # a file of someone else in the folder
 out=$(sh_run retire_omc_files); rc=$?
-ok "then the wrapper's five files and the profiles' links go" '[ "$rc" = 0 ] && [ ! -e "$home/.claude/hud/omc-hud.mjs" ] && [ ! -e "$home/.claude/hud/lib" ] && [ ! -L "$pa/hud" ] && [ ! -L "$pb/hud" ]'
+ok "then the wrapper's five files and the profiles' links go" '[ "$rc" = 0 ] && [ ! -e "$home/.claude/hud/omc-hud.mjs" ] && [ ! -e "$home/.claude/hud/omc-hud-cache.sh" ] && [ ! -e "$home/.claude/hud/find-node.sh" ] && [ ! -e "$home/.claude/hud/lib" ] && [ ! -L "$pa/hud" ] && [ ! -L "$pb/hud" ]'
+ok "nothing but the foreign file is left in hud/"         '[ "$(ls -A "$home/.claude/hud")" = mine.txt ]'
 ok "a file in hud/ that is not OMC's stays"               '[ "$(cat "$home/.claude/hud/mine.txt")" = mine ]'
 ok "OMC's config, version and update-check files go"      '[ ! -e "$home/.claude/.omc-config.json" ] && [ ! -e "$pa/.omc-version.json" ] && [ ! -e "$home/.claude/.omc/update-check.json" ] && [ ! -e "$pb/.omc/update-state.json" ]'
 ok "everything else under a config dir .omc stays"        '[ "$(cat "$home/.claude/.omc/other.json")" = keep ] && [ "$(cat "$pb/.omc/cache-occupancy/x")" = keep ]'
@@ -89,6 +114,19 @@ ok "a second run removes nothing and says nothing"        '[ "$rc" = 0 ] && [ -z
 ln -s "$t/elsewhere" "$pa/hud"
 sh_run retire_omc_files >/dev/null
 ok "a hud link that points somewhere else is left alone"  '[ -L "$pa/hud" ]'
+
+# With no foreign file the emptied folder goes too.
+mkdir -p "$t/h2/.claude/hud/lib"; printf '%s\n' '{}' >"$t/h2/.claude/settings.json"
+for f in omc-hud.mjs omc-hud-cache.sh find-node.sh lib/config-dir.mjs lib/config-dir.sh; do echo x >"$t/h2/.claude/hud/$f"; done
+HOME="$t/h2" CLAUDE_CONFIG_DIR="$t/h2/.claude" REPO="$here" bash -c 'set -euo pipefail; source "$REPO/lib/common.sh"; retire_omc_files' >/dev/null 2>&1
+ok "an emptied hud/ folder is removed"                    '[ ! -e "$t/h2/.claude/hud" ]'
+
+# Both scripts call it, after the step that writes the settings.
+line() { grep -n -m 1 -E "$2" "$here/$1" | cut -d: -f1; }
+u_pol=$(line update.sh '^apply_model_policy$'); u_ret=$(line update.sh '^retire_omc_files$')
+s_set=$(line setup.sh '^merge_settings$'); s_ret=$(line setup.sh '^retire_omc_files$')
+ok "update.sh removes the old files after it wrote every profile's settings" '[ -n "$u_pol" ] && [ -n "$u_ret" ] && [ "$u_pol" -lt "$u_ret" ]'
+ok "setup.sh removes them after it merged the settings"   '[ -n "$s_set" ] && [ -n "$s_ret" ] && [ "$s_set" -lt "$s_ret" ]'
 
 echo "PASS: $PASS  FAIL: $FAIL"
 [ "$FAIL" = 0 ]
