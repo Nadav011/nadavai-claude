@@ -41,8 +41,9 @@ For an app (a product with screens people work in):
 3. **Approved means a frozen, tagged commit.** The approved demo is a git tag in its repo, and the build plan names
    the tag. Any design change after it is made in the app's preview, never in the standalone page; from then on that
    page is read-only reference. A screen the tagged demo drew is compared to its phones at the tag, control by
-   control and state by state, by the verifier of `screen` step 8b; a control or state on those phones that is
-   missing in the preview with no numbered answer removing it stops the screen. That is the weaker check: a scripted
+   control and state by state, by the reviewer of `screen` step 8b; a control or state on those phones that is
+   missing in the preview with no numbered answer removing it is a must-fix there, and goes to Nadav only when the
+   build means to drop or change it. That is the weaker check: a scripted
    parity tool is not in this skill on main (it is on an unmerged branch), and no text here calls it available until
    it lands. Why: a page that keeps changing under a plan built from it (MediZen) leaves the build aiming at a moving
    target; a tag is the one version both sides read.
