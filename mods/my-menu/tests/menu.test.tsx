@@ -544,6 +544,36 @@ test('no row is wider than the band leaves it, at any width', async ($, on) => {
   await ui.unmount()
 })
 
+test('a band that is narrow and short says the group and the part apart, both in words', async ($, on) => {
+  const one = (name: string): Command => ({
+    name: `nadavai:my-${name}`,
+    description: `משפט ${name}? מה מקבלים`,
+    source: 'plugin',
+  })
+  // Six rows in the first group and room for three; one row in the second group.
+  engine(on, box(), ['run', 'resume', 'connected', 'status', 'self', 'done'].map(one))
+
+  await $.session.start(START)
+  await open($)
+  // Four rows of band: the group, three rows of list. Forty columns: no room to name every group.
+  const ui = await $.ui.mount(band(40, 4))
+
+  expect((await ui.find({ type: 'Text', text: /מתוך/ }))?.text).toBe(
+    '  באמצע עבודה  (קבוצה 1 מתוך 2, חלק 1 מתוך 2)',
+  )
+  await move($, AFTER_STOP)
+  await ui.redraw()
+  expect((await ui.find({ type: 'Text', text: /מתוך/ }))?.text).toBe(
+    '  באמצע עבודה  (קבוצה 1 מתוך 2, חלק 2 מתוך 2)',
+  )
+  await move($, AFTER_STOP)
+  await ui.redraw()
+  // The second group is whole, and without a part to name the two groups fit in one row.
+  expect(await marked(ui)).toBe('בודקים')
+  expect(await ui.find({ type: 'Text', text: /מתוך/ })).toBeUndefined()
+  await ui.unmount()
+})
+
 test('a group with more rows than the band has room for comes in parts, numbered on, and no part is one row alone', async ($, on) => {
   const one = (name: string): Command => ({
     name: `nadavai:my-${name}`,
@@ -560,13 +590,13 @@ test('a group with more rows than the band has room for comes in parts, numbered
 
   const first = await shown(ui)
   expect(first.options.map(option => option.label.slice(0, 2))).toEqual(['1.', '2.', '3.'])
-  expect(await marked(ui)).toBe('באמצע עבודה 1/2')
+  expect(await marked(ui)).toBe('באמצע עבודה (חלק 1 מתוך 2)')
   await move($, AFTER_STOP)
   await ui.redraw()
   const second = await shown(ui)
   expect(second.key).toBe(list(1))
   expect(second.options.map(option => option.label.slice(0, 2))).toEqual(['4.', '5.', '6.'])
-  expect(await marked(ui)).toBe('באמצע עבודה 2/2')
+  expect(await marked(ui)).toBe('באמצע עבודה (חלק 2 מתוך 2)')
   // One group in two parts: the turn after the second part is the first again.
   await move($, AFTER_STOP)
   await ui.redraw()

@@ -20,7 +20,7 @@ command -v tmux >/dev/null && command -v claude >/dev/null || { echo "note: tmux
 sock="my-menu-live-$$"
 tm() { tmux -f /dev/null -L "$sock" "$@"; }
 trap 'tm kill-server 2>/dev/null' EXIT
-PASS=0; FAIL=0
+PASS=0; FAIL=0; UNBOUND=''
 ok() { if eval "$2"; then PASS=$((PASS+1)); else echo "FAIL: $1"; FAIL=$((FAIL+1)); fi; }
 key() { tm send-keys -t t "$@"; sleep 0.8; }
 # The prompt box's line is its mark, one cell that is not a plain space, then the text.
@@ -105,6 +105,7 @@ if bound AbovePromptSelect left abovePrompt:next && bound AbovePromptSelect righ
   key Left
 else
   echo "note: Left and Right are not bound for the list in this profile (update.sh binds them); checked with Tab only"
+  UNBOUND="$UNBOUND Left/Right"
 fi
 
 # 6. A digit jumps to the row of that number.
@@ -144,10 +145,15 @@ if bound Chat ctrl+p abovePrompt:focus; then
   fi
 else
   echo "note: Ctrl+P is not bound to the list in this profile (update.sh binds it); checked with Ctrl+X Tab only"
+  UNBOUND="$UNBOUND Ctrl+P"
 fi
 
 ok "the box is empty at the end"                 '! plain | grep -q "^❯./"'
 echo "PASS: $PASS  FAIL: $FAIL"
 [ "$FAIL" -eq 0 ] || exit 1
-# The Claude Code version this passed on: update.sh names a newer one until this runs on it.
-mkdir -p "$HOME/.cache/nadavai" && claude --version 2>/dev/null | head -1 > "$HOME/.cache/nadavai/my-menu-live.passed"
+# The Claude Code version this passed on: update.sh names a newer one until this runs on it. A run
+# in which a key was not bound says so in the mark, so update.sh keeps naming the version until the
+# keys themselves were pressed on it.
+mark=$(claude --version 2>/dev/null | head -1)
+[ -z "$UNBOUND" ] || mark="$mark, without$UNBOUND (not bound in that profile)"
+mkdir -p "$HOME/.cache/nadavai" && printf '%s\n' "$mark" > "$HOME/.cache/nadavai/my-menu-live.passed"

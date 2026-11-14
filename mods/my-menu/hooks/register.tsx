@@ -555,13 +555,16 @@ export const register: Register = on => {
     // the group on screen stays, with its place among the groups.
     const tabs = all.map((group, index) =>
       index === shown.group && shown.parts > 1
-        ? `${group.title} ${shown.part + 1}/${shown.parts}`
+        ? `${group.title} (חלק ${shown.part + 1} מתוך ${shown.parts})`
         : group.title,
     )
     const strip = tabs.reduce((sum, tab) => sum + tab.length + 4, INDENT.length)
     const hasAllTabs = strip <= e.props.bodyColumns
     const hasTitle = strip + TITLE.length + 2 <= e.props.bodyColumns
-    const place = `  (${shown.group + 1} מתוך ${all.length})`
+    const place =
+      shown.parts > 1
+        ? `  (קבוצה ${shown.group + 1} מתוך ${all.length}, חלק ${shown.part + 1} מתוך ${shown.parts})`
+        : `  (${shown.group + 1} מתוך ${all.length})`
     const hint = INDENT.length + HINT.length <= e.props.bodyColumns ? HINT : SHORT_HINT
 
     return (
@@ -583,7 +586,7 @@ export const register: Register = on => {
           ) : (
             <Text wrap="truncate-end">
               {INDENT}
-              <Text weight="bold">{tabs[shown.group] ?? shown.title}</Text>
+              <Text weight="bold">{shown.title}</Text>
               <Text dimColor>{place}</Text>
             </Text>
           ))}
