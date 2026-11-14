@@ -1,7 +1,7 @@
 # The entry screen with a hero
 
-How an app's sign-in screen is built: a hero on top that shows the product at work, and a
-beautiful sign-in under it. Read it before a sign-in screen is planned, built or redesigned,
+How an app's sign-in screen is built: a hero that shows the product at work, and a beautiful
+sign-in with it (under it on a phone, beside it on a computer). Read it before a sign-in screen is planned, built or redesigned,
 beside `experience.md`. It is a pattern for that one screen, not a look for the app.
 
 `[N]` marks Nadav's own words, `[M]` a value measured on the approved page
@@ -19,8 +19,12 @@ the approved page and are not a check; the checks are the measured lines.
 - 14:19, on three rough directions that put the hero beside the sign-in and played a film once:
   "כן אבל איפה כל העקורנות של סרטונהים דבירם רצים הדגשה של פיצרים HERO למעלה הלוגדו דווןקא היה פצצה בראשון כל השאר לא" [N]
 
-This skill's reading of the three [I]: the principles are shared and each screen is its own.
-Shared: a hero on top, things running in it, the product's features highlighted, a beautiful
+- 17:43, after he saw the social studio's first entry screen, on the layout for a computer:
+  "למחשב הדף תריך להראות כמו שהסושאיל עשה שזה לצד כזה והחיחתוך עם כל האלמנטים שלנו וגם תשלח לו לשפר בהתאם אבל המבנה שלו יותר נכון לא ? או שיש מבנה יותר נכון ? לדף ההתחברות" [N]
+
+This skill's reading of these [I]: the principles are shared and each screen is its own.
+Shared: a hero that leads the screen (on top on a phone; beside the sign-in on a computer, as he
+chose that evening), things running in it, the product's features highlighted, a beautiful
 sign-in. Its own: the app's character, and never a copy of another app's screen.
 
 ## The approved screen, and what its four tries showed
@@ -37,8 +41,8 @@ not forbidden; it is shown to him rough in the same way, and it keeps the four s
 
 ## The composition of the approved page
 
-Measured at 390x844 [M]. A screen that starts from it keeps the order and the proportions, not
-the pixels.
+The phone view, measured at 390x844 [M]; the computer layout is under "How it is built". A screen
+that starts from it keeps the order and the proportions, not the pixels.
 
 1. **The hero on top, the sign-in under it.** On a phone the hero takes a little over half the
    height (56.7%) and the sign-in sheet rises from the bottom.
@@ -125,10 +129,19 @@ approved page as measured; `[M: fault]` lines are faults measured on it, fixed a
   scrollable overflow from its blurred shapes and moved its screen sideways with a forced scroll;
   with `clip` it measured 0.
 - **A real wide layout,** switched by a media query, never by a URL parameter, with sizes from a
-  size variable or container units, never CSS `zoom` [M: fault, both]. The layout he approved for
-  a computer: the sky is a band across the top; inside it the headline and the live line sit on
-  one side and the film card on the other; the sheet is a card centred under the band, rising
-  over its lower edge. The phone frame is a demo's chrome only.
+  size variable or container units, never CSS `zoom` [M: fault, both]. The phone frame is a demo's
+  chrome only.
+- **On a computer, two sides at full height.** The hero at the start side: the sky, the top row,
+  the headline, the film card as wide as the side, and under it one button per feature that
+  lights while its film plays and moves to that film when pressed (they take the dots' place),
+  then the live line. The sign-in at the end side, at about two fifths of the width (he found 31%
+  too small and picked 42%), its content one centred column. His picks, 14.11.2026 in the MediZen
+  session: at 17:50, on a first rough where the sign-in side took 31%:
+  "צד ימין לצד אבל לא בחולקה הזאת זה נראה מוזר וקטן מדי האוזר התחברות ואיפה שכל הסרטונהים לא מספיק ומוזר ללטש אותו כמו שצריך" [N];
+  at 17:57, on the second rough (the sign-in side at 42%), the pick «כן, זה המבנה». This replaced,
+  for a computer, the layout he had approved at 16:50 (a sky band across the top with the sheet
+  as a card under it). From which width the two sides begin (1024 px in MediZen) and what a
+  tablet width shows are the building session's choices [I].
 - **Short screens drop decoration before the form scrolls:** first the live line, then the film
   card [M]; the primary way in is on screen without scrolling. On the smallest phone (320x568),
   with the other ways open and an error showing, everything in the sheet can still be reached:

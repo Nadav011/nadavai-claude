@@ -122,7 +122,7 @@ this skill's own reading, as in `experience.md`.
 
 - **Where:** the demo repo `Nadav011/medizen-redesign`, branch `design/r13-entry-e`, file
   `proto/entry/index.html`, at commit `a84688d`, the page as he saw it (on the LENOVO:
-  `~/design-redesign/r12-lanes/entry-e/`). Open it as a phone, and with `?wide=1` for the layout on a
+  `~/design-redesign/r12-lanes/entry-e/`). Open it as a phone; `?wide=1` shows the first layout for a
   computer. Faults measured in that commit after his approval (a sign-in button that did nothing,
   the wide layout behind a URL parameter, CSS `zoom`, low contrast in the daytime skies, no pause
   control) are named in `entry-hero.md`, "How it is built", and are not copied.
@@ -135,6 +135,9 @@ this skill's own reading, as in `experience.md`.
   - 16:03: "הרבה הרבה הרבה יותר טוב ההמסך התחברות רק לבפיצרים ובHERO ממש שיהיה מתקדם וידליק ובאמת את הפיצרים העיקרים לא סתם חרטא ודברים שלא קשורים"
   - 16:33, where the logo goes: "שמאל והתאריך באותה שורה שלה מצד ימין התאריך"
   - 16:50, asked whether this is MediZen's sign-in screen, the pick: «כן, המסך מאושר»
+  - 17:43, on the layout for a computer: "למחשב הדף תריך להראות כמו שהסושאיל עשה שזה לצד כזה והחיחתוך עם כל האלמנטים שלנו וגם תשלח לו לשפר בהתאם אבל המבנה שלו יותר נכון לא ? או שיש מבנה יותר נכון ? לדף ההתחברות"
+  - 17:50, on a first rough of two sides: "צד ימין לצד אבל לא בחולקה הזאת זה נראה מוזר וקטן מדי האוזר התחברות ואיפה שכל הסרטונהים לא מספיק ומוזר ללטש אותו כמו שצריך"
+  - 17:57, on the second rough of two sides, the pick: «כן, זה המבנה»
 - **Record:** the transcript at those times for every line; the 16:33 sentence and the two picks
   are also in `~/design-redesign/r12-lanes/OWNER-ANSWERS-2026-11-14.md`, Round 7. The study and the
   measurements: `~/.omc/plans/agent-reports-2026-11-10/login-hero-study.md` and
@@ -142,10 +145,13 @@ this skill's own reading, as in `experience.md`.
 - **What it is:** a forest sky with a gold glow; MediZen's lockup at the left and the date at the
   right; a two-line headline with one changing word in gold; one glass card that plays five
   three-beat films (היומן, הבוט בוואטסאפ, תשלום וקבלה, תזכורות, תיק מטופל); a line of clinic events;
-  and a sheet with Google, Apple and «דרכים אחרות להיכנס». On a computer the sky is a band across
-  the top, with the headline and the line of events on one side and the film card on the other,
-  and the sheet is a card centred under the band, rising over its lower edge.
-- **An example of:** an entry screen that has what he asks of every app's (a hero on top, films
+  and a sheet with Google, Apple and «דרכים אחרות להיכנס». That is the phone, which is the screen
+  he approved at 16:50. For a computer he chose a different layout an hour later (the last three
+  lines above): two sides at full height, the hero with its films at the start side and the
+  sign-in at the end side; at `a84688d` the page still has the earlier computer layout (a sky
+  band with the sheet as a card under it), and the two-sided one was a rough
+  (`~/design-redesign/r12-lanes/entry-variants/e-split/`) when this was written.
+- **An example of:** an entry screen that has what he asks of every app's (a hero, films
   running, the main features highlighted, a beautiful sign-in), and the composition that
   `entry-hero.md` recommends another app's entry screen starts from. The recommendation is this
   skill's [I]: three compositions of MediZen's own were rejected before the one that kept the
