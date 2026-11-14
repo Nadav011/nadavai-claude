@@ -33,7 +33,7 @@
           "text": "בוחרים את נועה לדוגמה, המטופלת לתרגול.",
           "showText": "כאן בוחרים מטופל מהרשימה, או כותבים שם או טלפון.",
           "variants": [{ "when": "appt.other-picked", "text": "לתרגול בוחרים את נועה לדוגמה. לוחצים \"החלפה\"." }] },
-        { "kind": "do", "title": "בוחרים טיפול", "act": "select", "on": "sample", "anchor": "appt.service", "result": { "kind": "step", "arg": { "window": "appt.create", "n": 3 } },
+        { "kind": "do", "title": "סוג הטיפול", "act": "select", "on": "sample", "anchor": "appt.service", "result": { "kind": "step", "arg": { "window": "appt.create", "n": 3 } },
           "need": [{ "do": "reopen", "window": "appt.create" }, { "do": "selectSample" }],
           "safeTest": "e2e/tours/sample-safe.spec.ts: choosing a service sends nothing",
           "text": "בוחרים טיפול מהרשימה." },

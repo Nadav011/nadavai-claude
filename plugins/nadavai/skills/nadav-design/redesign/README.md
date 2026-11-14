@@ -238,7 +238,8 @@ Chat in plain Hebrew, short lines, the why before the what; code, files and comm
 - Evidence: the build line (`missing [] leftover []`), the clean report.json files, the prototype link first and
   the catalog link second, the number of walkthroughs against the number of new or changed features on the journey,
   and every walkthrough run at 390, 320×568 and 1440, with reduced motion and with the keyboard only, with 0 failed
-  steps (as SportChat's `partner-site/review/int-r*-qa/drive.mjs`, `keyboard.mjs` and `reduced.mjs` did).
+  steps (as SportChat's `~/sporchat-design-backup-2026-09-22/scratchpad/v4/partner-site/review/int-r*-qa/drive.mjs`,
+  `keyboard.mjs` and `reduced.mjs` did).
 
 ### 4. Questions
 - Every open decision is a row in DECISIONS-OPEN.md (options, recommendation first, the source phone). Ask them in
