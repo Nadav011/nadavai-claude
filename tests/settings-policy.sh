@@ -37,6 +37,17 @@ ok "a missing effort entry is added"          '[ "$(jq -r ".modelSettings[\"clau
 ok "the model is the base's"                  '[ "$(jq -r .model "$b")" = "$(jq -r .model "$here/settings/settings.base.json")" ]'
 ok "the advisor model is the base's"          '[ "$(jq -r .advisorModel "$a")" = "$(jq -r .advisorModel "$here/settings/settings.base.json")" ] && [ "$(jq -r .advisorModel "$a")" = fable ]'
 
+# An account-synced plugin that base turns off is written as off in a profile that has no entry
+# for it, and an ordinary plugin that base turns off is not added to a profile that never had it.
+synced=$(jq -r '[.enabledPlugins | to_entries[] | select(.value == false and (.key | endswith("@synced"))) | .key][0] // empty' "$here/settings/settings.base.json")
+plain=$(jq -r '[.enabledPlugins | to_entries[] | select(.value == false and (.key | endswith("@synced") | not)) | .key][0] // empty' "$here/settings/settings.base.json")
+ok "base turns off at least one account-synced plugin" '[ -n "$synced" ]'
+for f in "$a" "$b"; do
+  ok "the synced plugin is off in ${f#"$home"/}" '[ "$(jq -r --arg p "$synced" ".enabledPlugins[\$p]" "$f")" = false ]'
+  ok "an ordinary off plugin is not added to ${f#"$home"/}" '[ -z "$plain" ] || [ "$(jq -r --arg p "$plain" ".enabledPlugins | has(\$p)" "$f")" = false ]'
+done
+ok "the three unused MCP servers are denied" '[ "$(jq -r "[.deniedMcpServers[].serverName] | map(select(. == \"plugin:cloudflare:cloudflare\" or . == \"plugin:supabase:supabase\" or . == \"plugin:context7:context7\")) | length" "$a")" = 3 ]'
+
 # 2. A second run changes nothing.
 before=$(cat "$a" "$b")
 run_policy "$here" >/dev/null

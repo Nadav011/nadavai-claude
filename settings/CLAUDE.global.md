@@ -6,5 +6,5 @@ Nadav's rules are the files in `~/.claude/rules/`; they load on their own and ar
 - OMC hooks add `<system-reminder>` notes. `[MAGIC KEYWORD: <name>]` means invoke that skill. A continuation note ("The boulder never stops") means an OMC mode is active; end it with `/oh-my-claudecode:cancel` when the work is done and verified, or blocked.
 - OMC keeps working files under `.omc/` in the project (plans, state, handoffs). They are not committed, except `.omc/skills/`.
 - After a resume or a compaction, and inside a linked worktree, check `git status --short --branch` and the working directory before editing, so work does not continue on the wrong branch.
-- Before using an SDK, a framework or an API you are not sure of, read its current documentation (the repo's own docs first, then Context7 or the vendor's site) instead of writing it from memory.
+- Before using an SDK, a framework or an API you are not sure of, read its current documentation (the repo's own docs first, then the vendor's site with `webget`) instead of writing it from memory.
 - A TODO placeholder, a skipped or `.only` test, a stub or an unimplemented branch is unfinished work: implement it, or report it as a blocker.

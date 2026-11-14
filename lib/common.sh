@@ -238,6 +238,12 @@ apply_model_policy() {
       // A plugin that base turns off is turned off in each profile; plugins a profile enabled itself stay.
       for (const [p, on] of Object.entries(b.enabledPlugins || {})) {
         if (on === false && cur.enabledPlugins && cur.enabledPlugins[p] === true) cur.enabledPlugins[p] = false;
+        // A plugin synced from the claude.ai account (<name>@synced) loads with no entry at all, so
+        // base turning it off has to write the entry; a profile that set it to true itself is
+        // covered by the line above.
+        if (on === false && p.endsWith("@synced") && !(cur.enabledPlugins && p in cur.enabledPlugins)) {
+          cur.enabledPlugins = { ...(cur.enabledPlugins || {}), [p]: false };
+        }
       }
       // Effort per model: add the entries a profile lacks (a new model), keep the ones it has.
       for (const [m, v] of Object.entries(b.modelSettings || {})) {
