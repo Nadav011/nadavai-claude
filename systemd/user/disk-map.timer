@@ -4,7 +4,7 @@ Description=Nightly disk map for disk-now
 [Timer]
 OnCalendar=*-*-* 04:15
 RandomizedDelaySec=20min
-Persistent=true
+# No Persistent: a missed night must not start a 40-minute scan at the next login.
 
 [Install]
 WantedBy=timers.target

@@ -71,8 +71,8 @@ For the disk, start with `disk-now` (seconds, both machines): live `df`, the dee
 refreshes it (minutes, in the background, under the heavy lock). Do not start a plain `du` of `~`
 or `/` to answer "what takes the space": on 2026-11-14 one did not finish in 2.5 minutes at 94%
 full. When the map is older than the question, run `--scan` first. A host without the timers gets
-them as the README says (`disk-map.timer`, and `docker-tidy.timer` on every machine but the CI
-agent, which has `woodpecker-prune`).
+them as the README says; the CI agent (the MSI) gets neither: no nightly scan (`ci-policy.md`
+keeps other heavy jobs off it) and `woodpecker-prune` instead of `docker-tidy`.
 
 Decide which resource is the bottleneck before touching anything: CPU (0% idle, run queue far
 above the thread count), memory (memory PSI, earlyoom kills in the journal), or disk (I/O PSI,

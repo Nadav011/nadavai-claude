@@ -52,7 +52,8 @@ images no container uses and no project pins (`supabase/.temp/*-version`) that h
 cache older than 7 days, never volumes; `--apply` runs weekly through `systemd/user/docker-tidy.timer`
 on dev machines (the MSI keeps its own `woodpecker-prune` for CI). Both timers: symlink the `.service`
 and `.timer` into `~/.config/systemd/user/` and `systemctl --user enable --now <name>.timer`, on every
-home machine (machine-checkup). Tests: `tests/disk-now.sh`.
+home machine except the CI agent (the MSI): `ci-policy.md` keeps other heavy jobs off it, so there
+`disk-now` shows live `df` and a map only from a `--scan` run by hand. Tests: `tests/disk-now.sh`.
 
 ## What is inside
 

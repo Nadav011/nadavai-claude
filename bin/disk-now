@@ -46,6 +46,8 @@ scan() {
   exec 9>"$HOME/.cache/machine-checkup.heavy.lock"
   flock 9
   tmp=$(mktemp "$dir/.scan.XXXXXX") || return 1
+  scan_tmp=$tmp   # global: the EXIT trap runs after this function's locals are gone
+  trap 'rm -f -- "${scan_tmp:?}" "${scan_tmp:?}.err"' EXIT
   # du, not gdu: du prints each folder as it finishes and holds only hardlinked inodes, while
   # gdu keeps the whole tree in memory (20 GB on the LENOVO on 2026-11-14, under memory
   # pressure). heavy-slot admits it by measured load; lowest best-effort IO and CPU priority.
