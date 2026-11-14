@@ -19,6 +19,20 @@ const MINI = path.join(SK, 'examples/mini');
 const T = path.join(SK, 'tools');
 const W = path.join(SK, 'workflows');
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'redesign-skill-tests-')); // never a fixed, shared folder
+// the run's temp folder is removed when the run ends, passing, failing, or stopped by SIGINT or SIGTERM; KEEP_TMP=1
+// keeps it and prints its path (999 such folders had piled up in /tmp before this)
+const KEEP_TMP = process.env.KEEP_TMP === '1';
+process.on('exit', () => { if (!KEEP_TMP) fs.rmSync(TMP, { recursive: true, force: true }); });
+for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { if (KEEP_TMP) fs.writeSync(2, `the fixture copies are kept in ${TMP}\n`); process.exit(sig === 'SIGINT' ? 130 : 143); });
+// --tmp-probe, for the test of the above (TMP-clean): print the folder, write a file in it, then end with 0 (--tmp-probe),
+// with 1 (--tmp-probe=fail), or wait for a signal (--tmp-probe=wait); no test runs
+const tmpProbe = process.argv.find(a => a.startsWith('--tmp-probe'));
+if (tmpProbe) {
+  fs.writeFileSync(path.join(TMP, 'probe'), 'x');
+  fs.writeSync(1, `${TMP}\n`);
+  if (tmpProbe === '--tmp-probe=wait') await new Promise(() => setInterval(() => {}, 1000));
+  process.exit(tmpProbe === '--tmp-probe=fail' ? 1 : 0);
+}
 const PNG1 = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
 const noBrowser = process.argv.includes('--no-browser');
 
@@ -27,9 +41,9 @@ const routerText = () => fs.readFileSync(path.join(SK, '..', 'SKILL.md'), 'utf8'
 const skillText = () => [path.join(SK, '..', 'SKILL.md'), ...fs.readdirSync(path.join(SK, '..', 'modes')).sort().map(f => path.join(SK, '..', 'modes', f))]
   .map(f => fs.readFileSync(f, 'utf8')).join('\n');
 const results = [];
-// a child that did not run to its end (killed by a signal, or not started) is its own named failure, never read as a
-// finding of the code under test: it still fails, and says what stopped the child
-const failWhy = e => (e && e.spawnFailure ? `SPAWN FAILED (the child did not run to its end; load or the environment, not a result of the code under test): ${e.message}` : `threw: ${String(e && e.stack || e).split('\n').slice(0, 2).join(' ')}`);
+// a child that did not run to its end (killed by a signal, or a spawn error) is its own named failure, not read as an
+// ordinary result: it still fails, and says what stopped the child (a signal can come from load or from the code itself)
+const failWhy = e => (e && e.spawnFailure ? `SPAWN FAILED: the check did not run to its end: ${e.message}` : `threw: ${String(e && e.stack || e).split('\n').slice(0, 2).join(' ')}`);
 const test = async (id, name, fn) => {
   try {
     const why = await fn();
@@ -40,9 +54,10 @@ const test = async (id, name, fn) => {
 };
 const sh = (cmd, args, opts = {}) => spawnSync(cmd, args, { encoding: 'utf8', cwd: MINI, ...opts });
 // sh for the tour checker's tests: a signal or a spawn error throws a spawn failure (failWhy names it)
+// its output buffer is large (64 MB), so the size of a child's output is never what stops it
 const shTour = (cmd, args, opts = {}) => {
-  const r = sh(cmd, args, opts);
-  if (r.error || r.signal) throw Object.assign(new Error(`${cmd} ${args.map(a => path.basename(String(a))).join(' ')}: ${r.signal ? `ended by signal ${r.signal}` : `did not start (${r.error.code || r.error.message})`}`), { spawnFailure: true });
+  const r = sh(cmd, args, { maxBuffer: 64 * 1024 * 1024, ...opts });
+  if (r.error || r.signal) throw Object.assign(new Error(`${cmd} ${args.map(a => path.basename(String(a))).join(' ')}: ${r.error ? `spawn error ${r.error.code || r.error.message}` : `ended by signal ${r.signal}`}`), { spawnFailure: true });
   return r;
 };
 
@@ -1737,6 +1752,8 @@ const TOUR_FIXTURES = [
   ['schema', 'manifest', null, 'a step title that is empty', m => { tourOf(m, 'book').steps[0].title = ''; }],
   ['schema', 'manifest', null, 'review 1\'s C2: a step title of spaces alone', m => { tourOf(m, 'book').steps[0].title = '   '; }],
   ['schema', 'manifest', null, 'review 1\'s C2: a tour promise of spaces alone', m => { tourOf(m, 'book').promise = '   '; }],
+  ['schema', 'manifest', null, 'review 2\'s P4: a tour promise of punctuation alone', m => { tourOf(m, 'book').promise = '...'; }],
+  ['title-same', 'tour-shape', 'G-07', 'review 2\'s can-follow 5: a step title that repeats the tour\'s title, with a full stop and a bidi mark after it', m => { tourOf(m, 'reminder').steps[0].title = 'לשנות תזכורת.\u200f'; }, 'title-same-tour'],
   ['title-same', 'tour-shape', 'G-07', 'review 1\'s C7: a step title that repeats the tour\'s title with an exclamation mark at its end', m => { tourOf(m, 'reminder').steps[0].title = 'לשנות תזכורת!'; }, 'title-same-tour'],
   ['title-same', 'tour-shape', 'G-07', 'review 1\'s C7: a step title that repeats its sentence, ending in a colon where the sentence ends in a full stop', m => { tourOf(m, 'book').steps[3].title = 'בוחרים טיפול מהרשימה:'; }, 'title-same-text'],
   ['title-same', 'tour-shape', 'G-07', 'review 1\'s C7: a step title that repeats the tour\'s title after a leading space', m => { tourOf(m, 'reminder').steps[0].title = ' לשנות תזכורת'; }, 'title-same-tour'],
@@ -2152,18 +2169,57 @@ await test('TOUR-part-show', 'a showing step and a stop step whose part is a kno
   two.tours.push({ id: 'pt2', title: 'x', screens: ['patients', 'cal-week'], area: 'יומן', where: 'יומן', tasks: [], steps: [{ kind: 'next', anchor: 'cal.grid', part: 'cal.print', text: 'בראש היומן מדפיסים.' }], finish: 'סוף.' });
   const r2 = tourCheck(two, INV_EX, undefined, ['--require-stage', 'app']);
   if (r2.status !== 0 || !r2.out || r2.out.findings.length) why.push(`a part known on one of two screens: exit ${r2.status} ${JSON.stringify(r2.out && r2.out.findings.map(f => f.code))}`);
+  // review 2's K1: a part known only as a step's result (pay.practice-receipt, a present result of close-3, on the job's
+  // screens) passes
+  const res = clone(TOUR_EX); tourOf(res, 'close-1').steps[1].part = 'pay.practice-receipt';
+  const r3 = tourCheck(res, INV_EX, undefined, ['--require-stage', 'app']);
+  if (r3.status !== 0 || !r3.out || r3.out.findings.length) why.push(`a part known through a result: exit ${r3.status} ${JSON.stringify(r3.out && r3.out.findings.map(f => f.code))}`);
+  // review 2's can-follow 2: without the inventory part-unknown does not run, and a note counts the parts it left
+  const pn = 'parts not judged against the anchors known on their tours\' screens (part-unknown): 1; that needs --inventory';
+  const bare = tourCheck(TOUR_EX, null);
+  if (!bare.out || !bare.out.notes.some(n => n.check === 'tour-shape' && n.message === pn)) why.push(`no inventory: no part note ${JSON.stringify(bare.out && bare.out.notes.map(n => n.message))}`);
+  const withInv = tourCheck(TOUR_EX, INV_EX);
+  if (!withInv.out || withInv.out.notes.some(n => n.message === pn)) why.push('with the inventory the part note is still printed');
+  const mu = tourCheck(TOUR_EX, null, mutant('part-no-inventory'));
+  if (!mu.out || mu.out.notes.some(n => n.message === pn)) why.push('without M:part-no-inventory the part note is still printed');
   return why.join(' · ');
 });
 await test('TOUR-spawn', 'review 1\'s C8: a checker child killed by a signal, or one that does not start, is a named spawn failure in the output (it still fails), and a child that exits 1 is not', async () => {
   const why = [];
   const caught = f => { try { f(); return null; } catch (e) { return e; } };
   const killed = caught(() => shTour('node', ['-e', 'process.kill(process.pid, "SIGKILL")']));
-  if (!killed || !killed.spawnFailure || !/ended by signal SIGKILL/.test(killed.message) || !failWhy(killed).startsWith('SPAWN FAILED (the child did not run to its end')) why.push(`a killed child: ${killed && failWhy(killed)}`);
+  if (!killed || !killed.spawnFailure || !/ended by signal SIGKILL/.test(killed.message) || !failWhy(killed).startsWith('SPAWN FAILED: the check did not run to its end: ')) why.push(`a killed child: ${killed && failWhy(killed)}`);
   const missing = caught(() => shTour(path.join(TMP, 'no-such-program'), []));
-  if (!missing || !missing.spawnFailure || !/did not start \(ENOENT\)/.test(missing.message)) why.push(`a child that does not start: ${missing && failWhy(missing)}`);
+  if (!missing || !missing.spawnFailure || !/spawn error ENOENT/.test(missing.message)) why.push(`a child that does not start: ${missing && failWhy(missing)}`);
+  // review 2's can-follow 3: output past spawnSync's default 1 MB buffer is not a spawn failure
+  const big = caught(() => { const r = shTour('node', ['-e', 'process.stdout.write("x".repeat(3 * 1024 * 1024))']); if (r.status !== 0 || r.stdout.length !== 3 * 1024 * 1024) throw new Error(`status ${r.status}, ${r.stdout.length} bytes`); });
+  if (big) why.push(`3 MB of output: ${failWhy(big)}`);
   const exit1 = caught(() => { const r = shTour('node', ['-e', 'process.exit(1)']); if (r.status !== 1) throw new Error(`status ${r.status}`); });
   if (exit1) why.push(`a child that exits 1 threw: ${exit1.message}`);
   if (!failWhy(new Error('x')).startsWith('threw: Error: x')) why.push('an ordinary error is no longer reported as threw');
+  return why.join(' · ');
+});
+await test('TMP-clean', 'a run removes its temp folder when it ends, passing, failing, or stopped by SIGTERM or SIGINT, and keeps it, with its path printed, only under KEEP_TMP=1 (this session\'s cleanup found 999 left in /tmp)', async () => {
+  const why = [];
+  const base = fs.mkdtempSync(path.join(TMP, 'tmp-clean-'));
+  const env = extra => ({ ...process.env, TMPDIR: base, KEEP_TMP: '', ...extra });
+  const left = () => fs.readdirSync(base).filter(f => f.startsWith('redesign-skill-tests-'));
+  for (const [label, arg, code] of [['a run that passes', '--tmp-probe', 0], ['a run that fails', '--tmp-probe=fail', 1]]) {
+    const r = shTour('node', [path.join(HERE, 'run.mjs'), arg], { env: env({}) });
+    if (r.status !== code || !r.stdout.includes('redesign-skill-tests-') || left().length) why.push(`${label}: exit ${r.status}, left ${JSON.stringify(left())}`);
+  }
+  for (const sig of ['SIGTERM', 'SIGINT']) {
+    const ch = spawn('node', [path.join(HERE, 'run.mjs'), '--tmp-probe=wait'], { env: env({}), stdio: ['ignore', 'pipe', 'pipe'] });
+    const dir = await new Promise(res => { let out = ''; ch.stdout.on('data', d => { out += d; if (out.includes('\n')) res(out.trim()); }); setTimeout(() => res(''), 30000); });
+    const had = !!dir && fs.existsSync(path.join(dir, 'probe'));
+    const done = new Promise(res => ch.on('close', c => res(c)));
+    ch.kill(sig);
+    const c = await done;
+    if (!had || c !== (sig === 'SIGINT' ? 130 : 143) || left().length) why.push(`${sig}: folder seen ${had}, exit ${c}, left ${JSON.stringify(left())}`);
+  }
+  const k = shTour('node', [path.join(HERE, 'run.mjs'), '--tmp-probe'], { env: env({ KEEP_TMP: '1' }) });
+  const kept = k.stdout.trim();
+  if (k.status !== 0 || !kept || !fs.existsSync(path.join(kept, 'probe')) || left().length !== 1) why.push(`KEEP_TMP=1: exit ${k.status}, kept ${JSON.stringify(left())}`);
   return why.join(' · ');
 });
 await test('TOUR-title-count', 'titles and promises are counted as tour-shape counts words, split on spaces: a four-word title with a maqaf and a number joined to it ("קובעים תור ל־3 שעות") and a six-word promise pass; the same title with the number standing alone is five words (title-words), and a seven-word promise fails (promise-words)', async () => {
@@ -2175,6 +2231,19 @@ await test('TOUR-title-count', 'titles and promises are counted as tour-shape co
   const f = tourCheck(no, INV_EX, undefined, ['--require-stage', 'app']);
   const got = f.out ? f.out.findings.map(x => `${x.code}:${x.message.match(/has (\d+) words/)?.[1]}`).sort().join(',') : `exit ${f.status}`;
   if (got !== 'promise-words:7,title-words:5') why.push(`five-word title, seven-word promise: ${got}`);
+  // review 2's survivors W3, W8, W9, S5, S6, S9 and P3, pinned as head counts them: bidi isolates between spaces are
+  // no words, a zero-width space joins, a mark inside a word does not split it; a title that differs from the tour's
+  // title only in niqqud, in word order or in a mark at its start is not the same; a title of digits is a title
+  const keep = clone(TOUR_EX);
+  Object.assign(tourOf(keep, 'book').steps[0], { title: 'משנים \u2066 את \u2069 השעות כאן' });
+  Object.assign(tourOf(keep, 'book').steps[1], { title: 'קובעים\u200bתור\u200bחדש\u200bלמטופל\u200bעכשיו' });
+  Object.assign(tourOf(keep, 'book').steps[2], { title: 'משנים את הש\u200fעות כאן' });
+  Object.assign(tourOf(keep, 'book').steps[3], { title: '24' });
+  Object.assign(tourOf(keep, 'reminder').steps[0], { title: 'לְשַׁנּוֹת תזכורת' });
+  Object.assign(tourOf(keep, 'reminder').steps[1], { title: 'תזכורת לשנות' });
+  Object.assign(tourOf(keep, 'reminder').steps[3], { title: '"לשנות תזכורת' });
+  const rk = tourCheck(keep, INV_EX, undefined, ['--require-stage', 'app']);
+  if (rk.status !== 0 || !rk.out || rk.out.findings.length) why.push(`head's counting and comparison of review 2's cases: exit ${rk.status} ${JSON.stringify(rk.out && rk.out.findings.map(x => `${x.code}@${x.tour}:${x.step}`))}`);
   // review 1's C4: a bidi mark standing between two spaces is no word, so four words with three marks pass
   const bidi = clone(TOUR_EX); tourOf(bidi, 'reminder').steps[2].title = 'משנים \u200f את \u200f השעות \u200f כאן';
   const rb = tourCheck(bidi, INV_EX, undefined, ['--require-stage', 'app']);
@@ -2401,7 +2470,7 @@ await test('TOUR-need-texts', 'the need rule\'s sentences (selectSample as well 
     ["tours.schema.json", "A do step never names one, since its lit target is the live control she presses (part-do);", 1],
     ["tours.schema.json", "The inOrderRun key leaves it out, since it changes only what is lit on a step the run never presses.", 1],
     ["../help-system.md", "A do step never names one, because its lit target is the live control she presses (part-do).", 1],
-    ["../help-system.md", "The card's accessible name is the tour's name (in a chapter, the job's title and the chapter's), and the step's title is not repeated in it. Its accessible description (aria-describedby) is the step's place, its title and its sentence, in that order", 1],
+    ["../help-system.md", "Its accessible description (aria-describedby) is the step's place, its title and its sentence, in that order", 1],
     ["../help-system.md", "On every step change the same three, in the same order, are announced in the live region too, whether focus moved or not.", 1],
     ["../help-system.md", "The card goes below the lit control, else above it, never over it, at every screen size, a 320×568 phone included. When it fits on neither side of the whole control, a showing or stop step lights its part instead", 1],
     ["../help-system.md", "and every later do step of the tour only shows too, as after a declined need", 1],
@@ -2414,10 +2483,17 @@ await test('TOUR-need-texts', 'the need rule\'s sentences (selectSample as well 
     ["../experience.md", "its six-word limit: [I]", 1],
     ["../help-system.md", "which includes the non-breaking spaces (U+00A0, U+202F); a word joined by a maqaf is one word", 1],
     ["../help-system.md", "When the tour ends, focus returns to what started it", 1],
+    ["../help-system.md", "The tour's name is one string, the same on the card's line on top and in its accessible name: the tour's title, or, in a chapter, its jobTitle, a space, a middle dot and a space, then its title (\"לסגור טיפול · שולם\") [I].", 1],
+    ["../help-system.md", "The card's accessible name is the tour's name, that one string, and the step's title is not repeated in it.", 1],
+    ["tours.schema.json", "in a chapter it is the job's title (jobTitle), then a space, a middle dot (·) and a space, then this title", 1],
+    ["tours.schema.json", "and on the card's line on top, and in its accessible name, it comes before the chapter's title, joined by a space, a middle dot (·) and a space", 1],
+    ["../help-system.md", "when she answers no, nothing is closed or discarded, everything stays as it is, and the tour does not start [I].", 1],
+    ["../help-system.md", "Inside a store shell, a link start is whatever the shell's deep-link routing hands to the web app: when the hash does not arrive, the tour does not start, and the other starts of G-21 are unaffected [I].", 1],
+    ["../help-system.md", "On a centred card, which lights no control, focus is on the card's main button, and at the end it returns to what started the tour as above [I].", 1],
     ["../help-system.md", "at stage demo the steps and the tours still without one are a note with their count, so manifests already being written are not broken, and at stage app each is a finding (title-missing, promise-missing)", 1],
     ["../help-system.md", "Nadav picked \"הכול כמו SporChat (מומלץ)\" [A]", 1],
     ["tours.schema.json", "The sentence keeps its twelve words, counted without the title.", 1],
-    ["../help-system.md", "following it is her own start, like \"הראו לי\", not an automatic one, so none of the waits above applies to it, and the tour begins at its start state, asking first where a window holds unsaved input (G-08) [I].", 1],
+    ["../help-system.md", "following it is her own start, like \"הראו לי\", not an automatic one, so none of the waits above applies to it, and the tour begins at its start state, asking first where a window holds unsaved input (G-08) [I];", 1],
     ["../experience.md", "or from a link she follows, which is her own start, never an automatic one [I].", 1],
     ["tours.schema.json", "The bindings, the app's code and its build are not in it, so a matching key never shows that the app is unchanged since the run.", 1],
     ["tours.schema.json", "a day of the calendar not after today, today being the latest day anywhere on earth (run-date)", 1],
@@ -2573,7 +2649,7 @@ const GOLDEN = [
     ['promise-words', m => { tourOf(m, 'book').promise = 'לקבוע תור חדש למטופל ישר מתוך היומן'; }, 'promise-words', "the tour's promise has 7 words, at most 6: one short line in the tour list on what she can do after it"],
     ['promise-missing', m => { delete tourOf(m, 'reminder').promise; BARE.add(m); }, 'promise-missing', "the tour has no promise: at stage app every tour carries one, at most six words in the tour list on what she can do after it"],
     ['part-do', m => { tourOf(m, 'pat-debt').steps[0].part = 'patients.charge'; }, 'part-do', "a do step names part \"patients.charge\": a do step's lit target is the live control she presses, and a part would light less than what responds; drop part (the bindings scroll a tall control into view), since part is only for a showing or a stop step, on which nothing on the screen responds"],
-    ['part-same', m => { tourOf(m, 'pat-debt').steps[2].part = 'patients.row'; }, 'part-same', "part names the step's own anchor \"patients.row\": a part is a smaller place inside the anchor, lit instead of it on a short screen; name the place inside it that the step is about, or drop part"],
+    ['part-same', m => { tourOf(m, 'pat-debt').steps[2].part = 'patients.row'; }, 'part-same', "part names the step's own anchor \"patients.row\": a part is a smaller place inside the anchor, lit instead of it where the card fits on neither side of the whole control; name the place inside it that the step is about, or drop part"],
     ['part-unknown', m => { tourOf(m, 'pat-debt').steps[2].part = 'patients.row-debt'; }, 'part-unknown', "part \"patients.row-debt\" is no known anchor on the tour's screens: no step of a tour there points at it or names it as a result, and no anchors entry for them lists it; list it in the manifest's anchors with the screens that carry it and what it is, so the screen preview finds it inside the step's anchor"],
 ];
 const GOLDEN_NOT_COVERED = [
@@ -2759,7 +2835,7 @@ await test('TOUR-message-steers', 'the twelfth review\'s B2: every finding kind 
   // an existing message, a new write to findings, or any other edit of the checker turns this red until the table, the
   // count and the hash are updated on purpose, after a reviewer has read the change
   const ADD_REFS = 65;
-  const CHECKER_HASH = '4d15be5f81c6dff8db185a0e542fc18f15266fd9c63f39ba015fa47748c425de';
+  const CHECKER_HASH = '5ea4f9268c13571a07b577bf6ccb5e859a2b4afc63d2c4e08651d5a9426d8d8e';
   const refs = (src.match(/\badd\b/g) || []).length;
   if (refs !== ADD_REFS) why.push(`the checker names add ${refs} times, not ${ADD_REFS}: a finding was added, removed or aliased without its row`);
   const pushes = (src.match(/\bfindings\s*(\.\s*(push|unshift|splice|pop|shift|fill|copyWithin|reverse|sort)\s*\(|\.\s*length\s*=[^=]|\[|=[^=>])/g) || []).length;
@@ -2879,7 +2955,7 @@ const report = results.map(r => `${r.skip ? 'SKIP' : r.ok ? 'PASS' : 'FAIL'} ${r
 const failed = results.filter(r => !r.ok).length;
 const skipped = results.filter(r => r.skip).length;
 report.push(`${results.length - failed - skipped} passed, ${failed} failed, ${skipped} skipped`);
-if (failed) report.push(`the fixture copies are kept in ${TMP}`);
-else fs.rmSync(TMP, { recursive: true, force: true });
+if (KEEP_TMP) report.push(`the fixture copies are kept in ${TMP}`);
+else if (failed) report.push('the fixture copies were removed; run with KEEP_TMP=1 to keep them');
 // one write, and the exit only after it has drained: process.exit right after console.log can cut a piped stdout short
 process.stdout.write(`${report.join('\n')}\n`, () => process.exit(failed ? 1 : 0));

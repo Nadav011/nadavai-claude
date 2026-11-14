@@ -68,7 +68,7 @@
 // Not covered here: every item of NOT_COVERED below, which each run prints after its findings (the
 // running app's, the project suite's and the reviewer's), so the two never drift apart.
 //
-// usage: node tour-check.mjs <tours.json> [--inventory <inventory.json>] [--require-stage demo|app] [--json]
+// usage: node tour-check.mjs <tours.json> [--inventory <inventory.json>] [--require-stage demo|app] [--json] [--run-key]
 // The app's own check: node tour-check.mjs tours.json --inventory inventory.json --require-stage app
 // exit: 0 no findings, 1 findings, 2 usage, an input that cannot be read, or one whose shape the checks
 // cannot walk (a tour or a step that is not an object). Steps count from 1.
@@ -309,9 +309,12 @@ for (const [job, list] of jobs) {
 // words: split on whitespace, which in JavaScript includes the non-breaking spaces (U+00A0, U+202F); a maqaf (ל־3), niqqud
 // and a zero-width space are inside a word; a bidi mark (U+200E, U+200F, U+061C, U+202A-U+202E, U+2066-U+2069) is
 // dropped first, so a mark standing between two spaces is no word; a number or a sign standing alone is a word
-const words = s => String(s || '').replace(/[\u200E\u200F\u061C\u202A-\u202E\u2066-\u2069]/gu, '').trim().split(/\s+/).filter(Boolean).length;
-// two wordings are the same when they differ only in spacing or in the punctuation at their end
-const sameWords = (a, b) => typeof a === 'string' && typeof b === 'string' && a.replace(/[\s.!?:;,]+$/u, '').replace(/\s+/g, ' ').trim() === b.replace(/[\s.!?:;,]+$/u, '').replace(/\s+/g, ' ').trim();
+const BIDI = /[\u200E\u200F\u061C\u202A-\u202E\u2066-\u2069]/gu;
+const words = s => String(s || '').replace(BIDI, '').trim().split(/\s+/).filter(Boolean).length;
+// two wordings are the same when they differ only in spacing, in bidi marks (dropped as words() drops them) or in the
+// punctuation at their end; niqqud, word order and punctuation at the start still make them different
+const sameForm = x => x.replace(BIDI, '').replace(/[\s.!?:;,]+$/u, '').replace(/\s+/g, ' ').trim();
+const sameWords = (a, b) => typeof a === 'string' && typeof b === 'string' && sameForm(a) === sameForm(b);
 const coreKeys = new Set(arr(M && M.core).flatMap(c => arr(c && c.screens)));
 const noTest = []; // do steps that name no G-20 test: findings at stage app, one note at stage demo
 const demoPractice = []; // practice-only steps at stage demo that name their tests later: one note
@@ -427,10 +430,11 @@ tours.forEach((t, ti) => {
     if (s.title === undefined && M.stage === 'demo') demoTitle.push(at); // M:demo-title
     if (s.skip === false) add('tour-shape', 'G-07', 'no-skip', at, 'the step cannot be skipped; every step can be'); // M:no-skip
     if (s.kind === 'do' && !s.result) add('tour-shape', 'G-16', 'do-no-result', at, 'a do step with no result condition: it moves on only when the screen shows the result it names'); // M:do-no-result
-    // part: a place inside the step's anchor, lit instead of it on a short screen; only a showing or stop step, whose lit
+    // part: a place inside the step's anchor, lit instead of it where the card fits on neither side of the whole control
+    // (help-system.md, "The card"); only a showing or stop step, whose lit
     // control does not respond, may light less than its whole control
     if (s.kind === 'do' && s.part !== undefined) add('tour-shape', 'G-16', 'part-do', at, `a do step names part "${s.part}": a do step's lit target is the live control she presses, and a part would light less than what responds; drop part (the bindings scroll a tall control into view), since part is only for a showing or a stop step, on which nothing on the screen responds`); // M:part-do
-    if (s.part !== undefined && s.part === s.anchor) add('tour-shape', 'G-16', 'part-same', at, `part names the step's own anchor "${s.anchor}": a part is a smaller place inside the anchor, lit instead of it on a short screen; name the place inside it that the step is about, or drop part`); // M:part-same
+    if (s.part !== undefined && s.part === s.anchor) add('tour-shape', 'G-16', 'part-same', at, `part names the step's own anchor "${s.anchor}": a part is a smaller place inside the anchor, lit instead of it where the card fits on neither side of the whole control; name the place inside it that the step is about, or drop part`); // M:part-same
     const po = obj(s.practiceOnly);
     const missing = ['modeTest', 'stopTest'].filter(k => !po[k]);
     const tp = s.class === 'T' || s.class === 'P';
@@ -483,6 +487,9 @@ if (demoTitle.length) notes.push({ check: 'tour-shape', message: `${demoTitle.le
 if (demoPromise.length) notes.push({ check: 'tour-shape', message: `${demoPromise.length} ${demoPromise.length === 1 ? 'tour has' : 'tours have'} no promise yet; each needs one, at most six words, before the app runs this tour` });
 if (demoPractice.length) notes.push({ check: 'tour-no-commit', message: `${demoPractice.length} practice-only steps name no mode test or stop test yet; each needs both before the app runs this tour` });
 const unjudged = INV ? 0 : tours.reduce((n, t) => n + arr(plain(t) && t.steps).filter(s => plain(s) && s.kind === 'do').length, 0);
+// without the inventory no anchor is known on a screen, so part-unknown does not run: one note with the count
+const unjudgedParts = INV ? 0 : tours.reduce((n, t) => n + arr(plain(t) && t.steps).filter(s => plain(s) && s.part !== undefined).length, 0);
+if (unjudgedParts) notes.push({ check: 'tour-shape', message: `parts not judged against the anchors known on their tours' screens (part-unknown): ${unjudgedParts}; that needs --inventory` }); // M:part-no-inventory
 if (unjudged) notes.push({ check: 'tour-no-commit', message: `${unjudged} do steps were not judged against the inventory (recordAnchors, bulkAnchors, containerAnchors, anchorWindows, pickingWindows: none-on-record, sample-not-record, sample-not-opened, sample-no-need, need-window, picker-window, screen-anchor, select-window, do-on-bulk, do-on-container), and at stage app inOrderRun\'s key was not compared (run-stale): that needs --inventory` }); // M:none-no-inventory
 if (M && M.stage === 'app' && tours.some(t => arr(t.steps).some(s => s && s.kind === 'do')) && !plain(M.inOrderRun)) add('tour-no-commit', 'G-20', 'run-not-recorded', { path: '/inOrderRun' }, 'the manifest is at stage "app" and its tours have do steps, and it names no inOrderRun: before a do step runs for anyone, the inventory\'s reviewer runs every do step of every tour in order on the sample in the recording copy (defined in help-system.md, "The tour manifest"), never in the live app, and after each step looks at her record, at the settings and the lists of other people the step can reach, and at the recorder; only that reviewer, and only after a run that showed no business-wide change, no change to other people and nothing in the recorder that the step\'s class does not allow, writes the record here (inOrderRun: copy, date, and the key tour-check.mjs --run-key prints; the run in full: help-system.md, "The tour manifest"); a project with no recording copy makes every step of its tours a showing or a stop step that lights no control (a centred card: help-system.md, "The tour manifest"), whatever preview it has; a do step is never run in the live app to find out what it does'); // M:run-not-recorded
 const REC = M && plain(M.inOrderRun) ? M.inOrderRun : {};

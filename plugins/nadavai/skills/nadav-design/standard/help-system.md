@@ -169,7 +169,10 @@ screen the first-visit card appears when the tour ends or is skipped, with "הר
 other tour is started by the person. A link may start a tour (`#tour-<id>` in a web app, from
 "what's new" or a help article): following it is her own start, like "הראו לי", not an automatic
 one, so none of the waits above applies to it, and the tour begins at its start state, asking
-first where a window holds unsaved input (G-08) [I].
+first where a window holds unsaved input (G-08) [I]; when she answers no, nothing is closed or
+discarded, everything stays as it is, and the tour does not start [I]. Inside a store shell, a
+link start is whatever the shell's deep-link routing hands to the web app: when the hash does not
+arrive, the tour does not start, and the other starts of G-21 are unaffected [I].
 
 **A step.** Each step is classed before the tour is written: its action on the sample record is
 safe to do (G-20); or it tells a real person; or it is permanent or charges. On the first kind
@@ -272,12 +275,13 @@ risk, that the taller card must not hide the marked place on a small phone. The 
 option did not give are this skill's [I]: the sentence keeps its twelve words, counted without
 the title, and the list's line has at most six words.
 
-What the card shows, top to bottom: the tour's name in one short line (its `title`; in a chapter,
-the job's title and then the chapter's [I]); the step's `title`; its sentence; then the progress
-and the buttons.
+What the card shows, top to bottom: the tour's name in one short line; the step's `title`; its
+sentence; then the progress and the buttons. The tour's name is one string, the same on the card's
+line on top and in its accessible name: the tour's `title`, or, in a chapter, its `jobTitle`, a
+space, a middle dot and a space, then its `title` ("לסגור טיפול · שולם") [I].
 
-What a screen reader hears, one rule [I]. The card's accessible name is the tour's name (in a
-chapter, the job's title and the chapter's), and the step's title is not repeated in it. Its
+What a screen reader hears, one rule [I]. The card's accessible name is the tour's name, that one
+string, and the step's title is not repeated in it. Its
 accessible description (`aria-describedby`) is the step's place, its title and its sentence, in
 that order ("שלב 4 מתוך 5. סוג הטיפול. בוחרים טיפול מהרשימה."), and it changes with the step. On
 every step change the same three, in the same order, are announced in the live region too,
@@ -310,7 +314,9 @@ sentence or to the tour's title is a finding (`title-same`), comparing them with
 and without a full stop, question mark, exclamation mark, colon, semicolon or comma at the end.
 
 When the tour ends, focus returns to what started it (the card's "הראו לי", the list's row, the
-link), not to the screen at large, as SportChat's demo did (`examples.md`) [I].
+link), not to the screen at large, as SportChat's demo did (`examples.md`) [I]. On a centred card,
+which lights no control, focus is on the card's main button, and at the end it returns to what
+started the tour as above [I].
 
 Also part of the contract, from the built version ([B]): "דילוג" on every step and progress
 dots; a skipped tour does not open by itself again; "הראו לי שוב" resumes at the same step and
