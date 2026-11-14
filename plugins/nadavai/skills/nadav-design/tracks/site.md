@@ -42,7 +42,8 @@ page is the product; it covers those product screens.
    behind content that already works.
 5. **Motion with its owners.** Load the skills before building: `gsap-core`,
    `gsap-scrolltrigger`, `gsap-timeline`, `gsap-react`, `gsap-performance` for scroll and
-   timelines; `animate` for interface motion; `vercel-react-view-transitions` for route changes;
+   timelines, and `gsap-plugins` when the page uses a GSAP plugin (SplitText, Flip, Draggable,
+   ScrollSmoother, the SVG plugins); `animate` for interface motion; `vercel-react-view-transitions` for route changes;
    `threejs-react-three-fiber`, `threejs-shaders`, `threejs-postprocessing` with
    `optimize-three` for 3D (measure first, frame cap, GPU tiers); `awwwards` for the overall
    workflow, except its page and video budgets, which a scroll film replaces
