@@ -12,11 +12,12 @@ Read before running `omc ask` for a review. Which provider a review gets, and ho
   read as its final read: of Grok's seven faults it found five, and it found four that Grok did not
   (`~/.omc/plans/method-review-2026-11-13/baseline-2026-11-14/review34-*`). So while Argon's quota is out,
   Hydrogen XHigh stands in for it, before Grok:
-  `timeout -k 10 900 agy --model gemini-4-hydrogen-xhigh -p "$(cat prompt.txt)" > hydrogen-out.txt`, started
+  `timeout -k 10 900 agy --model gemini-4-hydrogen-xhigh --sandbox --mode plan -p "$(cat prompt.txt)" > hydrogen-out.txt`, started
   with `run_in_background` (it can outlast a foreground call and a subagent's 140 s slice) from the material
   folder with the same `env -u` list as below, the prompt written to `prompt.txt` in that folder and the
   material kept in files there, not pasted into the prompt. An empty output, or one with no verdict line, is
-  not a read. In the quota file its line uses the name `agy-hydrogen-xhigh`.
+  not a read. With these two flags a shell command is refused, and a run that tries one comes back empty (tried
+  2026-11-14); files outside the folder can still be read. In the quota file its line uses the name `agy-hydrogen-xhigh`.
 - Grok: `omc ask grok` (`~/.grok/config.toml`). It can exit 0 on a quota or balance error, so read the artifact's
   raw output before counting its answer.
 - `omc ask` starts Codex, Grok and Antigravity with their approvals off, so every review prompt says "read-only"
@@ -26,7 +27,7 @@ Read before running `omc ask` for a review. Which provider a review gets, and ho
   review needs, the criteria, the question), not in an app's repo or a client's folder, because the provider runs in its current directory with its
   approvals and its sandbox off and an app's repo holds live env files; the one exception is this config repo
   (below). The material carries no secret, no real people's rows and no real person's identifying details
-  (`review-rounds.md`, the final read, says what is invented). Start it with the session's
+  (the public text of this config repo excepted; `review-rounds.md`, the final read, says what is invented). Start it with the session's
   tokens removed from its environment (the providers sign in from their own config files; tried with Grok on
   2026-11-14): `env -u GITHUB_PERSONAL_ACCESS_TOKEN -u BRIGHTDATA_API_TOKEN -u ORCA_AGENT_HOOK_TOKEN
   -u ORCA_AGENT_LAUNCH_TOKEN -u CLAUDE_CODE_MESSAGING_TOKEN omc ask ...`. These are the token names a session
