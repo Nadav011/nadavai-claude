@@ -2,6 +2,7 @@
 """Exercise the installer helper with an isolated PATH; no real client or network."""
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -57,10 +58,18 @@ esac
             if full_update:
                 # Execute the real update script with only unrelated helpers stubbed.
                 (root / 'lib').mkdir()
+                # Every helper update.sh calls is stubbed, read from the two files so that a
+                # helper added later is stubbed too (the fixed list here went stale on 2026-11-04,
+                # and the run then died in the first helper it did not name). The ones left real
+                # are the step under test and the steps before it, which the mocks above answer.
+                common = (REPO / 'lib/common.sh').read_text()
+                defined = set(re.findall(r'^([a-z][a-z0-9_]*)\(\) \{', common, re.M))
+                called = set(re.findall(r'^\s*([a-z][a-z0-9_]*)\b', (REPO / 'update.sh').read_text(), re.M))
+                real = {'step', 'log', 'warn', 'die', 'pull_repo', 'update_nadavai_copies', 'refresh_codex_plugin'}
                 overrides = ''.join(f'\n{name}() {{ printf \"{name}\\n\" >> \"$COMMANDS\"; }}\n'
-                    for name in ('ensure_continues', 'apply_model_policy', 'link_rules', 'link_git',
-                                 'link_shell', 'link_shortcuts', 'retire_duplicate_skills',
-                                 'mirror_rules_to_codex', 'mirror_to_antigravity', 'mirror_guard_to_grok'))
+                    for name in sorted((defined & called) - real))
+                for tool in ('head', 'cat'):  # update.sh itself pipes through these
+                    (root / tool).symlink_to(shutil.which(tool))
                 (root / 'lib/common.sh').write_text((REPO / 'lib/common.sh').read_text() + overrides)
                 (root / 'update.sh').write_text((REPO / 'update.sh').read_text())
                 for name in ('git', 'claude'):
@@ -145,7 +154,9 @@ esac
         self.assertNotIn('plugin add nadavai@nadavai --json', calls)
 
     def test_both_installers_refresh_before_linking(self):
-        for script, claude_command in (('update.sh', 'claude plugin update nadavai@nadavai'),
+        # update.sh updates the installed copies through update_nadavai_copies (lib/common.sh).
+        self.assertIn('claude plugin update nadavai@nadavai', (REPO / 'lib/common.sh').read_text())
+        for script, claude_command in (('update.sh', '\nupdate_nadavai_copies\n'),
                                        ('setup.sh', 'claude plugin install nadavai@nadavai')):
             with self.subTest(script=script):
                 source = (REPO / script).read_text()
