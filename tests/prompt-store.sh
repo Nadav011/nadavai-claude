@@ -58,12 +58,27 @@ while read -r prompt tool; do
   [ -x "$here/bin/$tool" ] && ok || bad "bin/$tool, which $prompt runs, is missing"
 done <<'PAIRS'
 my-review session-digest
+my-map session-digest
 my-done session-digest
 my-done session-close-check
 my-other session-digest
 my-other cs
 my-resume resume-all
 PAIRS
+# Names a prompt cannot work without: a placeholder Claude Code fills in, a tool of the harness, a
+# remote command. A typo in one of them is silent at run time.
+while read -r prompt literal; do
+  grep -qF -- "$literal" "$skills/$prompt/SKILL.md" && ok || bad "$prompt no longer contains $literal"
+done <<'LITERALS'
+my-review ${CLAUDE_SESSION_ID}
+my-map ${CLAUDE_SESSION_ID}
+my-done ${CLAUDE_SESSION_ID}
+my-other ListAgents
+my-other SendMessage
+my-resume nadavai-deploy
+my-resume resumeFromRunId
+my-ask AskUserQuestion
+LITERALS
 grep -q 'nadavai:reviewer' "$skills"/my-review/SKILL.md && [ -f "$here/plugins/nadavai/agents/reviewer.md" ] && ok \
   || bad "my-review needs the nadavai:reviewer agent"
 

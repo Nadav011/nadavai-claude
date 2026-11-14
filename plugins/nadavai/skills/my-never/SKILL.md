@@ -18,4 +18,4 @@ If that is empty, it is the failure just discussed.
 4. Prove that the enforcement fires: reproduce the mistake on purpose and show the check catching it. An enforcement you have not seen fire is a hope.
 5. Report the cause, where else it was found, what stops it now with the proof, and what is still open.
 
-A fix inside this project you make now. A fix that belongs in `~/nadavai` (a hook, a check, a line in a rule or a skill) follows `nadavai.md`: a check that stops an agent's mistake you make and report; a line that would make agents ask him, wait for him or refuse work you propose to him with its exact text.
+A fix inside this project you make now. A fix that belongs in `~/nadavai` follows `nadavai.md`. Something that fails a wrong action in code, with a message that names the right one (a test, a lint rule, a check in a script, a guard on a command that is wrong every time), you build, prove and report. Text that would make agents ask him, wait for him or decline a task is his to decide: give him the exact wording and the case it is for.

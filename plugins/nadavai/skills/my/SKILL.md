@@ -11,6 +11,7 @@ Nadav typed this to see what he can run. Print the table below as it is, in Hebr
 |---|---|
 | מה מצבנו, מה נשאר, כמה זמן עוד | `/nadavai:my-status` |
 | סיימנו את הכול? (בדיקה מהירה) | `/nadavai:my-done` |
+| איבדתי את התמונה: מה נסגר, מה נשאר, איזה סבב, כמה זמן | `/nadavai:my-map` |
 | ביקורת מלאה על כל הסשן, עם בודקים חדשים | `/nadavai:my-review` |
 | אתה בטוח? איך בדקת? | `/nadavai:my-prove` |
 | תמשיך עד הסוף בלי לעצור | `/nadavai:my-run` |

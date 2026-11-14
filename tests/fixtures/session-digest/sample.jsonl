@@ -2,11 +2,11 @@
 {"type":"user","isMeta":true,"timestamp":"2026-11-01T08:00:00.500Z","message":{"role":"user","content":"a note the harness wrote for the model: META MUST NOT APPEAR"}}
 {"type":"user","timestamp":"2026-11-01T08:00:01.000Z","message":{"role":"user","content":"<command-name>/model</command-name>\n<command-message>model</command-message>\n<command-args>opus</command-args>"}}
 {"type":"user","origin":{"kind":"human"},"turnPosition":{"promptIndex":1},"timestamp":"2026-11-01T08:01:00.000Z","message":{"role":"user","content":"build the cash report page"}}
-{"type":"user","origin":{"kind":"human"},"turnPosition":{"promptIndex":1},"timestamp":"2026-11-01T08:01:02.000Z","message":{"role":"user","content":"build the cash report page"}}
+{"type":"user","origin":{"kind":"human"},"turnPosition":{"promptIndex":1},"timestamp":"2026-11-01T08:01:12.000Z","message":{"role":"user","content":"build the cash report page"}}
 {"type":"assistant","timestamp":"2026-11-01T08:01:30.000Z","message":{"role":"assistant","stop_reason":"tool_use","content":[{"type":"text","text":"reading the code"},{"type":"tool_use","id":"t1","name":"Bash","input":{}}]}}
 {"type":"user","timestamp":"2026-11-01T08:01:40.000Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"TOOL OUTPUT MUST NOT APPEAR"}]}}
 {"type":"attachment","timestamp":"2026-11-01T08:02:00.000Z","attachment":{"type":"queued_command","prompt":"also add an export button","origin":{"kind":"human"},"timestamp":"2026-11-01T08:02:00.000Z"}}
-{"type":"user","origin":{"kind":"human"},"turnPosition":{"promptIndex":2},"timestamp":"2026-11-01T08:02:30.000Z","message":{"role":"user","content":"also add an export button"}}
+{"type":"user","origin":{"kind":"human"},"turnPosition":{"promptIndex":2},"timestamp":"2026-11-01T08:03:47.000Z","message":{"role":"user","content":"also add an export button"}}
 {"type":"attachment","timestamp":"2026-11-01T08:02:40.000Z","attachment":{"type":"queued_command","prompt":"/nadavai:my-status","origin":{"kind":"human"},"timestamp":"2026-11-01T08:02:40.000Z"}}
 {"type":"attachment","timestamp":"2026-11-01T08:02:45.000Z","attachment":{"type":"queued_command","prompt":"check the printer","origin":{"kind":"human"},"timestamp":"2026-11-01T08:02:45.000Z"}}
 {"type":"user","timestamp":"2026-11-01T08:02:50.000Z","message":{"role":"user","content":"ping the courier"}}
@@ -23,6 +23,10 @@
 {"type":"user","isMeta":true,"origin":{"kind":"peer"},"timestamp":"2026-11-01T08:07:30.000Z","message":{"role":"user","content":"Another Claude session sent a message: <cross-session-message>the tax session finished its part</cross-session-message>"}}
 {"type":"user","origin":{"kind":"task-notification"},"timestamp":"2026-11-01T08:08:00.000Z","message":{"role":"user","content":"<task-notification><task-id>abc</task-id>NOTIFICATION MUST NOT APPEAR</task-notification>"}}
 {"type":"user","origin":{"kind":"auto-continuation"},"timestamp":"2026-11-01T08:08:30.000Z","message":{"role":"user","content":"The limit has reset, carry on: AUTO MUST NOT APPEAR"}}
+{"type": "user", "promptSource": "sdk", "timestamp": "2026-11-01T08:08:40.000Z", "message": {"role": "user", "content": "<side-sessions-event>None of the sessions you started is working: SIDE MUST NOT APPEAR</side-sessions-event>"}}
+{"type": "user", "timestamp": "2026-11-01T08:08:45.000Z", "message": {"role": "user", "content": "The app was quit while you were working. Please continue from where you stopped: QUIT MUST NOT APPEAR"}}
+{"type": "attachment", "timestamp": "2026-11-01T08:08:50.000Z", "attachment": {"type": "queued_command", "prompt": "Another Claude session sent a message: <cross-session-message>the design session needs the logo file</cross-session-message>", "origin": {"kind": "peer"}, "timestamp": "2026-11-01T08:08:50.000Z"}}
+{"type": "user", "timestamp": "2026-11-01T08:09:30.000Z", "message": {"role": "user", "content": "הסיסמא Xk9mQ2vv לשרת, SUDO hunter3pass סיסמא, DB_PASSWORD=pg-secret-77 and https://admin:letmein99@example.com/x plus key AIzaSyA1234567890abcdefghijklmnopqrstuvw, הסיסמה נדרשה בכל כניסה"}}
 {"type":"user","timestamp":"2026-11-01T08:09:00.000Z","message":{"role":"user","content":"the server key is sk-ant-abcdefghijklmnopqrstuvwxyz0123456789 and the password: hunter2secret, the password screen is slow"}}
 {"type":"user","isCompactSummary":true,"timestamp":"2026-11-02T09:00:00.000Z","message":{"role":"user","content":"This session is being continued from a previous conversation. SUMMARY MUST NOT APPEAR"}}
 {"type":"user","timestamp":"2026-11-02T09:10:00.000Z","message":{"role":"user","content":[{"type":"text","text":"did we finish everything?<system-reminder>REMINDER MUST NOT APPEAR</system-reminder>"},{"type":"image","source":{}}]}}

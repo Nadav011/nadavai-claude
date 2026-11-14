@@ -38,7 +38,8 @@ NOISE_PREFIXES = (
     "<local-command-", "<task-notification", "<system-reminder", "<bash-", "<user-prompt-submit-hook",
     "Caveat:", "[Request interrupted", "<command-message>", "Stop hook feedback:",
     "A session-scoped Stop hook", "Base directory for this skill:", "Your claude.ai usage limit",
-    "<tools-used-before-summary",
+    "<tools-used-before-summary", "<side-sessions-event", "The app was quit while you were working",
+    "The dev server failed to start with the following error",
 )
 PEER_PREFIX = "Another Claude session sent a message:"
 SUMMARY_PREFIX = "This session is being continued from a previous conversation"
@@ -48,7 +49,6 @@ COMMAND = re.compile(r"<command-name>\s*(/?[^<\s]+)\s*</command-name>")
 COMMAND_ARGS = re.compile(r"<command-args>(.*?)</command-args>", re.S)
 # Claude Code writes the reason he types when he rejects a tool call inside that call's result.
 REJECTION = re.compile(r"the user said:\n(.*?)(?:\n\nNote: The user's next message|\Z)", re.S)
-QUEUE_WINDOW = 900  # seconds in which a queued message may be logged once more when delivered
 
 SECRETS = [
     re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|\Z)", re.S),
@@ -60,20 +60,37 @@ SECRETS = [
     re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{20,}"),
     re.compile(r"\bglpat-[A-Za-z0-9_-]{20,}"),
     re.compile(r"\bsk_live_[A-Za-z0-9]{20,}"),
+    re.compile(r"\bAIza[0-9A-Za-z_-]{35}"),
+    re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}"),
 ]
-# The word, a separator that says a value follows, then the value. "הסיסמה נדרשה" stays as it is.
-PASSWORD = re.compile(r"(?i)((?:\bpassword|\bpasswd|\bpwd|סיסמה|סיסמא)\s*(?:\bis\b|היא|זה|[:=])\s*)(\S+)")
+# A value is hidden when it follows the word with a separator ("password: x", "הסיסמה היא x"), when
+# it follows the word directly and looks like a secret (after the Hebrew word: a digit or a Latin
+# letter, so "הסיסמה נדרשה" stays; after the English word: a digit, so "the password screen"
+# stays), when it sits between sudo and the word, in NAME_PASSWORD=x style
+# assignments, and inside a URL's user:password@.
+WORD = r"(?:\bpassword|\bpasswd|\bpwd|ה?סיסמה|ה?סיסמא)"
+PASSWORD_PATTERNS = [
+    (re.compile(r"(?i)(" + WORD + r"\s*(?:\bis\b|היא|זה|שלי|[:=])\s*)(\S+)"), r"\1[redacted]"),
+    (re.compile(r"(ה?סיסמ[אה]\s+)(?=\S*[0-9A-Za-z])(\S{4,})"), r"\1[redacted]"),
+    (re.compile(r"(?i)(\b(?:password|passwd|pwd)\s+)(?=\S*\d)(\S{4,})"), r"\1[redacted]"),
+    (re.compile(r"(?i)(\bsudo\s+)(\S+)(\s+" + WORD + r")"), r"\1[redacted]\3"),
+    (re.compile(r"(?i)(\b\w*(?:PASSWORD|PASSWD|SECRET|TOKEN|API_?KEY)\w*\s*=\s*)(\S+)"), r"\1[redacted]"),
+    (re.compile(r"(://[^/\s:@]+:)([^@\s/]+)(@)"), r"\1[redacted]\3"),
+]
 
 
 def redact(text):
     for pattern in SECRETS:
         text = pattern.sub("[redacted]", text)
-    return PASSWORD.sub(lambda m: m.group(1) + "[redacted]", text)
+    for pattern, replacement in PASSWORD_PATTERNS:
+        text = pattern.sub(replacement, text)
+    return text
 
 
 def find_transcript(arg):
+    """The transcript to read, and the other files stored under the same session id."""
     if os.path.isfile(arg):
-        return arg
+        return arg, []
     roots = []
     if os.environ.get("CLAUDE_CONFIG_DIR"):
         roots.append(os.path.join(os.environ["CLAUDE_CONFIG_DIR"], "projects"))
@@ -86,11 +103,10 @@ def find_transcript(arg):
     if not hits:
         sys.exit(f"session-digest: no transcript matches '{arg}'")
     if len({os.path.basename(h) for h in hits}) == 1:
-        # One session resumed under another account profile leaves an older, shorter copy behind.
+        # A session resumed under another account profile leaves a second file under the same id.
+        # The newest is read; an older one can be a branch of its own with messages the newest lacks.
         newest = max(hits, key=os.path.getmtime)
-        if len(hits) > 1:
-            print(f"session-digest: {len(hits)} copies of this session; reading the newest", file=sys.stderr)
-        return newest
+        return newest, sorted(h for h in hits if h != newest)
     sys.exit("session-digest: '%s' matches %d transcripts, give more of the id:\n  %s"
              % (arg, len(hits), "\n  ".join(sorted(hits))))
 
@@ -178,7 +194,7 @@ def read(path, args):
     counts = {k: 0 for k in ("U", "A", "C", "G", "R", "Q", "X", "compactions", "bad_lines")}
     goals = set()
     first = last = None
-    seen = {}       # typed text -> (seconds, prompt index, a queued copy still waits for its delivery)
+    seen = {}       # typed text -> (seconds, prompt index) of its last kept copy
     before_dialog = ""  # the session's text in a turn that has not ended yet
 
     def add(kind, stamp, body):
@@ -190,20 +206,18 @@ def read(path, args):
             counts["compactions"] += 1
             entries.append(("compact", counts["compactions"], when(stamp), ""))
 
-    def typed(stamp, text, prompt_index=None, queued=False, note=""):
-        """One entry per message. A prompt is logged twice when it is re-sent, and a message typed
-        while the session works is logged in the queue and may be logged once more when delivered.
-        The same words typed again later are a new message and are kept."""
+    def typed(stamp, text, prompt_index=None, note=""):
+        """One entry per message. Claude Code logs a prompt again when it is re-sent (the same prompt
+        index, seconds apart) and sometimes writes one record twice. The same words typed again
+        later are a new message and are kept, also when the first copy was typed mid-turn."""
         now = seconds(stamp)
         before = seen.get(text)
         if before:
-            then, index, waiting = before
+            then, index = before
             same_prompt = prompt_index is not None and index == prompt_index and now - then <= 120
-            delivery = waiting and not queued and now - then <= QUEUE_WINDOW
-            if same_prompt or delivery or abs(now - then) <= 5:
-                seen[text] = (then, index if index is not None else prompt_index, waiting and not delivery)
+            if same_prompt or abs(now - then) <= 5:
                 return
-        seen[text] = (now, prompt_index, queued)
+        seen[text] = (now, prompt_index)
         add("U", stamp, note + clip(text, args.max_user_chars))
 
     with open(path, encoding="utf-8", errors="replace") as fh:
@@ -282,17 +296,21 @@ def read(path, args):
                 if att.get("type") != "queued_command":
                     continue
                 origin = att.get("origin")
-                if isinstance(origin, dict) and origin.get("kind") not in (None, "human"):
-                    continue
+                source = origin.get("kind") if isinstance(origin, dict) else None
                 text = text_of(att.get("prompt"))
                 text = REMINDER.sub("", text).strip() if text else ""
-                if not text or text.startswith(NOISE_PREFIXES):
+                if not text:
+                    continue
+                if source == "peer" or text.startswith(PEER_PREFIX):
+                    body = text[len(PEER_PREFIX):] if text.startswith(PEER_PREFIX) else text
+                    add("X", att.get("timestamp") or stamp, clip(body, args.max_peer_chars))
+                    continue
+                if source not in (None, "human") or text.startswith(NOISE_PREFIXES):
                     continue
                 if text.startswith("/") and "\n" not in text and len(text) < 200:
                     add("C", att.get("timestamp") or stamp, redact(text))
                     continue
-                typed(att.get("timestamp") or stamp, text, queued=True,
-                      note="(typed while the session was working)\n")
+                typed(att.get("timestamp") or stamp, text, note="(typed while the session was working)\n")
             elif kind == "assistant":
                 msg = rec.get("message") or {}
                 blocks = [b for b in msg.get("content") or [] if isinstance(b, dict)]
@@ -349,9 +367,16 @@ def main():
     # earlier digest.
     if args.since and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", args.since):
         sys.exit("session-digest: --since takes YYYY-MM-DD")
-    path = find_transcript(args.session)
+    path, copies = find_transcript(args.session)
     sid = os.path.basename(path).removesuffix(".jsonl")
     entries, counts, first, last = read(path, args)
+    here = {e[3] for e in entries if e[0] == "U"}
+    branches = []  # (path, typed messages it holds that the read copy lacks)
+    for other in copies:
+        there = [e[3] for e in read(other, args)[0] if e[0] == "U"]
+        missing = sum(1 for body in there if body not in here)
+        if missing:
+            branches.append((other, missing))
 
     out = args.out or f"session-digest-{sid[:8]}"
     os.makedirs(out, exist_ok=True)
@@ -388,6 +413,11 @@ def main():
              + next((e[3][:160] for e in reversed(entries) if e[0] == 'C'), '(none)'),
              "- this folder repeats what he typed; keep it out of commits and messages",
              ]
+    for other, missing in branches:
+        index.append(f"- NOT IN THIS DIGEST: another file of this session holds {missing} typed message(s) that "
+                     f"this one lacks. Run session-digest on it as well: `{other}`")
+    if copies and not branches:
+        index.append(f"- {len(copies)} older file(s) of this session hold nothing typed that this one lacks")
     if counts["bad_lines"]:
         index.append(f"- {counts['bad_lines']} unreadable line(s) skipped")
     index += ["", "## Parts", ""]
@@ -405,6 +435,9 @@ def main():
           + ("" if args.owner_only else
              f"{counts['R']} replies, {counts['Q']} before a dialog, {counts['X']} from other sessions, ")
           + f"{counts['compactions']} compactions, {len(parts)} part(s)")
+    for other, missing in branches:
+        print(f"session-digest: {missing} typed message(s) are only in another file of this session: {other}",
+              file=sys.stderr)
 
 
 if __name__ == "__main__":

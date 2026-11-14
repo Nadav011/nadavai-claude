@@ -17,13 +17,13 @@ count() { grep -c -- "$1" <<<"$all"; }
 summary=$("$BIN" "$FIX" --out "$t/all" | tail -1)
 all=$(cat "$t"/all/part-*.md)
 # shellcheck disable=SC2034  # read inside the eval of ok()
-want="9 typed, 1 dialog answers, 3 commands, 1 goals, 2 replies, 1 before a dialog, 2 from other sessions, 1 compactions, 1 part(s)"
+want="11 typed, 1 dialog answers, 3 commands, 1 goals, 2 replies, 1 before a dialog, 3 from other sessions, 1 compactions, 1 part(s)"
 ok "counts: got '$summary'" '[ "$summary" = "$want" ]'
 
 # What he typed is kept once per message.
-ok "re-sent prompt once"          '[ "$(count "build the cash report page")" = 1 ]'
+ok "prompt re-sent after 12 s: once" '[ "$(count "build the cash report page")" = 1 ]'
 ok "repeat within seconds once"   '[ "$(count "ping the courier")" = 1 ]'
-ok "queued and delivered once, typed again another day kept" '[ "$(count "also add an export button")" = 2 ]'
+ok "typed mid-turn, again 107 s later, again another day: three messages" '[ "$(count "also add an export button")" = 3 ]'
 ok "queued, never delivered, typed again another day: both kept" '[ "$(count "check the printer")" = 2 ]'
 ok "mid-turn marked"              'grep -q "typed while the session was working" <<<"$all"'
 ok "rejection reason kept"        'grep -q "do not deploy before the owner sees it" <<<"$all" && grep -q "reason for rejecting a tool call" <<<"$all"'
@@ -40,6 +40,7 @@ ok "queued command"               'grep -q "^/nadavai:my-status$" <<<"$all"'
 ok "goal once"                    '[ "$(count "every report screen works end to end")" = 1 ]'
 ok "peer is not typed"            'grep -q "^=== X1 .*not the owner" <<<"$all" && grep -q "hold the deploy" <<<"$all"'
 ok "meta peer kept as peer"       'grep -q "the tax session finished its part" <<<"$all"'
+ok "peer message from the queue"  'grep -q "the design session needs the logo file" <<<"$all" && ! grep -B3 "needs the logo file" <<<"$all" | grep -q "owner typed"'
 ok "compaction mark"              'grep -q "CONTEXT COMPACTED #1" <<<"$all"'
 ok "final replies"                'grep -q "The report page is built." <<<"$all" && grep -q "has no test" <<<"$all"'
 ok "text of a tool turn is not a reply" '! grep -q "reading the code" <<<"$all"'
@@ -48,13 +49,15 @@ ok "text of a tool turn is not a reply" '! grep -q "reading the code" <<<"$all"'
 ok "nothing leaked: $(grep -o "[A-Z]* MUST NOT APPEAR" <<<"$all" | head -3 | tr "\n" " ")" '! grep -q "MUST NOT APPEAR" <<<"$all"'
 ok "key redacted"                 '! grep -q "sk-ant-abcdef" <<<"$all" && grep -q "the server key is \[redacted\]" <<<"$all"'
 ok "password redacted, the word alone kept" '! grep -q "hunter2secret" <<<"$all" && grep -q "the password screen is slow" <<<"$all"'
+ok "real-world secret forms: $(grep -o "Xk9mQ2vv\|hunter3pass\|pg-secret-77\|letmein99\|AIzaSyA1234" <<<"$all" | tr "\n" " ")" '! grep -q "Xk9mQ2vv\|hunter3pass\|pg-secret-77\|letmein99\|AIzaSyA1234" <<<"$all"'
+ok "a Hebrew word after the word stays" 'grep -q "הסיסמה נדרשה בכל כניסה" <<<"$all"'
 
 ok "index: first message"         'grep -q "first message the owner typed: build the cash report page" "$t/all/index.md"'
 ok "index: last command"          'grep -q "last command the owner ran: /nadavai:my-review from tuesday" "$t/all/index.md"'
 ok "index: bad line counted"      'grep -q "1 unreadable line" "$t/all/index.md"'
 
 owner=$("$BIN" "$FIX" --out "$t/owner" --owner-only | tail -1)
-ok "owner-only counts: got '$owner'" '[ "$owner" = "9 typed, 1 dialog answers, 3 commands, 1 goals, 1 compactions, 1 part(s)" ]'
+ok "owner-only counts: got '$owner'" '[ "$owner" = "11 typed, 1 dialog answers, 3 commands, 1 goals, 1 compactions, 1 part(s)" ]'
 ok "owner-only has no session side" '! grep -q "^=== [RQX][0-9]" "$t"/owner/part-*.md && grep -q "^=== U1 " "$t"/owner/part-*.md'
 
 since=$("$BIN" "$FIX" --out "$t/since" --since 2026-11-02 | tail -1)
@@ -79,6 +82,14 @@ cp "$FIX" "$t/home/.claude/projects/p/$id.jsonl"
 # shellcheck disable=SC2034
 copies=$(HOME="$t/home" CLAUDE_CONFIG_DIR='' "$BIN" 11111111 --out "$t/copies" 2>/dev/null | tail -1)
 ok "newest copy of one id"        '[ "$copies" = "$summary" ]'
+ok "an older copy with nothing new is said so" 'grep -q "1 older file(s) of this session hold nothing typed that this one lacks" "$t/copies/index.md"'
+# The older copy went its own way after the split: what only it holds is named, not dropped silently.
+printf '%s\n' '{"type":"user","origin":{"kind":"human"},"timestamp":"2026-10-30T07:00:00.000Z","message":{"role":"user","content":"add the tips report too"}}' \
+  >>"$t/home/.config/orca/claude-profiles/x/home/projects/p/$id.jsonl"
+touch -d '2026-11-01' "$t/home/.config/orca/claude-profiles/x/home/projects/p/$id.jsonl"
+HOME="$t/home" CLAUDE_CONFIG_DIR='' "$BIN" 11111111 --out "$t/branch" >/dev/null 2>"$t/branch.err"
+ok "a branch in an older copy is named in the index" 'grep -q "NOT IN THIS DIGEST: another file of this session holds 1 typed message" "$t/branch/index.md"'
+ok "and on stderr"                'grep -q "1 typed message(s) are only in another file" "$t/branch.err"'
 cp "$FIX" "$t/home/.claude/projects/p/11111111-9999-3333-4444-555555555555.jsonl"
 ok "two different ids fail"       '! HOME="$t/home" CLAUDE_CONFIG_DIR="" "$BIN" 11111111 --out "$t/two" 2>/dev/null'
 

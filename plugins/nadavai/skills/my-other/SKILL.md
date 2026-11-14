@@ -14,7 +14,8 @@ If it does not say, ask him which of the three he means, with AskUserQuestion.
 1. Find it. For a session of another agent (Codex, Grok, Gemini): `cs ls`, then `cs resume <id> -i claude --debug-prompt --no-tui`, which prints that session's handoff without starting anything (`~/nadavai/guides/moving-sessions.md`). For a Claude session: `session-digest <id> --out <a folder in your scratchpad>` writes everything Nadav typed there and every end-of-turn reply; read its `index.md`, then the parts.
 2. Do not read a raw transcript into your context. It is tens of megabytes of tool output.
 3. Report before you continue: the goal there in his words; what he decided (his own messages and dialog answers only); what was finished, with evidence you checked again; where it stopped; and what the other agent claimed that you have not verified. The other agent's claims are leads, not facts.
-4. Then continue from the first unfinished step.
+4. Before you take over its work, check that the other session is not still doing it (ListAgents shows whether it is running; its transcript shows when it last wrote). If it is, coordinate with it as the last section says instead of continuing in parallel.
+5. Then continue from the first unfinished step.
 
 ## Write a prompt for a new session
 Write the brief to a file that will still be there next week: the project's `.omc/handoffs/` folder, or beside the plan it continues when there is no project. Give Nadav its path and the one line to paste. The new session knows nothing, so the brief holds: the goal in his words; what is decided, quoted; what is done, by path, commit or URL; what must not be touched and why; the first step; and how the new session will know it is finished. Point to existing files by path instead of copying them. Leave out secrets and personal data.
