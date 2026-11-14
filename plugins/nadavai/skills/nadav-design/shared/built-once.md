@@ -499,7 +499,8 @@ and is not approved yet: it goes on to his approval as the page it is, through t
 (point 1's one-round limit is not applied to it), and is not converted into a preview of the app; from that approval
 on the rule applies (the tag, a build plan Nadav approves, the preview as unit 1, the screens the demo did not draw
 designed in the preview). What moves from such a page to the app (its values, its component definitions as a
-specification, its screens as the reference; none of its code), what runs before the tag and what after it:
+specification, its screens as the reference; none of its code, except the style rules of parts the app lacks in a
+from-zero run, `shared/from-zero-runs.md`), what runs before the tag and what after it:
 `shared/standalone-demo-to-app.md`, which also says what of that path has been measured and what nobody has run yet.
 His decision of 10.11.2026 that its build starts only after everything is closed stands.
 
