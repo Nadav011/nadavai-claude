@@ -18,7 +18,7 @@ What a from-zero run is, what it records and how its first units are measured: t
 The app is built from zero by the landed process: `built-once.md`, `standalone-demo-to-app.md` for a standalone demo
 (MediZen, the social studio), the modes. A run keeps two records, each beside that project's build plan and committed
 with it (MediZen: the redesign output repo `Nadav011/medizen-redesign`; the social studio: `~/social/spec/v5/` beside
-`08-build-plan.md`; SHIFTS: beside the build plan its run writes first, below):
+`08-build-plan.md`; SHIFTS: the stuck log only, in the build session's own repo, below):
 - **`STUCK-LOG.md`**: every instruction of the skill that could not be followed, was ambiguous, contradicted another
   or cost far more than its step is worth: its file and line, what happened, what the agent did instead, time lost. A
   fault also goes where «Where a fault goes» says.
@@ -153,10 +153,11 @@ names in `LOOK-RECORD.md` every passed unit it can affect (all of them, when uns
 screen using it cuts over, until its reviewer (or a fresh one) reruns it on the newly approved commit at zero or, for
 a look-over item, passes that item's look-over. A named unit already on a live screen is rechecked first in the order
 of work; a difference there is a fault on a live screen: the miss goes where «Where a fault goes» (`built-once.md`)
-sends a tool's fault, the fix lands as a new unit under the gate and approval gates, and the run's next report tells
-Nadav which live screens it affected and what a user would have seen. Nothing rolls back by itself. **Contract.**
-- **Inputs.** Other repos only as `git archive <sha>` exports after a fetch; never `worktree add`, `checkout`, `pull`,
-  `stash`, `reset`, `clean` or edit in another checkout. Each sha goes into `LOOK-RECORD.md` first.
+sends a tool's fault, the fix lands as a new unit under the gate and approval gates, and the next report of the
+session that finds it tells Nadav which live screens it affected and what a user would have seen. Nothing rolls back
+by itself (a deploy's own roll-back on a failed health check is unchanged). **Contract.**
+- **Inputs.** Other repos only as `git archive <sha>` exports after a fetch; never `worktree add`, `checkout`,
+  `switch`, `pull`, `stash`, `reset`, `clean` or edit in another checkout. Each sha goes into `LOOK-RECORD.md` first.
 - **What is compared.** The demo at its tag against the component as the app's preview renders it (not any of its
   files). Before the builder starts, the measurer writes from the tagged demo alone, per variant, a demo-side recipe
   (the specimen element, and the classes, attributes, context, state or input that draw it) and a pair list (each
@@ -240,19 +241,36 @@ passes (a screen is outside the one exception), closer with one missed goes to N
 
 ## SHIFTS
 
-Its demo already lives inside the app (`~/Projects/mexicani-shifts`, branch `design/direction-and-demo`: 134 files
-under `src/demo` at `9300c90`, none on `main`), so there is nothing to copy and no look route to choose; it is not a
+SHIFTS is already being built, and nothing here changes its plan by itself [I]. Its build plan is
+`~/Projects/mexicani-shifts/docs/plan/BUILD-PLAN.md`: Nadav approved draft 21 on 13.11.2026 («מאשר הכול», by the
+plan's own record and `STATUS.md` beside it; later drafts carry their own closing checks), and the build session
+builds from it in the app's repo, `~/Projects/shifts-app`, where units have landed on main. Its demo is not in that
+repo: it lives in the archive repo `~/Projects/mexicani-shifts`, on branch `design/direction-and-demo` (under
+`src/demo`, not on `main`), and how its look reaches the build is the plan's own (its hand-off contract,
+`docs/plan/handoffs/PROCEDURE.md`). So this file names no look route for SHIFTS and copies nothing there; it is not a
 standalone demo, so `standalone-demo-to-app.md` does not apply, except «Whose decision a differing behaviour is»,
-which binds every from-zero run (above). It has no build plan and no INVENTORY.md yet, so its run starts at
-`modes/redesign.md` step 2 (INVENTORY.md, STORY.md, from the demo in the app) and writes the build plan of step 8
-before any build unit. Then: the stuck log, behaviour logic written once apart from the screen (`built-once.md`, «An
-app is built once», point 6), and each screen's INVENTORY.md row checked item by item (`modes/screen.md`, step 8b).
-Its component units pass the same gate, the demo side `src/demo` at the tag of its step 6, named in its build plan
-(mostly the app's own `ui/` parts, so the gate falls mainly on demo-local ones such as `src/demo/shell/parts.tsx`).
+which binds every from-zero run (above).
+
+Asked on 14.11.2026 whether SHIFTS gets the measurement of each part against the demo, once he knew its plan was
+approved and units had landed, he picked [A] «כן, להוסיף בלי לעכב (מומלץ)», whose text read: SHIFTS goes on now with
+the units that are not screen parts; its plan gets a round that adds the zero-differences gate to the parts and the
+screens, and comes back to him for approval; a part built before the instrument is ready is measured after the
+instrument is approved; the price is one more approval round and fixes to a part found to differ.
+
+What follows from it is this session's reading [I]. The planning session writes that round into SHIFTS's plan: the
+gate on parts and on screens, with the look-over, the per-variant count and the reopening rule as above; unit 0 reused
+from the first run's latest approved commit; the demo side at a commit the round names (the plan has no demo tag
+today); and whether the gate reuses, replaces or sits beside the look measurement the plan's hand-off contract already
+has, so that no part is measured twice by two rules. No build unit waits for the round, and until he approves the
+revised plan the approved one stands as it is: nothing in this file is adopted in SHIFTS before that. This file adds
+directly only the stuck log, kept by the build session in its own repo (`~/Projects/shifts-app`, at a path that
+session names; the plan's folder is the planning session's and is not in git) and reported as above, and the rule on
+behaviour.
 
 ## When a whole run pauses
 
 Provisional [I]. A run pauses and comes to Nadav with both records when unit A's off check fails twice (a fix round or
 a second mechanism included), three converted parts in a row fall back to hand, or the stuck log shows the same
-instruction failing in two projects. Nothing here becomes a rule by passing: a route Nadav decides from the records
-needs a new reviewed change.
+instruction failing in two projects. A pause never stops SHIFTS's build, which follows its approved plan: there the
+same finding is reported to its sessions and to Nadav. Nothing here becomes a rule by passing: a route Nadav decides
+from the records needs a new reviewed change.
