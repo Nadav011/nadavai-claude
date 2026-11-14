@@ -7,7 +7,7 @@ Nadav does not program and reads the report after, not the diff before. The revi
 ## 1. Review
 - The reviewer comes from Second model (`working-style.md`) and is never the author's context. The single-file exemption there does not apply here: a migration or a policy change is often one file.
 - Give it the diff, the exact commands, the target from step 4 and the way back from step 3, and this question: "Should this run on production without Nadav? Argue against it." Do not give it your conclusion.
-- It passes with `APPROVE` and no open CRITICAL or HIGH finding, for the sha it read. Post the verdict with the reviewer's name as a comment on the PR; with no PR, write it into the repo's run log or the task's plan file.
+- It passes with `APPROVE` and no open fault (`working-style.md`, Second model), for the sha it read. Post the verdict with the reviewer's name as a comment on the PR; with no PR, write it into the repo's run log or the task's plan file.
 - A rejection stands until the change is fixed and reviewed again. Another provider does not overturn it.
 - Any change to the reviewed files, commands or target after the verdict needs a new review.
 
