@@ -52,6 +52,9 @@ const met = (whose: string): string =>
   `בסשן הזה כתובה רשימת "מה נחשב גמור" ${whose} (אם אין, קודם כותבים אותה), וכל שורה בה סגורה עם ראיה, או שכל מה שנשאר רשום עם חסימה של נדב, של לקוח, של בדיקת חנות או פלטפורמה, של תאריך או של חומרה`
 const READY = `/goal ${met('לעבודה שביקשתי')}`
 const AFTER = `. היעד הושג רק כש${met('ליעד הזה')}`
+// What he is told when his words were too long for a goal line.
+const LONG =
+  'המילים שהקלדת ארוכות מדי לשורת יעד (עד 4000 תווים), והסוף שלהן נחתך. אפשר לשלוח את הטקסט המלא כהודעה רגילה, ואז לנעול יעד קצר.'
 type Command = { name: string; description: string; source: (typeof COMMANDS)[number]['source'] }
 
 // `/my-menu` as his key or his Enter runs it, with what he typed after it.
@@ -282,7 +285,25 @@ test('the goal row writes a ready goal line, and his words become the goal', asy
   await ui.press({ key: GOAL })
   expect(held.text.length).toBe('/goal '.length + 4000)
   expect(held.text.endsWith(`…${AFTER}`)).toBe(true)
-  expect(held.toasts).toEqual(['המילים שהקלדת ארוכות מדי לשורת יעד (עד 4000 תווים), והסוף שלהן נחתך.'])
+  expect(held.toasts).toEqual([LONG])
+
+  // At the edge: words that just fit are whole and say nothing, and one
+  // character more is cut to a condition of exactly 4000.
+  const room = 4000 - AFTER.length - 1
+  held.text = 'א'.repeat(room)
+  await $.command.run(run())
+  await ui.redraw()
+  await ui.press({ key: GOAL })
+  expect(held.text).toBe(`/goal ${'א'.repeat(room)}${AFTER}`)
+  expect(held.toasts).toEqual([LONG])
+
+  held.text = 'א'.repeat(room + 1)
+  await $.command.run(run())
+  await ui.redraw()
+  await ui.press({ key: GOAL })
+  expect(held.text).toBe(`/goal ${'א'.repeat(room)}…${AFTER}`)
+  expect(held.text.length).toBe('/goal '.length + 4000)
+  expect(held.toasts).toEqual([LONG, LONG])
   await ui.unmount()
 })
 

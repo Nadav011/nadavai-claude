@@ -101,7 +101,8 @@ const asGoal = (words: string): string =>
     .replace(/[\s.,:;!?]+$/, '')
 // How much of his words the goal line has room for.
 const GOAL_ROOM = GOAL_CAP - GOAL_AFTER_WORDS.length - 1
-const LONG_GOAL = 'המילים שהקלדת ארוכות מדי לשורת יעד (עד 4000 תווים), והסוף שלהן נחתך.'
+const LONG_GOAL =
+  'המילים שהקלדת ארוכות מדי לשורת יעד (עד 4000 תווים), והסוף שלהן נחתך. אפשר לשלוח את הטקסט המלא כהודעה רגילה, ואז לנעול יעד קצר.'
 const GOAL_ROW: Row = {
   name: GOAL,
   sentence: 'לנעול את הסשן על היעד',
