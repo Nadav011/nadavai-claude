@@ -57,6 +57,8 @@ while read -r prompt tool; do
   grep -qE "(^|[^a-z-])$tool([^a-z-]|\$)" "$skills/$prompt/SKILL.md" && ok || bad "$prompt no longer names $tool"
   [ -x "$here/bin/$tool" ] && ok || bad "bin/$tool, which $prompt runs, is missing"
 done <<'PAIRS'
+my-method token-audit
+my-method webget
 my-review session-digest
 my-map session-digest
 my-done session-digest
@@ -111,6 +113,10 @@ my-client client-messages/SKILL.md
 my-client AskUserQuestion
 my-save SendMessage
 my-agents ListAgents
+my-method ListAgents
+my-method AskUserQuestion
+my-method code.claude.com/docs/en/best-practices
+my-method בלי כפילויות
 my-ship production-change.md
 LITERALS
 # The line those three prompts look for is written by the tool: the two sides stay in step.

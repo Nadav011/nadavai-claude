@@ -1,5 +1,6 @@
 import type { On } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
+import type { Engine, Mounted as MountedDrawing } from 'claude-code/testing'
 
 // The band above the prompt box, as the terminal asks this mod to draw it.
 const band = (bodyColumns = 150, maxRows = 14, hasSurvey = false) =>
@@ -7,6 +8,7 @@ const band = (bodyColumns = 150, maxRows = 14, hasSurvey = false) =>
     plugin: 'my-menu',
     component: 'AbovePrompt',
     surface: 'terminal',
+    requestId: 'band',
     props: {
       hasSurvey,
       isCollapsed: false,
@@ -42,10 +44,15 @@ const COMMANDS = [
   },
 ] as const
 
-const STATUS = 'row:nadavai:my-status'
-const PLAIN = 'row:nadavai:my-plain'
-const GOAL = 'row:goal'
-const NEW = 'row:nadavai:my-new'
+// The rows, by the value the list keeps each under.
+const STATUS = 'nadavai:my-status'
+const PLAIN = 'nadavai:my-plain'
+const GOAL = 'goal'
+const NEW = 'nadavai:my-new'
+// The focus ring's stops: the list of a page, and the two beside it.
+const list = (at: number): string => `list:${at}`
+const BEFORE = 'before'
+const AFTER_STOP = 'after'
 // When the goal row's goal is met, as the menu writes it: for the work he
 // asked for when the box was empty, for the goal he typed otherwise.
 const met = (whose: string): string =>
@@ -57,7 +64,12 @@ const LONG =
   'המילים שהקלדת ארוכות מדי לשורת יעד (עד 4000 תווים), והסוף שלהן נחתך. אפשר לשלוח את הטקסט המלא כהודעה רגילה, ואז לנעול יעד קצר.'
 type Command = { name: string; description: string; source: (typeof COMMANDS)[number]['source'] }
 
-// `/my-menu` as his key or his Enter runs it, with what he typed after it.
+// What `/my-menu` typed by hand answers.
+const HOW =
+  'הרשימה נפתחת ב-Ctrl+P (או Ctrl+X ואז Tab). חצים למעלה ולמטה בוחרים, ימינה ושמאלה מחליפים קבוצה, Enter מכניס את הפרומט לתיבה, Esc סוגר.'
+const LATE = 'הבחירה התעכבה ולא נכנסה לתיבה. אפשר לבחור שוב.'
+
+// `/my-menu` as his Enter runs it, with what he typed after it.
 const run = (args = '') =>
   ({
     command: 'my-menu',
@@ -77,9 +89,21 @@ type Box = {
   toasts: string[]
   // Called at each toast, for a test that waits for one.
   onToast?: () => void
+  // False once he pressed Esc: the band no longer holds the keyboard, and the
+  // engine refuses a move of its focus.
+  hasKeyboard: boolean
+  // Every element the focus was asked onto, in order.
+  focus: string[]
 }
 
-const box = (text = '', isFree = true): Box => ({ text, fills: [], isFree, toasts: [] })
+const box = (text = '', isFree = true): Box => ({
+  text,
+  fills: [],
+  isFree,
+  toasts: [],
+  hasKeyboard: true,
+  focus: [],
+})
 
 // Stands in for the engine beneath the mod: the commands and a prompt box that
 // takes fills while it is free.
@@ -136,52 +160,124 @@ const engine = (
 
     return { value: undefined }
   })
+  // The engine's side of his move of the focus ring. The mod's own request
+  // for the focus (how its watch learns that the band lost the keyboard) is
+  // not answered here: this kit has no engine to resolve it, so that call
+  // fails, as it would where the engine cannot say. The answers of a real
+  // engine are covered by tests/my-menu-live.sh, in a real terminal.
+  on('ui.focus', { plugin: '*' }, (_, e) => {
+    held.focus.push(e.element ?? '')
+
+    return held.hasKeyboard ? {} : { deny: 'that site does not hold the keyboard' }
+  })
 }
 
 const START = { cwd: '/', surface: 'terminal', isInteractive: true } as const
 
-test('a closed list draws nothing of its own', async ($, on) => {
+// His move of the band's focus onto one of the mod's elements: the key he
+// opens the list with lands on the row of no height (`list:0`), and Left,
+// Right and Tab on the two stops beside the list.
+const move = ($: Engine, element: string) =>
+  $.ui.focus({
+    component: 'AbovePrompt',
+    requestId: 'band',
+    plugin: 'my-menu',
+    element,
+    origin: { kind: 'person' },
+  })
+const open = ($: Engine) => move($, list(0))
+
+type Option = { value: string; label: string }
+type Mounted = MountedDrawing<'terminal', 'AbovePrompt'>
+// The list on screen: its key and its rows.
+const shown = async (ui: Mounted): Promise<{ key: string | undefined; options: Option[] }> => {
+  const found = await ui.find({ type: 'Select' })
+
+  return { key: found?.key, options: (found?.props.options ?? []) as Option[] }
+}
+// The group marked in the row of groups.
+const marked = async (ui: Mounted): Promise<string | undefined> =>
+  (await ui.findAll({ type: 'Text' })).find(text => text.props.inverse === true)?.text.trim()
+
+test('a closed list puts nothing on screen: one Button in a box of no height waits for the focus', async ($, on) => {
   engine(on, box())
 
   await $.session.start(START)
   const ui = await $.ui.mount(band())
+  const waiting = await ui.findAll({ type: 'Button' })
 
-  expect(await ui.find({ type: 'Button' })).toBeUndefined()
-  expect(await ui.keepsBeneath()).toBe(true)
+  expect(waiting.map(one => one.key)).toEqual([list(0)])
+  expect(waiting[0]?.props.autoFocus).toBe(true)
+  expect((await ui.find({ type: 'Box' }))?.props).toMatchObject({ height: 0, overflow: 'hidden' })
+  expect(await ui.find({ type: 'Select' })).toBeUndefined()
+  expect(await ui.find({ type: 'Text' })).toBeUndefined()
   await ui.unmount()
 })
 
-test('the list shows one group at a time: a number, the sentence, what he gets, the prompt', async ($, on) => {
-  engine(on, box())
+test('his key opens the list on the first group: numbered rows, the sentence and what he gets', async ($, on) => {
+  const held = box()
+  engine(on, held)
 
   await $.session.start(START)
-  await $.command.run(run())
+  expect(await open($)).toEqual({})
   const ui = await $.ui.mount(band())
-  const rows = await ui.findAll({ type: 'Button' })
+  const { key, options } = await shown(ui)
 
-  // The first group, with the goal row where his order puts it, and the key
-  // that turns to the next group.
-  expect(rows.map(row => row.key)).toEqual([GOAL, STATUS, 'page'])
-  expect(rows.map(row => row.props.hotkey)).toEqual(['1', '2', '0'])
+  // The list is drawn under the key the focus already stands on, and takes
+  // the focus first in any new drawing.
+  expect(key).toBe(list(0))
+  expect((await ui.find({ type: 'Select' }))?.props.autoFocus).toBe(true)
+  expect(held.focus).toEqual([list(0)])
+  expect(options.map(option => option.value)).toEqual([GOAL, STATUS])
+  expect(options[0]?.label).toMatch(/^1\. לנעול את הסשן על היעד +הסשן לא עוצר עד שכל מה שנחשב גמור סגור$/)
+  expect(options[1]?.label).toMatch(/^2\. מה מצבנו\? +מה נעשה, מה רץ עכשיו$/)
+  // What he gets starts in one column on every row.
+  expect(new Set(options.map(option => option.label.indexOf('  ') + /^ +/.exec(option.label.slice(option.label.indexOf('  ')))![0].length)).size).toBe(1)
+  // Above the list: every group, the one on screen marked. Under it: the keys.
   expect((await ui.find({ type: 'Text', text: /הפרומטים שלי/ }))?.text).toMatch(
-    /^הפרומטים שלי: באמצע עבודה {2}\(1 מתוך 3\)/,
+    /^ {2}הפרומטים שלי {4}באמצע עבודה {4}להבין ולהחליט {4}נוספים {2}$/,
   )
-  expect(rows[0]?.text).toMatch(/^לנעול את הסשן על היעד +הסשן לא עוצר עד שכל מה שנחשב גמור סגור +goal\/ *$/)
-  expect(rows[1]?.text).toMatch(/^מה מצבנו\? +מה נעשה, מה רץ עכשיו +nadavai:my-status\/ *$/)
-  expect(rows[2]?.text).toBe('הבא: להבין ולהחליט · תסביר לי את זה בפשטות')
-  // Every row fills the band (its width less the key), so a click anywhere on
-  // a row presses it. The names end in one cell: drawn right to left, that
-  // is the column where every prompt begins.
-  expect(rows.slice(0, 2).map(row => row.text.length)).toEqual([146, 146])
-  expect(new Set(rows.slice(0, 2).map(row => row.text.lastIndexOf('/'))).size).toBe(1)
+  expect(await marked(ui)).toBe('באמצע עבודה')
+  expect((await ui.find({ type: 'Text', text: /Esc סוגר/ }))?.text).toMatch(/חצים למעלה ולמטה בוחרים/)
+  // The two stops beside the list are there for the focus, in boxes of no height.
+  expect((await ui.findAll({ type: 'Button' })).map(one => one.key)).toEqual([BEFORE, AFTER_STOP])
+  await ui.unmount()
+})
 
-  await ui.press({ key: 'page' })
-  const second = await ui.findAll({ type: 'Button' })
-  expect(second.map(row => row.key)).toEqual([PLAIN, 'page'])
-  expect(second[0]?.text).toMatch(/^תסביר לי את זה בפשטות +מה היה, מה יהיה +nadavai:my-plain\/ *$/)
-  expect((await ui.find({ type: 'Text', text: /הפרומטים שלי/ }))?.text).toMatch(
-    /^הפרומטים שלי: להבין ולהחליט {2}\(2 מתוך 3\)/,
-  )
+test('left and right turn the groups and come back around, and the focus is never let onto a stop', async ($, on) => {
+  const held = box()
+  engine(on, held)
+
+  await $.session.start(START)
+  await open($)
+  const ui = await $.ui.mount(band())
+
+  // Left (and Tab) is the engine's "next": the group after this one, under a
+  // key of its own, so the list is drawn anew with its top row highlighted.
+  expect(await move($, AFTER_STOP)).toEqual({})
+  await ui.redraw()
+  expect(await shown(ui)).toEqual({
+    key: list(1),
+    options: [{ value: PLAIN, label: expect.stringMatching(/^1\. תסביר לי את זה בפשטות +מה היה, מה יהיה$/) }],
+  })
+  expect(await marked(ui)).toBe('להבין ולהחליט')
+
+  await move($, AFTER_STOP)
+  await ui.redraw()
+  expect((await shown(ui)).options.map(option => option.value)).toEqual([NEW])
+  expect(await marked(ui)).toBe('נוספים')
+
+  // Past the last group: the first again. Right from the first: the last.
+  await move($, AFTER_STOP)
+  await ui.redraw()
+  expect((await shown(ui)).key).toBe(list(0))
+  await move($, BEFORE)
+  await ui.redraw()
+  expect((await shown(ui)).key).toBe(list(2))
+  expect(await marked(ui)).toBe('נוספים')
+
+  // The engine was asked to move the focus only when he opened the list.
+  expect(held.focus).toEqual([list(0)])
   await ui.unmount()
 })
 
@@ -199,6 +295,7 @@ test('the groups come in his order, and a prompt no group names comes last', asy
     one('machine', 'המחשב נתקע או מלא: מה מכביד עכשיו.'),
     one('wrong', 'זה לא מה שהתכוונתי: מה ביקשתי.'),
     one('other', 'תקרא את הסשן האחר: להמשיך ממנו.'),
+    one('method', 'הדרך שלנו נכונה, או כפולה ובזבוז זמן? מה כפול.'),
     one('best', 'זו הדרך הכי טובה? חלופות עם מחיר.'),
     one('review', 'תעבור על כל הסשן: בודקים חדשים.'),
     one('prove', 'אתה בטוח? בדיקה מחדש עכשיו.'),
@@ -210,28 +307,64 @@ test('the groups come in his order, and a prompt no group names comes last', asy
   ])
 
   await $.session.start(START)
-  await $.command.run(run())
+  await open($)
   const ui = await $.ui.mount(band())
   const seen: string[] = []
   for (let n = 0; n < 6; n += 1) {
-    const title = (await ui.find({ type: 'Text', text: /הפרומטים שלי/ }))?.text ?? ''
-    const keys = (await ui.findAll({ type: 'Button' }))
-      .map(row => row.key)
-      .filter(key => key !== 'page')
-    seen.push(`${/: (.*?) {2}\(/.exec(title)?.[1]} = ${keys.join(' ')}`)
-    await ui.press({ key: 'page' })
+    const names = (await shown(ui)).options.map(option => option.value.replace('nadavai:my-', ''))
+    seen.push(`${await marked(ui)} = ${names.join(' ')}`)
+    await move($, AFTER_STOP)
+    await ui.redraw()
   }
 
   expect(seen).toEqual([
-    'באמצע עבודה = row:nadavai:my-run row:goal row:nadavai:my-connected row:nadavai:my-status row:nadavai:my-fast',
-    'בודקים = row:nadavai:my-done row:nadavai:my-prove row:nadavai:my-review',
-    'להבין ולהחליט = row:nadavai:my-best',
-    'להראות, לשלוח ולשמור = row:nadavai:my-other',
-    'משהו לא טוב = row:nadavai:my-machine row:nadavai:my-wrong row:nadavai:my-never',
-    'נוספים = row:nadavai:my-new',
+    'באמצע עבודה = run goal connected status fast',
+    'בודקים = done prove review',
+    'להבין ולהחליט = best method',
+    'להראות, לשלוח ולשמור = other',
+    'משהו לא טוב = machine wrong never',
+    'נוספים = new',
   ])
-  // The sixth press came back to the first group.
-  expect((await ui.findAll({ type: 'Button' }))[0]?.key).toBe('row:nadavai:my-run')
+  // The sixth turn came back to the first group.
+  expect((await shown(ui)).options[0]?.value).toBe('nadavai:my-run')
+  await ui.unmount()
+})
+
+test('Enter on a row puts the prompt in the box with the words he had typed there, and closes the list', async ($, on) => {
+  const held = box('רק מאתמול')
+  engine(on, held)
+
+  await $.session.start(START)
+  await open($)
+  // Opening leaves his words where he typed them.
+  expect(held.fills).toEqual([])
+  const ui = await $.ui.mount(band())
+  await ui.select({ key: list(0), value: STATUS })
+
+  expect(held.fills).toEqual(['/nadavai:my-status רק מאתמול'])
+  await ui.redraw()
+  expect(await ui.find({ type: 'Select' })).toBeUndefined()
+  expect((await ui.findAll({ type: 'Button' })).map(one => one.key)).toEqual([list(0)])
+  await ui.unmount()
+})
+
+test('a pick only fills the box and submits nothing', async ($, on) => {
+  const held = box()
+  engine(on, held)
+  const sent: string[] = []
+  on('prompt.submit', (_, e) => {
+    sent.push(e.text)
+
+    return { text: e.text }
+  })
+
+  await $.session.start(START)
+  await open($)
+  const ui = await $.ui.mount(band())
+  await ui.select({ key: list(0), value: STATUS })
+
+  expect(held.text).toBe('/nadavai:my-status ')
+  expect(sent).toEqual([])
   await ui.unmount()
 })
 
@@ -240,186 +373,103 @@ test('the goal row writes a ready goal line, and his words become the goal', asy
   engine(on, held)
 
   await $.session.start(START)
-  await $.command.run(run())
   const ui = await $.ui.mount(band())
-  await ui.press({ key: GOAL })
-  expect(held.text).toBe(READY)
-  expect(await ui.find({ type: 'Button' })).toBeUndefined()
+  // He types, opens the list and presses Enter on the goal row.
+  const goal = async (words: string): Promise<string> => {
+    held.text = words
+    await open($)
+    await ui.redraw()
+    await ui.select({ key: list(0), value: GOAL })
 
-  // With words in the box when the list opened: they are the goal, and the
-  // list of what counts as done still decides when it is met.
-  held.text = 'לסיים את מסך ההזמנות'
-  await $.command.run(run())
-  await ui.redraw()
-  await ui.press({ key: GOAL })
-  expect(held.text).toBe(`/goal לסיים את מסך ההזמנות${AFTER}`)
+    return held.text
+  }
 
+  expect(await goal('')).toBe(READY)
+  // With words in the box: they are the goal, and the list of what counts as
+  // done still decides when it is met.
+  expect(await goal('לסיים את מסך ההזמנות')).toBe(`/goal לסיים את מסך ההזמנות${AFTER}`)
   // A draft that began with a prompt gives up the prompt's name, as for any row.
-  held.text = '/nadavai:my-plain the login bug'
-  await $.command.run(run())
-  await ui.redraw()
-  await ui.press({ key: GOAL })
-  expect(held.text).toBe(`/goal the login bug${AFTER}`)
-
+  expect(await goal('/nadavai:my-plain the login bug')).toBe(`/goal the login bug${AFTER}`)
   // His closing mark does not double with the period, and a draft of several
   // lines becomes one line.
-  held.text = 'לסיים את מסך ההזמנות?\nוגם את הדוח.'
-  await $.command.run(run())
-  await ui.redraw()
-  await ui.press({ key: GOAL })
-  expect(held.text).toBe(`/goal לסיים את מסך ההזמנות? וגם את הדוח${AFTER}`)
-
+  expect(await goal('לסיים את מסך ההזמנות?\nוגם את הדוח.')).toBe(
+    `/goal לסיים את מסך ההזמנות? וגם את הדוח${AFTER}`,
+  )
   // Only marks in the box: there are no words, so the line is the ready one.
-  held.text = '...'
-  await $.command.run(run())
-  await ui.redraw()
-  await ui.press({ key: GOAL })
-  expect(held.text).toBe(READY)
+  expect(await goal('...')).toBe(READY)
   expect(held.toasts).toEqual([])
 
   // Words longer than a goal condition may be are cut so that the line still
   // sets (Claude Code takes up to 4000 characters), and he is told.
-  held.text = 'מילה '.repeat(1000)
-  await $.command.run(run())
-  await ui.redraw()
-  await ui.press({ key: GOAL })
-  expect(held.text.length).toBe('/goal '.length + 4000)
-  expect(held.text.endsWith(`…${AFTER}`)).toBe(true)
+  const long = await goal('מילה '.repeat(1000))
+  expect(long.length).toBe('/goal '.length + 4000)
+  expect(long.endsWith(`…${AFTER}`)).toBe(true)
   expect(held.toasts).toEqual([LONG])
 
   // At the edge: words that just fit are whole and say nothing, and one
   // character more is cut to a condition of exactly 4000.
   const room = 4000 - AFTER.length - 1
-  held.text = 'א'.repeat(room)
-  await $.command.run(run())
-  await ui.redraw()
-  await ui.press({ key: GOAL })
-  expect(held.text).toBe(`/goal ${'א'.repeat(room)}${AFTER}`)
+  expect(await goal('א'.repeat(room))).toBe(`/goal ${'א'.repeat(room)}${AFTER}`)
   expect(held.toasts).toEqual([LONG])
-
-  held.text = 'א'.repeat(room + 1)
-  await $.command.run(run())
-  await ui.redraw()
-  await ui.press({ key: GOAL })
-  expect(held.text).toBe(`/goal ${'א'.repeat(room)}…${AFTER}`)
-  expect(held.text.length).toBe('/goal '.length + 4000)
+  const over = await goal('א'.repeat(room + 1))
+  expect(over).toBe(`/goal ${'א'.repeat(room)}…${AFTER}`)
+  expect(over.length).toBe('/goal '.length + 4000)
   expect(held.toasts).toEqual([LONG, LONG])
   await ui.unmount()
 })
 
-test('a narrow band leaves out what he gets and keeps the sentence and the prompt', async ($, on) => {
-  engine(on, box())
-
+// What a pick of the status row writes over each draft.
+const picked = async ($: Engine, held: Box): Promise<string> => {
   await $.session.start(START)
-  await $.command.run(run())
-  const ui = await $.ui.mount(band(60))
-  const first = await ui.find({ key: STATUS })
-
-  expect(first?.text).toMatch(/^מה מצבנו\? +nadavai:my-status\/ *$/)
-  await ui.unmount()
-})
-
-test('a session without the prompts says how to load them', async ($, on) => {
-  engine(on, box(), [COMMANDS[0]])
-
-  await $.session.start(START)
-  await $.command.run(run())
+  await open($)
   const ui = await $.ui.mount(band())
-
-  expect((await ui.find({ type: 'Text' }))?.text).toMatch(/reload-plugins/)
-  expect(await ui.find({ type: 'Button' })).toBeUndefined()
+  await ui.select({ key: list(0), value: STATUS })
   await ui.unmount()
-})
 
-test('a survey in the band comes first', async ($, on) => {
-  engine(on, box())
-
-  await $.session.start(START)
-  await $.command.run(run())
-  const ui = await $.ui.mount(band(150, 14, true))
-
-  expect(await ui.find({ type: 'Button' })).toBeUndefined()
-  await ui.unmount()
-})
-
-test('a pick puts the prompt in the box with the words he had typed, and closes the list', async ($, on) => {
-  const held = box('רק מאתמול')
-  engine(on, held)
-
-  await $.session.start(START)
-  await $.command.run(run())
-  // Opening took his words out of the box, so a number key reaches the list.
-  expect(held.fills).toEqual([''])
-
-  const ui = await $.ui.mount(band())
-  await ui.press({ key: STATUS })
-
-  expect(held.fills).toEqual(['', '/nadavai:my-status רק מאתמול'])
-  expect(await ui.find({ type: 'Button' })).toBeUndefined()
-  await ui.unmount()
-})
-
-test("words typed after /my-menu become the prompt's arguments", async ($, on) => {
-  const held = box()
-  engine(on, held)
-
-  await $.session.start(START)
-  await $.command.run(run('רק מאתמול'))
-  const ui = await $.ui.mount(band())
-  await ui.press({ key: STATUS })
-
-  expect(held.text).toBe('/nadavai:my-status רק מאתמול')
-  await ui.unmount()
-})
+  return held.text
+}
 
 test('a draft that began with another command keeps its words', async ($, on) => {
-  const held = box('/nadavai:my-plain the login bug')
+  const held = box('/compact the login bug')
   engine(on, held)
 
-  await $.session.start(START)
-  await $.command.run(run())
-  const ui = await $.ui.mount(band())
-  await ui.press({ key: STATUS })
+  expect(await picked($, held)).toBe('/nadavai:my-status the login bug')
+})
 
-  expect(held.text).toBe('/nadavai:my-status the login bug')
-  await ui.unmount()
+test('a draft that starts with a prompt named without its plugin gives up the name', async ($, on) => {
+  const held = box('/my-plain the login bug')
+  engine(on, held)
+
+  expect(await picked($, held)).toBe('/nadavai:my-status the login bug')
 })
 
 test('a draft that starts with a path keeps the path', async ($, on) => {
-  const held = box('/tmp/log.txt למה זה נכשל')
+  const held = box('/tmp/log.txt has the error')
   engine(on, held)
 
-  await $.session.start(START)
-  await $.command.run(run())
-  const ui = await $.ui.mount(band())
-  await ui.press({ key: STATUS })
-
-  expect(held.text).toBe('/nadavai:my-status /tmp/log.txt למה זה נכשל')
-  await ui.unmount()
+  expect(await picked($, held)).toBe('/nadavai:my-status /tmp/log.txt has the error')
 })
 
-test('a pick only fills the box and submits nothing', async ($, on) => {
-  const held = box()
+test('a draft that starts with a short path is words, not a command', async ($, on) => {
+  const held = box('/tmp why is it full')
   engine(on, held)
-  let submitted = 0
-  on('prompt.submit', (_, e) => {
-    submitted += 1
 
-    return { text: e.text }
-  })
-  on('command.run', { command: 'nadavai:my-status' }, () => {
-    submitted += 1
+  expect(await picked($, held)).toBe('/nadavai:my-status /tmp why is it full')
+})
 
-    return {}
-  })
+test('a pick still works when the list of commands cannot be read', async ($, on) => {
+  const held = box('/compact the login bug')
+  let isBroken = false
+  engine(on, held, COMMANDS, { isListBroken: () => isBroken })
 
   await $.session.start(START)
-  await $.command.run(run())
+  await open($)
   const ui = await $.ui.mount(band())
-  await ui.press({ key: STATUS })
+  isBroken = true
+  await ui.select({ key: list(0), value: STATUS })
 
-  expect(held.text).toBe('/nadavai:my-status ')
-  expect(submitted).toBe(0)
+  // Without the list a leading command cannot be told from words: all stay.
+  expect(held.text).toBe('/nadavai:my-status /compact the login bug')
   await ui.unmount()
 })
 
@@ -428,261 +478,255 @@ test('a box that takes nothing keeps his words, and he is shown what he picked',
   engine(on, held)
 
   await $.session.start(START)
-  // A dialog holds the keys: the box keeps his words and nothing is held.
-  await $.command.run(run())
-  expect(held.text).toBe('מילים שלי')
-  await $.command.run(run())
-
-  // The box is free again and he opens the list: now the words are taken out.
-  held.isFree = true
-  await $.command.run(run())
-  expect(held.text).toBe('')
-
-  // A pick while the box is busy again cannot fill it. He is shown the whole
-  // line, and the held words end there, so a later pick does not carry them.
-  held.isFree = false
+  await open($)
   const ui = await $.ui.mount(band())
-  await ui.press({ key: STATUS })
-  expect(held.text).toBe('')
-  expect(held.toasts).toEqual(['התיבה לא פנויה כרגע. מה שבחרת: /nadavai:my-status מילים שלי'])
+  await ui.select({ key: list(0), value: STATUS })
 
-  held.isFree = true
-  await $.command.run(run())
+  expect(held.text).toBe('מילים שלי')
+  expect(held.toasts).toEqual(['התיבה לא פנויה כרגע. מה שבחרת: /nadavai:my-status מילים שלי'])
   await ui.redraw()
-  await ui.press({ key: 'page' })
-  await ui.press({ key: PLAIN })
-  expect(held.text).toBe('/nadavai:my-plain ')
+  expect(await ui.find({ type: 'Select' })).toBeUndefined()
   await ui.unmount()
 })
 
-test('the key again closes the list and gives his words back, after what he typed since', async ($, on) => {
+test('a pick whose fill fails shows what he picked', async ($, on) => {
   const held = box('מילים שלי')
+  engine(on, held, COMMANDS, { isFillBroken: () => true })
+
+  await $.session.start(START)
+  await open($)
+  const ui = await $.ui.mount(band())
+  await ui.select({ key: list(0), value: STATUS })
+
+  expect(held.text).toBe('מילים שלי')
+  expect(held.toasts).toEqual(['התיבה לא פנויה כרגע. מה שבחרת: /nadavai:my-status מילים שלי'])
+  await ui.unmount()
+})
+
+test('a narrow band leaves out what he gets, keeps the sentence, and names the group on screen', async ($, on) => {
+  engine(on, box())
+
+  await $.session.start(START)
+  await open($)
+  const ui = await $.ui.mount(band(40))
+
+  expect((await shown(ui)).options.map(option => option.label)).toEqual([
+    '1. לנעול את הסשן על היעד',
+    '2. מה מצבנו?',
+  ])
+  // No room for every group: the one on screen, and its place among them.
+  expect((await ui.find({ type: 'Text', text: /מתוך/ }))?.text).toBe('  באמצע עבודה  (1 מתוך 3)')
+  expect((await ui.find({ type: 'Text', text: /Esc/ }))?.text).toBe('  ↑↓ בחירה · ←→ קבוצה · Enter · Esc')
+  await ui.unmount()
+})
+
+test('no row is wider than the band leaves it, at any width', async ($, on) => {
+  const one = (name: string, description: string): Command => ({
+    name: `nadavai:my-${name}`,
+    description,
+    source: 'plugin',
+  })
+  engine(on, box(), [
+    one('run', 'תמשיך עד הסוף בלי לעצור: רשימת מה נחשב גמור, עבודה במקביל, ועצירה רק על מה שמחכה לי.'),
+    one('fast', 'למה זה לוקח כל כך הרבה זמן? לאן הולך הזמן, מה אפשר במקביל, ומה מקצר בלי לוותר על איכות.'),
+  ])
+
+  await $.session.start(START)
+  await open($)
+  const ui = await $.ui.mount(band(150))
+  for (const columns of [150, 100, 72, 50, 30, 14]) {
+    await ui.redraw({ ...band(columns).props })
+    const { options } = await shown(ui)
+    // The Select indents a row by two cells and keeps three free at its end.
+    for (const option of options) expect(option.label.length).toBeLessThanOrEqual(Math.max(12, columns - 8) + 3)
+    expect(options.map(option => option.value)).toEqual(['nadavai:my-run', GOAL, 'nadavai:my-fast'])
+  }
+  await ui.unmount()
+})
+
+test('a group with more rows than the band has room for comes in parts, numbered on, and no part is one row alone', async ($, on) => {
+  const one = (name: string): Command => ({
+    name: `nadavai:my-${name}`,
+    description: `משפט ${name}? מה מקבלים`,
+    source: 'plugin',
+  })
+  // Six rows in the first group (five prompts and the goal row) and room for five.
+  engine(on, box(), ['run', 'resume', 'connected', 'status', 'self'].map(one))
+
+  await $.session.start(START)
+  await open($)
+  // Seven rows of band: the groups, five rows of list, the keys.
+  const ui = await $.ui.mount(band(150, 7))
+
+  const first = await shown(ui)
+  expect(first.options.map(option => option.label.slice(0, 2))).toEqual(['1.', '2.', '3.'])
+  expect(await marked(ui)).toBe('באמצע עבודה 1/2')
+  await move($, AFTER_STOP)
+  await ui.redraw()
+  const second = await shown(ui)
+  expect(second.key).toBe(list(1))
+  expect(second.options.map(option => option.label.slice(0, 2))).toEqual(['4.', '5.', '6.'])
+  expect(await marked(ui)).toBe('באמצע עבודה 2/2')
+  // One group in two parts: the turn after the second part is the first again.
+  await move($, AFTER_STOP)
+  await ui.redraw()
+  expect((await shown(ui)).key).toBe(list(0))
+  await ui.unmount()
+})
+
+test('a short band gives its rows to the list: first the keys go, then the groups', async ($, on) => {
+  engine(on, box())
+
+  await $.session.start(START)
+  await open($)
+  const ui = await $.ui.mount(band(150, 4))
+  expect(await ui.find({ type: 'Text', text: /Esc/ })).toBeUndefined()
+  expect(await marked(ui)).toBe('באמצע עבודה')
+  expect((await shown(ui)).options).toHaveLength(2)
+
+  await ui.redraw({ ...band(150, 2).props })
+  expect(await ui.findAll({ type: 'Text' })).toEqual([])
+  expect((await shown(ui)).options).toHaveLength(2)
+
+  // One row of band: one row of list at a time, still under its number.
+  await ui.redraw({ ...band(150, 1).props })
+  expect((await shown(ui)).options.map(option => option.label.slice(0, 2))).toEqual(['1.'])
+  await move($, AFTER_STOP)
+  await ui.redraw({ ...band(150, 1).props })
+  expect((await shown(ui)).options.map(option => option.label.slice(0, 2))).toEqual(['2.'])
+  await ui.unmount()
+})
+
+test('the list is drawn one row up in a box as tall as its rows, so the line a Select adds is not seen', async ($, on) => {
+  engine(on, box())
+
+  await $.session.start(START)
+  await open($)
+  const ui = await $.ui.mount(band())
+  const boxes = await ui.findAll({ type: 'Box' })
+
+  expect(boxes.some(one => one.props.height === 2 && one.props.overflow === 'hidden')).toBe(true)
+  expect(boxes.some(one => one.props.marginTop === -1)).toBe(true)
+  await ui.unmount()
+})
+
+test('a session without the prompts says how to load them, and the focus still has a place', async ($, on) => {
+  engine(on, box(), [COMMANDS[0]])
+
+  await $.session.start(START)
+  await open($)
+  const ui = await $.ui.mount(band())
+
+  expect((await ui.find({ type: 'Text' }))?.text).toMatch(/reload-plugins/)
+  expect(await ui.find({ type: 'Select' })).toBeUndefined()
+  expect((await ui.findAll({ type: 'Button' })).map(one => one.key)).toEqual([list(0)])
+  await ui.unmount()
+})
+
+test('a survey in the band comes first', async ($, on) => {
+  engine(on, box())
+
+  await $.session.start(START)
+  await open($)
+  const ui = await $.ui.mount(band(150, 14, true))
+
+  expect(await ui.find({ type: 'Button' })).toBeUndefined()
+  expect(await ui.find({ type: 'Select' })).toBeUndefined()
+  expect(await ui.keepsBeneath()).toBe(true)
+  await ui.unmount()
+})
+
+test('a focus the engine refuses opens nothing', async ($, on) => {
+  const held = box()
+  held.hasKeyboard = false
   engine(on, held)
 
   await $.session.start(START)
-  await $.command.run(run())
-  expect(held.text).toBe('')
-  // The list is open and he typed something new in the box.
-  held.text = 'חדש'
-  await $.command.run(run())
+  expect(await open($)).toEqual({ deny: 'that site does not hold the keyboard' })
   const ui = await $.ui.mount(band())
 
-  expect(held.text).toBe('חדש מילים שלי')
-  expect(await ui.find({ type: 'Button' })).toBeUndefined()
+  expect(await ui.find({ type: 'Select' })).toBeUndefined()
   await ui.unmount()
 })
 
-test('sending something else closes the list and gives his words back', async ($, on) => {
-  const held = box('מילים שלי')
+test('sending something else closes the list', async ($, on) => {
+  const held = box()
   engine(on, held)
   on('prompt.submit', (_, e) => ({ text: e.text }))
 
   await $.session.start(START)
-  await $.command.run(run())
-  held.text = ''
-  await $.prompt.submit({ text: 'שאלה אחרת', wait: false, origin: { kind: 'composer' } })
+  await open($)
   const ui = await $.ui.mount(band())
+  expect(await ui.find({ type: 'Select' })).toBeDefined()
+  await $.prompt.submit({ text: 'שאלה', wait: false, origin: { kind: 'composer' } })
+  await ui.redraw()
 
-  expect(held.text).toBe('מילים שלי')
-  expect(await ui.find({ type: 'Button' })).toBeUndefined()
+  expect(await ui.find({ type: 'Select' })).toBeUndefined()
+  expect(held.fills).toEqual([])
   await ui.unmount()
 })
 
-test('0 turns to the next group, and every row keeps a number key', async ($, on) => {
+test('a reload of the mod closes a list it left open', async ($, on) => {
   engine(on, box())
 
   await $.session.start(START)
-  await $.command.run(run())
-  // Room for the title, two rows and the page row.
-  const ui = await $.ui.mount(band(150, 4))
-
-  const keys = async () => (await ui.findAll({ type: 'Button' })).map(row => row.key)
-  expect(await keys()).toEqual([GOAL, STATUS, 'page'])
-  expect((await ui.find({ key: 'page' }))?.props.hotkey).toBe('0')
-  expect((await ui.find({ key: 'page' }))?.text).toBe('הבא: להבין ולהחליט · תסביר לי את זה בפשטות')
-  expect((await ui.find({ type: 'Text', text: /מתוך/ }))?.text).toMatch(/\(1 מתוך 3\)/)
-  const column = (await ui.find({ key: STATUS }))?.text.lastIndexOf('/')
-
-  await ui.press({ key: 'page' })
-  expect(await keys()).toEqual([PLAIN, 'page'])
-  // The columns stay where they were when the page turns.
-  expect((await ui.find({ key: PLAIN }))?.text.lastIndexOf('/')).toBe(column)
-  expect((await ui.find({ key: PLAIN }))?.props.hotkey).toBe('1')
-  expect((await ui.find({ key: 'page' }))?.text).toBe('הבא: נוספים · פרומט חדש בלי סימן')
-
-  await ui.press({ key: 'page' })
-  expect(await keys()).toEqual([NEW, 'page'])
-  expect((await ui.find({ key: 'page' }))?.text).toBe('חזרה להתחלה: באמצע עבודה')
-
-  await ui.press({ key: 'page' })
-  expect(await keys()).toEqual([GOAL, STATUS, 'page'])
-  await ui.unmount()
-})
-
-test('a group with more rows than the band has room for takes two pages, and the last is never one row alone', async ($, on) => {
-  const more: Command[] = ['a', 'b', 'c', 'd', 'e'].map(letter => ({
-    name: `nadavai:my-${letter}`,
-    description: `שורה ${letter}`,
-    source: 'plugin',
-  }))
-  engine(on, box(), more)
-
+  await open($)
+  const ui = await $.ui.mount(band())
+  expect(await ui.find({ type: 'Select' })).toBeDefined()
   await $.session.start(START)
-  await $.command.run(run())
-  // Room for four rows: the five prompts of one group would leave one alone
-  // on its second page.
-  const ui = await $.ui.mount(band(150, 6))
+  await ui.redraw()
 
-  const rows = async () =>
-    (await ui.findAll({ type: 'Button' })).filter(row => row.key !== 'page').map(row => row.key)
-  const title = async () => (await ui.find({ type: 'Text', text: /הפרומטים שלי/ }))?.text
-  expect(await rows()).toEqual([GOAL])
-  await ui.press({ key: 'page' })
-  expect(await rows()).toEqual(['row:nadavai:my-a', 'row:nadavai:my-b', 'row:nadavai:my-c'])
-  expect(await title()).toMatch(/^הפרומטים שלי: נוספים {2}\(2 מתוך 3\)/)
-  await ui.press({ key: 'page' })
-  expect(await rows()).toEqual(['row:nadavai:my-d', 'row:nadavai:my-e'])
-  expect(await title()).toMatch(/^הפרומטים שלי: נוספים {2}\(3 מתוך 3\)/)
+  expect(await ui.find({ type: 'Select' })).toBeUndefined()
   await ui.unmount()
 })
 
-test('closing into a box that takes nothing shows his words, and they do not turn up later', async ($, on) => {
-  const held = box('מילים שלי')
+test('where the engine cannot say who holds the keyboard, the list stays open and the watch ends', async ($, on) => {
+  const clock = mock.clock(on)
+  const held = box()
   engine(on, held)
 
   await $.session.start(START)
-  await $.command.run(run())
-  expect(held.text).toBe('')
-  // A dialog holds the box when the list closes.
-  held.isFree = false
-  await $.command.run(run())
-  expect(held.toasts).toEqual(['התיבה לא פנויה כרגע. המילים שהקלדת: מילים שלי'])
-
-  held.isFree = true
-  await $.command.run(run())
+  await open($)
   const ui = await $.ui.mount(band())
-  await ui.press({ key: STATUS })
+
+  // The watch's first question fails (nothing here answers it): the list is
+  // not closed under him, and he can still pick from it.
+  await clock.advance(5000)
+  await ui.redraw()
+  expect(await ui.find({ type: 'Select' })).toBeDefined()
+  await ui.select({ key: list(0), value: STATUS })
   expect(held.text).toBe('/nadavai:my-status ')
   await ui.unmount()
 })
 
-test('two presses of the key at once open and close, and his words come back once', async ($, on) => {
-  const held = box('מילים שלי')
-  engine(on, held)
-
-  await $.session.start(START)
-  await Promise.all([$.command.run(run()), $.command.run(run())])
-  const ui = await $.ui.mount(band())
-
-  expect(held.text).toBe('מילים שלי')
-  expect(await ui.find({ type: 'Button' })).toBeUndefined()
-  await ui.unmount()
-})
-
-test('a draft that starts with a short path is words, not a command', async ($, on) => {
-  const held = box('/tmp למה זה מלא')
-  engine(on, held)
-
-  await $.session.start(START)
-  await $.command.run(run())
-  const ui = await $.ui.mount(band())
-  await ui.press({ key: STATUS })
-
-  expect(held.text).toBe('/nadavai:my-status /tmp למה זה מלא')
-  await ui.unmount()
-})
-
-test('no row is wider than a narrow band: the name goes before any sentence is cut', async ($, on) => {
-  engine(on, box())
-
-  await $.session.start(START)
-  await $.command.run(run())
-  // 36 cells: the longest sentence (21) and the names (18) do not both fit.
-  const narrow = await $.ui.mount(band(40))
-  const rows = (await narrow.findAll({ type: 'Button' })).filter(row => row.key !== 'page')
-  expect(rows.map(row => row.text.length)).toEqual([36, 36])
-  expect(rows[0]?.text).toMatch(/^לנעול את הסשן על היעד *$/)
-  expect((await narrow.find({ type: 'Text', text: /הפרומטים שלי/ }))?.text.length).toBeLessThanOrEqual(40)
-  expect((await narrow.find({ key: 'page' }))?.text.length).toBeLessThanOrEqual(36)
-  await narrow.unmount()
-
-  // 20 cells: now the sentence itself is cut, and the title keeps the group's
-  // name, which is what tells him where he is.
-  const narrower = await $.ui.mount(band(24))
-  const short = (await narrower.findAll({ type: 'Button' })).filter(row => row.key !== 'page')
-  expect(short.map(row => row.text.length)).toEqual([20, 20])
-  expect(short[0]?.text).toBe('לנעול את הסשן על הי…')
-  expect((await narrower.find({ type: 'Text', text: /באמצע עבודה/ }))?.text).toBe('באמצע עבודה  (1 מתוך 3)')
-  await narrower.unmount()
-})
-
-test('a draft that starts with a prompt named without its plugin gives up the name', async ($, on) => {
-  const held = box('/my-plain the login bug')
-  engine(on, held)
-
-  await $.session.start(START)
-  await $.command.run(run())
-  const ui = await $.ui.mount(band())
-  await ui.press({ key: STATUS })
-
-  expect(held.text).toBe('/nadavai:my-status the login bug')
-  await ui.unmount()
-})
-
-test('a send while the list is closed is not held behind a stuck step', async ($, on) => {
-  const held = box()
-  const asked = gate()
-  // The open's read is never answered.
-  engine(on, held, COMMANDS, {
-    slowRead: () => {
-      asked.open()
-
-      return new Promise<void>(() => undefined)
-    },
-  })
-  on('prompt.submit', (_, e) => ({ text: e.text }))
-
-  await $.session.start(START)
-  void $.command.run(run())
-  await asked.wait
-  const sent = await $.prompt.submit({ text: 'שאלה', wait: false, origin: { kind: 'composer' } })
-
-  expect(sent).toBeDefined()
-  expect(held.fills).toEqual([])
-})
-
-test('after three seconds the queue moves on from a step that does not settle', async ($, on) => {
+test('after a pick the band draws nothing for a moment, so the keyboard goes back to the box', async ($, on) => {
   const clock = mock.clock(on)
   const held = box()
-  const asked = gate()
-  let isStuck = true
-  engine(on, held, COMMANDS, {
-    slowRead: () => {
-      if (!isStuck) return undefined
-      isStuck = false
-      asked.open()
-
-      return new Promise<void>(() => undefined)
-    },
-  })
+  engine(on, held)
 
   await $.session.start(START)
-  void $.command.run(run())
-  await asked.wait
-  const second = $.command.run(run())
-  await clock.advance(3000)
-  await second
+  await open($)
   const ui = await $.ui.mount(band())
+  await ui.select({ key: list(0), value: STATUS })
+  expect(held.text).toBe('/nadavai:my-status ')
 
-  expect(await ui.find({ key: STATUS })).toBeDefined()
+  await ui.redraw()
+  expect(await ui.find({ type: 'Button' })).toBeUndefined()
+  expect(await ui.keepsBeneath()).toBe(true)
+
+  await clock.advance(150)
+  await ui.redraw()
+  expect((await ui.findAll({ type: 'Button' })).map(one => one.key)).toEqual([list(0)])
   await ui.unmount()
 })
 
-test('a step that ran past its time does not take his words a second time', async ($, on) => {
+test('a pick that ran past its time changes nothing, and tells him', async ($, on) => {
   const clock = mock.clock(on)
   const held = box('מילים שלי')
   const asked = gate()
   const slow = gate()
+  const told = gate()
+  held.onToast = told.open
   let isFirst = true
   engine(on, held, COMMANDS, {
     slowRead: () => {
@@ -695,111 +739,30 @@ test('a step that ran past its time does not take his words a second time', asyn
   })
 
   await $.session.start(START)
-  // The first press reads the box and the answer is slow. He presses again.
-  const first = $.command.run(run())
+  await open($)
+  const ui = await $.ui.mount(band())
+  // The pick reads the box and the answer is slow: three seconds pass.
+  void ui.select({ key: list(0), value: STATUS })
   await asked.wait
-  const second = $.command.run(run())
   await clock.advance(3000)
-  await second
-  expect(held.text).toBe('')
-  // Now the first press gets its old answer: it must leave everything alone.
   slow.open()
-  await first
+  await told.wait
 
-  await $.command.run(run())
+  expect(held.fills).toEqual([])
   expect(held.text).toBe('מילים שלי')
-})
-
-test('a close whose fill fails still shows his words, and they do not turn up later', async ($, on) => {
-  const held = box('מילים שלי')
-  let isBroken = false
-  engine(on, held, COMMANDS, { isFillBroken: () => isBroken })
-
-  await $.session.start(START)
-  await $.command.run(run())
-  isBroken = true
-  await $.command.run(run())
-  expect(held.toasts).toEqual(['התיבה לא פנויה כרגע. המילים שהקלדת: מילים שלי'])
-
-  isBroken = false
-  await $.command.run(run())
-  const ui = await $.ui.mount(band())
-  await ui.press({ key: STATUS })
-  expect(held.text).toBe('/nadavai:my-status ')
+  expect(held.toasts).toEqual([LATE])
   await ui.unmount()
 })
 
-test('a pick still works when the list of commands cannot be read', async ($, on) => {
-  const held = box('/x מילים')
-  let isBroken = false
-  engine(on, held, COMMANDS, { isListBroken: () => isBroken })
-
-  await $.session.start(START)
-  await $.command.run(run())
-  const ui = await $.ui.mount(band())
-  isBroken = true
-  await ui.press({ key: STATUS })
-
-  expect(held.text).toBe('/nadavai:my-status /x מילים')
-  await ui.unmount()
-})
-
-test('the way back to the first page is cut to a narrow band', async ($, on) => {
+test('with nobody at the keyboard the list is printed and nothing is drawn', async ($, on) => {
   engine(on, box())
-
-  await $.session.start(START)
-  await $.command.run(run())
-  // 16 cells, one row a page: the fourth page shows the way back.
-  const ui = await $.ui.mount(band(20, 3))
-  await ui.press({ key: 'page' })
-  await ui.press({ key: 'page' })
-  await ui.press({ key: 'page' })
-
-  expect((await ui.find({ key: 'page' }))?.text).toBe('חזרה להתחלה: בא…')
-  await ui.unmount()
-})
-
-test('a band of two rows drops the title and keeps a row and the page key', async ($, on) => {
-  engine(on, box())
-
-  await $.session.start(START)
-  await $.command.run(run())
-  const ui = await $.ui.mount(band(150, 2))
-
-  expect((await ui.findAll({ type: 'Button' })).map(row => row.key)).toEqual([GOAL, 'page'])
-  expect(await ui.find({ type: 'Text', text: /הפרומטים שלי/ })).toBeUndefined()
-  await ui.unmount()
-})
-
-test('0 goes to the page after the one on screen, also after the list grew shorter', async ($, on) => {
-  engine(on, box())
-
-  await $.session.start(START)
-  await $.command.run(run())
-  // One row a page: four pages. Three presses reach the fourth.
-  const ui = await $.ui.mount(band(150, 3))
-  await ui.press({ key: 'page' })
-  await ui.press({ key: 'page' })
-  await ui.press({ key: 'page' })
-  expect((await ui.findAll({ type: 'Button' })).map(row => row.key)).toEqual([NEW, 'page'])
-
-  // The band grows: three pages now, and the screen shows the last one.
-  await ui.redraw(band(150, 4).props)
-  expect((await ui.findAll({ type: 'Button' })).map(row => row.key)).toEqual([NEW, 'page'])
-  await ui.press({ key: 'page' })
-  expect((await ui.findAll({ type: 'Button' })).map(row => row.key)).toEqual([GOAL, STATUS, 'page'])
-  await ui.unmount()
-})
-
-test('with nobody at the keyboard the list is printed and nothing opens', async ($, on) => {
-  const held = box('מילים שלי')
-  engine(on, held)
 
   await $.session.start({ ...START, isInteractive: false })
-  const ran = await $.command.run(run())
+  const printed = await $.command.run(run())
+  const ui = await $.ui.mount(band())
 
-  expect(ran.text).toBe(
-    [
+  expect(printed).toEqual({
+    text: [
       'באמצע עבודה:',
       '/nadavai:my-status  מה מצבנו?',
       'להבין ולהחליט:',
@@ -807,107 +770,22 @@ test('with nobody at the keyboard the list is printed and nothing opens', async 
       'נוספים:',
       '/nadavai:my-new  פרומט חדש בלי סימן',
     ].join('\n'),
-  )
-  expect(held.text).toBe('מילים שלי')
-  expect(held.fills).toEqual([])
-})
-
-test('a pick that ran past its time changes nothing he did after it, and tells him', async ($, on) => {
-  const clock = mock.clock(on)
-  const held = box('מילים')
-  const asked = gate()
-  const slow = gate()
-  const told = gate()
-  held.onToast = told.open
-  let isArmed = false
-  engine(on, held, COMMANDS, {
-    slowRead: () => {
-      if (!isArmed) return undefined
-      isArmed = false
-      asked.open()
-
-      return slow.wait
-    },
   })
-
-  await $.session.start(START)
-  await $.command.run(run())
-  const ui = await $.ui.mount(band())
-  // He picks a row and the box is slow to answer. The queue moves on.
-  isArmed = true
-  void ui.press({ key: STATUS })
-  await asked.wait
-  await clock.advance(3000)
+  expect(await ui.find({ type: 'Button' })).toBeUndefined()
+  expect(await ui.keepsBeneath()).toBe(true)
   await ui.unmount()
-  // Meanwhile he types a word, closes the list and opens it again.
-  held.text = 'חדש'
-  await $.command.run(run())
-  expect(held.text).toBe('חדש מילים')
-  await $.command.run(run())
-  expect(held.text).toBe('')
-
-  // Now the pick gets its old answer. The list he opened stays open, his
-  // words stay held, and nothing is written to the box.
-  slow.open()
-  await told.wait
-  expect(held.toasts).toEqual(['הבחירה התעכבה ולא נכנסה לתיבה. אפשר לבחור שוב.'])
-  expect(held.fills.filter(text => text.startsWith('/'))).toEqual([])
-  const again = await $.ui.mount(band())
-  expect(await again.find({ key: STATUS })).toBeDefined()
-  await again.unmount()
-  await $.command.run(run())
-  expect(held.text).toBe('חדש מילים')
 })
 
-test('a close that ran past its time shows his words and says that it was late', async ($, on) => {
-  const clock = mock.clock(on)
-  const held = box('מילים')
-  const asked = gate()
-  const slow = gate()
-  let isArmed = false
-  engine(on, held, COMMANDS, {
-    slowRead: () => {
-      if (!isArmed) return undefined
-      isArmed = false
-      asked.open()
-
-      return slow.wait
-    },
-  })
-
-  await $.session.start(START)
-  await $.command.run(run())
-  // The key again closes the list, and the box is slow to answer.
-  isArmed = true
-  const closing = $.command.run(run())
-  await asked.wait
-  await clock.advance(3000)
-  slow.open()
-  await closing
-
-  expect(held.text).toBe('')
-  expect(held.toasts).toEqual(['הסגירה התעכבה, והמילים שהקלדת לא חזרו לתיבה: מילים'])
-})
-
-test('a pick whose fill fails shows what he picked, and his words do not turn up later', async ($, on) => {
+test('/my-menu typed by hand says how the list opens, and opens nothing', async ($, on) => {
   const held = box('מילים שלי')
-  let isBroken = false
-  engine(on, held, COMMANDS, { isFillBroken: () => isBroken })
+  engine(on, held)
 
   await $.session.start(START)
-  await $.command.run(run())
-  expect(held.text).toBe('')
+  expect(await $.command.run(run())).toEqual({})
   const ui = await $.ui.mount(band())
-  isBroken = true
-  await ui.press({ key: STATUS })
-  expect(held.toasts).toEqual(['התיבה לא פנויה כרגע. מה שבחרת: /nadavai:my-status מילים שלי'])
 
-  // The list closed with that pick, and a later pick does not carry the words.
-  isBroken = false
-  await $.command.run(run())
-  await ui.redraw()
-  await ui.press({ key: 'page' })
-  await ui.press({ key: PLAIN })
-  expect(held.text).toBe('/nadavai:my-plain ')
+  expect(held.toasts).toEqual([HOW])
+  expect(held.fills).toEqual([])
+  expect(await ui.find({ type: 'Select' })).toBeUndefined()
   await ui.unmount()
 })

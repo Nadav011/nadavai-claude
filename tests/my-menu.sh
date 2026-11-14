@@ -12,9 +12,13 @@ t=$(mktemp -d) || exit 1
 trap 'rm -rf -- "${t:?}"' EXIT
 PASS=0; FAIL=0
 ok() { if eval "$2"; then PASS=$((PASS+1)); else echo "FAIL: $1"; FAIL=$((FAIL+1)); fi; }
-bind() { node "$KB" "$1" Chat 'ctrl+p=command:my-menu' 'ctrl+shift+p=command:my-menu'; }
+# The call link_my_menu makes for the key that opens the list. The first version of the menu bound
+# the key to its command; --was names that binding as the installer's own, to be replaced.
+bind() { node "$KB" --was=command:my-menu "$1" Chat 'ctrl+p=abovePrompt:focus' 'ctrl+shift+p=abovePrompt:focus'; }
 # shellcheck disable=SC2329  # called inside the eval of ok()
-has() { jq -e --arg k "$2" --arg v "$3" '.bindings[] | select(.context == "Chat") | .bindings[$k] == $v' "$1" >/dev/null 2>&1; }
+has() { hasin "$1" Chat "$2" "$3"; }
+# shellcheck disable=SC2329  # called inside the eval of ok()
+hasin() { jq -e --arg c "$2" --arg k "$3" --arg v "$4" '[.bindings[] | select(.context == $c) | .bindings[$k] == $v] | any' "$1" >/dev/null 2>&1; }
 # The file Orca writes into each account profile.
 orca='{
   "bindings": [
@@ -30,15 +34,15 @@ orca='{
 # 1. No file yet: it is made, private, with both keys.
 f="$t/new/keybindings.json"; mkdir -p "$t/new"
 bind "$f" >/dev/null
-ok "new file: ctrl+p bound"        'has "$f" "ctrl+p" "command:my-menu"'
-ok "new file: ctrl+shift+p bound"  'has "$f" "ctrl+shift+p" "command:my-menu"'
+ok "new file: ctrl+p bound"        'has "$f" "ctrl+p" "abovePrompt:focus"'
+ok "new file: ctrl+shift+p bound"  'has "$f" "ctrl+shift+p" "abovePrompt:focus"'
 ok "new file: mode 600"            '[ "$(stat -c %a "$f")" = 600 ]'
 
 # 2. Orca's file: its key stays, ours are added, the mode stays.
 f="$t/orca.json"; printf '%s\n' "$orca" > "$f"; chmod 600 "$f"
 bind "$f" >/dev/null
 ok "orca file: its key kept"       'has "$f" "ctrl+alt+g" "command:orca-agent-view"'
-ok "orca file: ctrl+p added"       'has "$f" "ctrl+p" "command:my-menu"'
+ok "orca file: ctrl+p added"       'has "$f" "ctrl+p" "abovePrompt:focus"'
 ok "orca file: one Chat block"     '[ "$(jq "[.bindings[] | select(.context == \"Chat\")] | length" "$f")" = 1 ]'
 ok "orca file: mode kept"          '[ "$(stat -c %a "$f")" = 600 ]'
 
@@ -55,8 +59,8 @@ out=$(bind "$f")
 ok "own key kept"                  'has "$f" "Ctrl+P" "chat:stash"'
 ok "own key not doubled"           '[ "$(jq -r ".bindings[0].bindings | keys | map(ascii_downcase) | map(select(. == \"ctrl+p\")) | length" "$f")" = 1 ]'
 ok "own key named"                 'grep -q "kept Ctrl+P = \"chat:stash\" (Chat)" <<<"$out"'
-ok "other key still added"         'has "$f" "ctrl+shift+p" "command:my-menu"'
-ok "only the added key is reported bound: $out" 'grep -q "bound ctrl+shift+p=command:my-menu in" <<<"$out" && ! grep -q "bound ctrl+p=" <<<"$out"'
+ok "other key still added"         'has "$f" "ctrl+shift+p" "abovePrompt:focus"'
+ok "only the added key is reported bound: $out" 'grep -q "bound ctrl+shift+p=abovePrompt:focus in" <<<"$out" && ! grep -q "bound ctrl+p=" <<<"$out"'
 
 # 4b. The same key under another spelling, in another block, as the start of a chord, or unbound
 # on purpose: each is his choice and nothing is added for that key.
@@ -64,7 +68,7 @@ kept() { # kept <label> <json> : ctrl+p is not added anywhere and the file's own
   local f="$t/kept-$1.json" out
   printf '%s\n' "$2" > "$f"
   out=$(bind "$f")
-  ok "$1: ctrl+p not added" '[ "$(jq "[.bindings[].bindings | to_entries[] | select(.value == \"command:my-menu\") | .key] | map(select(. == \"ctrl+p\")) | length" "$f")" = 0 ]'
+  ok "$1: ctrl+p not added" '[ "$(jq "[.bindings[].bindings | to_entries[] | select(.value == \"abovePrompt:focus\") | .key] | map(select(. == \"ctrl+p\")) | length" "$f")" = 0 ]'
   ok "$1: named ($out)" 'grep -q "kept .*; ctrl+p is not bound" <<<"$out"'
 }
 kept control-p       '{"bindings":[{"context":"Chat","bindings":{"control+p":"chat:stash"}}]}'
@@ -76,15 +80,33 @@ kept global-block    '{"bindings":[{"context":"Global","bindings":{"ctrl+p":"app
 f="$t/order.json"
 printf '%s\n' '{"bindings":[{"context":"Chat","bindings":{"shift+ctrl+p":"chat:stash"}}]}' > "$f"
 out=$(bind "$f")
-ok "modifier order: ctrl+shift+p not added beside shift+ctrl+p" '! has "$f" "ctrl+shift+p" "command:my-menu" && has "$f" "ctrl+p" "command:my-menu"'
+ok "modifier order: ctrl+shift+p not added beside shift+ctrl+p" '! has "$f" "ctrl+shift+p" "abovePrompt:focus" && has "$f" "ctrl+p" "abovePrompt:focus"'
 f="$t/same.json"
-printf '%s\n' '{"bindings":[{"context":"Chat","bindings":{"Control+P":"command:my-menu","ctrl+shift+p":"command:my-menu"}}]}' > "$f"
+printf '%s\n' '{"bindings":[{"context":"Chat","bindings":{"ctrl+p":"abovePrompt:focus","Control+Shift+P":"abovePrompt:focus"}}]}' > "$f"
 before=$(sha256sum < "$f"); out=$(bind "$f")
 ok "already bound under another spelling: untouched and silent" '[ "$(sha256sum < "$f")" = "$before" ] && [ -z "$out" ]'
+
+# 4c. The first version of the menu bound the key to its command. That binding is the installer's
+# own: the key keeps its place and its spelling and opens the list the new way. The same action in
+# Global, or in a block whose name is spelled another way, was not written by the installer: kept.
+f="$t/first.json"
+printf '%s\n' '{"bindings":[{"context":"Chat","bindings":{"ctrl+alt+g":"command:orca-agent-view","Control+P":"command:my-menu","ctrl+shift+p":"command:my-menu"}}]}' > "$f"
+out=$(bind "$f")
+ok "first version's key rebound under its spelling" 'has "$f" "Control+P" "abovePrompt:focus" && has "$f" "ctrl+shift+p" "abovePrompt:focus"'
+ok "first version's key not doubled"  '[ "$(jq -r ".bindings[0].bindings | keys | length" "$f")" = 3 ]'
+ok "first version's command is gone"  '! grep -q "command:my-menu" "$f"'
+ok "the other key of that block kept" 'has "$f" "ctrl+alt+g" "command:orca-agent-view"'
+ok "the rebinding is reported ($out)"  'grep -q "bound ctrl+p=abovePrompt:focus, ctrl+shift+p=abovePrompt:focus in" <<<"$out"'
+before=$(sha256sum < "$f"); out=$(bind "$f")
+ok "rebound file: a second run changes nothing" '[ "$(sha256sum < "$f")" = "$before" ] && [ -z "$out" ]'
+f="$t/first-without-was.json"
+printf '%s\n' '{"bindings":[{"context":"Chat","bindings":{"ctrl+p":"command:my-menu"}}]}' > "$f"
+out=$(node "$KB" "$f" Chat 'ctrl+p=abovePrompt:focus')
+ok "without --was an earlier binding is somebody's key and is kept" 'has "$f" "ctrl+p" "command:my-menu" && grep -q "kept ctrl+p" <<<"$out"'
 f="$t/ours-global.json"
 printf '%s\n' '{"bindings":[{"context":"Global","bindings":{"ctrl+p":"command:my-menu"}},{"context":"chat","bindings":{"ctrl+shift+p":"command:my-menu"}}]}' > "$f"
 before=$(sha256sum < "$f"); out=$(bind "$f")
-ok "our own action in Global or a lowercase block: untouched and silent ($out)" '[ "$(sha256sum < "$f")" = "$before" ] && [ -z "$out" ]'
+ok "the command in Global or a lowercase block is not the installer's: untouched and named ($out)" '[ "$(sha256sum < "$f")" = "$before" ] && [ "$(grep -c "kept " <<<"$out")" = 2 ]'
 
 # 5. Another context only: a Chat block is added beside it.
 f="$t/global.json"
@@ -92,7 +114,7 @@ printf '%s\n' '{"$schema":"x","bindings":[{"context":"Global","bindings":{"ctrl+
 bind "$f" >/dev/null
 ok "other context kept"            '[ "$(jq -r ".bindings[] | select(.context == \"Global\") | .bindings[\"ctrl+t\"]" "$f")" = app:toggleTodos ]'
 ok "other top-level key kept"      '[ "$(jq -r ".[\"\$schema\"]" "$f")" = x ]'
-ok "chat block added"              'has "$f" "ctrl+p" "command:my-menu"'
+ok "chat block added"              'has "$f" "ctrl+p" "abovePrompt:focus"'
 
 # 6. A file that is not JSON, or not the expected shape, is left as it is.
 f="$t/broken.json"; printf '{ "bindings": [ oops' > "$f"; before=$(sha256sum < "$f")
@@ -117,17 +139,22 @@ ok "no pairs: exit 2"              '[ "$rc" = 2 ] && [ ! -e "$t/x.json" ]'
 home="$t/home"
 mkdir -p "$home/.claude" "$home/.config/orca/claude-profiles/a/home" "$home/.config/orca/claude-profiles/b/home"
 printf '%s\n' "$orca" > "$home/.config/orca/claude-profiles/a/home/keybindings.json"
+# Profile b still has the first version's binding.
+printf '%s\n' '{"bindings":[{"context":"Chat","bindings":{"ctrl+p":"command:my-menu","ctrl+shift+p":"command:my-menu"}}]}' \
+  > "$home/.config/orca/claude-profiles/b/home/keybindings.json"
 run_link() { HOME="$home" CLAUDE_CONFIG_DIR="$home/.config/orca/claude-profiles/a/home" REPO="$here" \
   bash -c 'set -uo pipefail; source "$REPO/lib/common.sh"; link_my_menu' 2>&1; }
 run_link >/dev/null
 link="$home/.claude/skills/my-menu"
 ok "mod linked into the skills folder" '[ -L "$link" ] && [ "$(readlink -f "$link")" = "$(readlink -f "$MOD")" ]'
 for f in "$home/.claude/keybindings.json" "$home"/.config/orca/claude-profiles/{a,b}/home/keybindings.json; do
-  ok "key bound in ${f#"$home"/}"   'has "$f" "ctrl+p" "command:my-menu"'
+  ok "key bound in ${f#"$home"/}"   'has "$f" "ctrl+p" "abovePrompt:focus" && has "$f" "ctrl+shift+p" "abovePrompt:focus"'
+  ok "the list's own keys in ${f#"$home"/}" 'hasin "$f" AbovePromptSelect left abovePrompt:next && hasin "$f" AbovePromptSelect right abovePrompt:previous && hasin "$f" AbovePromptSelect ctrl+p abovePrompt:leave && hasin "$f" AbovePromptSelect ctrl+shift+p abovePrompt:leave'
+  ok "no trace of the first version in ${f#"$home"/}" '! grep -q "command:my-menu" "$f"'
 done
 ok "profile a keeps Orca's key"    'has "$home/.config/orca/claude-profiles/a/home/keybindings.json" "ctrl+alt+g" "command:orca-agent-view"'
 again=$(run_link)
-ok "second install: nothing bound again" '! grep -q "bound ctrl+p" <<<"$again"'
+ok "second install: nothing bound again" '! grep -q "bound " <<<"$again"'
 ok "second install: link kept"     'grep -q "already linked" <<<"$again"'
 
 # 9. The menu's groups name every /my-* prompt once, and only prompts that exist. The goal row is

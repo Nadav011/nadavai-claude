@@ -162,14 +162,24 @@ link_my_menu() {
   if [ -d "$CFG/skills" ] && ! same_path "$CFG/skills" "$skills"; then
     link_dir "$REPO/mods/my-menu" "$CFG/skills/my-menu"
   fi
-  # The key lives in ~/.claude/keybindings.json: Orca copies that file over each account
+  # The keys live in ~/.claude/keybindings.json: Orca copies that file over each account
   # profile's own copy whenever it prepares the profile for a launch (a key written only into a
   # profile is gone at the next launch). The profiles are written too so that open sessions get
-  # the key now. A key that already runs something else is kept, and keybind.mjs names it.
+  # the keys now. A key that already runs something else is kept, and keybind.mjs names it.
+  # Ctrl+P gives the keyboard to the band above the prompt, where the mod keeps a row of no
+  # height that opens the list when it takes the focus (a mod cannot take the keyboard itself).
+  # Until 2026-11-14 the key ran the mod's command, which opened a list without the keyboard:
+  # that binding is this function's own, and is replaced. In the list, left and right move the
+  # focus off it, which the mod reads as "the next group" and "the group before" (the list reads
+  # right to left, so left is forward), and Ctrl+P hands the keyboard back, which closes it.
   for d in "$HOME/.claude" "$HOME"/.config/orca/claude-profiles/*/home; do
     [ -d "$d" ] || continue
-    node "$REPO/lib/keybind.mjs" "$d/keybindings.json" Chat 'ctrl+p=command:my-menu' 'ctrl+shift+p=command:my-menu' \
-      || warn "could not bind the prompt menu key in $d/keybindings.json"
+    node "$REPO/lib/keybind.mjs" --was=command:my-menu "$d/keybindings.json" Chat \
+      'ctrl+p=abovePrompt:focus' 'ctrl+shift+p=abovePrompt:focus' \
+      && node "$REPO/lib/keybind.mjs" "$d/keybindings.json" AbovePromptSelect \
+        'left=abovePrompt:next' 'right=abovePrompt:previous' \
+        'ctrl+p=abovePrompt:leave' 'ctrl+shift+p=abovePrompt:leave' \
+      || warn "could not bind the prompt menu keys in $d/keybindings.json"
   done
 }
 

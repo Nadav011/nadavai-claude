@@ -1,22 +1,40 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
+import type { Stage } from '../types'
 
-// The menu of Nadav's prompt store. `/my-menu` (bound to Ctrl+P in
-// keybindings.json) opens a list above the prompt box. Each row is a number,
-// the sentence he would say, what he gets, and the prompt it writes. A number
-// key (over an empty box) or a click puts that prompt in the prompt box, and
-// his own Enter runs it, so a prompt still starts only when he starts it and
-// he can add words after its name. The rows come in groups, one group on the
-// screen at a time, and 0 turns to the next. The name `my` is taken: it is the
-// nadavai plugin's printed menu, which stays as the form that needs no mod.
+// The menu of Nadav's prompt store: a list above the prompt box that the
+// keyboard walks, as Claude Code's own question dialogs do (Nadav, 2026-11-14,
+// asked for the arrows, for "like Anthropic's own", and for the prompts by
+// category). Ctrl+P opens it. Up and Down move the highlight over one group's
+// prompts, Left and Right (and Tab) turn to the next group and the one before,
+// Enter puts the highlighted prompt in the prompt box, Esc closes. His own
+// Enter in the box then runs the prompt, so a prompt still starts only when he
+// starts it and he can add words after its name. A digit jumps to that row.
+//
+// How the keyboard gets here. A mod cannot take the keyboard: only the person
+// gives it to the band, with the focus action (bound to Ctrl+P in
+// keybindings.json by lib/common.sh, link_my_menu). So while the list is
+// closed the band holds one Button in a box of no height: nothing is on
+// screen, and the focus action lands on it. That is the signal to open. The
+// list is a Select drawn under the same key, so the focus stays on it across
+// the redraw. A Select is the one element whose Up and Down are its own
+// (the highlight) while Left, Right and Tab move the focus off it: on either
+// side sits another Button of no height, and the focus arriving there means
+// "next group" or "the group before". The focus is never let onto them.
+//
+// How it closes. Esc hands the keyboard back to the prompt box and raises no
+// event, so while the list is open a watch asks, a few times a second, for
+// the focus to stay on the list: the answer is a refusal once the band no
+// longer holds the keyboard, and the list closes. After a pick the band draws
+// nothing for a moment, which is what makes the engine hand the keyboard back.
 //
 // Why the band above the prompt and not a pane: a pane docks beside the
 // transcript in a wide terminal, and Orca's terminal (our right-to-left patch)
 // orders every row that holds Hebrew as one right-to-left line across the
 // whole width, which mixes a docked pane into the conversation. The band's
 // rows are whole terminal rows, so each one reads right to left by itself.
-// Every row here opens with Hebrew so that it reads right to left, and the
-// columns are lined up with blank cells counted for that direction.
+// The name `my` is taken: it is the nadavai plugin's printed menu, which stays
+// as the form that needs no mod.
 
 const COMMAND = 'my-menu'
 const PREFIX = 'nadavai:my-'
@@ -43,34 +61,58 @@ const GROUPS: readonly { title: string; names: readonly string[] }[] = [
     title: 'בודקים',
     names: ['done', 'prove', 'review', 'research', 'second', 'missed', 'map'],
   },
-  { title: 'להבין ולהחליט', names: ['best', 'plain', 'hold', 'ask', 'agents', 'cost'] },
+  {
+    title: 'להבין ולהחליט',
+    names: ['best', 'method', 'plain', 'hold', 'ask', 'agents', 'cost'],
+  },
   { title: 'להראות, לשלוח ולשמור', names: ['other', 'show', 'client', 'save', 'ship'] },
   { title: 'משהו לא טוב', names: ['machine', 'wrong', 'top', 'never'] },
 ]
 const REST = 'נוספים'
-// Number keys 1 to 9 pick a row; 0 turns the page. A page holds one group, or
-// as much of it as the band has room for, so no row is scrolled out of reach
-// of its key.
+// A page holds one group, or as much of it as the band has room for. Its rows
+// are numbered 1 to 9, and a digit jumps to that row.
 const MAX_PER_PAGE = 9
 const MIN_PER_PAGE = 1
 // A last page with fewer rows than this shares rows with the page before it.
 const MIN_LAST_PAGE = 3
-// The band needs this many rows to show a title above the list.
-const ROWS_FOR_TITLE = 3
-// Blank cells between two columns.
+// The band needs this many rows to show the groups above the list, and this
+// many to show the keys under it as well.
+const ROWS_FOR_TABS = 3
+const ROWS_FOR_HINT = 5
+// Blank cells between the sentence and what he gets.
 const GAP = 4
+// Cells of a row that are not its text: the Select's own indent (2), the
+// row's number ("1. ") and three the Select keeps free at the row's end
+// (measured at 72 and 100 columns: a longer row is cut by the engine itself).
+const ROW_CHROME = 8
+// The cells every row of the band starts after, to line up with the list.
+const INDENT = '  '
 // The middle column (what he gets): the widest it may be, and the narrowest
 // at which it still says something.
 const MAX_GLOSS = 64
 const MIN_GLOSS = 20
 // The narrowest band a row is laid out for.
 const MIN_WIDTH = 12
-// How long the queue of opens, closes and picks waits for one step.
+// How long the queue of picks waits for one step.
 const STEP_MS = 3000
+// How often the open list asks whether the band still holds the keyboard, and
+// how many refusals in a row mean it does not (one can be a redraw in flight).
+const WATCH_MS = 250
+const WATCH_REFUSALS = 2
+// How long the band draws nothing after a pick, so the keyboard goes back.
+const RELEASE_MS = 150
 
 const TITLE = 'הפרומטים שלי'
-const HINT = '   מקש מספר או לחיצה בעכבר מכניסים את הפרומט לתיבה · Enter מריץ · Ctrl+P סוגר'
-const SHORT_HINT = '   מספר בוחר · Ctrl+P סוגר'
+const HINT =
+  'חצים למעלה ולמטה בוחרים · ימינה ושמאלה מחליפים קבוצה · Enter מכניס לתיבה · Esc סוגר'
+const SHORT_HINT = '↑↓ בחירה · ←→ קבוצה · Enter · Esc'
+// What `/my-menu` typed by hand answers: the list opens only on the key.
+const HOW =
+  'הרשימה נפתחת ב-Ctrl+P (או Ctrl+X ואז Tab). חצים למעלה ולמטה בוחרים, ימינה ושמאלה מחליפים קבוצה, Enter מכניס את הפרומט לתיבה, Esc סוגר.'
+// The focus ring's stops: the list of the page on screen, and the two beside it.
+const listKey = (at: number): string => `list:${at}`
+const BEFORE = 'before'
+const AFTER = 'after'
 
 // `line` is what a pick writes when it is not `/<name> <his words>`.
 type Row = {
@@ -80,6 +122,9 @@ type Row = {
   line?: (words: string) => string
 }
 type Group = { title: string; rows: Row[] }
+// One page of the list: a group, or the part of it the band has room for.
+// `start` is how many rows of the group came on the pages before it.
+type Page = Group & { group: number; part: number; parts: number; start: number }
 
 // When the goal is met. The list it names is the one a session writes under
 // that heading when he sets a goal or runs /nadavai:my-run. The line asks for
@@ -117,13 +162,10 @@ const GOAL_ROW: Row = {
   },
 }
 
-// The words he had typed when he opened the menu: what the prompt box held, or
-// what followed `/my-menu`. A number key reaches the menu only over an empty
-// box, so the words are taken out and kept here. They come back as the chosen
-// prompt's arguments, or as they were when he closes the menu without choosing.
-// Kept in the session's state, so a reload of this module does not lose them.
-const held = atom({ plugin: 'my-menu', key: 'held' } as const, '')
-const isOpen = atom({ plugin: 'my-menu', key: 'isOpen' } as const, false)
+// Where the list stands: closed (the row of no height waits for the focus),
+// open, or just picked from (the band draws nothing, so the keyboard returns
+// to the prompt box). Kept in the session's state with the page on screen.
+const stage = atom({ plugin: 'my-menu', key: 'stage' } as const, 'idle' as Stage)
 const page = atom({ plugin: 'my-menu', key: 'page' } as const, 0)
 
 const joined = (...parts: string[]): string =>
@@ -217,20 +259,26 @@ const groups = async ($: EngineInterface): Promise<Group[]> => {
 
 // The pages the band turns through: each group, cut where it has more rows
 // than the band has room for.
-const pagesOf = (all: Group[], fit: number): Group[] =>
-  all.flatMap(group => {
+const pagesOf = (all: Group[], fit: number): Page[] =>
+  all.flatMap((group, index) => {
     const sizes = pageSizes(group.rows.length, fit)
 
     return sizes.map((size, n) => {
       const start = sizes.slice(0, n).reduce((sum, one) => sum + one, 0)
 
-      return { title: group.title, rows: group.rows.slice(start, start + size) }
+      return {
+        title: group.title,
+        rows: group.rows.slice(start, start + size),
+        group: index,
+        part: n,
+        parts: sizes.length,
+        start,
+      }
     })
   })
 
-// What he is told when a step ran past its time and left the box alone.
+// What he is told when a pick ran past its time and left the box alone.
 const LATE_PICK = 'הבחירה התעכבה ולא נכנסה לתיבה. אפשר לבחור שוב.'
-const LATE_CLOSE = 'הסגירה התעכבה, והמילים שהקלדת לא חזרו לתיבה:'
 const MISSING =
   'הפרומטים עוד לא נטענו בסשן הזה. מקלידים /reload-plugins ואז פותחים שוב.'
 
@@ -238,12 +286,22 @@ const MISSING =
 // there, so the list is printed instead.
 let isInteractive = true
 
-// One open, close or pick at a time. Two presses of the key in a row would
-// otherwise both find the list closed and both take his words. A step has
-// STEP_MS from the moment it starts (a call another plugin's hook answers
-// late, or never, would otherwise hold every later step). After that the
-// queue moves on, and the late step is told so: it may no longer write to
-// the box, because the next step has begun.
+// What the band drew last: the key of the list on screen (the watch asks for
+// the focus on it) and how many pages there are (a turn past the last page
+// comes back to the first).
+let drawn = { key: listKey(0), pages: 1 }
+
+// The timer of the open list's watch; none while the list is closed.
+let watcher: { cancel: () => void } | undefined
+const stopWatch = (): void => {
+  watcher?.cancel()
+  watcher = undefined
+}
+
+// One pick at a time. A step has STEP_MS from the moment it starts (a call
+// another plugin's hook answers late, or never, would otherwise hold every
+// later step). After that the queue moves on, and the late step is told so:
+// it may no longer write to the box, because the next step has begun.
 let turn: Promise<unknown> = Promise.resolve()
 const inTurn = <T,>(
   $: EngineInterface,
@@ -277,20 +335,94 @@ const inTurn = <T,>(
   return done
 }
 
+// Whether the band still holds the keyboard: asks for the focus on the list,
+// which is where it already is, so nothing moves while it does. Once he
+// pressed Esc (or a dialog took the keys) the engine answers with a refusal.
+// A call that fails says nothing either way.
+const holdsKeyboard = ($: EngineInterface, requestId: string): Promise<'yes' | 'no' | 'unknown'> =>
+  $.ui.focus({ requestId, key: drawn.key }).then(
+    answer => (answer.deny === undefined ? 'yes' : 'no'),
+    () => 'unknown',
+  )
+
+// While the list is open, the watch asks that a few times a second and closes
+// the list once the band lost the keyboard. The engine's own timer runs it, a
+// dispatch for each period: a wait inside the hook that opened the list would
+// end with that hook's time. Where the engine gives no timer, or cannot say
+// who holds the keyboard, the watch ends and the list stays until his next
+// pick or send: a list that stays is better than one that closes under him.
+const startWatch = ($: EngineInterface, requestId: string): void => {
+  stopWatch()
+  let refusals = 0
+  let isAsking = false
+  const ask = async (timer: { cancel: () => void }): Promise<void> => {
+    if ((await read($, stage)) !== 'open') {
+      timer.cancel()
+
+      return
+    }
+    const held = await holdsKeyboard($, requestId)
+    if (held === 'unknown') {
+      timer.cancel()
+      if (watcher === timer) watcher = undefined
+
+      return
+    }
+    refusals = held === 'yes' ? 0 : refusals + 1
+    if (refusals < WATCH_REFUSALS) return
+    timer.cancel()
+    // A watch that a newer one replaced closes nothing.
+    if (watcher === timer) {
+      watcher = undefined
+      await update($, stage, now => (now === 'open' ? 'idle' : now))
+    }
+  }
+  try {
+    const timer = $.clock.every(WATCH_MS, () => {
+      if (isAsking) return
+      isAsking = true
+      // A question that fails (the module was reloaded under its timer) ends
+      // the watch.
+      void ask(timer)
+        .catch(() => timer.cancel())
+        .finally(() => {
+          isAsking = false
+        })
+    })
+    watcher = timer
+  } catch {
+    watcher = undefined
+  }
+}
+
+// Closes the list after a pick and hands the keyboard back to the prompt box:
+// the band draws nothing for a moment, and then the row of no height again.
+const handBack = async ($: EngineInterface): Promise<void> => {
+  stopWatch()
+  await update($, stage, () => 'gone')
+  await $.clock.sleep(RELEASE_MS).catch(() => undefined)
+  await update($, stage, now => (now === 'gone' ? 'idle' : now))
+}
+
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     isInteractive = e.isInteractive
+    // A reload of this module ends its watch, so a list it left open closes.
+    stopWatch()
+    await update($, stage, () => 'idle')
     await $.command.register({
       name: COMMAND,
-      description: 'הפרומטים שלי: רשימה לבחירה במספר או בלחיצה',
+      description: 'הפרומטים שלי: Ctrl+P פותח רשימה לבחירה בחצים',
       immediate: true,
     })
 
     return next(e)
   })
 
-  // The key, or `/my-menu`: opens the list, and closes it when it is open.
-  on('command.run', { command: COMMAND }, async ($, e) => {
+  // `/my-menu` typed by hand. With nobody at the keyboard it prints the list;
+  // otherwise it says how the list opens, because only his key can give the
+  // list the keyboard.
+  on('command.run', { command: COMMAND }, async $ => {
     if (!isInteractive) {
       const all = await groups($)
 
@@ -310,209 +442,213 @@ export const register: Register = on => {
                 .join('\n'),
       }
     }
+    $.ui.toast(HOW)
 
-    return inTurn($, async isLate => {
-      if (await read($, isOpen)) {
-        await close($, isLate)
+    return {}
+  })
 
-        return {}
-      }
-      const { text } = await $.prompt.read()
-      // What a late step read is old: the box and the list stay as they are.
-      if (isLate()) return {}
-      if (text.trim() !== '') {
-        // The words leave the box only when it could be emptied: while a
-        // dialog holds the keys they stay where he typed them.
-        const emptied = await $.prompt.fill({ text: '' })
-        if (emptied.isFilled) await update($, held, kept => joined(kept, text))
-      } else if (e.args.trim() !== '') {
-        await update($, held, kept => joined(kept, e.args))
-      }
+  // The focus ring of the band is about to move onto one of this mod's rows.
+  on('ui.focus', { component: 'AbovePrompt' }, async ($, e, next) => {
+    if (e.element === undefined) return next(e)
+    const now = await read($, stage)
+    // The row of no height took the focus: he pressed the key. The list opens
+    // on its first group, under the same key, so the focus stays on it.
+    if (now === 'idle' && e.element === listKey(0)) {
+      const moved = await next(e)
+      if (moved.deny !== undefined) return moved
       await update($, page, () => 0)
-      await update($, isOpen, () => true)
+      await update($, stage, () => 'open')
+      startWatch($, e.requestId)
+
+      return moved
+    }
+    // Left, Right or Tab moved the focus off the list: the next group, or the
+    // one before. The focus is kept where it is; the list of the new group is
+    // drawn under its own key and takes it, with the highlight on its top row.
+    if (now === 'open' && e.origin.kind === 'person' && (e.element === AFTER || e.element === BEFORE)) {
+      const step = e.element === AFTER ? 1 : -1
+      const pages = Math.max(1, drawn.pages)
+      await update($, page, at => (Math.min(at, pages - 1) + step + pages) % pages)
 
       return {}
-    })
+    }
+
+    return next(e)
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    if (!(await read($, isOpen)) || e.props.hasSurvey) return next(e)
-    const { Box, Text, Button } = $.ui.resolve(e)
+    if (!isInteractive || e.surface !== 'terminal' || e.props.hasSurvey) return next(e)
+    const now = await read($, stage)
+    if (now === 'gone') return next(e)
+    const { Box, Text, Button, Select } = $.ui.resolve(e)
+    // A Button nobody sees: it is there for the focus to land on.
+    const unseen = (key: string, hasFocusFirst: boolean, label: string) => (
+      <Box height={0} overflow="hidden">
+        <Button
+          key={key}
+          plain
+          {...(hasFocusFirst ? { autoFocus: true as const } : {})}
+          onPress={() => undefined}
+        >
+          {label}
+        </Button>
+      </Box>
+    )
+    if (now !== 'open') {
+      drawn = { key: listKey(0), pages: 1 }
+
+      return unseen(listKey(0), true, TITLE)
+    }
     const all = await groups($)
-    if (all.length === 0) return <Text wrap="truncate-end">{MISSING}</Text>
+    if (all.length === 0) {
+      drawn = { key: listKey(0), pages: 1 }
+
+      return (
+        <Box flexDirection="column">
+          <Text wrap="truncate-end">
+            {INDENT}
+            {MISSING}
+          </Text>
+          {unseen(listKey(0), true, TITLE)}
+        </Box>
+      )
+    }
     const rows = all.flatMap(group => group.rows)
 
-    // A band too short for a title gives its rows to the list.
-    const hasTitle = e.props.maxRows >= ROWS_FOR_TITLE
-    const room = e.props.maxRows - (hasTitle ? 2 : 1)
+    // A short band gives its rows to the list: first the keys under it go,
+    // then the groups above it.
+    const hasTabs = e.props.maxRows >= ROWS_FOR_TABS
+    const hasHint = e.props.maxRows >= ROWS_FOR_HINT
+    const room = e.props.maxRows - (hasTabs ? 1 : 0) - (hasHint ? 1 : 0)
     const fit = Math.max(MIN_PER_PAGE, Math.min(MAX_PER_PAGE, room))
     const pages = pagesOf(all, fit)
     const at = Math.min(await read($, page), pages.length - 1)
-    const shown = pages[at] ?? { title: '', rows: [] }
-    const after = (at + 1) % pages.length
-    const ahead = pages[after] ?? shown
-    const coming = ahead.rows.map(row => row.sentence).join(' · ')
-    // The cells a row's text may take: the band's width less the key ("1: ").
-    const width = Math.max(MIN_WIDTH, e.props.bodyColumns - 4)
-    // The columns are sized over every prompt, not only this page's, so that
-    // they stay where they are when the page turns. No row is wider than the
-    // band: a row that wrapped would push the last rows out of their keys'
-    // reach. The sentence is what he reads to choose, so in a narrow band the
-    // prompt's name goes before any sentence is cut.
-    const longest = widest(rows.map(row => row.sentence))
-    const names = widest(rows.map(row => row.name)) + 1
-    const hasName = width >= longest + GAP + names
-    const sentences = Math.min(longest, width)
-    // The middle column takes what the other two leave, and is dropped where
-    // the band is too narrow for it to say anything.
-    const spare = width - (sentences + GAP + GAP + names)
-    const glosses = Math.min(MAX_GLOSS, spare, widest(rows.map(row => row.gloss)))
-    const hasGloss = hasName && glosses >= MIN_GLOSS
-    // A row's sentence, what he gets, its prompt and the slash, with the gaps.
-    const table =
-      sentences + (hasGloss ? GAP + glosses : 0) + (hasName ? GAP + names : 0)
+    const shown = pages[at] ?? { title: '', rows: [], group: 0, part: 0, parts: 1, start: 0 }
+    drawn = { key: listKey(at), pages: pages.length }
 
-    // The title row, held to the band's width: the group on screen, which is
-    // what tells him where he is, stays when the band has no room for both.
-    const pageOf = pages.length > 1 ? `  (${at + 1} מתוך ${pages.length})` : ''
-    const whole = `${TITLE}: ${shown.title}`
-    const head = whole.length + pageOf.length <= e.props.bodyColumns ? whole : shown.title
-    const left = e.props.bodyColumns - head.length - pageOf.length
-    const hint = HINT.length <= left ? HINT : SHORT_HINT.length <= left ? SHORT_HINT : ''
+    // The cells a row's text may take. The columns are sized over every
+    // prompt, not only this page's, so that they stay where they are when the
+    // group turns. No row is wider than the band. The sentence is what he
+    // reads to choose, so what he gets is cut first, and dropped where the
+    // band is too narrow for it to say anything.
+    const width = Math.max(MIN_WIDTH, e.props.bodyColumns - ROW_CHROME)
+    const sentences = Math.min(widest(rows.map(row => row.sentence)), width)
+    const glosses = Math.min(MAX_GLOSS, width - sentences - GAP, widest(rows.map(row => row.gloss)))
+    const hasGloss = glosses >= MIN_GLOSS
+    // A row's number is its place in its group, so a group the band cut into
+    // parts counts on from one part to the next.
+    const label = (row: Row, index: number): string => {
+      const number = shown.start + index + 1
+      const said = cut(row.sentence, sentences)
+      const what = hasGloss ? cut(row.gloss, glosses) : ''
+
+      return what === ''
+        ? `${number}. ${said}`
+        : `${number}. ${said}${' '.repeat(sentences - said.length + GAP)}${what}`
+    }
+
+    // The groups, with the one on screen marked. A group the band cut into
+    // parts says which part this is. Where the band has no room for them all,
+    // the group on screen stays, with its place among the groups.
+    const tabs = all.map((group, index) =>
+      index === shown.group && shown.parts > 1
+        ? `${group.title} ${shown.part + 1}/${shown.parts}`
+        : group.title,
+    )
+    const strip = tabs.reduce((sum, tab) => sum + tab.length + 4, INDENT.length)
+    const hasAllTabs = strip <= e.props.bodyColumns
+    const hasTitle = strip + TITLE.length + 2 <= e.props.bodyColumns
+    const place = `  (${shown.group + 1} מתוך ${all.length})`
+    const hint = INDENT.length + HINT.length <= e.props.bodyColumns ? HINT : SHORT_HINT
 
     return (
       <Box flexDirection="column">
-        {hasTitle && (
-          <Text wrap="truncate-end">
-            <Text bold>{head}</Text>
-            <Text dimColor>
-              {pageOf}
-              {hint}
+        {hasTabs &&
+          (hasAllTabs ? (
+            <Text wrap="truncate-end">
+              {INDENT}
+              {hasTitle && <Text weight="bold">{`${TITLE}  `}</Text>}
+              {tabs.map((tab, index) => (
+                <Text
+                  key={`tab:${index}`}
+                  {...(index === shown.group ? { inverse: true } : { dimColor: true })}
+                >
+                  {`  ${tab}  `}
+                </Text>
+              ))}
             </Text>
-          </Text>
-        )}
-        {shown.rows.map((row, index) => {
-          const said = cut(row.sentence, sentences)
-          const what = hasGloss ? cut(row.gloss, glosses) : ''
-          // Blank cells that line the columns up: the sentences begin at the
-          // right, what he gets begins in one column, and the prompts begin
-          // in one column at the left.
-          const afterSentence = ' '.repeat(
-            sentences - said.length + (hasGloss || hasName ? GAP : 0),
-          )
-          const afterGloss = ' '.repeat(
-            (hasGloss ? glosses - what.length + GAP : 0) +
-              (hasName ? names - 1 - row.name.length : 0),
-          )
-
-          return (
-            <Button
-              key={`row:${row.name}`}
-              plain
-              hotkey={String(index + 1)}
-              onPress={() => {
-                void inTurn($, isLate => choose($, row, isLate))
+          ) : (
+            <Text wrap="truncate-end">
+              {INDENT}
+              <Text weight="bold">{tabs[shown.group] ?? shown.title}</Text>
+              <Text dimColor>{place}</Text>
+            </Text>
+          ))}
+        {unseen(BEFORE, false, 'הקבוצה הקודמת')}
+        {/* A Select draws a line of its own above its rows (its label and the
+            row picked last). The list has no use for it, so the Select is
+            drawn one row up inside a box exactly as tall as its rows. */}
+        <Box height={shown.rows.length} overflow="hidden" flexDirection="column">
+          <Box marginTop={-1} flexDirection="column">
+            <Select
+              key={listKey(at)}
+              autoFocus
+              value={shown.rows[0]?.name ?? ''}
+              options={shown.rows.map((row, index) => ({
+                value: row.name,
+                label: label(row, index),
+              }))}
+              onSelect={value => {
+                const row = shown.rows.find(one => one.name === value)
+                // A pick that fails after the session went away has nobody to tell.
+                if (row) void inTurn($, isLate => choose($, row, isLate)).catch(() => undefined)
               }}
-            >
-              {said}
-              {afterSentence}
-              <Text dimColor>{what}</Text>
-              {afterGloss}
-              {/* The slash is written after the name on purpose. The row reads
-                  right to left, and there a mark at the very end of the line
-                  is drawn at its left end, which puts it in front of the name:
-                  "/nadavai:my-status". Written first, it is drawn after it. */}
-              {hasName && <Text color="suggestion">{row.name}/</Text>}
-              {/* Blank cells to the end of the row, so a click anywhere on
-                  the row presses it: in a right-to-left row the words are
-                  drawn at the other end from the cells that hold them. */}
-              {' '.repeat(Math.max(0, width - table))}
-            </Button>
-          )
-        })}
-        {pages.length > 1 && (
-          <Button
-            key="page"
-            plain
-            hotkey="0"
-            onPress={() => {
-              // To the page after the one on screen, which is not always the
-              // one after the stored page: the list may have grown shorter.
-              void update($, page, () => after)
-            }}
-          >
-            <Text dimColor>
-              {cut(
-                after === 0 ? `חזרה להתחלה: ${ahead.title}` : `הבא: ${ahead.title} · ${coming}`,
-                width,
-              )}
-            </Text>
-          </Button>
+            />
+          </Box>
+        </Box>
+        {unseen(AFTER, false, 'הקבוצה הבאה')}
+        {hasHint && (
+          <Text dimColor wrap="truncate-end">
+            {INDENT}
+            {hint}
+          </Text>
         )}
       </Box>
     )
   })
 
-  // He typed something else and sent it while the list was open: the list
-  // closes, and words it had taken out of the box go back in.
+  // He sent something while the list was open: the list closes.
   on('prompt.submit', async ($, e, next) => {
     const sent = await next(e)
-    // A send while the list is closed waits for nothing.
-    if (e.command?.name !== COMMAND && (await read($, isOpen))) {
-      await inTurn($, async isLate => {
-        if (await read($, isOpen)) await close($, isLate)
-      })
+    if ((await read($, stage)) === 'open') {
+      stopWatch()
+      await update($, stage, () => 'idle')
     }
 
     return sent
   })
 }
 
-// Closes the list without a pick: the held words go back in the box. When the
-// box takes nothing (a dialog holds it, the call fails, or this step ran past
-// its time) he is shown the words instead, and they end here: kept, they
-// would turn up inside a later, unrelated pick.
-const close = async ($: EngineInterface, isLate: () => boolean): Promise<void> => {
-  await update($, isOpen, () => false)
-  const words = await read($, held)
-  if (words === '') return
-  await update($, held, () => '')
-  // A close that ran past its time no longer writes to the box (a later step
-  // may have read it already), so his words are shown, with the true reason.
-  const back = await $.prompt
-    .read()
-    .then(({ text }) =>
-      isLate()
-        ? ('late' as const)
-        : $.prompt
-            .fill({ text: joined(text, words) })
-            .then(filled => (filled.isFilled ? ('back' as const) : ('busy' as const))),
-    )
-    .catch(() => 'busy' as const)
-  if (back === 'late') $.ui.toast(`${LATE_CLOSE} ${words}`)
-  if (back === 'busy') $.ui.toast(`התיבה לא פנויה כרגע. המילים שהקלדת: ${words}`)
-}
-
-// Puts `/<prompt> ` in the prompt box, with the words he had typed as the
-// prompt's arguments (the goal row writes its own line around them), and
-// closes the list. A draft that began with another
-// command gives up that command's name, not its words. Only a real command's
-// name is given up, whole or without its plugin (`/nadavai:my-plain`,
-// `/my-plain`): a path (`/tmp why`, `/tmp/log.txt ...`) is words.
+// Puts `/<prompt> ` in the prompt box, with the words he had typed there as
+// the prompt's arguments (the goal row writes its own line around them), and
+// closes the list. A draft that began with another command gives up that
+// command's name, not its words. Only a real command's name is given up,
+// whole or without its plugin (`/nadavai:my-plain`, `/my-plain`): a path
+// (`/tmp why`, `/tmp/log.txt ...`) is words.
 const choose = async (
   $: EngineInterface,
   row: Row,
   isLate: () => boolean,
 ): Promise<void> => {
   const { text } = await $.prompt.read()
-  // A pick that ran past its time changes nothing: the box, the held words and
-  // the list are by then as the later steps set them. He is told to pick again.
+  // A pick that ran past its time changes nothing: the box and the list are
+  // by then as the later steps set them. He is told to pick again.
   if (isLate()) {
     $.ui.toast(LATE_PICK)
 
     return
   }
-  const draft = joined(await read($, held), text)
+  const draft = text.trim()
   const first = /^\/(\S+)(?:\s+|$)/.exec(draft)
   const commands = first ? await $.command.list().catch(() => []) : []
   const words =
@@ -525,13 +661,9 @@ const choose = async (
 
     return
   }
-  // From here the held words are this pick's. They end here either way: kept
-  // after a box that took nothing, they would turn up in a later pick, so he
-  // is shown the whole line instead.
-  await update($, held, () => '')
   const filled = await $.prompt.fill({ text: line }).catch(() => ({ isFilled: false }))
   // After a fill that ran past the time, the list belongs to the later steps.
-  if (!isLate()) await update($, isOpen, () => false)
+  if (!isLate()) await handBack($)
   if (!filled.isFilled) $.ui.toast(`התיבה לא פנויה כרגע. מה שבחרת: ${line}`)
   else if (row === GOAL_ROW && asGoal(words).length > GOAL_ROOM) $.ui.toast(LONG_GOAL)
 }
