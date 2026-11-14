@@ -5,8 +5,8 @@
 #   vault-login-add <name> <login-url> <username> [--also <url>]...
 #
 # The password comes from stdin when it is piped (for example from another vault file or a
-# password-manager CLI), otherwise from a password dialog that Nadav types into (zenity or
-# kdialog). Writes ~/.claude/secrets/login-<name>.env (chmod 600) and refuses to overwrite.
+# password-manager CLI); with a terminal, or with nothing on stdin (an agent's shell), it comes
+# from a password dialog that Nadav types into (zenity or kdialog). Writes ~/.claude/secrets/login-<name>.env (chmod 600) and refuses to overwrite.
 # For a NEW account use vault-login-new, which generates the password.
 set -euo pipefail
 
@@ -35,9 +35,11 @@ vault="${NADAVAI_VAULT_DIR:-$HOME/.claude/secrets}"
 file="$vault/login-$name.env"
 if [ -e "$file" ] || [ -L "$file" ]; then echo "exists, not overwritten: $file" >&2; exit 1; fi
 
-if [ ! -t 0 ]; then
-  IFS= read -r pw || true
-else
+# Piped input wins. An agent's shell has no terminal and an empty stdin, so an empty read falls
+# through to the dialog instead of ending with "empty password" before Nadav saw anything.
+pw=""
+if [ ! -t 0 ]; then IFS= read -r pw || true; fi
+if [ -z "$pw" ]; then
   title="Vault: password for $name"
   text="Password for $user at $url (saved to the vault; agents never see it)"
   if command -v zenity >/dev/null 2>&1; then
