@@ -26,7 +26,7 @@ done
 step "Prerequisites"
 need claude "Install Claude Code first: https://code.claude.com/docs/en/setup"
 need git "Install git."
-need node "Install Node.js 20+ (the hooks, the omc CLI and the HUD need it)."
+need node "Install Node.js 20+ (the hooks, the omc CLI and the status line need it)."
 need npm "Install Node.js 20+ (npm ships with it)."
 log "claude $(claude --version 2>/dev/null | head -1), node $(node --version), config dir $CFG"
 
@@ -93,9 +93,10 @@ step "Shell environment (~/.bashrc sources shell/nadavai.sh)"
 link_shell
 link_home_pyright
 
-step "omc CLI (omc ask), the HUD status line and CLAUDE.md"
+step "omc CLI (omc ask), the status line and CLAUDE.md"
 ensure_omc
 link_global_claude_md
+retire_omc_files
 
 step "continues CLI and the cs shortcut"
 ensure_continues

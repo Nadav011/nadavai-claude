@@ -1,0 +1,72 @@
+#!/usr/bin/env node
+// nadavai-statusline: the status line of every Claude Code session, under our name.
+//
+// `statusLine` in settings/settings.base.json runs this file. It prints what the status line of
+// the retired oh-my-claudecode plugin printed (model, effort, usage limits, session time, context,
+// tool and agent counts, ...), because Nadav asked on 2026-11-14 to keep that line with all its
+// statuses under our name; its look is his to design elsewhere. The renderer is still the HUD
+// module of the `omc` CLI's npm package (oh-my-claude-sisyphus, kept for `omc ask`): this file
+// loads it straight from that package, with no copy of it under ~/.claude and nothing read from
+// the plugin's cache. Two things change in what it prints: the label `[OMC#<version>]` becomes
+// `[NadavAI]`, and anything that tells him to update the plugin is dropped.
+//
+// CommonJS on purpose: the file has no extension, and Node decides the module kind by extension.
+"use strict";
+const fs = require("node:fs");
+const path = require("node:path");
+const { pathToFileURL } = require("node:url");
+
+const NAME = "NadavAI";
+const PKG = "oh-my-claude-sisyphus";
+const SP = "[ \\u00A0]"; // the renderer turns spaces into non-breaking spaces
+const ANSI = /\x1b\[[0-9;]*m/g;
+// "[OMC#5.8.4]", "[OMC#5.8.5L] -> 5.8.6 omc update", "[OMC]"
+const LABEL = new RegExp(`\\[OMC[^\\]\\n]*\\](?:${SP}->${SP}[^\\s\\u00A0|\\x1b]+${SP}omc${SP}update)?`, "g");
+// A whole line that only asks for an update of the plugin ("[!] omc 5.8.6 - paste: ! claude plugin ...").
+const UPDATE_LINE = new RegExp(`\\[!\\]${SP}omc${SP}|claude${SP}plugin${SP}(?:marketplace${SP})?update`);
+
+function relabel(text) {
+  return String(text)
+    .split("\n")
+    .filter((line) => !UPDATE_LINE.test(line.replace(ANSI, "")))
+    .map((line) => {
+      const plain = line.replace(ANSI, "");
+      // The renderer's own failure lines name OMC commands that no longer exist here.
+      if (/\[OMC\][  ]run[  ]\/omc-setup/.test(plain)) return `[${NAME}] the status line could not load its renderer`;
+      if (/\[OMC\][  ]HUD[  ]error/.test(plain)) return `[${NAME}] status line error`;
+      return line.replace(LABEL, `[${NAME}]`);
+    })
+    .join("\n");
+}
+
+function findRenderer() {
+  const bin = path.dirname(process.execPath);
+  const candidates = [
+    process.env.NADAVAI_STATUSLINE_RENDERER,
+    path.join(bin, "..", "lib", "node_modules", PKG, "dist", "hud", "index.js"),
+    path.join(bin, "node_modules", PKG, "dist", "hud", "index.js"),
+    path.join(bin, "..", "node_modules", PKG, "dist", "hud", "index.js"),
+  ].filter(Boolean);
+  return candidates.find((p) => fs.existsSync(p)) || null;
+}
+
+async function main() {
+  const renderer = findRenderer();
+  if (!renderer) {
+    // `omc` is a global npm package of the Node version in use; after a Node switch it is gone
+    // until `~/nadavai/update.sh --npm` (or setup.sh) installs it again.
+    console.log(`[${NAME}] status line renderer missing: run ~/nadavai/update.sh --npm`);
+    return;
+  }
+  const print = console.log.bind(console);
+  console.log = (...args) => print(relabel(args.join(" ")));
+  await import(pathToFileURL(renderer).href); // it reads the session's JSON from stdin and prints
+}
+
+if (require.main === module) {
+  main().catch((error) => {
+    process.stdout.write(`[${NAME}] status line error\n`);
+    process.stderr.write(`nadavai-statusline: ${error && error.message ? error.message : error}\n`);
+  });
+}
+module.exports = { relabel };

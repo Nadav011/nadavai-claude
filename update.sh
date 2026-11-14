@@ -75,6 +75,7 @@ apply_machine_env
 step "Links"
 link_rules
 link_global_claude_md
+retire_omc_files
 link_git
 link_shell
 link_home_pyright

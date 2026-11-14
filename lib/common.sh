@@ -265,7 +265,7 @@ merge_settings() {
 }
 
 apply_model_policy() {
-  # Re-apply only the policy keys of settings.base.json on update (model, advisorModel, availableModels, missing modelSettings entries, plugins that base turns off,
+  # Re-apply only the policy keys of settings.base.json on update (model, advisorModel, availableModels, statusLine, missing modelSettings entries, plugins that base turns off,
   # deniedMcpServers, the env var CLAUDE_AUTOCOMPACT_PCT_OVERRIDE, and the removal of OMC_QUIET). A full merge would also reset per-machine values such as the concurrency
   # caps. Every Orca account profile keeps its own settings.json, so the keys go to each one,
   # not only to the profile update.sh happens to run in (on 2026-11-07 only one of the
@@ -285,7 +285,9 @@ apply_model_policy() {
       try { cur = JSON.parse(raw); } catch { cur = null; }
       if (!cur || typeof cur !== "object" || Array.isArray(cur)) { console.log("  skipped unreadable " + target); process.exit(0); }
       // A key dropped from base is dropped here too, so removing a deny later takes effect.
-      for (const k of ["model", "advisorModel", "availableModels", "deniedMcpServers"]) { if (k in b) cur[k] = b[k]; else delete cur[k]; }
+      // statusLine is in the list since 2026-11-14, when the status line moved from the retired
+      // plugin'"'"'s wrapper under each config dir to bin/nadavai-statusline: every profile has to follow.
+      for (const k of ["model", "advisorModel", "availableModels", "deniedMcpServers", "statusLine"]) { if (k in b) cur[k] = b[k]; else delete cur[k]; }
       // A plugin that base turns off is turned off in each profile; plugins a profile enabled itself stay.
       for (const [p, on] of Object.entries(b.enabledPlugins || {})) {
         if (on === false && cur.enabledPlugins && cur.enabledPlugins[p] === true) cur.enabledPlugins[p] = false;
@@ -378,62 +380,60 @@ link_global_claude_md() {
   # ~/.claude/CLAUDE.md loads into every session and subagent: each Orca profile's own CLAUDE.md
   # is one line that imports it, so the target is always ~/.claude, whichever profile runs this.
   # `omc setup` used to own the file and left a 6K block whose delegation, model and verification
-  # text the rules override; the short file here replaces it. The installer no longer runs
-  # `omc setup` on a real config dir (ensure_omc), but the omc CLI stays installed, and
-  # claudeMdEnabled=false keeps an `omc setup` or `omc update` run by hand from rewriting the file.
+  # text the rules override; the short file here replaces it, and nothing runs `omc setup` any more.
   link_file "$REPO/settings/CLAUDE.global.md" "$HOME/.claude/CLAUDE.md"
-  # OMC reads the flag from the config dir it runs in, and every Orca profile is its own config dir.
-  local d
-  for d in "$HOME/.claude" "$HOME"/.config/orca/claude-profiles/*/home; do
-    [ -d "$d" ] || continue
-    node -e '
-      const fs = require("fs"), p = process.argv[1];
-      let d = {};
-      if (fs.existsSync(p)) {
-        try { d = JSON.parse(fs.readFileSync(p, "utf8")); }
-        catch { console.error("  ! " + p + " is not valid JSON: left as is; set \"claudeMdEnabled\": false in it by hand"); process.exit(0); }
-      }
-      if (!d || typeof d !== "object" || Array.isArray(d)) { console.error("  ! " + p + " is not a JSON object: left as is"); process.exit(0); }
-      if (d.claudeMdEnabled === false) process.exit(0);
-      d.claudeMdEnabled = false;
-      fs.writeFileSync(p + ".nadavai-tmp", JSON.stringify(d, null, 2) + "\n");
-      fs.renameSync(p + ".nadavai-tmp", p);
-    ' "$d/.omc-config.json" || warn "could not set claudeMdEnabled in $d/.omc-config.json"
-  done
 }
 
 ensure_omc() {
+  # The CLI stays for `omc ask` (reviews by other vendors), and bin/nadavai-statusline loads the
+  # status line renderer from its npm package. The oh-my-claudecode plugin itself is retired
+  # (2026-11-14). Nothing here runs `omc setup`: measured that day with omc 5.8.4, in a config dir
+  # where the plugin is off it writes seven hook events into settings.json and an OMC block into
+  # CLAUDE.md even with --skip-hooks and --plugin-dir-mode (without them also 19 agents and 84
+  # skills). Do not run it by hand on a real config dir either.
   if ! command -v omc >/dev/null 2>&1; then
     # The package is oh-my-claude-sisyphus, not oh-my-claudecode: the latter name
-    # on npm is an unrelated project at 0.2.15 that ships no omc binary, so
-    # installing it leaves `omc setup` unable to run at all.
+    # on npm is an unrelated project at 0.2.15 that ships no omc binary.
     log "installing the omc CLI (npm -g oh-my-claude-sisyphus)"
     npm install -g oh-my-claude-sisyphus
   fi
-  # The CLI stays for `omc ask` (reviews by other vendors) and for the HUD that statusLine in
-  # settings.base.json runs. The oh-my-claudecode plugin itself is retired (2026-11-14), and
-  # `omc setup` cannot be pointed at $CFG without it: measured that day with omc 5.8.4, in a config
-  # dir where the plugin is off it writes seven hook events into settings.json and an OMC block into
-  # CLAUDE.md even with --skip-hooks and --plugin-dir-mode (without them also 19 agents and 84
-  # skills). So it runs in a throwaway HOME and config dir, and only the HUD folder it writes there
-  # is copied over.
-  local tmp
-  tmp=$(mktemp -d) || { warn "could not make a folder for the HUD; the HUD was not refreshed"; return 0; }
-  mkdir -p "$tmp/home/.claude"
-  if (cd "$tmp" && env -u CLAUDE_PLUGIN_ROOT -u OMC_PLUGIN_ROOT HOME="$tmp/home" CLAUDE_CONFIG_DIR="$tmp/home/.claude" \
-        omc setup --quiet --plugin-dir-mode --skip-hooks) >/dev/null 2>&1 \
-     && [ -f "$tmp/home/.claude/hud/omc-hud.mjs" ]; then
-    # A copy that fails (a dangling hud link, a full disk) must not stop setup.sh before the
-    # throwaway OMC install below is removed.
-    if mkdir -p "$CFG/hud" && cp -R "$tmp/home/.claude/hud/." "$CFG/hud/"; then
-      log "HUD status line installed in $CFG/hud (omc $(omc --version 2>/dev/null | head -1))"
-    else
-      warn "could not copy the HUD files into $CFG/hud; the HUD was not refreshed"
+}
+
+# The files the retired oh-my-claudecode plugin and `omc setup` left in each config dir. They go
+# once nothing reads them: the status line runs bin/nadavai-statusline (settings.base.json, which
+# apply_model_policy and merge_settings write before this runs), and nothing runs `omc setup`.
+# Only OMC's own files, by name: the five files of its status line wrapper under hud/ (a profile's
+# hud is a link to ~/.claude/hud), its config and version files, and the two update-check files
+# its hooks wrote under .omc/, which made the status line ask for an update of the plugin.
+# Everything else under .omc/ stays, and so do ~/.omc and every project's .omc/ (working files).
+retire_omc_files() {
+  local d f n=0 wrapper_in_use=0
+  # The wrapper is one folder that every profile links to, so it stays while any settings file
+  # still runs it (setup.sh writes the new statusLine into one profile only).
+  for d in "$HOME/.claude" "$HOME"/.config/orca/claude-profiles/*/home; do
+    if [ -f "$d/settings.json" ] && grep -q 'hud/omc-hud\.mjs' "$d/settings.json"; then wrapper_in_use=1; fi
+  done
+  for d in "$HOME/.claude" "$HOME"/.config/orca/claude-profiles/*/home; do
+    [ -d "$d" ] || continue
+    if [ "$wrapper_in_use" = 1 ]; then
+      :
+    elif [ -L "$d/hud" ]; then
+      case "$(readlink "$d/hud")" in
+        "$HOME/.claude/hud"|"$HOME/.claude/hud/") rm -f -- "$d/hud" && n=$((n+1)) ;;
+      esac
+    elif [ -f "$d/hud/omc-hud.mjs" ]; then
+      for f in omc-hud.mjs omc-hud-cache.sh find-node.sh lib/config-dir.mjs lib/config-dir.sh; do
+        if [ -f "$d/hud/$f" ]; then rm -f -- "$d/hud/$f" && n=$((n+1)); fi
+      done
+      rmdir "$d/hud/lib" 2>/dev/null || true
+      rmdir "$d/hud" 2>/dev/null || true
     fi
-  else
-    warn "omc did not produce the HUD files; $CFG/hud left as it was"
-  fi
-  rm -rf -- "${tmp:?}"
+    for f in .omc-config.json .omc-version.json .omc-silent-update.json .omc/update-check.json .omc/update-state.json; do
+      if [ -f "$d/$f" ]; then rm -f -- "$d/$f" && n=$((n+1)); fi
+    done
+  done
+  if [ "$n" -gt 0 ]; then log "removed $n file(s) the retired oh-my-claudecode plugin left in the config dirs"; fi
+  if [ "$wrapper_in_use" = 1 ]; then log "a settings file still runs hud/omc-hud.mjs, so the old status line wrapper stays until update.sh has run"; fi
 }
 
 # The i-have-adhd plugin injects its ruleset at session start only where the file

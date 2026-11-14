@@ -42,7 +42,7 @@
   "agentPushNotifEnabled": true,
   "statusLine": {
     "type": "command",
-    "command": "node ${CLAUDE_CONFIG_DIR:-$HOME/.claude}/hud/omc-hud.mjs"
+    "command": "node \"${NADAVAI_HOME:-$HOME/nadavai}/bin/nadavai-statusline\""
   },
   "enabledPlugins": {
     "nadavai@nadavai": true,
