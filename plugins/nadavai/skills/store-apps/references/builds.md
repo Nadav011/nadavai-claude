@@ -82,11 +82,22 @@ account holder's Apple ID, creates it under Integrate → Create Workflow.
   line by reflex: it is a tracked native change and moves the iOS runtime.
 - A remote session gets about 10 minutes to activate VNC before Codemagic ends it. The repo it builds
   can be a public one-file repo (only `codemagic.yaml` with a long `sleep`), so no deploy key is needed.
-- Over VNC the Mac took keys but not mouse clicks: `ctrl+F2` opens the menu bar, then arrows to
-  Integrate, and Return presses the default button of a dialog. Driving the VNC window uses the real
-  keyboard, and Orca keeps taking focus back. When the owner is working, wait; do not fight for focus.
-  A headless VNC client does not help: a legacy VNC password leads to the Mac's login window, not the
-  signed-in session.
+- Drive the VNC viewer inside its own nested X server, not on the owner's desktop:
+  `Xephyr :7 -screen 1600x1000 &`, then `DISPLAY=:7 vncviewer <host>::<port>`. The owner types
+  `builder` and the Codemagic VNC password into that window. From then on, `DISPLAY=:7 xdotool`
+  clicks and types inside it, and `DISPLAY=:7 import -window root` takes the screenshot. This works
+  whatever window has focus on the host. With TigerVNC the Mac's points are the :7 pixels plus the
+  viewer's offset (`xdotool search --name TigerVNC getwindowgeometry`, 1,20 here). Before typing,
+  run `xdotool windowfocus` on the viewer window, and press the mouse with a short down/up, not a bare
+  click. On the owner's real desktop (ydotool) it failed twice (2026-11-14): Orca and another
+  session's headed Chrome kept taking focus, and keys arrived late, which sent a wrong Apple sign-in.
+  A headless VNC client does not help either: a legacy VNC password leads to the Mac's login window,
+  not the signed-in session.
+- The VNC link dropped twice when throughput fell ("full color is now disabled", then "End of
+  stream"). The Mac and Xcode stay up, so reopen the viewer; the owner types the VNC password again.
+  The Apple account stays signed in.
+- The free personal Codemagic plan runs one build at a time: cancel the previous remote session
+  before starting a new one, or the new one waits in the queue.
 - The GitHub grant ("Grant Access…") opens App Store Connect, which stayed blank in the Mac's Safari.
   Open the same `ci-setup/<id>` URL in the owner's own Chrome. Read it from Safari over SSH (`osascript`
   to Safari works without the accessibility grant). The owner clicks Authorize, then installs the Xcode
