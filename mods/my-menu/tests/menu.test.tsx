@@ -239,7 +239,7 @@ test('his key opens the list on the first group: numbered rows, the sentence and
   expect((await ui.find({ type: 'Select' }))?.props.autoFocus).toBe(true)
   expect(held.focus).toEqual([list(0)])
   expect(options.map(option => option.value)).toEqual([GOAL, STATUS])
-  expect(options[0]?.label).toMatch(/^1\. לנעול את הסשן על היעד +הסשן לא עוצר עד שכל מה שנחשב גמור סגור$/)
+  expect(options[0]?.label).toMatch(/^1\. לנעול את הסשן על היעד +הסשן לא עוצר עד שכל מה שנחשב גמור סגור +לא חובה: היעד במילים שלך$/)
   expect(options[1]?.label).toMatch(/^2\. מה מצבנו\? +מה נעשה, מה רץ עכשיו$/)
   // What he gets starts in one column on every row.
   expect(new Set(options.map(option => option.label.indexOf('  ') + /^ +/.exec(option.label.slice(option.label.indexOf('  ')))![0].length)).size).toBe(1)
@@ -848,6 +848,35 @@ test('a group with more rows than the band has room for comes in parts, numbered
   await ui.redraw()
   expect((await shown(ui)).key).toBe(list(0))
   await ui.unmount()
+})
+
+test('a row says what he adds after the prompt, from the hint of the prompt file, and the group says when it fits', async ($, on) => {
+  engine(on, box())
+  // The mod is linked into the profile; the prompts sit beside its real folder.
+  on('fs.stat', () => ({ value: { kind: 'dir', size: 0, mtimeMs: 0, isLink: true, realPath: '/repo/mods/my-menu' } }))
+  const asked: string[] = []
+  on('fs.read', (_, e) => {
+    asked.push(e.path)
+    if (e.path === '/repo/plugins/nadavai/skills/my-status/SKILL.md')
+      return { value: '---\nname: my-status\nargument-hint: "[לא חובה: על מה להתמקד]"\n---\n' }
+    if (e.path === '/repo/plugins/nadavai/skills/my-plain/SKILL.md')
+      return { value: '---\nname: my-plain\nargument-hint: "[כותבים כאן: מה להסביר]"\n---\n' }
+    throw new Error('no such file')
+  })
+
+  await $.session.start(START)
+  await open($)
+  const ui = await $.ui.mount(band(150, 14))
+  const first = await shown(ui)
+  expect(first.options.find(option => option.value === STATUS)?.label).toMatch(/ {4}לא חובה: על מה להתמקד$/)
+  expect(await ui.find({ type: 'Text', text: /מתי: הסשן באמצע משימה/ })).toBeDefined()
+  // The prompt with no hint file keeps its two columns; a narrow band drops the third for all.
+  expect(asked).toContain('/repo/plugins/nadavai/skills/my-new/SKILL.md')
+  await ui.unmount()
+  const narrow = await $.ui.mount(band(70, 14))
+  const rows = await shown(narrow)
+  expect(rows.options.every(option => !option.label.includes('חובה:'))).toBe(true)
+  await narrow.unmount()
 })
 
 test('a group never shows more rows than the eight the list of the engine draws', async ($, on) => {

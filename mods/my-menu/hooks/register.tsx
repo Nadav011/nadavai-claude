@@ -63,10 +63,12 @@ const GOAL = 'goal'
 const GROUPS: readonly { title: string; names: readonly string[] }[] = [
   {
     title: 'באמצע עבודה',
+    when: 'הסשן באמצע משימה, ואתה רוצה לכוון אותו או לדעת איפה הוא עומד',
     names: ['run', GOAL, 'resume', 'connected', 'status', 'self', 'fast', 'next'],
   },
   {
     title: 'משימה חדשה',
+    when: 'אתה פותח משימה חדשה ונותן לסשן מטרה גדולה',
     names: [
       'takeover',
       'case',
@@ -80,15 +82,23 @@ const GROUPS: readonly { title: string; names: readonly string[] }[] = [
   },
   {
     title: 'בודקים',
+    when: 'לפני שסומכים על מה שנעשה',
     names: ['done', 'prove', 'review', 'research', 'second', 'missed', 'map', 'sweep'],
   },
   {
     title: 'להבין ולהחליט',
+    when: 'לפני החלטה, או כשמשהו לא ברור לך',
     names: ['best', 'method', 'plain', 'hold', 'ask', 'agents', 'cost'],
   },
-  { title: 'להראות, לשלוח ולשמור', names: ['other', 'show', 'client', 'save', 'ship'] },
-  { title: 'משהו לא טוב', names: ['machine', 'wrong', 'top', 'never'] },
+  {
+    title: 'להראות, לשלוח ולשמור',
+    when: 'יש תוצאה, ורוצים לראות אותה, להעביר אותה או לשמור אותה',
+    names: ['other', 'show', 'client', 'save', 'ship'],
+  },
+  { title: 'משהו לא טוב', when: 'משהו השתבש', names: ['machine', 'wrong', 'top', 'never'] },
 ]
+// When the goal group fits, said under the groups like the others.
+const GOAL_WHEN = 'אתה רוצה שהסשן לא יעצור עד שהיעד הושג'
 const REST = 'נוספים'
 // A page holds one group, or as much of it as the band has room for, and a
 // digit jumps to the row of that number. Eight at most: the engine's Select
@@ -103,6 +113,9 @@ const MIN_LAST_PAGE = 3
 // many to show the keys under it as well.
 const ROWS_FOR_TABS = 3
 const ROWS_FOR_HINT = 5
+// The line under the groups that says when the group on screen fits. It
+// shows only where a whole group of eight still has room under it.
+const ROWS_FOR_WHEN = 11
 // Blank cells between the sentence and what he gets.
 const GAP = 4
 // Cells of a row that are not its text: the Select's own indent (2), the
@@ -115,6 +128,10 @@ const INDENT = '  '
 // at which it still says something.
 const MAX_GLOSS = 64
 const MIN_GLOSS = 20
+// The third column, what he adds after the prompt ("חובה: ..." or "לא חובה:
+// ..."), is the first to go where the band is narrow.
+const MAX_HINT = 48
+const MIN_HINT = 14
 // The narrowest band a row is laid out for.
 const MIN_WIDTH = 12
 // How long the queue of picks waits for one step.
@@ -149,11 +166,12 @@ type Row = {
   name: string
   sentence: string
   gloss: string
+  hint: string
   line?: (words: string) => string
   after?: string
   needs?: string
 }
-type Group = { title: string; rows: Row[] }
+type Group = { title: string; when: string; rows: Row[] }
 // One page of the list: a group, or the part of it the band has room for.
 // `start` is how many rows of the group came on the pages before it.
 type Page = Group & { group: number; part: number; parts: number; start: number }
@@ -221,6 +239,7 @@ const GOAL_ROW: Row = {
   name: GOAL,
   sentence: 'לנעול את הסשן על היעד',
   gloss: 'הסשן לא עוצר עד שכל מה שנחשב גמור סגור',
+  hint: 'לא חובה: היעד במילים שלך',
   after: GOAL_AFTER_WORDS,
   line: words => goalLine(words, GOAL_AFTER_WORDS, GOAL_READY),
 }
@@ -287,7 +306,7 @@ const GOAL_FORMS: readonly GoalForm[] = [
 // the checkout that the installer links the prompts from, on both machines.
 const skillFile = (of: string): string =>
   `הנוהל המלא בקובץ ~/nadavai/plugins/nadavai/skills/my-${of}/SKILL.md (אם הוא לא נפתח, ממשיכים לפי מה שכתוב כאן).`
-const formRow = (form: GoalForm, said: string): Row => {
+const formRow = (form: GoalForm, said: string, hint: string): Row => {
   const alone = `${form.head} ${skillFile(form.of)} ${goalEnd(form.block)}`
   const after = `. ${alone}`
 
@@ -295,6 +314,7 @@ const formRow = (form: GoalForm, said: string): Row => {
     name: `${GOAL}-${form.of}`,
     sentence: said,
     gloss: form.gloss,
+    hint,
     after,
     needs: form.needs,
     line: words => goalLine(words, after, alone),
@@ -366,6 +386,37 @@ const pageSizes = (count: number, fit: number): number[] => {
 const widest = (texts: string[]): number =>
   Math.max(0, ...texts.map(text => text.length))
 
+// What he adds after a prompt comes from the hint of the prompt's own file
+// ("[כותבים כאן: ...]" where words are needed, "[לא חובה: ...]" where not).
+// The engine's list of commands does not carry the hint, so the files are read
+// once: they sit beside this mod in the same checkout (mods/my-menu and
+// plugins/nadavai). Where they cannot be read the rows show without it.
+const NEEDED = 'כותבים כאן:'
+const hintOf = (file: string): string => {
+  const text = (/^argument-hint:\s*"\[(.*)\]"\s*$/m.exec(file)?.[1] ?? '').trim()
+
+  return text.startsWith(NEEDED) ? `חובה:${text.slice(NEEDED.length)}` : text
+}
+let hints: Promise<Map<string, string>> | undefined
+const readHints = ($: EngineInterface, names: readonly string[]): Promise<Map<string, string>> => {
+  hints ??= (async () => {
+    const root = (await $.fs.stat($.plugin.root, { resolve: true })).realPath ?? $.plugin.root
+    const skills = `${root.replace(/\/mods\/[^/]+\/?$/, '')}/plugins/nadavai/skills`
+    const read = await Promise.all(
+      names.map(async name => {
+        const folder = name.slice(name.indexOf(':') + 1)
+        const file = await $.fs.read(`${skills}/${folder}/SKILL.md`).catch(() => '')
+
+        return [name, hintOf(file)] as const
+      }),
+    )
+
+    return new Map(read)
+  })().catch(() => new Map<string, string>())
+
+  return hints
+}
+
 // The prompts this session can run, in their groups, read from the commands
 // themselves, so a new nadavai:my-* skill shows up here without a second list
 // to keep. No group at all when the session has none of the prompts.
@@ -373,14 +424,17 @@ const groups = async ($: EngineInterface): Promise<Group[]> => {
   const all = await $.command.list()
   const mine = all.filter(one => one.name.startsWith(PREFIX))
   if (mine.length === 0) return []
+  const hintFor = await readHints($, mine.map(one => one.name))
   const row = (one: { name: string; description: string }): Row => ({
     name: one.name,
     sentence: sentence(one.description),
     gloss: gloss(one.description),
+    hint: hintFor.get(one.name) ?? '',
   })
   const named = new Set(GROUPS.flatMap(group => group.names))
   const listed = GROUPS.map(group => ({
     title: group.title,
+    when: group.when,
     rows: group.names.flatMap(name => {
       if (name === GOAL) return [GOAL_ROW]
       const one = mine.find(found => found.name === `${PREFIX}${name}`)
@@ -399,11 +453,15 @@ const groups = async ($: EngineInterface): Promise<Group[]> => {
   const forms = GOAL_FORMS.flatMap(form => {
     const one = mine.find(found => found.name === `${PREFIX}${form.of}`)
 
-    return one ? [formRow(form, sentence(one.description))] : []
+    return one ? [formRow(form, sentence(one.description), hintFor.get(one.name) ?? '')] : []
   })
   const goals = forms.length > 0 ? [GOAL_ROW, ...forms] : []
 
-  return [...listed, { title: REST, rows: rest }, { title: GOAL_GROUP, rows: goals }].filter(
+  return [
+    ...listed,
+    { title: REST, when: '', rows: rest },
+    { title: GOAL_GROUP, when: GOAL_WHEN, rows: goals },
+  ].filter(
     group => group.rows.length > 0,
   )
 }
@@ -419,6 +477,7 @@ const pagesOf = (all: Group[], fit: number): Page[] =>
 
       return {
         title: group.title,
+        when: group.when,
         rows: group.rows.slice(start, start + size),
         group: index,
         part: n,
@@ -670,11 +729,20 @@ export const register: Register = on => {
     // then the groups above it.
     const hasTabs = e.props.maxRows >= ROWS_FOR_TABS
     const hasHint = e.props.maxRows >= ROWS_FOR_HINT
-    const room = e.props.maxRows - (hasTabs ? 1 : 0) - (hasHint ? 1 : 0)
+    const hasWhen = e.props.maxRows >= ROWS_FOR_WHEN
+    const room = e.props.maxRows - (hasTabs ? 1 : 0) - (hasHint ? 1 : 0) - (hasWhen ? 1 : 0)
     const fit = Math.max(MIN_PER_PAGE, Math.min(MAX_PER_PAGE, room))
     const pages = pagesOf(all, fit)
     const at = Math.min(await read($, page), pages.length - 1)
-    const shown = pages[at] ?? { title: '', rows: [], group: 0, part: 0, parts: 1, start: 0 }
+    const shown = pages[at] ?? {
+      title: '',
+      when: '',
+      rows: [],
+      group: 0,
+      part: 0,
+      parts: 1,
+      start: 0,
+    }
     drawn = { key: listKey(at), pages: pages.length }
 
     // The cells a row's text may take. The columns are sized over every
@@ -686,16 +754,24 @@ export const register: Register = on => {
     const sentences = Math.min(widest(rows.map(row => row.sentence)), width)
     const glosses = Math.min(MAX_GLOSS, width - sentences - GAP, widest(rows.map(row => row.gloss)))
     const hasGloss = glosses >= MIN_GLOSS
+    // What he adds after the prompt takes what is left of the row, and goes
+    // first where the band is narrow.
+    const adds = hasGloss
+      ? Math.min(MAX_HINT, width - sentences - glosses - 2 * GAP, widest(rows.map(row => row.hint)))
+      : 0
+    const hasAdds = adds >= MIN_HINT
+    const cell = (text: string, cells: number): string =>
+      `${text}${' '.repeat(Math.max(0, cells - text.length) + GAP)}`
     // A row's number is its place in its group, so a group the band cut into
     // parts counts on from one part to the next.
     const label = (row: Row, index: number): string => {
       const number = shown.start + index + 1
       const said = cut(row.sentence, sentences)
       const what = hasGloss ? cut(row.gloss, glosses) : ''
+      const add = hasAdds ? cut(row.hint, adds) : ''
+      if (add !== '') return `${number}. ${cell(said, sentences)}${cell(what, glosses)}${add}`
 
-      return what === ''
-        ? `${number}. ${said}`
-        : `${number}. ${said}${' '.repeat(sentences - said.length + GAP)}${what}`
+      return what === '' ? `${number}. ${said}` : `${number}. ${cell(said, sentences)}${what}`
     }
 
     // The groups, with the one on screen marked. A group the band cut into
@@ -738,6 +814,11 @@ export const register: Register = on => {
               <Text dimColor>{place}</Text>
             </Text>
           ))}
+        {hasWhen && (
+          <Text dimColor wrap="truncate-end">
+            {shown.when === '' ? '' : `${INDENT}מתי: ${shown.when}`}
+          </Text>
+        )}
         {unseen(BEFORE, false, 'הקבוצה הקודמת')}
         {/* A Select draws a line of its own above its rows (its label and the
             row picked last). The list has no use for it, so the Select is
