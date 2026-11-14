@@ -72,6 +72,27 @@ plugin_installed() {
   ' "$CFG/plugins/installed_plugins.json" "$1" 2>/dev/null
 }
 
+# Fast-forward the checkout update.sh runs from, before anything is installed from it. The plugin
+# is installed from GitHub while rules, settings and these scripts come from the checkout, so the
+# two must not drift apart. Until 2026-11-14 a checkout with any uncommitted file skipped the pull
+# with one warning and the run went on: that day another session's unsaved edit left the rules
+# and the settings seven commits behind the plugin that had just been installed. Now an
+# uncommitted file no longer holds the checkout back: the fast-forward runs without autostash,
+# so git leaves such a file exactly as it is and refuses only when a new commit changes that
+# same file. When the checkout cannot be brought up to date, nothing is installed.
+pull_repo() {
+  if [ -z "$(git -C "$REPO" status --porcelain)" ]; then
+    git -C "$REPO" pull --ff-only || die "could not pull $REPO; nothing was updated"
+    return 0
+  fi
+  git -C "$REPO" fetch --quiet || die "could not fetch $REPO; nothing was updated"
+  if git -C "$REPO" merge --ff-only --no-autostash --quiet '@{upstream}' 2>/dev/null; then
+    log "pulled; the uncommitted changes in $REPO were left as they are"
+  else
+    die "$REPO has uncommitted changes in files that new commits also change (or its branch cannot fast-forward), so it was not pulled and nothing was updated. See: git -C $REPO status --short"
+  fi
+}
+
 # Bring every installed copy of nadavai to the marketplace's current commit: the user-scope copy,
 # and each project-scope one (the home folder has one), which the user-scope update does not
 # touch: on 2026-10-27 /home/nadavcohen still ran 3d8e4df while the user scope had cbea8d4.
