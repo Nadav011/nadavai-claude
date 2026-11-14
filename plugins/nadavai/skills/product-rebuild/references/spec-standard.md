@@ -58,7 +58,7 @@ Measures: what we count after launch, with an ESTIMATE label when it is a target
 - `00-INDEX.md` records the sha256 of `DECISIONS-ANSWERED.md` and the highest decision number the specs were written against. A spec index with an older hash is stale: the decisions that came after it are not in the specs yet.
 
 ## Rounds
-1. A pre-mortem by a second model on the domain split.
+1. The reviewer that `rules/working-style.md` (Second model, "Which model reviews what") names runs a pre-mortem on the domain split.
 2. One writer per domain.
 3. One critic per domain, chosen as `rules/working-style.md` (Second model, "Which model reviews what") says, which returns REVISE or APPROVE with findings.
 4. A reviser applies every finding.

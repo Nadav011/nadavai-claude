@@ -164,7 +164,7 @@ Repeat stages 4-7 until the ledger has no `doc_fix` and no `needs_nadav` rows. A
   - **An estimate calibrated** on Nadav's own measured git throughput (`tools/calib.sh`). Split it into build time, external waits and owner time, each on its own line.
   - **An outside-approvals register.** List the platform reviews and filings: Meta App Review, TikTok audit, Google OAuth verification, API access levels, tax or registry filings. Give each its lead time, the features it gates, who signs, and the entity it is filed under. These often set the date more than the build does.
   - **A dated stop rule.** If the plan is not at milestone X by date Y, stop and replan with a menu of options. Never "cut scope" silently.
-- A second model runs a pre-mortem on the plan; its faults are fixed, the same reviewer checks those fixes, and the plan is frozen.
+- The reviewer that `rules/working-style.md` (Second model, "Which model reviews what") names runs a pre-mortem on the plan; its faults are fixed, the same reviewer checks those fixes, and the plan is frozen.
 - Nadav answers, and the `OWNER-APPROVED` line is written. The build runs in a separate session (`START-BUILD.md`).
 
 ## Lessons
