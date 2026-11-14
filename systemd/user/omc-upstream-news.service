@@ -7,5 +7,5 @@ Type=oneshot
 Nice=19
 Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 ExecStart=%h/.local/bin/omc-upstream-news --notify
-# Exit 1 means upstream could not be read (no network); the next month's run tries again.
-SuccessExitStatus=1
+# A run that fails (exit 1: upstream could not be read, or it no longer has the shape the script
+# reads) shows as failed here and sends its own notification; the next month's run tries again.

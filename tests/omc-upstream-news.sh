@@ -56,6 +56,9 @@ keep=$(cat "$state")
 out=$(PATH="$fake:$PATH" OMC_UPSTREAM_TRIES=2 OMC_UPSTREAM_PAUSE=0 OMC_UPSTREAM_URL="file://$t/nowhere" OMC_UPSTREAM_CLONE="$t/clone" OMC_VENDORED_FILE="$vend" bash "$here/bin/omc-upstream-news" 2>&1); rc=$?
 ok "a fetch that fails on an existing clone fails with a message" '[ "$rc" = 1 ] && grep -q "could not read .* (tried 2 times)" <<<"$out"'
 ok "and the last report is left as it was"      '[ "$(cat "$state")" = "$keep" ]'
+ok "a failed run without --notify sends nothing" '[ "$(calls)" = 1 ]'
+out=$(PATH="$fake:$PATH" OMC_UPSTREAM_TRIES=1 OMC_UPSTREAM_PAUSE=0 OMC_UPSTREAM_URL="file://$t/nowhere" OMC_UPSTREAM_CLONE="$t/clone" OMC_VENDORED_FILE="$vend" bash "$here/bin/omc-upstream-news" --notify 2>&1); rc=$?
+ok "a failed run started by the timer notifies that no report was made" '[ "$rc" = 1 ] && [ "$(calls)" = 2 ]'
 g mv skills moved; g commit -q -m "the skills folder moves"
 out=$(run); rc=$?
 ok "upstream without a skills folder fails, it does not say none" '[ "$rc" = 1 ] && grep -q "no skills/ folder any more" <<<"$out" && [ "$(cat "$state")" = "$keep" ]'
@@ -75,6 +78,7 @@ printf '%s\n' "| taken | https://github.com/Yeachan-Heo/oh-my-claudecode | $base
 out=$(OMC_UPSTREAM_TRIES=1 OMC_UPSTREAM_PAUSE=0 OMC_UPSTREAM_URL="file://$t/nowhere" OMC_UPSTREAM_CLONE="$t/clone2" OMC_VENDORED_FILE="$vend" bash "$here/bin/omc-upstream-news" 2>&1); rc=$?
 ok "an upstream that cannot be cloned fails with a message" '[ "$rc" = 1 ] && grep -q "could not read" <<<"$out"'
 out=$(run --nope); rc=$?
+ok "the service does not record a failed run as a success" '! grep -q "^SuccessExitStatus" "$here/systemd/user/omc-upstream-news.service"'
 ok "an unknown option is refused"                         '[ "$rc" = 2 ]'
 real_row=$(grep -F "github.com/Yeachan-Heo/oh-my-claudecode" "$here/plugins/nadavai/skills/VENDORED.md" | grep "^|" | head -n 1)
 ok "the repo's own VENDORED.md row has a commit" 'grep -qE "\b[0-9a-f]{40}\b" <<<"$real_row"'
