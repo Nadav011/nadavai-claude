@@ -1,6 +1,6 @@
 # What unit 1 shows before anyone plays the preview
 
-A reading aid for `rules.md`, «An app is built once», point 5: the proofs of that point in the order unit 1 runs them,
+A reading aid for `built-once.md`, «An app is built once», point 5: the proofs of that point in the order unit 1 runs them,
 each with its pass and fail condition. It adds no rule. Where this list and point 5 differ, point 5 holds and the
 difference is a fault to report («Where a fault goes»). Source: the eleventh independent review of the rule
 (11.11.2026), which wrote the list for a Next app with a Capacitor shell, in Hebrew and RTL, corrected against point 5

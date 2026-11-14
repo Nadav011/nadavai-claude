@@ -29,9 +29,10 @@ any design change after it is made in the app's preview (`shared/rules.md` of na
 - The demo at the tag is the target for the screens it drew; every other screen and state is designed in the app's
   preview from BRIEF.md and the shared components. The app's existing behaviour, strings, routes and data code stay
   unless a unit changes them.
-- Before starting a unit, re-read «An app is built once» in the installed skill: it changes as projects report faults.
-- Unit 1 is the preview on invented data, isolated and checked as nadav-design `shared/rules.md`, «An app is built
-  once», point 5, says. Nobody plays the preview, on any machine, before its check script passes there. No unit
+- Before starting a unit, re-read «An app is built once» in the installed skill (nadav-design
+  `shared/built-once.md`, in full): it changes as projects report faults.
+- Unit 1 is the preview on invented data, isolated and checked as nadav-design `shared/built-once.md`, «An app is
+  built once», point 5, says. Nobody plays the preview, on any machine, before its check script passes there. No unit
   builds a screen a second time.
 - A screen the demo drew keeps every control and state on its phones at the tag, one it did not draw every control,
   state and role variant of its INVENTORY.md row, unless a numbered answer removes it (`screen` steps 1 and 8b).
@@ -46,7 +47,7 @@ State is `todo` until the build session marks it `done <sha>`; the `next` gap sc
 
 | Unit | What | Files | Demo | Acceptance | Size | Depends | Go | State |
 |---|---|---|---|---|---|---|---|---|
-| U-1 | The app's preview on invented data, isolated and checked as `shared/rules.md`, «An app is built once», point 5, says | `…` | — (the main journey of STORY.md plays in it) | the preview's check script passes (points 4 and 5), each proof shown failing on its planted case first, and is a step of the landing CI; after it passes, Nadav plays the journey | from the fake backend's surface (auth, data API, functions, storage, realtime the app uses); often the largest unit | — | `go` when it needs a host, a DNS record or any cost | todo |
+| U-1 | The app's preview on invented data, isolated and checked as `shared/built-once.md`, «An app is built once», point 5, says | `…` | — (the main journey of STORY.md plays in it) | the preview's check script passes (points 4 and 5), each proof shown failing on its planted case first, and is a step of the landing CI; after it passes, Nadav plays the journey | from the fake backend's surface (auth, data API, functions, storage, realtime the app uses); often the largest unit | — | `go` when it needs a host, a DNS record or any cost | todo |
 | U-2 | Tokens and shared components | `…` | `s-home` «אחרי · …» | | M | U-1 | no | todo |
 | U-3 | <screen the demo drew> | `…` | `s-<id>` «אחרי · …» and the N «מצב ·» labels | every control and state on the cited phones at the tag is in the preview, or a numbered answer removes it (`screen` step 8b verifier, the phones at the tag beside the preview shots) | S | U-2 | no | todo |
 | U-4 | <screen the demo did not draw> | `…` | — (INVENTORY.md «<screen>»; designed in the preview) | every control, state and role variant of its INVENTORY.md row is in the preview, or has a numbered answer that removes it | S (with design time) | U-2 | no | todo |

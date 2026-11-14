@@ -531,7 +531,7 @@ tours.json --inventory inventory.json`, exit 1 on a finding; the app's own run a
 `--require-stage app`). Whether each anchor and result resolves on its screen needs the screen
 preview (`tour-anchors`), defined next. Two kinds of copy serve these checks, and every sentence
 here names the one its check needs. **The screen preview** is the app's preview of
-`shared/rules.md`, «An app is built once», point 5, on its fake backend: it counts only for what
+`shared/built-once.md`, «An app is built once», point 5, on its fake backend: it counts only for what
 the screen shows, which window a control sits in (`anchorWindows`), whether a window picks a
 person (`pickingWindows`) and that a control exists; nothing about what a press saves, sends or
 prints is judged there, since that backend may return fixed data and starts no scheduler. **The

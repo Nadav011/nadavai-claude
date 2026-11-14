@@ -477,27 +477,102 @@ await test('DI3', 'mode redesign step 3 and the round workflow agree: a drawn sc
   if (!/one «מצב · …» phone for EVERY state INVENTORY\.md lists for the screen/.test(read('workflows/demo-round.js'))) why.push('demo-round.js BUILD_TASK changed');
   return why.join(' · ');
 });
-await test('DI4', 'the isolation floor has one home: each file that applies it points to point 5 and carries the no-play line, the four property names appear only in shared/rules.md, and no file keeps a known carve-out (a text lint of exact sentences and a blacklist, not a check of meaning)', async () => {
-  const why = [], root = path.join(SK, '..'), home = path.join(root, 'shared', 'rules.md'), files = [];
+await test('DI4', 'the isolation floor has one home: each file that applies it points to point 5 and carries the no-play line, the four property names appear only in shared/built-once.md, and no file keeps a known carve-out (a text lint of exact sentences and a blacklist, not a check of meaning)', async () => {
+  const why = [], root = path.join(SK, '..'), home = path.join(root, 'shared', 'built-once.md'), files = [];
   const flat = p => fs.readFileSync(p, 'utf8').replace(/\s+/g, ' ');
   const noPlay = /[Nn]obody plays the preview, on any machine, before its check script passes there/;
-  const pointer = /shared\/rules\.md`?,? «An app is built once», point 5, says/;
+  const pointer = /shared\/built-once\.md`?,? «An app is built once», point 5, says/;
   for (const f of ['SKILL.md', 'modes/setup.md', 'modes/redesign.md', 'redesign/README.md', 'redesign/templates/build-plan.md', 'redesign/templates/START-BUILD.md', 'redesign/workflows/plan-review.js']) {
     const t = flat(path.join(root, f));
     if (!pointer.test(t)) why.push(`${f} lacks the pointer to point 5`);
     if (!noPlay.test(t)) why.push(`${f} lacks the no-play line`);
   }
-  if (!noPlay.test(flat(home))) why.push('shared/rules.md lacks the no-play line');
+  if (!noPlay.test(flat(home))) why.push('shared/built-once.md lacks the no-play line');
   const walk = d => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, e.name); if (e.isDirectory()) { if (e.name !== 'examples' && e.name !== 'node_modules') walk(p); } else if (/\.(md|js|mjs)$/.test(e.name) && p !== fileURLToPath(import.meta.url)) files.push(p); } };
   walk(path.join(root, '..'));
   const ws = path.join(root, '..', '..', '..', '..', 'rules', 'working-style.md');
   if (fs.existsSync(ws)) files.push(ws);
   for (const tag of ['**Environment.**', '**Network.**', '**Effects.**', '**Where it runs.**']) {
     const where = files.filter(p => fs.readFileSync(p, 'utf8').includes(tag));
-    if (where.length !== 1 || where[0] !== home) why.push(`${tag} is in ${where.map(p => path.relative(root, p)).join(', ') || 'no file'}, not only in shared/rules.md`);
+    if (where.length !== 1 || where[0] !== home) why.push(`${tag} is in ${where.map(p => path.relative(root, p)).join(', ') || 'no file'}, not only in shared/built-once.md`);
   }
   const carve = /on the machine it runs on until|until both (checks )?pass, the preview is shown only|shown only on this machine|not shown outside (the|this) machine|on the machine it runs on \(localhost/;
   for (const p of files.filter(p => p.endsWith('.md'))) if (carve.test(flat(p))) why.push(`${path.relative(root, p)} keeps a play-before-checks carve-out`);
+  return why.join(' · ');
+});
+// shared/rules.md is read by every mode before its first step, so the detail of «An app is built once» lives in
+// shared/built-once.md and rules.md keeps a summary; these two keep the split from drifting back or breaking links.
+await test('SLIM-1', 'shared/rules.md, which every mode reads, stays at 200 lines or fewer and keeps the summary of «An app is built once» with its no-play line', async () => {
+  const p = path.join(SK, '..', 'shared', 'rules.md');
+  const text = fs.readFileSync(p, 'utf8');
+  const lines = text.endsWith('\n') ? text.split('\n').length - 1 : text.split('\n').length;
+  const why = [];
+  if (lines > 200) why.push(`shared/rules.md has ${lines} lines (limit 200): move detail to a file only the work that needs it reads`);
+  if (!/^## An app is built once$/m.test(text)) why.push('shared/rules.md lost the heading «An app is built once» that other files cite');
+  if (!/[Nn]obody plays the preview, on any machine, before its check script passes there/.test(text.replace(/\s+/g, ' '))) why.push('shared/rules.md lost the no-play line');
+  return why.join(' · ');
+});
+// Every citation of built-once.md (and every «An app is built once», point N citation of rules.md) must land on a
+// file that exists and, where it names a section or a point, on that section or point.
+const builtOnceRefs = (skillRoot, extraFiles = []) => {
+  const why = [], files = [...extraFiles];
+  const walk = d => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, e.name); if (e.isDirectory()) { if (e.name !== 'examples' && e.name !== 'node_modules') walk(p); } else if (/\.(md|js|mjs|json)$/.test(e.name) && p !== fileURLToPath(import.meta.url)) files.push(p); } };
+  walk(skillRoot);
+  const resolve = (ref, from) => {
+    if (ref.startsWith('~/nadavai/')) return path.join(skillRoot, '..', '..', '..', '..', ref.slice('~/nadavai/'.length));
+    if (ref.startsWith('${SK}/')) return path.join(skillRoot, 'redesign', ref.slice('${SK}/'.length));
+    if (ref.startsWith('nadav-design/')) return path.join(skillRoot, '..', ref);
+    if (ref.startsWith('shared/')) return path.join(skillRoot, ref);
+    return path.join(path.dirname(from), ref);
+  };
+  let n = 0;
+  for (const f of files) {
+    const flat = fs.readFileSync(f, 'utf8').replace(/\s+/g, ' ');
+    for (const m of flat.matchAll(/((?:~\/nadavai\/|\$\{SK\}\/|[\w.-]+\/)*)(built-once|rules)\.md/g)) {
+      const ref = m[0], target = resolve(ref, f);
+      const after = flat.slice(m.index + ref.length, m.index + ref.length + 160);
+      const cite = after.match(/^`?,? «([^»]+)»(?:,? (?:that section's )?points? (\d)(?: and (\d))?)?/);
+      if (m[2] === 'rules' && !(cite && cite[1] === 'An app is built once' && cite[2])) continue; // only point citations of rules.md
+      n++;
+      const where = `${path.relative(path.join(skillRoot, '..'), f)}: ${ref}${cite ? ` «${cite[1]}»${cite[2] ? ` point ${cite[2]}${cite[3] ? ` and ${cite[3]}` : ''}` : ''}` : ''}`;
+      if (!fs.existsSync(target)) { why.push(`${where} -> no file ${target}`); continue; }
+      if (!cite) continue;
+      const body = fs.readFileSync(target, 'utf8');
+      let section = body;
+      if (cite[1] === 'An app is built once') {
+        const i = body.search(/^## An app is built once$/m);
+        if (i < 0) { why.push(`${where} -> no heading «An app is built once» in ${path.basename(target)}`); continue; }
+        const rest = body.slice(i + 1), j = rest.search(/^## /m);
+        section = j < 0 ? rest : rest.slice(0, j);
+      } else if (!new RegExp(`(^|\\n)(#+ )?${cite[1].replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(body)) {
+        why.push(`${where} -> no section «${cite[1]}» in ${path.basename(target)}`); continue;
+      }
+      for (const pt of [cite[2], cite[3]].filter(Boolean)) if (!new RegExp(`^${pt}\\. \\*\\*`, 'm').test(section)) why.push(`${where} -> no point ${pt} under «${cite[1]}» in ${path.basename(target)}`);
+    }
+  }
+  return { why, n };
+};
+await test('SLIM-2', 'every built-once.md citation in the skill, product-rebuild and working-style.md resolves to a file, and a cited section or point exists there (also a rules.md «An app is built once», point N citation); a planted broken citation is caught', async () => {
+  const root = path.join(SK, '..');
+  const extra = [path.join(root, '..', 'product-rebuild', 'SKILL.md'), path.join(root, '..', '..', '..', '..', 'rules', 'working-style.md')].filter(p => fs.existsSync(p));
+  const real = builtOnceRefs(root, extra);
+  const why = [...real.why];
+  if (real.n < 15) why.push(`only ${real.n} citations found: the scan is not reading the skill`);
+  // the check can fail: a fixture skill with a missing file, a missing point and a missing section
+  const fx = path.join(TMP, 'slim-refs');
+  fs.mkdirSync(path.join(fx, 'shared'), { recursive: true });
+  fs.mkdirSync(path.join(fx, 'modes'), { recursive: true });
+  fs.writeFileSync(path.join(fx, 'shared', 'rules.md'), '## An app is built once\n\n1. **One.** a\n');
+  fs.writeFileSync(path.join(fx, 'modes', 'a.md'), 'as `shared/built-once.md`, «An app is built once», point 5, says.\n');
+  const gone = builtOnceRefs(fx);
+  if (!gone.why.some(w => /no file/.test(w))) why.push(`a citation of a missing built-once.md passed: ${JSON.stringify(gone)}`);
+  fs.writeFileSync(path.join(fx, 'shared', 'built-once.md'), '## An app is built once\n\n1. **One.** a\n\nWhat runs when: x\n');
+  const nopoint = builtOnceRefs(fx);
+  if (!nopoint.why.some(w => /no point 5/.test(w))) why.push(`a citation of a point that is not there passed: ${JSON.stringify(nopoint)}`);
+  fs.writeFileSync(path.join(fx, 'modes', 'a.md'), 'as `shared/rules.md`, «An app is built once», point 4, says; and `shared/built-once.md`, «Where a fault goes».\n');
+  const both = builtOnceRefs(fx);
+  if (!both.why.some(w => /rules\.md.*no point 4/.test(w))) why.push(`a rules.md point citation that is not there passed: ${JSON.stringify(both)}`);
+  if (!both.why.some(w => /no section «Where a fault goes»/.test(w))) why.push(`a citation of a missing section passed: ${JSON.stringify(both)}`);
   return why.join(' · ');
 });
 await test('GM7', 'component variants may share «מצב» phones, mapped in INVENTORY.md and checked by the words lens', async () => {
@@ -2103,7 +2178,7 @@ await test('TOUR-need-texts', 'the need rule\'s sentences (selectSample as well 
     ['inventory.schema.json', "and every control of a window that picks a person (the picker and that window's other controls, as appt.service and appt.save)", 1], ['../help-system.md', "and every control of a window that picks a person (the picker and that window's other controls, as appt.service and appt.save)", 1],
     ['inventory.schema.json', "a window wrongly marked false lets a step there name no selectSample where no step at on: none names it in an open or step result (none-window) and no picker step sits in it (picker-mark)", 1], ['../help-system.md', 'a window wrongly marked false lets a step there name no selectSample where no step at "none" names it in an open or step result (none-window) and no picker step sits in it (picker-mark)', 1],
     ['inventory.schema.json', 'no do step at on: none whose open or step result names a window marked false (none-window),', 1], ['../help-system.md', 'no do step at "none" whose open or step result names a window marked false (none-window),', 1],
-    ["../help-system.md", "Two kinds of copy serve these checks, and every sentence here names the one its check needs. **The screen preview** is the app's preview of shared/rules.md, «An app is built once», point 5, on its fake backend: it counts only for what the screen shows, which window a control sits in (anchorWindows), whether a window picks a person (pickingWindows) and that a control exists; nothing about what a press saves, sends or prints is judged there, since that backend may return fixed data and starts no scheduler. **The recording copy** is the app's own server code, the same build the live app runs, against a database that holds invented data only, with its scheduled jobs on or run by the test past the latest reminder, and every outbound provider (messages, charges, calendar and other third-party sends, the automatic jobs' sends) replaced at its gate by a recorder that records what would have left and sends nothing; the browser's own effects are recorded too (a print, a download, a new window or tab, a navigation out of the app, a clipboard write). It is never the live app, and never a copy whose providers hold real keys. G-20's safeTest, the practice mode's tests (modeTest, and stopTest, that the step is a stop step outside the mode), the stop-step press test and the in-order run are made there and nowhere else. A check there shows what this build did on this database, with these settings, with every outbound provider replaced and no call coming in from a provider. **The live-app conditions**: the live app does the same for the sample only when (a) it runs that same build; (b) the hold is on in the live app, which is switched on only after Nadav's yes, and a step the hold makes safe stays \"הבנתי\" until the hold is on there, not merely until the test exists; (c) every automatic sender that is on in the live app was on in the copy and shown to be held: the test runs the step once with the hold off and sees the send in the recorder, then with the hold on and sees nothing the step caused (each sender that is on in the live app has to be seen in the recorder in the run with the hold off, fired by this step or, for a sender this step does not reach, by the event that fires it; a run with the hold off in which such a sender never appears does not meet this condition, because a step that sends nothing shows nothing either way, and an unrelated control that sends shows only that the recorder is not deaf), and which senders are on live is found by looking at the live app's settings, never by pressing, and that list goes into the test's setup; and (d) a call coming in from a provider (a webhook, a delivery report) is outside the test, so a handler that sends when a provider calls back is found by reading the code, and until every such handler is read, named in the test and seen to pass through the place that checks the flag, the step stays \"הבנתי\" (a handler that goes around the flag keeps it so, named or not). What these four do not cover stays \"הבנתי\"; every other sentence on what the live app then does points here. A project with no recording copy gives its tours no do steps, and its showing and stop steps light no control (each a centred card, as \"What responds\" says), whatever preview it has; building one (the server's own build against an invented-data database, a recorder at every provider gate and in the browser) is the project's own work and cost decision, not this skill's. A question only the live app answers (the sample patient exists, is marked, and is the only one marked; which automatic senders are on) is answered there by looking, never by pressing.", 1],
+    ["../help-system.md", "Two kinds of copy serve these checks, and every sentence here names the one its check needs. **The screen preview** is the app's preview of shared/built-once.md, «An app is built once», point 5, on its fake backend: it counts only for what the screen shows, which window a control sits in (anchorWindows), whether a window picks a person (pickingWindows) and that a control exists; nothing about what a press saves, sends or prints is judged there, since that backend may return fixed data and starts no scheduler. **The recording copy** is the app's own server code, the same build the live app runs, against a database that holds invented data only, with its scheduled jobs on or run by the test past the latest reminder, and every outbound provider (messages, charges, calendar and other third-party sends, the automatic jobs' sends) replaced at its gate by a recorder that records what would have left and sends nothing; the browser's own effects are recorded too (a print, a download, a new window or tab, a navigation out of the app, a clipboard write). It is never the live app, and never a copy whose providers hold real keys. G-20's safeTest, the practice mode's tests (modeTest, and stopTest, that the step is a stop step outside the mode), the stop-step press test and the in-order run are made there and nowhere else. A check there shows what this build did on this database, with these settings, with every outbound provider replaced and no call coming in from a provider. **The live-app conditions**: the live app does the same for the sample only when (a) it runs that same build; (b) the hold is on in the live app, which is switched on only after Nadav's yes, and a step the hold makes safe stays \"הבנתי\" until the hold is on there, not merely until the test exists; (c) every automatic sender that is on in the live app was on in the copy and shown to be held: the test runs the step once with the hold off and sees the send in the recorder, then with the hold on and sees nothing the step caused (each sender that is on in the live app has to be seen in the recorder in the run with the hold off, fired by this step or, for a sender this step does not reach, by the event that fires it; a run with the hold off in which such a sender never appears does not meet this condition, because a step that sends nothing shows nothing either way, and an unrelated control that sends shows only that the recorder is not deaf), and which senders are on live is found by looking at the live app's settings, never by pressing, and that list goes into the test's setup; and (d) a call coming in from a provider (a webhook, a delivery report) is outside the test, so a handler that sends when a provider calls back is found by reading the code, and until every such handler is read, named in the test and seen to pass through the place that checks the flag, the step stays \"הבנתי\" (a handler that goes around the flag keeps it so, named or not). What these four do not cover stays \"הבנתי\"; every other sentence on what the live app then does points here. A project with no recording copy gives its tours no do steps, and its showing and stop steps light no control (each a centred card, as \"What responds\" says), whatever preview it has; building one (the server's own build against an invented-data database, a recorder at every provider gate and in the browser) is the project's own work and cost decision, not this skill's. A question only the live app answers (the sample patient exists, is marked, and is the only one marked; which automatic senders are on) is answered there by looking, never by pressing.", 1],
     ["../help-system.md", "step is \"do it yourself\" only with a test of the real app, made in the recording copy (defined under \"The tour manifest\" below) and never against the live account, showing that nothing leaves for that action on the sample record, now or later, and that it is held on the server by the sample flag: after the step, and after the scheduled jobs ran past the latest reminder, the recorder holds nothing the step caused, for the sample or for anyone else, and the same test first shows that the recorder records and that the hold, not a sender left off in the copy, is what keeps it empty (condition (c) of the live-app conditions there), so an empty recorder is evidence; the live app then does for the sample what the test showed only under those conditions, and until they all hold the step is a \"הבנתי\" step.", 1],
     ["../experience.md", "Only when a test of the real app, made in the recording copy (defined in help-system.md, \"The tour manifest\") and never against the live account, performs that action on the sample record, and, after the step and after the scheduled jobs ran past the latest reminder, the recorder holds nothing the step caused while the same test shows that the recorder records and that the hold, not a sender left off in the copy, keeps it empty; the live app does for the sample what the test showed only under the live-app conditions of help-system.md, \"The tour manifest\" (until they all hold the step is \"הבנתי\"), and the test shows that nothing leaves, now or later", 1],
     ["../help-system.md", "does not move on (tour-anchors, run in the recording copy, never in the live app).", 1],

@@ -1,6 +1,6 @@
 # Notes for the preview's floor
 
-Measured facts and framework notes behind `rules.md`, «An app is built once», point 5. The rule is there; this file
+Measured facts and framework notes behind `built-once.md`, «An app is built once», point 5. The rule is there; this file
 holds only what was checked, when, and how to check it again. A note here is an example, never a replacement for a
 proof the rule asks for: a project's unit 1 shows its own proofs on its own preview.
 

@@ -17,9 +17,10 @@ FEATURES-PROPOSED.md, INVENTORY.md. The demo at that tag is read-only: a design 
 
 1. Check that this file's status line reads `Status: OWNER-APPROVED answer <N> commit <sha>`. Then run every item of
    <out>/plan/START-BUILD-CHECKLIST.md and show its result. Start nothing while an item fails.
-2. Build the units in plan order; before each, re-read nadav-design's «An app is built once» in the installed skill,
+2. Build the units in plan order; before each, re-read nadav-design's «An app is built once» in the installed skill
+   (`shared/built-once.md`, in full),
    and land it as point 2 there says. Unit 1 is the app's preview on invented data, isolated and checked as
-   `shared/rules.md`, «An app is built once», point 5, says. Nobody plays the preview, on any machine, before its
+   `shared/built-once.md`, «An app is built once», point 5, says. Nobody plays the preview, on any machine, before its
    check script passes there; until then only you run it, to run the checks. Every later screen is designed and
    shown to Nadav in that preview, and no screen is built a second time. Each screen goes through
    the nadav-design `screen` mode gates: DoD 100 on every route the change touches, the visual change gate with the

@@ -315,7 +315,7 @@ Chat in plain Hebrew, short lines, the why before the what; code, files and comm
   services). Every answer and every feature row lands somewhere. `tools/check-anchors.py`: 0 missing, 0 wrong. It
   checks the demo citations only; a citation of an INVENTORY.md row is checked by the reviewers, not by a tool.
 - **Unit 1 is the app's preview on invented data** (the folder and the no-demo check: shifts' `src/demo/`; ask before
-  any new dependency it needs), isolated and checked as `shared/rules.md`, «An app is built once», point 5, says.
+  any new dependency it needs), isolated and checked as `shared/built-once.md`, «An app is built once», point 5, says.
   Nobody plays the preview, on any machine, before its check script passes there. Then tokens and shared
   components, then the screens.
 - **Every screen is designed in that preview.** A screen the tagged demo drew cites its column labels and is held to

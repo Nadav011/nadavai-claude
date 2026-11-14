@@ -1,6 +1,6 @@
 # From a standalone demo to the app: values, components, screens
 
-For one case only: a standalone demo that already exists when `rules.md`, «An app is built once», starts to apply to
+For one case only: a standalone demo that already exists when `built-once.md`, «An app is built once», starts to apply to
 its app (a page made before that rule, as MediZen's is). It allows no new standalone demo, and it changes nothing in
 that rule: nothing of the page's code moves into the app. What moves is the page's design values, its component
 definitions as a specification, and its screens as the tagged reference the app's preview is compared with. Where this
