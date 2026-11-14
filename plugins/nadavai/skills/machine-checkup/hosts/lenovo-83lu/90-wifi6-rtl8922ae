@@ -1,0 +1,24 @@
+#!/bin/sh
+# NetworkManager dispatcher (LENOVO): keep the Realtek RTL8922AE card on Wi-Fi 6 (HE), not Wi-Fi 7 (EHT).
+# Why: on Wi-Fi 7 this card (rtw89_8922ae, firmware 0.35.80.3, kernels 7.3.3 and 7.3.4) dropped the
+# home router (Skyworth GFD172) 231 times in four days: "AP appears to change mode (expected EHT,
+# found HE) in beacon, disconnect" and bursts of locally generated reason=4 disconnects every
+# 15 s, with the receive link rate at 72 Mb/s. Measured on 2026-11-14, eight minutes each:
+# Wi-Fi 7 gave 12 disconnects and a median receive rate of 72 Mb/s (power save on or off made no
+# difference), Wi-Fi 6 gave 0 disconnects, a median of 1441 Mb/s and 860 Mb/s of real download
+# against 88. The MSI's Wi-Fi 6 card had 6 disconnects in the same four days on the same router.
+# NetworkManager has no setting for this, so the option is set on wpa_supplicant's network after
+# each activation. Remove this file when rtw89 holds a Wi-Fi 7 link to this router.
+[ "$2" = up ] || exit 0
+iface=$1
+drv=$(basename "$(readlink -f "/sys/class/net/$iface/device/driver" 2>/dev/null)")
+[ "$drv" = rtw89_8922ae ] || exit 0
+changed=0
+for id in $(wpa_cli -i "$iface" list_networks 2>/dev/null | awk 'NR>1 {print $1}'); do
+  # Already set: nothing to do, which is also what ends the second "up" after the reassociation.
+  [ "$(wpa_cli -i "$iface" get_network "$id" disable_eht 2>/dev/null)" = 1 ] && continue
+  wpa_cli -i "$iface" set_network "$id" disable_eht 1 >/dev/null 2>&1 && changed=1
+done
+[ "$changed" = 1 ] || exit 0
+wpa_cli -i "$iface" reassociate >/dev/null 2>&1
+logger -t wifi6-rtl8922ae "$iface: Wi-Fi 7 switched off for this connection, reassociated as Wi-Fi 6"

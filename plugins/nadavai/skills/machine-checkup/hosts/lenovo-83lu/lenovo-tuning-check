@@ -27,3 +27,8 @@ ok "crash record in RAM" "$cr"
 ok "systemd-pstore.service" "$(systemctl is-enabled systemd-pstore.service 2>/dev/null)"
 P=/var/lib/systemd/pstore
 ok "saved records (crashes / all)" "$(sudo grep -rlE '^(Panic|Oops)#' $P 2>/dev/null | wc -l) / $(sudo find $P -type f 2>/dev/null | wc -l) in $P"
+# Wi-Fi: the Realtek card on Wi-Fi 6 with power save off, and how often it dropped today.
+W=$(ls /sys/class/net | grep -m1 '^wl')
+ok "Wi-Fi mode (want HE, not EHT)" "$(iw dev "$W" link 2>/dev/null | grep -oE '(EHT|HE|VHT)-MCS' | sort -u | tr '\n' ' ')"
+ok "Wi-Fi power save (want off)" "$(iw dev "$W" get power_save 2>/dev/null | awk '{print $3}')"
+ok "Wi-Fi disconnects today" "$(journalctl --since today -q -g 'CTRL-EVENT-DISCONNECTED' 2>/dev/null | wc -l)"

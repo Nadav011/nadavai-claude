@@ -25,6 +25,10 @@ if ! grep -q 'reserve_mem=4M:4096:oops' /etc/sdboot-manage.conf; then
   sudo sdboot-manage gen
 fi
 sudo systemctl enable systemd-pstore.service
+# Wi-Fi (2026-11-14): the RTL8922AE card stays on Wi-Fi 6 and never sleeps (the dispatcher file says why).
+sudo install -m 755 -o root -g root "$here/90-wifi6-rtl8922ae" /etc/NetworkManager/dispatcher.d/90-wifi6-rtl8922ae
+sudo install -m 644 "$here/60-wifi-powersave-off.conf" /etc/NetworkManager/conf.d/60-wifi-powersave-off.conf
+sudo nmcli general reload conf
 install -m 755 "$here/lenovo-tuning-check" "$HOME/.local/bin/lenovo-tuning-check"
 sudo systemctl daemon-reload
 sudo udevadm control --reload
