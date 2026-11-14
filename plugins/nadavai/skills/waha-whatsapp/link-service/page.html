@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>חיבור וואטסאפ</title>
+<link rel="icon" href="data:,">
+<style>
+:root {
+  --bg: #f6f7f5; --card: #ffffff; --text: #1d2420; --muted: #5d6762; --line: #dfe4e0;
+  --brand: #1f7a4d; --brand-text: #ffffff; --ok: #1f7a4d; --warn: #9a5b00; --focus: #1f7a4d;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #121614; --card: #1b201d; --text: #e9eeeb; --muted: #a3ada8; --line: #2c332f;
+          --brand: #3fae76; --brand-text: #08130d; --ok: #5cc690; --warn: #e7a84a; --focus: #5cc690; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+       font: 17px/1.55 system-ui, "Segoe UI", "Noto Sans Hebrew", Arial, sans-serif; }
+main { max-width: 34rem; margin: 0 auto; padding: 24px 16px 48px; }
+h1 { font-size: 1.45rem; margin: 0 0 4px; }
+.sub { color: var(--muted); margin: 0 0 20px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 20px; }
+.tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-block-end: 16px; }
+.tabs button { min-height: 48px; border-radius: 12px; border: 1px solid var(--line); background: var(--card);
+               color: var(--text); font: inherit; font-weight: 600; cursor: pointer; }
+.tabs button[aria-selected="true"] { background: var(--brand); color: var(--brand-text); border-color: var(--brand); }
+button:focus-visible, input:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+ol { padding-inline-start: 1.3em; margin: 0 0 16px; }
+li { margin-block-end: 6px; }
+.qr { display: grid; place-items: center; background: #fff; border-radius: 12px; padding: 12px; min-height: 280px; }
+.qr img { width: 260px; height: 260px; image-rendering: pixelated; }
+.hint { color: var(--muted); font-size: .93rem; margin-block-start: 10px; }
+label { display: block; font-weight: 600; margin-block-end: 6px; }
+input { width: 100%; min-height: 50px; border-radius: 12px; border: 1px solid var(--line); background: var(--bg);
+        color: var(--text); font: inherit; padding: 0 14px; }
+.go { width: 100%; min-height: 50px; margin-block-start: 12px; border: 0; border-radius: 12px; background: var(--brand);
+      color: var(--brand-text); font: inherit; font-weight: 700; cursor: pointer; }
+.go[disabled] { opacity: .6; cursor: default; }
+.code { margin-block-start: 16px; text-align: center; font: 700 2.2rem/1.2 ui-monospace, "SF Mono", Menlo, monospace;
+        letter-spacing: .18em; padding: 14px; border: 2px dashed var(--brand); border-radius: 12px; }
+.err { color: var(--warn); margin-block-start: 10px; }
+.status { margin-block-start: 18px; display: flex; gap: 10px; align-items: center; color: var(--muted); }
+.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--warn); flex: none; }
+.done { text-align: center; padding: 28px 8px; }
+.done .big { font-size: 1.3rem; font-weight: 700; color: var(--ok); }
+[hidden] { display: none !important; }
+@media (prefers-reduced-motion: no-preference) { .dot { animation: pulse 1.4s ease-in-out infinite; } }
+@keyframes pulse { 50% { opacity: .35; } }
+</style>
+</head>
+<body>
+<main data-state="__STATE__">
+  <section id="expired" hidden class="card">
+    <h1>הקישור כבר לא בתוקף</h1>
+    <p class="sub">הקישור שימש כבר לחיבור, או שעבר הזמן שלו. כדי לקבל קישור חדש יש לפנות אלינו.</p>
+  </section>
+
+  <section id="already" hidden class="card">
+    <h1>הוואטסאפ של <bdi>__LABEL__</bdi> כבר מחובר</h1>
+    <p class="sub">אין צורך לעשות שום דבר. אפשר לסגור את הדף.</p>
+  </section>
+
+  <section id="open" hidden>
+    <h1>חיבור הוואטסאפ של <bdi>__LABEL__</bdi></h1>
+    <p class="sub">פעם אחת, פחות מדקה. הוואטסאפ ממשיך לעבוד כרגיל בטלפון.</p>
+    <div class="card" id="flow">
+      <div class="tabs" role="tablist">
+        <button role="tab" id="t-code" aria-selected="true" aria-controls="p-code">קישור עם קוד</button>
+        <button role="tab" id="t-qr" aria-selected="false" aria-controls="p-qr">סריקת ברקוד</button>
+      </div>
+
+      <div id="p-code" role="tabpanel" aria-labelledby="t-code">
+        <ol>
+          <li>לוחצים כאן «קבלת קוד».</li>
+          <li>בטלפון של המספר שמסתיים ב־<bdi>__PHONE__</bdi>: וואטסאפ › הגדרות › מכשירים מקושרים › קישור מכשיר.</li>
+          <li>לוחצים «קישור עם מספר טלפון במקום» ומקלידים את הקוד שמופיע כאן.</li>
+        </ol>
+        <button class="go" id="get-code">קבלת קוד</button>
+        <div class="code" id="code" hidden dir="ltr" aria-live="polite"></div>
+        <p class="hint" id="code-hint" hidden>הקוד בתוקף כדקה. אם עבר הזמן, אפשר לבקש קוד חדש.</p>
+        <p class="err" id="code-err" hidden></p>
+      </div>
+
+      <div id="p-qr" role="tabpanel" aria-labelledby="t-qr" hidden>
+        <ol>
+          <li>פותחים את הדף הזה במחשב או בטלפון אחר.</li>
+          <li>בטלפון של המספר שמסתיים ב־<bdi>__PHONE__</bdi>: וואטסאפ › הגדרות › מכשירים מקושרים › קישור מכשיר.</li>
+          <li>מכוונים את המצלמה לברקוד.</li>
+        </ol>
+        <div class="qr"><img id="qr" alt="ברקוד לחיבור הוואטסאפ"></div>
+        <p class="hint">הברקוד מתחלף מעצמו כל כמה שניות.</p>
+      </div>
+
+      <p class="err" id="wrong" hidden>חובר טלפון אחר, לא המספר שמסתיים ב־<bdi>__PHONE__</bdi>, ולכן ניתקנו אותו מיד. צריך לחבר מהטלפון של המספר הזה.</p>
+      <div class="status" aria-live="polite"><span class="dot"></span><span id="status-text">ממתינים לחיבור…</span></div>
+    </div>
+
+    <div class="card done" id="done" hidden>
+      <div class="big">הוואטסאפ מחובר ✓</div>
+      <p class="sub">אפשר לסגור את הדף. אין צורך לעשות שום דבר נוסף.</p>
+    </div>
+  </section>
+</main>
+<script>
+(() => {
+  const main = document.querySelector("main");
+  const base = location.pathname.replace(/\/$/, "");
+  if (main.dataset.state === "expired") { document.getElementById("expired").hidden = false; return; }
+  if (main.dataset.state === "already") { document.getElementById("already").hidden = false; return; }
+  document.getElementById("open").hidden = false;
+  const $ = (id) => document.getElementById(id);
+  let tab = "code", qrTimer = null, done = false;
+  function show(which) {
+    tab = which;
+    $("t-code").setAttribute("aria-selected", which === "code");
+    $("t-qr").setAttribute("aria-selected", which === "qr");
+    $("p-code").hidden = which !== "code";
+    $("p-qr").hidden = which !== "qr";
+    if (which === "qr") { refreshQr(); qrTimer = setInterval(refreshQr, 15000); } else { clearInterval(qrTimer); }
+  }
+  function refreshQr() { $("qr").src = base + "/qr?t=" + Date.now(); }
+  $("t-code").onclick = () => show("code");
+  $("t-qr").onclick = () => show("qr");
+  $("get-code").onclick = async () => {
+    const btn = $("get-code"), err = $("code-err");
+    err.hidden = true; btn.disabled = true; btn.textContent = "מבקשים קוד…";
+    try {
+      const r = await fetch(base + "/code", { method: "POST" });
+      const b = await r.json().catch(() => ({}));
+      if (r.ok && b.code) {
+        $("code").textContent = b.code.length === 8 ? b.code.slice(0, 4) + "-" + b.code.slice(4) : b.code;
+        $("code").hidden = false; $("code-hint").hidden = false;
+      } else if (r.status === 429) { err.textContent = "אפשר לבקש קוד חדש בעוד " + (b.seconds || 60) + " שניות."; err.hidden = false; }
+      else if (r.status === 410) { location.reload(); }
+      else { err.textContent = "לא הצלחנו לקבל קוד עכשיו. אפשר לנסות שוב בעוד דקה, או לעבור ל«סריקת ברקוד»."; err.hidden = false; }
+    } catch { err.textContent = "אין חיבור לאינטרנט. אפשר לנסות שוב."; err.hidden = false; }
+    btn.disabled = false; btn.textContent = "קבלת קוד חדש";
+  };
+  async function poll() {
+    if (done) return;
+    try {
+      const r = await fetch(base + "/status", { cache: "no-store" });
+      if (r.status === 410) { location.reload(); return; }
+      const b = await r.json();
+      if (b.wrongNumber) { $("wrong").hidden = false; $("code").hidden = true; $("code-hint").hidden = true; }
+      if (b.linked) {
+        done = true; clearInterval(qrTimer);
+        $("flow").hidden = true; $("done").hidden = false; return;
+      }
+      $("status-text").textContent = b.status === "STARTING" ? "מכינים את החיבור…" : "ממתינים לחיבור…";
+    } catch { $("status-text").textContent = "אין חיבור לאינטרנט, ממשיכים לנסות…"; }
+    setTimeout(poll, 3000);
+  }
+  poll();
+})();
+</script>
+</body>
+</html>

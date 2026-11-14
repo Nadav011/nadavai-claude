@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+# WAHA (self-hosted WhatsApp API on nadavai-svc) watchdog, run every 2 minutes by waha-watchdog.timer on nadavai-vm.
+# Emails Nadav through `nadavai-alert "<subject>" "<body>"` when:
+#   down     WAHA does not answer /api/sessions (second failure in a row)
+#   session  a session that is not deliberately stopped is not WORKING (second reading in a row)
+# One email when the state turns bad or changes, a reminder every 30 minutes while bad, one when good again.
+# Config: /etc/nadavai/waha.env (mode 600): WAHA_URL=http://10.0.0.61:3000 and WAHA_API_KEY=... (read, never sourced).
+# State: /var/lib/waha-watchdog/. Test overrides: WAHA_ENV, WAHA_STATE_DIR, WAHA_NOW, WAHA_ALERT (command).
+set -euo pipefail
+ENV_FILE="${WAHA_ENV:-/etc/nadavai/waha.env}"
+STATE_DIR="${WAHA_STATE_DIR:-/var/lib/waha-watchdog}"
+NOW="${WAHA_NOW:-$(date +%s)}"
+ALERT="${WAHA_ALERT:-nadavai-alert}"
+REPEAT=1800
+command -v jq >/dev/null || { echo "waha-watchdog: jq missing" >&2; exit 2; }
+[ -r "$ENV_FILE" ] || { echo "waha-watchdog: cannot read $ENV_FILE" >&2; exit 2; }
+URL=$(sed -n 's/^WAHA_URL=//p' "$ENV_FILE" | head -1)
+KEY=$(sed -n 's/^WAHA_API_KEY=//p' "$ENV_FILE" | head -1)
+[ -n "$URL" ] && [ -n "$KEY" ] || { echo "waha-watchdog: WAHA_URL or WAHA_API_KEY empty" >&2; exit 2; }
+mkdir -p "$STATE_DIR"
+
+body=$(printf 'header = "X-Api-Key: %s"\n' "$KEY" | curl -s -m 20 -K - -w '\n%{http_code}' "$URL/api/sessions?all=true" || true)
+code=${body##*$'\n'}; json=${body%$'\n'*}
+
+# One line per problem: "<key>\t<text>". The key is what must repeat (the session's name, not its status, so a
+# session that flaps between STARTING and FAILED still counts as the same problem; REVIEW-1 F7).
+problems=""
+if [ "$code" != 200 ] || ! jq -e 'type=="array"' >/dev/null 2>&1 <<<"$json"; then
+  problems=$(printf 'down\tdown: WAHA did not answer (http %s)' "${code:-none}")
+else
+  # A session someone stopped on purpose (STOPPED) is not a problem, nor one waiting on its linking page
+  # (metadata.linking = "1", set by the linking page's `new` and cleared when it links; its QR times out to FAILED
+  # and the page starts it again); anything else not WORKING is.
+  # A session marked live (metadata.live = "1", set when its app is switched to it) must be WORKING: STOPPED counts too.
+  # linking holds the epoch second the link expires: only until then are SCAN_QR_CODE, STARTING and FAILED expected
+  # (REVIEW-1 L2). A WORKING session linked to another number than metadata.expectedPhone is a problem (L1).
+  problems=$(jq -r --argjson now "$NOW" '.[] |
+    ((.config.metadata.linking // "0") | (tonumber? // 0)) as $until |
+    ([ (.me.id // "") | match("^[0-9]+") | .string ] | .[0] // "") as $linked |
+    if .status=="WORKING" then
+      if (.config.metadata.expectedPhone // "") != "" and $linked != .config.metadata.expectedPhone
+      then "session:\(.name)\tsession \(.name): linked to a different number (…\($linked[-4:])) than expected (…\(.config.metadata.expectedPhone[-4:]))"
+      else empty end
+    elif .status=="STOPPED" and .config.metadata.live!="1" then empty
+    elif ((.status=="SCAN_QR_CODE" or .status=="STARTING" or .status=="FAILED") and $until > $now) then empty
+    else "session:\(.name)\tsession \(.name) (\(.me.id // "no number")): \(.status)" end' <<<"$json")
+fi
+
+prev_keys=$(cat "$STATE_DIR/keys" 2>/dev/null || true)
+cur_keys=$(cut -f1 <<<"$problems" | sed '/^$/d' | sort -u)
+printf '%s\n' "$cur_keys" > "$STATE_DIR/keys"
+# A problem is confirmed when its key was also a problem on the previous run (second reading in a row).
+confirmed=""; confirmed_keys=""
+while IFS=$'\t' read -r key text; do
+  [ -n "$key" ] || continue
+  if grep -qxF "$key" <<<"$prev_keys"; then confirmed+="${text}"$'\n'; confirmed_keys+="${key}"$'\n'; fi
+done <<<"$problems"
+confirmed=${confirmed%$'\n'}
+confirmed_keys=$(sed '/^$/d' <<<"$confirmed_keys" | sort -u)
+
+last_keys=$(cat "$STATE_DIR/sent_keys" 2>/dev/null || true)
+last_at=$(cat "$STATE_DIR/sent_at" 2>/dev/null || echo 0)
+if [ -n "$confirmed" ]; then
+  # Mail when the set of confirmed problems changed, or as a reminder every REPEAT seconds.
+  if [ "$confirmed_keys" != "$last_keys" ] || [ $((NOW - last_at)) -ge $REPEAT ]; then
+    if "$ALERT" "WAHA WhatsApp: problem" "$(printf 'WAHA on nadavai-svc (https://waha.nadavc.ai):\n%s\n\nLook: ssh nadavai-svc sudo docker logs --tail 100 waha\nDashboard (not public): ssh -L 3000:127.0.0.1:3000 nadavai-svc, then http://localhost:3000/dashboard' "$confirmed")"; then
+      printf '%s\n' "$confirmed_keys" > "$STATE_DIR/sent_keys"; echo "$NOW" > "$STATE_DIR/sent_at"
+    fi
+  fi
+elif [ -z "$problems" ] && [ -n "$last_keys" ]; then
+  # Recovery is told only when nothing is wrong any more, and only if a problem mail went out.
+  if "$ALERT" "WAHA WhatsApp: OK again" "WAHA answers and every session is WORKING again (was: $(tr '\n' ' ' <<<"$last_keys"))"; then
+    rm -f "$STATE_DIR/sent_keys" "$STATE_DIR/sent_at"
+  fi
+fi

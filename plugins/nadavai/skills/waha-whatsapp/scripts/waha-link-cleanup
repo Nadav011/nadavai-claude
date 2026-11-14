@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Daily on nadavai-svc: delete the session keys of spent or expired linking tokens (they could change a session's
+# settings). The admin key goes to the container's process env for this one run only.
+set -euo pipefail
+K=$(grep '^WAHA_API_KEY=' /opt/waha/.env | cut -d= -f2)
+docker exec -e ADMIN_KEY="$K" waha-link node server.mjs cleanup

@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# (Re)create the WAHA container on nadavai-svc with the one set of options. Usage: sudo waha-run [image tag]
+# Upgrading WAHA: sudo waha-run gows-arm-<new version>. The sessions in /opt/waha/sessions are kept. The old container
+# is kept (renamed waha-prev) until the new one answers /ping; if it does not, the old one is started again and the
+# recorded tag is left as it was.
+set -euo pipefail
+cur=$(cat /opt/waha/IMAGE_TAG 2>/dev/null || echo gows-arm-2026.10.1)
+tag="${1:-$cur}"
+docker pull -q "devlikeapro/waha:$tag" >/dev/null
+# A backup first: the old container is a way back only if the new image did not change the stored session data.
+/usr/local/bin/waha-backup
+docker rm -f waha-prev >/dev/null 2>&1 || true
+if docker inspect waha >/dev/null 2>&1; then docker stop waha >/dev/null; docker rename waha waha-prev; fi
+docker run -d --name waha --restart unless-stopped \
+  -p 127.0.0.1:3000:3000 -p 10.0.0.61:3000:3000 \
+  --env-file /opt/waha/.env \
+  -v /opt/waha/sessions:/app/.sessions -v /opt/waha/media:/app/.media \
+  "devlikeapro/waha:$tag" >/dev/null
+for _ in $(seq 1 45); do
+  if curl -sf -o /dev/null http://127.0.0.1:3000/ping; then
+    echo "$tag" > /opt/waha/IMAGE_TAG
+    docker rm -f waha-prev >/dev/null 2>&1 || true
+    echo "waha $tag up"; exit 0
+  fi
+  sleep 2
+done
+echo "waha $tag did not answer /ping: going back to the previous container" >&2
+docker rm -f waha >/dev/null
+if docker inspect waha-prev >/dev/null 2>&1; then docker rename waha-prev waha; docker start waha >/dev/null; fi
+exit 1
