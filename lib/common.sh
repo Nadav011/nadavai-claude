@@ -202,68 +202,15 @@ merge_settings() {
   local target="$CFG/settings.json"
   mkdir -p "$CFG"
   if [ -f "$target" ]; then mkdir -p "$BACKUP"; cp "$target" "$BACKUP/settings.json"; fi
-  # A plugin that an installed copy of nadavai still lists as a dependency is not turned off by
-  # the merge either (see apply_model_policy): it keeps the value it had, or is turned on.
-  local kept needed
-  needed="$(installed_nadavai_dependencies)" || die "the installed copies of nadavai could not be read, so settings.json was left as it is"
-  kept="$(NADAVAI_STILL_NEEDED="$needed" node -e '
+  node -e '
     const fs = require("fs");
     const [base, target] = process.argv.slice(1);
     const isObj = (v) => v && typeof v === "object" && !Array.isArray(v);
     const merge = (a, b) => { for (const k of Object.keys(b)) a[k] = isObj(b[k]) ? merge(isObj(a[k]) ? a[k] : {}, b[k]) : b[k]; return a; };
     const cur = fs.existsSync(target) ? JSON.parse(fs.readFileSync(target, "utf8")) : {};
-    const before = { ...(cur.enabledPlugins || {}) };
-    const out = merge(cur, JSON.parse(fs.readFileSync(base, "utf8")));
-    const kept = [];
-    for (const p of (process.env.NADAVAI_STILL_NEEDED || "").split(/\s+/).filter(Boolean)) {
-      if (out.enabledPlugins && out.enabledPlugins[p] === false && before[p] !== false) {
-        out.enabledPlugins[p] = true;
-        kept.push(p);
-      }
-    }
-    fs.writeFileSync(target, JSON.stringify(out, null, 2) + "\n");
-    console.log(kept.join(" "));
-  ' "$REPO/settings/settings.base.json" "$target")"
-  local p
-  for p in $kept; do
-    warn "$p stays on in $target: an installed copy of nadavai still lists it as a dependency (update that copy, then run update.sh again)"
-  done
+    fs.writeFileSync(target, JSON.stringify(merge(cur, JSON.parse(fs.readFileSync(base, "utf8"))), null, 2) + "\n");
+  ' "$REPO/settings/settings.base.json" "$target"
   log "merged settings.base.json into $target"
-}
-
-installed_nadavai_dependencies() {
-  # The dependency ids (name@marketplace) of every installed copy of nadavai, all scopes, one per
-  # line. Read from the copies on disk, not from this checkout: they are what Claude Code loads.
-  # It fails (and the caller stops) only when python3 itself cannot run: a registry or a plugin.json
-  # that is missing, unreadable or of another shape is read as a copy with no dependencies.
-  python3 -I - "$HOME/.claude/plugins/installed_plugins.json" "${CFG:-$HOME/.claude}/plugins/installed_plugins.json" <<'PY' | sort -u
-import json, os, sys
-
-def load(path):
-    try:
-        with open(path, encoding="utf-8") as f:
-            return json.load(f)
-    except (OSError, ValueError):
-        return None
-
-seen = set()
-for registry in sys.argv[1:]:
-    data = load(registry)
-    plugins = data.get("plugins") if isinstance(data, dict) else None
-    entries = plugins.get("nadavai@nadavai") if isinstance(plugins, dict) else None
-    for e in entries if isinstance(entries, list) else []:
-        if not isinstance(e, dict):
-            continue
-        path = os.path.join(e.get("installPath") or "", ".claude-plugin", "plugin.json")
-        if path in seen:
-            continue
-        seen.add(path)
-        manifest = load(path)
-        deps = manifest.get("dependencies") if isinstance(manifest, dict) else None
-        for d in deps if isinstance(deps, list) else []:
-            if isinstance(d, dict) and d.get("name") and d.get("marketplace"):
-                print(f"{d['name']}@{d['marketplace']}")
-PY
 }
 
 apply_model_policy() {
@@ -274,19 +221,13 @@ apply_model_policy() {
   # LENOVO's profiles had them).
   local target="$CFG/settings.json"
   if [ ! -f "$target" ]; then merge_settings; fi
-  local f n=0 needed
-  # Claude Code does not load a plugin whose dependency is turned off. A plugin that an installed
-  # copy of nadavai still lists as a dependency is therefore not turned off here, whatever base
-  # says: an install that did not update (the project-scope one, a pull that was skipped, a commit
-  # not pushed yet) would otherwise leave nadavai, and its guards, unloaded in every session.
-  needed="$(installed_nadavai_dependencies)" || die "the installed copies of nadavai could not be read, so no settings.json was changed"
+  local f n=0
   for f in "$target" "$HOME/.claude/settings.json" "$HOME"/.config/orca/claude-profiles/*/home/settings.json; do
     [ -f "$f" ] || continue
     n=$((n+1))
-    NADAVAI_STILL_NEEDED="$needed" node -e '
+    node -e '
       const fs = require("fs");
       const [base, target, backup] = process.argv.slice(1);
-      const stillNeeded = new Set((process.env.NADAVAI_STILL_NEEDED || "").split(/\s+/).filter(Boolean));
       const b = JSON.parse(fs.readFileSync(base, "utf8"));
       const raw = fs.readFileSync(target, "utf8");
       let cur;
@@ -296,10 +237,6 @@ apply_model_policy() {
       for (const k of ["model", "advisorModel", "availableModels", "deniedMcpServers"]) { if (k in b) cur[k] = b[k]; else delete cur[k]; }
       // A plugin that base turns off is turned off in each profile; plugins a profile enabled itself stay.
       for (const [p, on] of Object.entries(b.enabledPlugins || {})) {
-        if (on === false && stillNeeded.has(p)) {
-          if (cur.enabledPlugins && cur.enabledPlugins[p] === true) console.log("  " + p + " stays on in " + target + ": an installed copy of nadavai still lists it as a dependency (update that copy, then run update.sh again)");
-          continue;
-        }
         if (on === false && cur.enabledPlugins && cur.enabledPlugins[p] === true) cur.enabledPlugins[p] = false;
         // A plugin synced from the claude.ai account (<name>@synced) loads with no entry at all, so
         // base turning it off has to write the entry; a profile that set it to true itself is

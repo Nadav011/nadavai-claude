@@ -109,6 +109,11 @@ out=$(run); rc=$?
 ok "a server with empty fields does not crash the check" '[ "$rc" = 0 ] && ! grep -q Traceback <<<"$out"'
 printf '%s\n' '{"mcpServers":{"t":{"command":"node","args":["${CLAUDE_PLUGIN_ROOT}/bridge/server.cjs"]}}}' >"$cache/good/1.0.0/.mcp.json"
 
+printf '%s\n' '{"name":"good","mcpServers":"./servers.json"}' >"$cache/good/1.0.0/.claude-plugin/plugin.json"
+out=$(run); rc=$?
+ok "a plugin.json that names a missing MCP servers file fails the check" '[ "$rc" = 1 ] && grep -q "BROKEN  good: plugin.json names servers.json for its MCP servers" <<<"$out"'
+printf '%s\n' '{"name":"good"}' >"$cache/good/1.0.0/.claude-plugin/plugin.json"
+
 # Another profile's settings.json is checked too, and only what differs from the active one is said.
 prof="$HOME/.config/orca/claude-profiles/abcdef123456/home"; mkdir -p "$prof"; ln -s "$cfg/plugins" "$prof/plugins"
 printf '%s\n' '{"enabledPlugins":{"good@m":true,"ghost@m":true}}' >"$prof/settings.json"

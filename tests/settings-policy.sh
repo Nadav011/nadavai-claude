@@ -48,32 +48,6 @@ for f in "$a" "$b"; do
 done
 ok "the three unused MCP servers are denied" '[ "$(jq -r "[.deniedMcpServers[].serverName] | map(select(. == \"plugin:cloudflare:cloudflare\" or . == \"plugin:supabase:supabase\" or . == \"plugin:context7:context7\")) | length" "$a")" = 3 ]'
 
-# A plugin that an installed copy of nadavai still lists as a dependency is not turned off, in any
-# profile: Claude Code would stop loading nadavai. Here the installed copy is an old one that still
-# depends on the first ordinary plugin base turns off.
-if [ -n "$plain" ]; then
-  old="$home/.claude/plugins/cache/nadavai/old"
-  mkdir -p "$old/.claude-plugin"
-  printf '{"name":"nadavai","dependencies":[{"name":"%s","marketplace":"%s"}]}\n' "${plain%@*}" "${plain#*@}" >"$old/.claude-plugin/plugin.json"
-  printf '{"plugins":{"nadavai@nadavai":[{"scope":"user","installPath":"%s/none"},{"scope":"project","installPath":"%s"}]}}\n' "$home" "$old" >"$home/.claude/plugins/installed_plugins.json"
-  jq --arg p "$plain" '.enabledPlugins[$p] = true' "$a" >"$a.tmp" && mv "$a.tmp" "$a"
-  out=$(run_policy "$here")
-  ok "a plugin an installed nadavai depends on stays on" '[ "$(jq -r --arg p "$plain" ".enabledPlugins[\$p]" "$a")" = true ]'
-  ok "and the run says so"                              'grep -q "$plain stays on" <<<"$out"'
-  # The full merge (setup.sh, and a profile with no settings.json yet) keeps it on too.
-  out=$(HOME="$home" CLAUDE_CONFIG_DIR="$(dirname "$a")" REPO="$here" BACKUP="$t/backup" \
-    bash -c 'set -uo pipefail; source "$REPO/lib/common.sh"; CFG="$CLAUDE_CONFIG_DIR"; merge_settings' 2>&1)
-  ok "the full merge keeps that plugin on"              '[ "$(jq -r --arg p "$plain" ".enabledPlugins[\$p]" "$a")" = true ] && grep -q "$plain stays on" <<<"$out"'
-  fresh="$home/.config/orca/claude-profiles/fresh/home"; mkdir -p "$fresh"
-  out=$(HOME="$home" CLAUDE_CONFIG_DIR="$fresh" REPO="$here" BACKUP="$t/backup" \
-    bash -c 'set -uo pipefail; source "$REPO/lib/common.sh"; CFG="$CLAUDE_CONFIG_DIR"; merge_settings' 2>&1)
-  ok "a profile with no settings.json gets it on, not off" '[ "$(jq -r --arg p "$plain" ".enabledPlugins[\$p]" "$fresh/settings.json")" = true ]'
-  rm -rf -- "${fresh:?}"
-  rm -f -- "$home/.claude/plugins/installed_plugins.json"
-  run_policy "$here" >/dev/null
-  ok "once no installed copy needs it, it is turned off" '[ "$(jq -r --arg p "$plain" ".enabledPlugins[\$p]" "$a")" = false ]'
-fi
-
 # 2. A second run changes nothing.
 before=$(cat "$a" "$b")
 run_policy "$here" >/dev/null

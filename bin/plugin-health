@@ -27,8 +27,8 @@ a sign-in, or failed. A server on the settings' deny list is skipped. While the 
 locked (after a reboot, until Nadav opens it), the server whose key is in the vault waits for a
 sign-in: it is printed as a note and not counted, so the daily notification does not fire every
 morning. A server of a plugin that the signed-in claude.ai account brings (not in the registry) and
-that waits for a sign-in is a note too. With --notify the check first waits up to two minutes for the network, and without one
-it checks nothing and leaves the last state as it is.
+that waits for a sign-in is a note too. With --notify the check first waits up to two minutes for
+the network, and without one it checks nothing and leaves the last state as it is.
 
 The config folder is $CLAUDE_CONFIG_DIR, or ~/.claude. State for --notify is kept in
 ~/.local/state/nadavai/plugin-health.txt.

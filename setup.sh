@@ -28,7 +28,6 @@ need claude "Install Claude Code first: https://code.claude.com/docs/en/setup"
 need git "Install git."
 need node "Install Node.js 20+ (OMC and the hooks need it)."
 need npm "Install Node.js 20+ (npm ships with it)."
-need python3 "Install Python 3 (the settings merge reads the installed nadavai copies with it)."
 log "claude $(claude --version 2>/dev/null | head -1), node $(node --version), config dir $CFG"
 
 step "Marketplaces"
