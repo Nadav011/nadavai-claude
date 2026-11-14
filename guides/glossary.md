@@ -14,12 +14,15 @@ Format, one entry per term:
 
 - **מקצה לקצה**: everything the work really needs is finished, in every link of its chain and at
   every stage, with nothing left; it holds for every kind of action, and first of all it means
-  that what he meant was understood. It is not a fixed checklist: the links are the ones the work
-  in hand has (built, checked, in main, live on the domain and tried there as a user would, the
-  store apps, the other computer, other sessions, what was learned saved). His words: "מקצה לקצה
-  אומר אם סיימת את כל מה שצריך באמת בכל החוליות שלו ובכל השלבים ולא השארת כלום וזה נכון לכל
-  הפועלות בעיקר הבנת את הכוונה". Example he chose: none of the four he was offered alone; he
-  typed the definition above instead. Source: the prompt store session, 2026-11-14.
+  that what he meant was understood. His words: "מקצה לקצה אומר אם סיימת את כל מה שצריך באמת בכל
+  החוליות שלו ובכל השלבים ולא השארת כלום וזה נכון לכל הפועלות בעיקר הבנת את הכוונה". Example he
+  chose: none; he was offered four fixed items (live on the domain, tried on the live site, the
+  things around it, saved for the next session), picked none of them and typed the definition
+  above. The agent's reading, told to him on 2026-11-14 and not decided by him: it is not a fixed
+  checklist; the links are the ones the work in hand has, which usually run from built and
+  checked, through main and the live domain tried as a user would, to the store apps, the other
+  computer, other sessions and what was learned being saved. Source: the prompt store session,
+  2026-11-14.
 - **תתעלם מהחסימות** (said after an account switch): the usage limits of the old account no longer
   hold, and every item that was marked blocked gets its reason checked again: tried again from the
   step where it stopped when the reason is gone, kept in the list with its reason when it still

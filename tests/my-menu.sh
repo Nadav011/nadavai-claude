@@ -136,6 +136,34 @@ order=$(sed -n '/^const GROUPS/,/^\]/p' "$MOD/hooks/register.tsx" | grep -o "'[a
 prompts=$(find "$here/plugins/nadavai/skills" -maxdepth 1 -type d -name 'my-*' -printf '%f\n' | sed 's/^my-//' | sort)
 ok "the menu's groups match the prompts (groups: ${order//$'\n'/ } | prompts: ${prompts//$'\n'/ })" '[ -n "$order" ] && [ "$order" = "$prompts" ]'
 ok "the goal row and my-run name the same list" 'grep -qF "מה נחשב גמור" "$MOD/hooks/register.tsx" && grep -qF "מה נחשב גמור" "$here/plugins/nadavai/skills/my-run/SKILL.md"'
+# The printed menu (/nadavai:my) is the same list for a session without the mod: the same groups,
+# with the same prompts in the same order.
+drift=$(python3 - "$MOD/hooks/register.tsx" "$here/plugins/nadavai/skills/my/SKILL.md" <<'PY'
+import re, sys
+code = open(sys.argv[1], encoding="utf-8").read()
+block = code[code.index("const GROUPS"):]
+block = block[:block.index("\n]\n")]
+in_code = [(title, re.findall(r"'([a-z-]+)'", names))
+           for title, names in re.findall(r"title: '([^']*)',\s*names: \[([^\]]*)\]", block)]
+in_menu, now = [], None
+for line in open(sys.argv[2], encoding="utf-8"):
+    head = re.fullmatch(r"\*\*(.+)\*\*\s*", line)
+    if head:
+        now = (head.group(1), [])
+        in_menu.append(now)
+    row = re.search(r"`/nadavai:my-([a-z-]+)`", line)
+    if row and now:
+        now[1].append(row.group(1))
+if not in_code:
+    print("no groups read from the code")
+for a, b in zip(in_code, in_menu):
+    if a != b:
+        print(f"code {a} | menu {b}")
+if len(in_code) != len(in_menu):
+    print(f"{len(in_code)} groups in the code, {len(in_menu)} in the printed menu")
+PY
+) || drift="the comparison did not run"
+ok "the printed menu has the groups of the list, row for row ($drift)" '[ -z "$drift" ]'
 ok "hooks.json names the module"   '[ "$(jq -r ".modules[0]" "$MOD/hooks/hooks.json")" = ./register.tsx ] && [ -f "$MOD/hooks/register.tsx" ]'
 ok "the nadavai plugin hooks file has no module (Codex reads it)" '! jq -e "has(\"modules\")" "$here/plugins/nadavai/hooks/hooks.json" >/dev/null'
 

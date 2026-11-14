@@ -26,9 +26,12 @@ const PREFIX = 'nadavai:my-'
 // line the session prints).
 const GOAL = 'goal'
 // The groups he sees, by the situation he is in (Nadav, 2026-11-14, picked
-// "לפי מצב" over one list ordered by use). Between the groups and inside each,
-// the most used come first, counted over everything he typed to his agents
-// from 2026-08 to 2026-11 (the table is in
+// "לפי מצב" over one list ordered by use). He was shown three groups as
+// examples, with seven prompts in them: "באמצע עבודה" (run, status, fast),
+// "בודקים" (prove, done, review) and "משהו לא טוב" (wrong, never). The other
+// two groups, the rest of the placements and the order are this file's own:
+// between the groups and inside each, the most used come first, counted over
+// everything he typed to his agents from 2026-08 to 2026-11 (the table is in
 // ~/.omc/plans/method-review-2026-11-13/prompt-store/corpus-2026-11-14/,
 // merged/order.txt). A prompt no group names goes to a last group, by name.
 const GROUPS: readonly { title: string; names: readonly string[] }[] = [
@@ -79,17 +82,28 @@ type Row = {
 type Group = { title: string; rows: Row[] }
 
 // When the goal is met. The list it names is the one a session writes under
-// that heading when he sets a goal or runs /nadavai:my-run, and the ending is
-// the one `working-style.md` (Finishing) gives every goal condition.
+// that heading when he sets a goal or runs /nadavai:my-run; the line asks for
+// the list first, so a session that has none cannot count the goal as met.
+// The ending is the one `working-style.md` (Finishing) gives every goal
+// condition.
 const GOAL_MET =
-  'כל שורה ברשימת "מה נחשב גמור" של הסשן הזה סגורה עם ראיה, או שכל מה שנשאר רשום עם חסימה של נדב, של לקוח, של בדיקת חנות או פלטפורמה, של תאריך או של חומרה'
+  'בסשן הזה כתובה רשימת "מה נחשב גמור" (אם אין, קודם כותבים אותה), וכל שורה בה סגורה עם ראיה, או שכל מה שנשאר רשום עם חסימה של נדב, של לקוח, של בדיקת חנות או פלטפורמה, של תאריך או של חומרה'
+// His words as one line that a sentence can follow: no line breaks, and no
+// closing mark that would double with the period after them.
+const asGoal = (words: string): string =>
+  words
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/[\s.,:;!?]+$/, '')
 const GOAL_ROW: Row = {
   name: GOAL,
   sentence: 'לנעול את הסשן על היעד',
   gloss: 'הסשן לא עוצר עד שכל מה שנחשב גמור סגור',
   // Words he typed are the goal itself, and the list still decides when it is met.
   line: words =>
-    words === '' ? `/${GOAL} ${GOAL_MET}` : `/${GOAL} ${words}. היעד הושג רק כש${GOAL_MET}`,
+    asGoal(words) === ''
+      ? `/${GOAL} ${GOAL_MET}`
+      : `/${GOAL} ${asGoal(words)}. היעד הושג רק כש${GOAL_MET}`,
 }
 
 // The words he had typed when he opened the menu: what the prompt box held, or
@@ -274,6 +288,10 @@ export const register: Register = on => {
           all.length === 0
             ? MISSING
             : all
+                // The goal row is left out: printed, it would be a bare
+                // `/goal`, which is not the line the row writes.
+                .map(group => ({ ...group, rows: group.rows.filter(row => !row.line) }))
+                .filter(group => group.rows.length > 0)
                 .flatMap(group => [
                   `${group.title}:`,
                   ...group.rows.map(row => `/${row.name}  ${row.sentence}`),

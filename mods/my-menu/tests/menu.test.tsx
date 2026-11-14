@@ -48,7 +48,7 @@ const GOAL = 'row:goal'
 const NEW = 'row:nadavai:my-new'
 // When the goal row's goal is met, as the menu writes it.
 const MET =
-  'כל שורה ברשימת "מה נחשב גמור" של הסשן הזה סגורה עם ראיה, או שכל מה שנשאר רשום עם חסימה של נדב, של לקוח, של בדיקת חנות או פלטפורמה, של תאריך או של חומרה'
+  'בסשן הזה כתובה רשימת "מה נחשב גמור" (אם אין, קודם כותבים אותה), וכל שורה בה סגורה עם ראיה, או שכל מה שנשאר רשום עם חסימה של נדב, של לקוח, של בדיקת חנות או פלטפורמה, של תאריך או של חומרה'
 type Command = { name: string; description: string; source: (typeof COMMANDS)[number]['source'] }
 
 // `/my-menu` as his key or his Enter runs it, with what he typed after it.
@@ -185,12 +185,20 @@ test('the groups come in his order, and a prompt no group names comes last', asy
     description,
     source: 'plugin',
   })
+  // With the seven prompts he was shown in their groups when he picked this
+  // order: run, status and fast; prove, done and review; wrong and never.
   engine(on, box(), [
     one('new', 'פרומט חדש בלי סימן'),
+    one('never', 'למה זה קרה, ושלא יקרה שוב: הסיבה.'),
     one('machine', 'המחשב נתקע או מלא: מה מכביד עכשיו.'),
+    one('wrong', 'זה לא מה שהתכוונתי: מה ביקשתי.'),
     one('other', 'תקרא את הסשן האחר: להמשיך ממנו.'),
     one('best', 'זו הדרך הכי טובה? חלופות עם מחיר.'),
+    one('review', 'תעבור על כל הסשן: בודקים חדשים.'),
+    one('prove', 'אתה בטוח? בדיקה מחדש עכשיו.'),
     one('done', 'סיימנו את הכול? כל בקשה שלי.'),
+    one('fast', 'למה זה לוקח כל כך הרבה זמן? לאן הולך הזמן.'),
+    one('status', 'מה מצבנו? מה נעשה.'),
     one('connected', 'התחברתי: בדיקה שהחיבור עובד.'),
     one('run', 'תמשיך עד הסוף בלי לעצור: רשימה.'),
   ])
@@ -209,11 +217,11 @@ test('the groups come in his order, and a prompt no group names comes last', asy
   }
 
   expect(seen).toEqual([
-    'באמצע עבודה = row:nadavai:my-run row:goal row:nadavai:my-connected',
-    'בודקים = row:nadavai:my-done',
+    'באמצע עבודה = row:nadavai:my-run row:goal row:nadavai:my-connected row:nadavai:my-status row:nadavai:my-fast',
+    'בודקים = row:nadavai:my-done row:nadavai:my-prove row:nadavai:my-review',
     'להבין ולהחליט = row:nadavai:my-best',
     'להראות, לשלוח ולשמור = row:nadavai:my-other',
-    'משהו לא טוב = row:nadavai:my-machine',
+    'משהו לא טוב = row:nadavai:my-machine row:nadavai:my-wrong row:nadavai:my-never',
     'נוספים = row:nadavai:my-new',
   ])
   // The sixth press came back to the first group.
@@ -246,6 +254,21 @@ test('the goal row writes a ready goal line, and his words become the goal', asy
   await ui.redraw()
   await ui.press({ key: GOAL })
   expect(held.text).toBe(`/goal the login bug. היעד הושג רק כש${MET}`)
+
+  // His closing mark does not double with the period, and a draft of several
+  // lines becomes one line.
+  held.text = 'לסיים את מסך ההזמנות?\nוגם את הדוח.'
+  await $.command.run(run())
+  await ui.redraw()
+  await ui.press({ key: GOAL })
+  expect(held.text).toBe(`/goal לסיים את מסך ההזמנות? וגם את הדוח. היעד הושג רק כש${MET}`)
+
+  // Only marks in the box: there are no words, so the line is the ready one.
+  held.text = '...'
+  await $.command.run(run())
+  await ui.redraw()
+  await ui.press({ key: GOAL })
+  expect(held.text).toBe(`/goal ${MET}`)
   await ui.unmount()
 })
 
@@ -743,7 +766,6 @@ test('with nobody at the keyboard the list is printed and nothing opens', async 
   expect(ran.text).toBe(
     [
       'באמצע עבודה:',
-      '/goal  לנעול את הסשן על היעד',
       '/nadavai:my-status  מה מצבנו?',
       'להבין ולהחליט:',
       '/nadavai:my-plain  תסביר לי את זה בפשטות',
