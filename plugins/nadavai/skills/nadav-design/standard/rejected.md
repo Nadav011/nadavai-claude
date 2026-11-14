@@ -89,6 +89,9 @@ Written by agents in MediZen's BRIEF and in this skill's rules; he approved thos
 a whole and never ruled on these lines one by one. Treat them as defaults.
 
 - The generic AI look: gradient text, glass, purple, icon-in-circle grids, walls of hero metrics.
+  Not covered: the sky and the glass (the film card and the live line) of an entry screen's hero
+  (`entry-hero.md`), which he approved on MediZen's sign-in screen on 14.11.2026 (`examples.md`);
+  the default stands for every screen people work in.
 - Impeccable `craft`, `bolder`, `overdrive` and `delight` on an existing product (the skill's hard
   rule; `rules/working-style.md` names the first three).
 - A second action colour; the alarm colour on a count, a category or a zero; colour as the only
