@@ -228,9 +228,14 @@ Chat in plain Hebrew, short lines, the why before the what; code, files and comm
   is why a prototype's walkthrough engine is never copied into an app: a demo walkthrough presses controls, and an
   in-app tour never presses one, its showing and stop steps' lit control does not respond, and she does a step
   herself on the sample record (`standard/help-system.md`, G-08, G-16). An app's tours are built from
-  `standard/help-system.md` and its manifest format (`standard/tours/`), not from a demo's engine. A tap on an
+  `standard/help-system.md` and its manifest format (`standard/tours/`), not from a demo's engine. This holds in the
+  app's preview too: once the demo lives in the app (`shared/built-once.md`, «An app is built once», points 2 and 4),
+  the walkthroughs he plays there are the app's own tours, from that same manifest, on the preview's invented data,
+  and they press nothing; a pressing walkthrough engine belongs only to the standalone page of the first direction
+  round (point 1) and goes into no app repo, its demo folder included, because what he approves in the preview is the
+  code that ships (point 2) [I]. A tap on an
   empty place outlines what can be pressed, `#tour-<id>` opens a walkthrough, and the build fails when a step's
-  target is not on its screen. Its source, to read and to copy from into a prototype only:
+  target is not on its screen. Its source, to read and to copy from into that standalone page only:
   `~/sporchat-design-backup-2026-09-22/scratchpad/v4/partner/` (`shell.js`, `shell.css`, `tours.json`,
   `build-partner.py`; a local folder on the LENOVO with no git remote), without the defects `standard/examples.md`
   lists. Each project writes its own router.
