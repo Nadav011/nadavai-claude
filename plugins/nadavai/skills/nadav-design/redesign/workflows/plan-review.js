@@ -96,6 +96,7 @@ const confirmEdits = async (t, changed) => {
       ? await fullReview(`plan-review-full:${tag}`, `The writer just changed: ${JSON.stringify(what || [])}. This plan is sensitive, so this edit gets a whole review, not a diff-only confirm.`)
       : await diffConfirm(tag, what)
     if (!c) return { approved: false, open: [], why: `confirm ${tag} returned nothing` }
+    if (SENSITIVE) record(`recheck ${tag}`, c) // a full re-review counts in faultsPerRound like a main-loop review
     log(`${SENSITIVE ? 'full review' : 'diff-only confirm'} ${tag}: ${c.verdict}, ${c.findings.length} findings`)
     if (!c.findings.length || i === CONF) return { approved: ok(c), open: c.findings, why: ok(c) ? '' : `confirm ${tag}: ${c.verdict}, ${blockingIn(c) ? 'HIGH or MEDIUM still open' : 'not approved'}${SENSITIVE ? `; sensitive: the cap of ${CONF} re-reviews per edit chain ends this run, the rounds go on in a new run, and nothing is approved meanwhile` : ''}` }
     tag = `${t}.${i}`
@@ -118,12 +119,13 @@ Return the WRITE shape.`, { label: 'plan-write', phase: 'Plan write', schema: WR
 // ---------------- full reviews until APPROVE (or the stop after REJECTS rejections); then every edit is diff-confirmed ----------------
 phase('Plan review')
 const reviews = []
+const record = (round, v) => reviews.push({ round, verdict: v.verdict, n: v.findings.length, faults: v.findings.filter(f => f.severity !== 'LOW').length, summary: v.summary.slice(0, 300) })
 let approved = false, open = [], stop = '', simplify = false
 if (A.write !== false && !last) stop = 'the writer returned nothing'
 for (let r = 1; r <= MAX && !approved && !stop; r++) {
   const v = await fullReview(`plan-review:${R}-${r}`)
   if (!v) { stop = `review ${r} returned nothing`; break }
-  reviews.push({ round: r, verdict: v.verdict, n: v.findings.length, faults: v.findings.filter(f => f.severity !== 'LOW').length, summary: v.summary.slice(0, 300) })
+  record(r, v)
   log(`review ${r}: ${v.verdict}, ${v.findings.length} findings`)
   if (ok(v) && !v.findings.length) { approved = true; break }
   if (ok(v)) {
@@ -138,7 +140,7 @@ for (let r = 1; r <= MAX && !approved && !stop; r++) {
   }
   // ITERATE, REJECT, or an APPROVE that still lists a HIGH or MEDIUM: fix, then a full review again
   if (!SENSITIVE && r === REJECTS) { simplify = true; stop = `${REJECTS} rejecting full reviews: simplify the plan, keeping what it does for a person, and tell Nadav (rules/working-style.md, "Second model")`; break }
-  if (r === MAX) { stop = `still ${v.verdict} after ${MAX} full reviews${SENSITIVE ? ' (sensitive: the rounds go on in a new run)' : ''}`; break } // no edit that nobody would check
+  if (r === MAX) { stop = `still ${v.verdict} after ${MAX} full reviews${SENSITIVE ? ' (sensitive: the rounds go on in a new run, and nothing is approved meanwhile)' : ''}`; break } // no edit that nobody would check
   if (!(await planFix(`${R}-${r}`, v.findings, `fix round ${r}`))) { stop = `fix ${r} returned nothing`; break }
 }
 await checkpoint('reviews')
@@ -151,7 +153,7 @@ if (approved && A.secondModel !== false) {
   phase('Second model')
   // Grok first here [I]: the full reviews before it were already fresh Opus, so the second read is another vendor's.
   const sm = await run(`${PCTX}
-SECOND-MODEL CROSS-CHECK, read-only for the plan (rules/working-style.md, "Second model"; the full reviews were fresh Opus, so this is another vendor's read). Run from ${OUT}, one provider at a time, in this order: omc ask grok "<question>"; else omc ask codex "<question>", never with -m or an effort flag (the config default is the only allowed model); else omc ask antigravity "<question>". Skip without a try a provider known to be out of quota (a reset date recorded in memory that has not passed, or a failed try in this session), and go to the next one when a provider cannot run (quota, missing binary, error, timeout). omc ask grok can exit 0 on a quota or balance error: read the raw output in its artifact, and when it holds such an error instead of a review, Grok did not run. omc ask starts these with their approvals off, so the question opens with "Read-only: change no file." The question: review plan/build-plan.md (and START-BUILD.md when it exists) as the build session will use them, against DECISIONS-ANSWERED.md and the demo sections; report HIGH, MEDIUM and LOW findings with the exact place and fix, and a verdict (APPROVE only when nothing HIGH or MEDIUM). Read the artifact file omc prints and return its verdict and findings faithfully, with reviewer "grok", "codex" or "antigravity"; reviewer "none" when none of them ran (say why in the summary).`, { label: 'second-model', phase: 'Second model', schema: SECOND, effort: 'high' })
+SECOND-MODEL CROSS-CHECK, read-only for the plan (rules/working-style.md, "Second model"; the full reviews were fresh Opus, so this is another vendor's read). Run from ${OUT}, one provider at a time, in this order: omc ask grok "<question>", started with run_in_background (it takes 10-20 minutes, and no Bash call of yours may block over about 4 minutes: rules/model-routing.md, Waiting), then waited on in slices of at most 140 s each (a loop of sleep 5 that ends when the job has finished, Bash timeout 175000, run again until it has), and when it ends its artifact file is read; else omc ask codex "<question>", never with -m or an effort flag (the config default is the only allowed model); else omc ask antigravity "<question>". Skip without a try a provider known to be out of quota (a reset date recorded in memory that has not passed, or a failed try in this session), and go to the next one when a provider cannot run (quota, missing binary, error, timeout). omc ask grok can exit 0 on a quota or balance error: read the raw output in its artifact, and when it holds such an error instead of a review, Grok did not run. omc ask starts these with their approvals off, so the question opens with "Read-only: change no file." The question: review plan/build-plan.md (and START-BUILD.md when it exists) as the build session will use them, against DECISIONS-ANSWERED.md and the demo sections; report HIGH, MEDIUM and LOW findings with the exact place and fix, and a verdict (APPROVE only when nothing HIGH or MEDIUM). Read the artifact file omc prints and return its verdict and findings faithfully, with reviewer "grok", "codex" or "antigravity"; reviewer "none" when none of them ran (say why in the summary).`, { label: 'second-model', phase: 'Second model', schema: SECOND, effort: 'high' })
   if (sm && sm.reviewer !== 'none') second = { ...sm }
   else {
     // a fresh Opus with a clean context reviews in the other providers' place; its verdict counts like theirs

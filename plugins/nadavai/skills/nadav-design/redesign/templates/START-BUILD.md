@@ -8,7 +8,7 @@ Nadav approves the plan with AskUserQuestion. Nothing else goes on that line.)
 > **לנדב:** את הטקסט שבמסגרת למטה מדביקים בסשן חדש של Claude Code בתוך הריפו של האפליקציה, ורק אחרי שאישרת את התוכנית
 > (השורה למעלה אומרת `Status: OWNER-APPROVED` עם מספר התשובה שלך).
 > הסשן הזה בונה את האפליקציה לפי התוכנית, שלב אחרי שלב, ועוצר אצלך בכל מקום שמסומן «go»,
-> ולפני שהמסכים החדשים עולים למשתמשים.
+> ולפני שהמסכים החדשים עולים למשתמשים, אלא אם התוכנית שאישרת כבר קבעה מתי זה קורה.
 
 ```
 You are the build session for the <App> redesign. The approved package lives in <out> (its own git repo):
