@@ -1,6 +1,6 @@
 ---
 name: my-plain
-description: "תסביר לי את זה בפשטות: מה היה, מה יהיה, ואיך אני אראה את זה. בלי מילים טכניות."
+description: "תסביר לי את זה בפשטות: מה היה, מה יהיה ואיך אראה את זה, בלי מילים טכניות."
 argument-hint: "[מה להסביר]"
 disable-model-invocation: true
 ---
@@ -17,3 +17,4 @@ If that is empty, explain your last reply.
 3. Replace a name that was made up during the work (a round, a lane, a unit id) with what the thing is. Say a technical term in Hebrew words. English stays only for a name he has to copy.
 4. If something in the original was wrong or overstated, correct it here.
 5. If a decision of his was buried in the original, put it last, as one clear question.
+6. When he asks for it short ("קצר ולעניין"), give the answer in three lines at most, and the rest only if he asks.

@@ -1,6 +1,6 @@
 {
   "name": "my-menu",
   "version": "0.1.0",
-  "description": "Nadav's prompt store as a menu: /my-menu (or the key bound to it) lists the nadavai:my-* prompts; arrows move, Enter puts the chosen one in the prompt box.",
+  "description": "Nadav's prompt store as a list above the prompt box: /my-menu (or the key bound to it) shows the nadavai:my-* prompts, each with the sentence it answers and what it gives; a number key or a click puts the chosen one in the prompt box.",
   "types": "./types/index.d.ts"
 }

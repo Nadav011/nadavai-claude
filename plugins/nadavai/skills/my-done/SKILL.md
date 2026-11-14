@@ -1,6 +1,6 @@
 ---
 name: my-done
-description: "סיימנו את הכול? בדיקה מהירה: כל בקשה שלי ומה קרה איתה, ואם אפשר לסגור את הסשן."
+description: "סיימנו את הכול? כל בקשה שלי ומה קרה איתה, והאם אפשר לסגור את הסשן."
 argument-hint: "[על מה להתמקד]"
 disable-model-invocation: true
 ---
@@ -15,8 +15,10 @@ Nadav asks whether the work he asked for in this session is finished. This is th
    - stopped midway, forgotten, or changed from what he asked;
    - waiting: on whom, and since when.
    When you hesitate between done and not done, it is not done.
-3. Run `session-close-check` as `working-style.md` (Finishing) says, and open and close the reply the way that section sets. The opening answer is about this session's own work: something that belongs to another session does not turn it into "לא", and goes in one separate line near the end.
-4. The table of requests comes right after the opening. If part of the session was left out, say so before the closing lines, with: "לא כל הסשן נבדק. לביקורת מלאה: /nadavai:my-review".
+3. For what was meant to ship, say where it is, each with its evidence: in main (the commit), live on the domain (the address and a check made now), and for store apps each app on each platform. What he names below is checked item by item.
+4. Close the loose ends he asks about every time: messages that belong to other sessions were forwarded; what was learned is saved where the next session finds it (the skill, the plugin, memory) and the other machine has it; and whether anything waits on him or on someone outside (a client, an accountant, a lawyer, a store review).
+5. Run `session-close-check` as `working-style.md` (Finishing) says, and open and close the reply the way that section sets. The opening answer is about this session's own work: another session's work does not turn it into "לא", and goes in one separate line near the end. A message that belongs to another session and was not forwarded yet is this session's to forward: forward it before you answer, as Finishing says.
+6. The table of requests comes right after the opening. If part of the session was left out, say so before the closing lines, with: "לא כל הסשן נבדק. לביקורת מלאה: /nadavai:my-review".
 
 This command asks for the picture first, so here the report comes before the leftovers are finished. That is the one place where it differs from Finishing. After the report, go on and finish what is yours.
 

@@ -1,6 +1,6 @@
 ---
 name: my-review
-description: "ביקורת מלאה על כל הסשן: מה ביקשתי, מה קרה לכל בקשה, מה פוספס או נעצר, דרכים אחרות, והאם סגורים ב-100%. בודקים חדשים קוראים את השיחה עצמה."
+description: "תעבור על כל הסשן: בודקים חדשים קוראים הכול, מה פוספס, והאם סגורים ב-100%."
 argument-hint: "[מתאריך, או על מה להתמקד]"
 disable-model-invocation: true
 ---
@@ -13,7 +13,7 @@ Your own memory of the session is not a source for this. After a compaction you 
 ## 1. Build the sources
 - His side, for the whole session: `session-digest ${CLAUDE_SESSION_ID} --owner-only --out <a new folder in your scratchpad>`. It holds what Nadav typed (U), what he picked in dialogs with the options and any note he typed (A), his commands (C) and goal conditions (G). It is short even after weeks, so every request he made is in it.
 - Both sides: `session-digest ${CLAUDE_SESSION_ID} --out <a second new folder>` adds your end-of-turn replies (R), your text before each dialog (Q) and other sessions' messages (X), with a mark wherever the context was compacted. When it has more than 18 parts, or Nadav named a window, run it again with `--since YYYY-MM-DD` so that it fits. The requests from before that day stay in the review through the first digest; say in the report that the replies to them were not read.
-- Read each `index.md`. The last command it lists has to be this `/nadavai:my-review` call; if it is not, the digest is of another session, and one of the wrong session is worse than none. A line that starts "NOT IN THIS DIGEST" names another file of this session that holds messages he typed: run the first command on that file too and include it. If the index shows the session starting later than this work did, the earlier part is in another transcript: say so in the first line of the report.
+- Read each `index.md`. Its first lines name the session and the transcript it was built from: they have to be this session's (`${CLAUDE_SESSION_ID}`), because a digest of another session is worse than none. The last command it lists is normally this `/nadavai:my-review` call; a call with a long line of words after it is listed as typed text instead, and that is fine. A line that starts "NOT IN THIS DIGEST" names another file of this session that holds messages he typed: run the first command on that file too and include it. If the index shows the session starting later than this work did, the earlier part is in another transcript: say so in the first line of the report.
 - If a digest cannot be built, find out why and try the transcript's path directly (`~/nadavai/bin/session-digest <path>`). If it still fails, the review is built from the plan files and the conversation, and the report opens by saying that it was not built from the transcript and what that leaves out.
 - The digests repeat what he typed, so they stay in the scratchpad: do not commit them or send them anywhere.
 - List the plan, spec and decision files this session wrote or worked from, the decision trail if the work kept one, and what it built: the repository with its branch or commit range, the deployed address, the documents.
@@ -27,7 +27,7 @@ Use `nadavai:reviewer` agents with `model: opus`. Give each one the paths and it
 Check every finding against the live state yourself (the code, the data, the site, the run), with scoped checks only. A reviewer's report is a lead, not evidence. Mark what you could not check as "לא אומת". Fix nothing in this step: the picture comes first.
 
 ## 4. The report to Nadav
-In this order:
+Written in everyday Hebrew (`working-style.md`), in this order:
 1. What the review is based on: what was read in full, what was left out, how many times the session was compacted.
 2. The goal of the session, in his words.
 3. A table: each request or problem, what was done, the state today, the evidence.

@@ -1,6 +1,6 @@
 ---
 name: my-map
-description: "איבדתי את התמונה: מה נסגר, מה נשאר, באיזה סבב אנחנו וכמה זמן עוד. על כל הסשן מההתחלה, בלי לפספס שום בקשה."
+description: "איבדתי את הכול: מה נסגר, מה נשאר, באיזה סבב אנחנו וכמה זמן עוד."
 argument-hint: "[על מה להתמקד]"
 disable-model-invocation: true
 ---
@@ -13,11 +13,12 @@ The session has run for days and through many rounds, and Nadav has lost the pic
 3. Sort every request into a handful of topics, named in his words. Each request ends in one state: closed (with its evidence), open (what exactly is still missing), not started, dropped (who decided, and why), or waiting (on whom). A request reported as done that you did not check now is "closed by an earlier report, not checked now". Count them: every request from the digest appears in exactly one row, and the totals add up to the number of requests you found. One that fits no topic gets its own row instead of being left out.
 4. The rounds: which round this is, what each earlier round closed in one line, what the current round is doing and what is left in it, and what ends the rounds (the stop rule this work uses). If the number of rounds still to come is unknown, say what it depends on.
 5. The time: what remains, split into building, checks and waiting, with an estimate taken from the measured pace of this work (how long the last rounds took, how many units are left). Say what the estimate rests on and what could shorten it. Without a measured basis, give the range and say it is a guess.
-6. The reply, in this order:
+6. The reply, in everyday Hebrew (`working-style.md`), in this order:
    - three lines first: how much is closed out of how much, which round this is, and when it should end;
    - the table by topic: closed, open, waiting;
    - what is left, in the order it will be done;
-   - what waits on him, each with its exact question;
+   - what waits on him, each with its exact question, and any question of his that is still unanswered;
+   - the next step, and who takes it;
    - what you decided alone since the last time he looked, from the decision trail or your replies;
    - what the map is based on: the digest read in full or not, and how many times the session was compacted.
 

@@ -64,6 +64,18 @@ my-done session-close-check
 my-other session-digest
 my-other cs
 my-resume resume-all
+my-wrong session-digest
+my-missed session-digest
+my-cost token-audit
+my-cost subagent-context
+my-cost executor-quality
+my-cost guard-stats
+my-fast heavy-slot
+my-fast machines-now
+my-machine heavy-slot
+my-machine machines-now
+my-agents heavy-slot
+my-ship ci-wait
 PAIRS
 # Names a prompt cannot work without: a placeholder Claude Code fills in, a tool of the harness, a
 # remote command. A typo in one of them is silent at run time.
@@ -78,6 +90,18 @@ my-other SendMessage
 my-resume nadavai-deploy
 my-resume resumeFromRunId
 my-ask AskUserQuestion
+my-wrong ${CLAUDE_SESSION_ID}
+my-wrong AskUserQuestion
+my-missed ${CLAUDE_SESSION_ID}
+my-self agent-browser
+my-show orca-cli
+my-machine nadavai:machine-checkup
+my-machine SendMessage
+my-client client-messages/SKILL.md
+my-client AskUserQuestion
+my-save SendMessage
+my-agents ListAgents
+my-ship production-change.md
 LITERALS
 grep -q 'nadavai:reviewer' "$skills"/my-review/SKILL.md && [ -f "$here/plugins/nadavai/agents/reviewer.md" ] && ok \
   || bad "my-review needs the nadavai:reviewer agent"
