@@ -170,7 +170,8 @@ other tour is started by the person. A link may start a tour (`#tour-<id>` in a 
 "what's new" or a help article): following it is her own start, like "הראו לי", not an automatic
 one, so none of the waits above applies to it, and the tour begins at its start state, asking
 first where a window holds unsaved input (G-08) [I]; when she answers no, nothing is closed or
-discarded, everything stays as it is, and the tour does not start [I]. Inside a store shell, a
+discarded, everything stays as it is, and the tour does not start [I]; the same holds for every
+start that asks first (the card, "הראו לי", the list) [I]. Inside a store shell, a
 link start is whatever the shell's deep-link routing hands to the web app: when the hash does not
 arrive, the tour does not start, and the other starts of G-21 are unaffected [I].
 
@@ -310,8 +311,9 @@ non-breaking spaces (U+00A0, U+202F); a word joined by a maqaf is one word ("ק�
 is four); niqqud and a zero-width space stay inside their word; a bidi mark (U+200F and the other
 direction marks) is dropped before counting, so one standing between two spaces is no word; a
 number or a sign standing alone is a word ("קובעים תור ל 3 שעות" is five). A title equal to its
-sentence or to the tour's title is a finding (`title-same`), comparing them without their spacing
-and without a full stop, question mark, exclamation mark, colon, semicolon or comma at the end.
+sentence or to the tour's title is a finding (`title-same`), comparing them without their spacing,
+without direction marks, and without a full stop, question mark, exclamation mark, colon, semicolon
+or comma at the end.
 
 When the tour ends, focus returns to what started it (the card's "הראו לי", the list's row, the
 link), not to the screen at large, as SportChat's demo did (`examples.md`) [I]. On a centred card,

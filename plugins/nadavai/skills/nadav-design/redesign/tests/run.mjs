@@ -19,15 +19,17 @@ const MINI = path.join(SK, 'examples/mini');
 const T = path.join(SK, 'tools');
 const W = path.join(SK, 'workflows');
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'redesign-skill-tests-')); // never a fixed, shared folder
-// the run's temp folder is removed when the run ends, passing, failing, or stopped by SIGINT or SIGTERM; KEEP_TMP=1
+// the run's temp folder is removed when the run ends, passing, failing, or stopped by SIGINT, SIGTERM or SIGHUP; KEEP_TMP=1
 // keeps it and prints its path (999 such folders had piled up in /tmp before this)
 const KEEP_TMP = process.env.KEEP_TMP === '1';
 process.on('exit', () => { if (!KEEP_TMP) fs.rmSync(TMP, { recursive: true, force: true }); });
-for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { if (KEEP_TMP) fs.writeSync(2, `the fixture copies are kept in ${TMP}\n`); process.exit(sig === 'SIGINT' ? 130 : 143); });
+const SIG_EXIT = { SIGHUP: 129, SIGINT: 130, SIGTERM: 143 };
+for (const sig of Object.keys(SIG_EXIT)) process.on(sig, () => { if (KEEP_TMP) fs.writeSync(2, `the fixture copies are kept in ${TMP}\n`); process.exit(SIG_EXIT[sig]); });
 // --tmp-probe, for the test of the above (TMP-clean): print the folder, write a file in it, then end with 0 (--tmp-probe),
-// with 1 (--tmp-probe=fail), or wait for a signal (--tmp-probe=wait); no test runs
+// with 1 (--tmp-probe=fail), or wait for a signal (--tmp-probe=wait, idle; --tmp-probe=wait-sync, below: a loop of
+// test() calls whose bodies sit in spawnSync, the shape of a real run); no suite test runs
 const tmpProbe = process.argv.find(a => a.startsWith('--tmp-probe'));
-if (tmpProbe) {
+if (tmpProbe && tmpProbe !== '--tmp-probe=wait-sync') {
   fs.writeFileSync(path.join(TMP, 'probe'), 'x');
   fs.writeSync(1, `${TMP}\n`);
   if (tmpProbe === '--tmp-probe=wait') await new Promise(() => setInterval(() => {}, 1000));
@@ -51,6 +53,9 @@ const test = async (id, name, fn) => {
   } catch (e) {
     results.push({ id, name, ok: false, why: failWhy(e) });
   }
+  // one macrotask between tests: most bodies are synchronous (spawnSync), so without it the event loop never turns and a
+  // SIGINT, SIGTERM or SIGHUP waits until the whole run ends; with it the signal is handled after the current test
+  await new Promise(r => setImmediate(r));
 };
 const sh = (cmd, args, opts = {}) => spawnSync(cmd, args, { encoding: 'utf8', cwd: MINI, ...opts });
 // sh for the tour checker's tests: a signal or a spawn error throws a spawn failure (failWhy names it)
@@ -60,6 +65,11 @@ const shTour = (cmd, args, opts = {}) => {
   if (r.error || r.signal) throw Object.assign(new Error(`${cmd} ${args.map(a => path.basename(String(a))).join(' ')}: ${r.error ? `spawn error ${r.error.code || r.error.message}` : `ended by signal ${r.signal}`}`), { spawnFailure: true });
   return r;
 };
+if (tmpProbe === '--tmp-probe=wait-sync') {
+  fs.writeFileSync(path.join(TMP, 'probe'), 'x');
+  fs.writeSync(1, `${TMP}\n`);
+  for (;;) await test('probe', 'a body that sits in spawnSync', () => { spawnSync(process.execPath, ['-e', 'setTimeout(() => {}, 1000)']); return ''; });
+}
 
 // ---------------- workflow harness ----------------
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
@@ -2199,7 +2209,7 @@ await test('TOUR-spawn', 'review 1\'s C8: a checker child killed by a signal, or
   if (!failWhy(new Error('x')).startsWith('threw: Error: x')) why.push('an ordinary error is no longer reported as threw');
   return why.join(' · ');
 });
-await test('TMP-clean', 'a run removes its temp folder when it ends, passing, failing, or stopped by SIGTERM or SIGINT, and keeps it, with its path printed, only under KEEP_TMP=1 (this session\'s cleanup found 999 left in /tmp)', async () => {
+await test('TMP-clean', 'a run removes its temp folder when it ends, passing, failing, or stopped by SIGTERM, SIGINT or SIGHUP, also while a test sits in spawnSync (review 3), and keeps it, with its path printed, only under KEEP_TMP=1 (this session\'s cleanup found 999 left in /tmp)', async () => {
   const why = [];
   const base = fs.mkdtempSync(path.join(TMP, 'tmp-clean-'));
   const env = extra => ({ ...process.env, TMPDIR: base, KEEP_TMP: '', ...extra });
@@ -2208,14 +2218,24 @@ await test('TMP-clean', 'a run removes its temp folder when it ends, passing, fa
     const r = shTour('node', [path.join(HERE, 'run.mjs'), arg], { env: env({}) });
     if (r.status !== code || !r.stdout.includes('redesign-skill-tests-') || left().length) why.push(`${label}: exit ${r.status}, left ${JSON.stringify(left())}`);
   }
-  for (const sig of ['SIGTERM', 'SIGINT']) {
-    const ch = spawn('node', [path.join(HERE, 'run.mjs'), '--tmp-probe=wait'], { env: env({}), stdio: ['ignore', 'pipe', 'pipe'] });
+  // review 3's B1: the signal is sent by the probe's pid while it sits inside spawnSync (wait-sync), as in a real run, and
+  // to the idle probe (wait); each must end with its code within 5 s and leave no folder
+  const EXIT = { SIGTERM: 143, SIGINT: 130, SIGHUP: 129 };
+  for (const [probe, sig] of [['wait', 'SIGTERM'], ['wait', 'SIGINT'], ['wait-sync', 'SIGTERM'], ['wait-sync', 'SIGINT'], ['wait-sync', 'SIGHUP']]) {
+    const ch = spawn('node', [path.join(HERE, 'run.mjs'), `--tmp-probe=${probe}`], { env: env({}), stdio: ['ignore', 'pipe', 'pipe'] });
     const dir = await new Promise(res => { let out = ''; ch.stdout.on('data', d => { out += d; if (out.includes('\n')) res(out.trim()); }); setTimeout(() => res(''), 30000); });
     const had = !!dir && fs.existsSync(path.join(dir, 'probe'));
+    if (probe === 'wait-sync') await new Promise(r => setTimeout(r, 300)); // inside its first spawnSync by now
     const done = new Promise(res => ch.on('close', c => res(c)));
-    ch.kill(sig);
+    const sent = Date.now();
+    process.kill(ch.pid, sig);
+    let late = false;
+    const timer = setTimeout(() => { late = true; process.kill(ch.pid, 'SIGKILL'); }, 5000);
     const c = await done;
-    if (!had || c !== (sig === 'SIGINT' ? 130 : 143) || left().length) why.push(`${sig}: folder seen ${had}, exit ${c}, left ${JSON.stringify(left())}`);
+    clearTimeout(timer);
+    const ms = Date.now() - sent;
+    if (!had || late || c !== EXIT[sig] || left().length) why.push(`${probe} ${sig}: folder seen ${had}, exit ${c}${late ? ' after 5 s (killed)' : ''} in ${ms} ms, left ${JSON.stringify(left())}`);
+    for (const f of left()) fs.rmSync(path.join(base, f), { recursive: true, force: true }); // a late probe's folder, so the next case starts clean
   }
   const k = shTour('node', [path.join(HERE, 'run.mjs'), '--tmp-probe'], { env: env({ KEEP_TMP: '1' }) });
   const kept = k.stdout.trim();
@@ -2487,7 +2507,9 @@ await test('TOUR-need-texts', 'the need rule\'s sentences (selectSample as well 
     ["../help-system.md", "The card's accessible name is the tour's name, that one string, and the step's title is not repeated in it.", 1],
     ["tours.schema.json", "in a chapter it is the job's title (jobTitle), then a space, a middle dot (·) and a space, then this title", 1],
     ["tours.schema.json", "and on the card's line on top, and in its accessible name, it comes before the chapter's title, joined by a space, a middle dot (·) and a space", 1],
-    ["../help-system.md", "when she answers no, nothing is closed or discarded, everything stays as it is, and the tour does not start [I].", 1],
+    ["../help-system.md", "when she answers no, nothing is closed or discarded, everything stays as it is, and the tour does not start [I]; the same holds for every start that asks first (the card, \"הראו לי\", the list) [I].", 1],
+    ["../help-system.md", "comparing them without their spacing, without direction marks, and without a full stop", 1],
+    ["tours.schema.json", "title-same; spacing, direction marks, and a full stop,", 1],
     ["../help-system.md", "Inside a store shell, a link start is whatever the shell's deep-link routing hands to the web app: when the hash does not arrive, the tour does not start, and the other starts of G-21 are unaffected [I].", 1],
     ["../help-system.md", "On a centred card, which lights no control, focus is on the card's main button, and at the end it returns to what started the tour as above [I].", 1],
     ["../help-system.md", "at stage demo the steps and the tours still without one are a note with their count, so manifests already being written are not broken, and at stage app each is a finding (title-missing, promise-missing)", 1],
