@@ -197,7 +197,7 @@ Opt-in mode, absorbed from mattpocock/skills grilling (`--frontier` flag or expl
 - A question whose answer depends on another question still open in this round belongs to a **later** round, not this one. Settled answers push the frontier outward — recompute it each round and ask again until the frontier is empty.
 - **Facts are never frontier questions.** When a frontier question needs a fact from the environment, look it up (or dispatch an `Explore` subagent with `model: haiku`) instead of asking the user. Don't block on it: a running exploration is an unsettled prerequisite — only questions downstream of it wait for the subagent to report; ask the rest of the frontier now.
 - Ambiguity scoring still runs after each round (Step 2c), over all answers received. `weakest_dimension` is still computed and recorded but does not gate which questions are asked while the mode is active.
-- The interview is done when the frontier is empty: every branch of the design tree visited, nothing left silently assumed.
+- The interview is done when the frontier is empty: every branch of the design tree visited, nothing left silently assumed. The user's early exit and the round limits of Step 2f end it sooner, as in the normal loop.
 
 ## Phase 2: Interview Loop
 
@@ -345,7 +345,7 @@ Update interview state with the new round, global scores, per-component `topolog
 
 ### Step 2f: Check Soft Limits
 
-- **Round 3+**: Allow early exit if user says "enough", "let's go", "build it"
+- **Any round**: Allow early exit if user says "enough", "let's go", "build it"
 - **Round 10**: Show soft warning: "We're at 10 rounds. Current ambiguity: {score}%. Continue or proceed with current clarity?"
 - **Round 20**: Hard cap: "Maximum interview rounds reached. Proceeding with current clarity level ({score}%)."
 
@@ -583,7 +583,7 @@ Why bad: 45% ambiguity means nearly half the requirements are unclear. The mathe
 <Escalation_And_Stop_Conditions>
 - **Hard cap at 20 rounds**: Proceed with whatever clarity exists, noting the risk
 - **Soft warning at 10 rounds**: Offer to continue or proceed
-- **Early exit (round 3+)**: Allow with warning if ambiguity > threshold
+- **Early exit (any round)**: Allow with warning if ambiguity > threshold
 - **User says "stop", "cancel", "abort"**: Stop immediately, save state for resume
 - **Ambiguity stalls** (same score +-0.05 for 3 rounds): Activate Ontologist mode to reframe
 - **All dimensions at 0.9+**: Skip to spec generation even if not at round minimum
@@ -601,7 +601,7 @@ Why bad: 45% ambiguity means nearly half the requirements are unclear. The mathe
 - [ ] Spec path reported, and the next step taken as the preface's last bullet says; the interview itself invoked no other skill
 - [ ] Brownfield confirmation questions cite repo evidence (file/path/pattern) before asking the user to decide
 - [ ] Scope-fuzzy tasks can trigger ontology-style questioning to stabilize the core entity before feature elaboration
-- [ ] With `--frontier`, rounds ask the whole settled frontier (batched ≤4 per AskUserQuestion call), facts dispatched to subagents, and the loop ends only on an empty frontier
+- [ ] With `--frontier`, rounds ask the whole settled frontier (batched ≤4 per AskUserQuestion call), facts dispatched to subagents, and the loop ends on an empty frontier, on the user's early exit or at the round cap
 - [ ] Round 0 topology gate completed before ambiguity scoring and persisted `topology.confirmed_at`
 - [ ] Per-round ambiguity report includes Topology target/coverage and Ontology row with entity count and stability ratio
 - [ ] Multi-component interviews rotate targeting across active components when N > 1
