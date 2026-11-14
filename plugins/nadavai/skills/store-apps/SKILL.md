@@ -65,7 +65,11 @@ this decision, it wins for that repo (`rules/working-style.md`: a project's stri
    native component and capability a person can feel; Nadav, 2026-11-09: Capacitor stays, nothing
    less than the full bar). Every row applies by default, and a row's product question is asked
    while the plan is written, never left for a later version (Nadav, 2026-11-12).
-   Done when every row there has its check result, and the open rows have an owner and a date.
+   Then score it out of 100 with an independent model (native-bar.md, "A real 100"): the score sizes
+   the work at the plan, gates each submission, and reaches 100 only after the device checks
+   (Nadav, 2026-11-14: a real 100, UI and UX included, every native capability).
+   Done when every row there has its check result, the open rows have an owner and a date, and the
+   ledger holds the latest score with its scorer and date.
 
 3. **Build.** Do iOS on Xcode Cloud (25 free compute hours a month with the developer program; one
    product setup per app on a Mac, then everything by API) with Codemagic as the fallback, and Android
