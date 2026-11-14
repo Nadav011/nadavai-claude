@@ -514,12 +514,17 @@ await test('SLIM-1', 'shared/rules.md, which every mode reads, stays at 200 line
 });
 // Every citation of built-once.md (and every «An app is built once», point N citation of rules.md) must land on a
 // file that exists and, where it names a section or a point, on that section or point.
-const builtOnceRefs = (skillRoot, extraFiles = []) => {
-  const why = [], files = [...extraFiles];
-  const walk = d => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, e.name); if (e.isDirectory()) { if (e.name !== 'examples' && e.name !== 'node_modules') walk(p); } else if (/\.(md|js|mjs|json)$/.test(e.name) && p !== fileURLToPath(import.meta.url)) files.push(p); } };
-  walk(skillRoot);
+const builtOnceRefs = (skillRoot, repoDirs = []) => {
+  // skillRoot: the nadav-design folder; repoDirs: other folders whose .md files are scanned too (the repo's rules/,
+  // guides/, plugins/ and templates/ in the real run)
+  const why = [], files = new Set(), self = fileURLToPath(import.meta.url);
+  const walk = (d, inSkill) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, e.name); if (e.isDirectory()) { if (e.name !== 'node_modules' && e.name !== '.git' && !(inSkill && e.name === 'examples')) walk(p, inSkill || p === skillRoot); } else if ((inSkill ? /\.(md|js|mjs|json)$/ : /\.md$/).test(e.name) && p !== self) files.add(p); } };
+  walk(skillRoot, true);
+  for (const d of repoDirs) if (fs.existsSync(d)) walk(d, false);
+  const repo = path.join(skillRoot, '..', '..', '..', '..');
+  const rulesFile = path.join(skillRoot, 'shared', 'rules.md');
   const resolve = (ref, from) => {
-    if (ref.startsWith('~/nadavai/')) return path.join(skillRoot, '..', '..', '..', '..', ref.slice('~/nadavai/'.length));
+    if (ref.startsWith('~/nadavai/')) return path.join(repo, ref.slice('~/nadavai/'.length));
     if (ref.startsWith('${SK}/')) return path.join(skillRoot, 'redesign', ref.slice('${SK}/'.length));
     if (ref.startsWith('nadav-design/')) return path.join(skillRoot, '..', ref);
     if (ref.startsWith('shared/')) return path.join(skillRoot, ref);
@@ -528,63 +533,87 @@ const builtOnceRefs = (skillRoot, extraFiles = []) => {
   let n = 0;
   for (const f of files) {
     const flat = fs.readFileSync(f, 'utf8').replace(/\s+/g, ' ');
-    for (const m of flat.matchAll(/((?:~\/nadavai\/|\$\{SK\}\/|[\w.-]+\/)*)(built-once|rules)\.md/g)) {
-      const ref = m[0], target = resolve(ref, f);
+    const rel = path.relative(repo, f);
+    // any file name with "built" in it is a candidate (so a misspelled built-ones.md is caught), plus rules.md
+    for (const m of flat.matchAll(/((?:~\/nadavai\/|\$\{SK\}\/|[\w.-]+\/)*)([\w-]*[Bb]uilt[\w-]*|rules)\.md/g)) {
+      const ref = m[0], target = path.normalize(resolve(ref, f));
       const after = flat.slice(m.index + ref.length, m.index + ref.length + 160);
       const cite = after.match(/^`?,? «([^»]+)»(?:,? (?:that section's )?points? (\d)(?: and (\d))?)?/);
+      const bare = after.match(/^`?,? points? (\d)(?: and (\d))?/);
       if (m[2] === 'rules') {
+        if (target !== path.normalize(rulesFile)) continue; // another project's or folder's rules.md
         // the summary in rules.md is not cited by point or by line: the full text of each point lives in built-once.md
         const line = after.match(/^`?:(\d+)(?:-(\d+))?|^`?,? lines? (\d+)(?:-(\d+))?/);
-        const rel = `${path.relative(path.join(skillRoot, '..'), f)}: ${ref}`;
-        if (cite && cite[1] === 'An app is built once' && cite[2]) { n++; why.push(`${rel} «An app is built once» point ${cite[2]}${cite[3] ? ` and ${cite[3]}` : ''} -> stale: the point's full text is at shared/built-once.md, «An app is built once», point ${cite[2]}${cite[3] ? ` and ${cite[3]}` : ''}`); }
+        const pts = cite && cite[1] === 'An app is built once' && cite[2] ? [cite[2], cite[3]] : bare ? [bare[1], bare[2]] : null;
+        if (pts) { n++; const p = pts.filter(Boolean).join(' and '); why.push(`${rel}: ${ref}${cite ? ' «An app is built once»' : ''} point ${p} -> stale: the point's full text is at shared/built-once.md, «An app is built once», point ${p}`); }
         else if (line) {
           n++;
           const a = +(line[1] || line[3]), b = +(line[2] || line[4] || a);
-          why.push(`${rel}:${a}${b !== a ? `-${b}` : ''} -> stale: rules.md line numbers changed on 14.11.2026${a >= 51 && b <= 556 ? `; old lines ${a}-${b} of «An app is built once» are now shared/built-once.md:${a - 48}-${b - 48}` : ''}; cite the section by name`);
+          why.push(`${rel}: ${ref}:${a}${b !== a ? `-${b}` : ''} -> stale: rules.md line numbers changed on 14.11.2026${a >= 51 && b <= 556 ? `; old lines ${a}-${b} of «An app is built once» are now shared/built-once.md:${a - 48}-${b - 48}` : ''}; cite the section by name`);
         }
         continue;
       }
       n++;
-      const where = `${path.relative(path.join(skillRoot, '..'), f)}: ${ref}${cite ? ` «${cite[1]}»${cite[2] ? ` point ${cite[2]}${cite[3] ? ` and ${cite[3]}` : ''}` : ''}` : ''}`;
-      if (!fs.existsSync(target)) { why.push(`${where} -> no file ${target}`); continue; }
-      if (!cite) continue;
+      const pts = cite ? [cite[2], cite[3]] : bare ? [bare[1], bare[2]] : [];
+      const name = cite ? cite[1] : bare ? 'An app is built once' : null;
+      const where = `${rel}: ${ref}${name ? ` «${name}»` : ''}${pts[0] ? ` point ${pts.filter(Boolean).join(' and ')}` : ''}`;
+      if (!fs.existsSync(target)) { why.push(`${where} -> no file ${path.relative(repo, target)}`); continue; }
+      if (!name) continue;
       const body = fs.readFileSync(target, 'utf8');
       let section = body;
-      if (cite[1] === 'An app is built once') {
+      if (name === 'An app is built once') {
         const i = body.search(/^## An app is built once$/m);
         if (i < 0) { why.push(`${where} -> no heading «An app is built once» in ${path.basename(target)}`); continue; }
         const rest = body.slice(i + 1), j = rest.search(/^## /m);
         section = j < 0 ? rest : rest.slice(0, j);
-      } else if (!new RegExp(`(^|\\n)(#+ )?${cite[1].replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(body)) {
-        why.push(`${where} -> no section «${cite[1]}» in ${path.basename(target)}`); continue;
+      } else if (!new RegExp(`(^|\\n)(#+ )?${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(body)) {
+        why.push(`${where} -> no section «${name}» in ${path.basename(target)}`); continue;
       }
-      for (const pt of [cite[2], cite[3]].filter(Boolean)) if (!new RegExp(`^${pt}\\. \\*\\*`, 'm').test(section)) why.push(`${where} -> no point ${pt} under «${cite[1]}» in ${path.basename(target)}`);
+      for (const pt of pts.filter(Boolean)) if (!new RegExp(`^${pt}\\. \\*\\*`, 'm').test(section)) why.push(`${where} -> no point ${pt} under «${name}» in ${path.basename(target)}`);
     }
   }
   return { why, n };
 };
-await test('SLIM-2', 'every built-once.md citation in the skill, product-rebuild and working-style.md resolves to a file, and a cited section or point exists there; a rules.md «An app is built once», point N or rules.md:NNN citation fails naming where the text now is; planted broken citations of each kind are caught', async () => {
-  const root = path.join(SK, '..');
-  const extra = [path.join(root, '..', 'product-rebuild', 'SKILL.md'), path.join(root, '..', '..', '..', '..', 'rules', 'working-style.md')].filter(p => fs.existsSync(p));
-  const real = builtOnceRefs(root, extra);
+await test('SLIM-2', 'every built-once.md citation in the repo\'s .md files (rules/, guides/, plugins/, templates/) and the skill resolves to a file, and a cited section or point exists there; a citation of a built-once-like file that does not exist fails; a rules.md point N citation (with or without «An app is built once») or rules.md:NNN citation fails naming where the text now is; planted broken citations of each kind are caught', async () => {
+  const root = path.join(SK, '..'), repo = path.join(root, '..', '..', '..', '..');
+  const real = builtOnceRefs(root, ['rules', 'guides', 'plugins', 'templates'].map(d => path.join(repo, d)));
   const why = [...real.why];
   if (real.n < 15) why.push(`only ${real.n} citations found: the scan is not reading the skill`);
-  // the check can fail: a fixture skill with a missing file, a missing point and a missing section
-  const fx = path.join(TMP, 'slim-refs');
-  fs.mkdirSync(path.join(fx, 'shared'), { recursive: true });
-  fs.mkdirSync(path.join(fx, 'modes'), { recursive: true });
+  if (!real.why.length && !/built-once\.md/.test(fs.readFileSync(path.join(repo, 'rules', 'working-style.md'), 'utf8'))) why.push('rules/working-style.md no longer cites built-once.md: the scan of rules/ proves nothing');
+  // the check can fail: a fixture repo (skill under plugins/nadavai/skills/nadav-design, plus guides/) with one planted
+  // fault per condition
+  const fr = path.join(TMP, 'slim-repo'), fx = path.join(fr, 'plugins', 'nadavai', 'skills', 'nadav-design');
+  for (const d of [path.join(fx, 'shared'), path.join(fx, 'modes'), path.join(fr, 'guides')]) fs.mkdirSync(d, { recursive: true });
+  const run = () => builtOnceRefs(fx, [path.join(fr, 'guides')]);
   fs.writeFileSync(path.join(fx, 'shared', 'rules.md'), '## An app is built once\n\n1. **One.** a\n');
   fs.writeFileSync(path.join(fx, 'modes', 'a.md'), 'as `shared/built-once.md`, «An app is built once», point 5, says.\n');
-  const gone = builtOnceRefs(fx);
+  const gone = run();
   if (!gone.why.some(w => /no file/.test(w))) why.push(`a citation of a missing built-once.md passed: ${JSON.stringify(gone)}`);
   fs.writeFileSync(path.join(fx, 'shared', 'built-once.md'), '## An app is built once\n\n1. **One.** a\n\nWhat runs when: x\n');
-  const nopoint = builtOnceRefs(fx);
+  const nopoint = run();
   if (!nopoint.why.some(w => /no point 5/.test(w))) why.push(`a citation of a point that is not there passed: ${JSON.stringify(nopoint)}`);
   fs.writeFileSync(path.join(fx, 'modes', 'a.md'), 'as `shared/rules.md`, «An app is built once», point 5, says; see `shared/rules.md`:174-175; and `shared/built-once.md`, «Where a fault goes».\n');
-  const both = builtOnceRefs(fx);
+  const both = run();
   if (!both.why.some(w => /rules\.md «An app is built once» point 5 -> stale: .*shared\/built-once\.md, «An app is built once», point 5/.test(w))) why.push(`a rules.md point citation passed or did not name the new place: ${JSON.stringify(both)}`);
   if (!both.why.some(w => /rules\.md:174-175 -> stale: .*shared\/built-once\.md:126-127/.test(w))) why.push(`a rules.md line citation passed or did not name the new place: ${JSON.stringify(both)}`);
   if (!both.why.some(w => /no section «Where a fault goes»/.test(w))) why.push(`a citation of a missing section passed: ${JSON.stringify(both)}`);
+  // F1: a rules.md point citation with no «section» name
+  fs.writeFileSync(path.join(fx, 'modes', 'a.md'), 'As `shared/rules.md` point 5 (d) says.\n');
+  const bare = run();
+  if (!bare.why.some(w => /modes\/a\.md: shared\/rules\.md point 5 -> stale: .*shared\/built-once\.md, «An app is built once», point 5/.test(w))) why.push(`a rules.md point citation with no section name passed: ${JSON.stringify(bare)}`);
+  // F6: a stale citation in a file outside the skill (guides/)
+  fs.writeFileSync(path.join(fx, 'modes', 'a.md'), 'nothing cited here\n');
+  fs.writeFileSync(path.join(fr, 'guides', 'x.md'), 'see `~/nadavai/plugins/nadavai/skills/nadav-design/shared/rules.md`, «An app is built once», point 5.\n');
+  const outside = run();
+  if (!outside.why.some(w => /^guides\/x\.md: .*rules\.md «An app is built once» point 5 -> stale/.test(w))) why.push(`a stale citation in guides/ passed: ${JSON.stringify(outside)}`);
+  // F7: a misspelled built-once-like file name
+  fs.writeFileSync(path.join(fr, 'guides', 'x.md'), 'see `nadav-design/shared/built-ones.md`, «An app is built once», point 1.\n');
+  const typo = run();
+  if (!typo.why.some(w => /^guides\/x\.md: nadav-design\/shared\/built-ones\.md .*-> no file/.test(w))) why.push(`a citation of a misspelled built-once file passed: ${JSON.stringify(typo)}`);
+  // and another project's rules.md is not this one: no finding
+  fs.writeFileSync(path.join(fr, 'guides', 'x.md'), 'its own `rules.md` point 3 and `.claude/rules.md`:12 are not this skill\'s.\n');
+  const other = run();
+  if (other.why.length) why.push(`a rules.md that is not the skill's was flagged: ${JSON.stringify(other.why)}`);
   return why.join(' · ');
 });
 // the summary is what most modes read of the rule: its routing sentence and the preview prohibitions that bind every
@@ -615,7 +644,9 @@ await test('SLIM-4', 'the summary keeps the preview prohibitions that bind every
   const pins = [
     ['the no-play line', /Nobody plays the preview, on any machine, before its check script passes there/],
     ['who runs it before the check', /until then only the build session runs it, and only to run the checks/],
-    ['the served tree', /While he plays, the served tree does not change/],
+    ['the served tree', /While he plays, the served tree does not change: an edit is a new tree, and he plays it only after its check passes on it\./],
+    ['what a local tree runs', /before its check script passes there \(on a local tree, the parts «What runs when» names\)/],
+    ['a device over the LAN or Tailscale', /He plays it at that machine \(a device reaching the same process over the LAN or Tailscale counts, the policy naming its origin\)/],
     ['the shell, never the port', /He opens the shell, never the app's port/],
     ['browser, never a native shell', /always in a browser, never inside a native shell/],
     ['loopback until the check', /Until the check script passes, the preview listens on loopback only/],
@@ -624,7 +655,7 @@ await test('SLIM-4', 'the summary keeps the preview prohibitions that bind every
     ['never production hosting', /never on the app's production hosting, the production domain, a subdomain of it, or a host inside a production cookie's `Domain=` scope/],
     ['the check against the deployed URL', /before the link is shared, the whole check script except the no-demo check runs against the deployed URL and passes/],
     ['staging is not invented data', /\(a staging or test backend is not invented data\)/],
-    ['the logic test before play', /Before he plays a preview that simulates it, that logic has an exhaustive test with a mutant per property failing it/],
+    ['the logic test before play', /Before he plays a preview simulating it, its logic has a test running the cases exhaustively, or over every combination up to a size the test states, with a mutant per asserted property failing it\./],
   ];
   for (const [name, re] of pins) if (!re.test(s)) why.push(`the summary lacks ${name}`);
   return why.join(' · ');
