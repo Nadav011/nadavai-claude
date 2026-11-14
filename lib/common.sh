@@ -213,6 +213,32 @@ merge_settings() {
   log "merged settings.base.json into $target"
 }
 
+installed_nadavai_dependencies() {
+  # The dependency ids (name@marketplace) of every installed copy of nadavai, all scopes, one per
+  # line. Read from the copies on disk, not from this checkout: they are what Claude Code loads.
+  python3 -I - "$HOME/.claude/plugins/installed_plugins.json" "${CFG:-$HOME/.claude}/plugins/installed_plugins.json" <<'PY' 2>/dev/null | sort -u
+import json, os, sys
+seen = set()
+for registry in sys.argv[1:]:
+    try:
+        entries = json.load(open(registry)).get("plugins", {}).get("nadavai@nadavai", [])
+    except (OSError, ValueError):
+        continue
+    for e in entries:
+        path = os.path.join(e.get("installPath") or "", ".claude-plugin", "plugin.json")
+        if path in seen:
+            continue
+        seen.add(path)
+        try:
+            deps = json.load(open(path)).get("dependencies") or []
+        except (OSError, ValueError):
+            continue
+        for d in deps:
+            if isinstance(d, dict) and d.get("name") and d.get("marketplace"):
+                print(f"{d['name']}@{d['marketplace']}")
+PY
+}
+
 apply_model_policy() {
   # Re-apply only the policy keys of settings.base.json on update (model, advisorModel, availableModels, missing modelSettings entries, plugins that base turns off,
   # deniedMcpServers, and the env vars CLAUDE_AUTOCOMPACT_PCT_OVERRIDE and OMC_QUIET). A full merge would also reset per-machine values such as the concurrency
@@ -221,13 +247,28 @@ apply_model_policy() {
   # LENOVO's profiles had them).
   local target="$CFG/settings.json"
   if [ ! -f "$target" ]; then merge_settings; fi
-  local f n=0
+  local f n=0 needed
+  # Claude Code does not load a plugin whose dependency is turned off. A plugin that an installed
+  # copy of nadavai still lists as a dependency is therefore not turned off here, whatever base
+  # says: an install that did not update (the project-scope one, a pull that was skipped, a commit
+  # not pushed yet) would otherwise leave nadavai, and its guards, unloaded in every session.
+  needed="$(installed_nadavai_dependencies)"
+  local kept
+  kept="$(NADAVAI_STILL_NEEDED="$needed" node -e '
+    const b = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+    const need = new Set((process.env.NADAVAI_STILL_NEEDED || "").split(/\s+/).filter(Boolean));
+    console.log(Object.entries(b.enabledPlugins || {}).filter(([p, on]) => on === false && need.has(p)).map(([p]) => p).join(" "));
+  ' "$REPO/settings/settings.base.json")"
+  for f in $kept; do
+    warn "$f stays on: an installed copy of nadavai still lists it as a dependency (update that copy, then run update.sh again)"
+  done
   for f in "$target" "$HOME/.claude/settings.json" "$HOME"/.config/orca/claude-profiles/*/home/settings.json; do
     [ -f "$f" ] || continue
     n=$((n+1))
-    node -e '
+    NADAVAI_STILL_NEEDED="$needed" node -e '
       const fs = require("fs");
       const [base, target, backup] = process.argv.slice(1);
+      const stillNeeded = new Set((process.env.NADAVAI_STILL_NEEDED || "").split(/\s+/).filter(Boolean));
       const b = JSON.parse(fs.readFileSync(base, "utf8"));
       const raw = fs.readFileSync(target, "utf8");
       let cur;
@@ -237,6 +278,7 @@ apply_model_policy() {
       for (const k of ["model", "advisorModel", "availableModels", "deniedMcpServers"]) { if (k in b) cur[k] = b[k]; else delete cur[k]; }
       // A plugin that base turns off is turned off in each profile; plugins a profile enabled itself stay.
       for (const [p, on] of Object.entries(b.enabledPlugins || {})) {
+        if (on === false && stillNeeded.has(p)) continue;
         if (on === false && cur.enabledPlugins && cur.enabledPlugins[p] === true) cur.enabledPlugins[p] = false;
         // A plugin synced from the claude.ai account (<name>@synced) loads with no entry at all, so
         // base turning it off has to write the entry; a profile that set it to true itself is
@@ -271,6 +313,25 @@ apply_model_policy() {
     ' "$REPO/settings/settings.base.json" "$f" "$BACKUP"
   done
   log "policy keys checked in $n settings file(s)"
+}
+
+enable_plugin_health_timer() {
+  # The daily run of bin/plugin-health --notify (systemd/user/plugin-health.timer), linked and
+  # enabled on every machine with a systemd user session. It is light (one `claude mcp list`).
+  if ! command -v systemctl >/dev/null 2>&1 || ! systemctl --user show-environment >/dev/null 2>&1; then
+    log "no systemd user session here: plugin-health.timer not enabled"
+    return
+  fi
+  local dir="$HOME/.config/systemd/user" unit
+  mkdir -p "$dir"
+  for unit in plugin-health.service plugin-health.timer; do
+    ln -sfn "$REPO/systemd/user/$unit" "$dir/$unit"
+  done
+  if systemctl --user daemon-reload && systemctl --user enable --now plugin-health.timer >/dev/null 2>&1; then
+    log "plugin-health.timer enabled (daily)"
+  else
+    warn "could not enable plugin-health.timer"
+  fi
 }
 
 apply_machine_env() {
@@ -797,13 +858,6 @@ HEADER
         ]
       },
       { path: `${home}/.claude/plugins/marketplaces/i-have-adhd/skills` },
-      {
-        path: `${home}/.claude/plugins/marketplaces/wondelai-skills`,
-        include_only: [
-          "ux-heuristics", "ios-hig-design", "jobs-to-be-done",
-          "mom-test", "conversion-optimization"
-        ]
-      },
       { path: `${home}/.claude/plugins/marketplaces/claude-plugins-official/plugins/skill-creator/skills` },
       {
         path: `${home}/.claude/plugins/marketplaces/omc/skills`,

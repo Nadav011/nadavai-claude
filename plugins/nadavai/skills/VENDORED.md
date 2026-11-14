@@ -69,4 +69,15 @@ Follow-up after the approving review (2026-11-10), text only: argos-upload's des
 
 Not added in this refresh: `app-store-screenshots` (https://github.com/ParthJadhav/app-store-screenshots at e889033). Upstream scaffolds its editor into the app repo and runs a migration from command blocks written as prose; four independent reviews each found another way for those blocks to write into an app repo or an old project. It comes back only with one owned script that does the guard, the copy and the migration in a single process, with tests. The work so far is on branch `chore/app-store-screenshots`.
 
+## wondelai skills (2026-11-14)
+
+The four wondelai plugins (ux-design, product-innovation, product-strategy, metaskills: 36 skills) had no Skill call in 30 days and are turned off. The nadav-design session went through all of them and named the ones its modes route to; Nadav picked its proposal ("כמו שהציע סשן העיצוב"). Those are copied here so the routes keep working by name. Each folder was scanned with `skillspector scan --no-llm` and every finding read in the file: one HIGH (`ios-hig-design/references/privacy-permissions.md:259`, the words "system won't show prompt again" about the iOS permission dialog) and two MEDIUM on UX guidance text are false alarms; the one real finding is the install offer in conversion-optimization, removed below.
+
+| Skill folder(s) | Upstream | Commit | Local changes |
+|---|---|---|---|
+| jobs-to-be-done, mom-test, ux-heuristics, ios-hig-design, microinteractions | https://github.com/wondelai/skills (repo root, one folder per skill) | c5265583b1a9740f06831e1d3e89b35bba3eb430 | `LICENSE` (MIT, repo root) added to each. Description shortened to at most 300 characters; the pointers to skills not copied (`refactoring-ui`, `design-everyday-things`, `cro-methodology`, `design-sprint`, `obviously-awesome`) dropped from it. `microinteractions` is here for one trial on a real screen (the entry-screen hero); the nadav-design session reports the result to Nadav, and it goes if it adds nothing the motion skills lack |
+| conversion-optimization | https://github.com/wondelai/skills (`conversion-optimization/`) | c5265583b1a9740f06831e1d3e89b35bba3eb430 | `LICENSE` added; description shortened. nadavai preface: its six phase skills are not installed and are not to be installed, each phase runs from the method written inline. Operating rule 4 no longer offers `npx skills add wondelai/skills/<slug> --global` (an unpinned install from the network) |
+
+Removed the same day, by the same pick: `roadmap-update`, `sprint-planning`, `stakeholder-update` (no place in his work) and `product-brainstorming` (repeats `/intent:strategize`). They came from anthropics/knowledge-work-plugins (Apache-2.0) and are in git history.
+
 Update: re-clone upstream at a newer commit, re-copy the same paths, re-apply the prefaces, update this table.

@@ -60,10 +60,10 @@
     "skill-creator@claude-plugins-official": true,
     "claude-seo@agricidaniel-claude-seo": false,
     "impeccable@impeccable": true,
-    "ux-design@wondelai-skills": true,
-    "product-innovation@wondelai-skills": true,
-    "product-strategy@wondelai-skills": true,
-    "metaskills@wondelai-skills": true,
+    "ux-design@wondelai-skills": false,
+    "product-innovation@wondelai-skills": false,
+    "product-strategy@wondelai-skills": false,
+    "metaskills@wondelai-skills": false,
     "intent@intent": true,
     "posthog@posthog": false,
     "interfaces@interfaces": true,
@@ -142,6 +142,9 @@
   "deniedMcpServers": [
     {
       "serverName": "plugin:chrome-devtools-mcp:chrome-devtools"
+    },
+    {
+      "serverName": "plugin:cloudflare:cloudflare"
     },
     {
       "serverName": "plugin:supabase:supabase"

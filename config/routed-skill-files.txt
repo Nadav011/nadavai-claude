@@ -1,0 +1,11 @@
+# Files that a guide or a skill of ours reads by path from a folder a marketplace updates, one per line.
+# bin/plugin-health reports a line whose file is gone. Why: the PostHog plugin is off (194 skills, no
+# Skill call in 30 days, no licence to copy from), so these routes read its skill files from the
+# marketplace clone, and an update there can rename or remove one.
+~/.claude/plugins/marketplaces/posthog/skills/instrument-product-analytics/SKILL.md   # guides/posthog-init.md, step 3
+~/.claude/plugins/marketplaces/posthog/skills/instrument-error-tracking/SKILL.md      # guides/posthog-init.md, step 3
+~/.claude/plugins/marketplaces/posthog/skills/building-a-dashboard/SKILL.md           # nadav-design modes/ship.md, step 8
+~/.claude/plugins/marketplaces/posthog/skills/signals-scout-web-vitals/SKILL.md       # nadav-design modes/ship.md, step 8
+~/.claude/plugins/marketplaces/posthog/skills/investigating-replay/SKILL.md           # nadav-design modes/ship.md, step 8
+~/.claude/plugins/marketplaces/posthog/skills/assessing-heatmaps/SKILL.md             # nadav-design modes/ship.md, step 8
+~/.claude/plugins/marketplaces/posthog/skills/designing-email-templates/SKILL.md      # nadav-design standard/off-screen.md

@@ -17,6 +17,9 @@ What is checked, for each plugin the active settings.json enables:
   - the command of a local (stdio) MCP server is on PATH;
   - each plugin it lists as a dependency is enabled (Claude Code unloads a plugin whose
     dependency is off);
+and every file listed in config/routed-skill-files.txt: skills of a plugin that is turned off, which
+a guide or a skill of ours reads by path from the marketplace's folder, so a marketplace update
+that renames one would break the route without a word;
 and, without --static, what `claude mcp list` reports for every server: connected, waiting for
 a sign-in, or failed. A server on the settings' deny list is skipped.
 
@@ -71,8 +74,27 @@ def plugin_servers(root):
     return {k: v for k, v in servers.items() if isinstance(v, dict)}, manifest
 
 
+def plugin_hooks(root, manifest):
+    """Every hooks object a plugin declares: hooks/hooks.json, and plugin.json's "hooks" (a path,
+    a list of paths, or the object itself)."""
+    found = [load(os.path.join(root, "hooks", "hooks.json"))]
+    declared = manifest.get("hooks")
+    for item in declared if isinstance(declared, list) else [declared]:
+        if isinstance(item, str):
+            data = load(os.path.join(root, item))
+            if data is None:
+                found.append({"command": "${CLAUDE_PLUGIN_ROOT}/" + item.lstrip("./")})
+            else:
+                found.append(data)
+        elif isinstance(item, dict):
+            found.append(item)
+    return found
+
+
 def static_check(cfg):
-    settings = load(os.path.join(cfg, "settings.json")) or {}
+    settings = load(os.path.join(cfg, "settings.json"))
+    if not isinstance(settings, dict):
+        return [f"{os.path.join(cfg, 'settings.json')} is missing or unreadable, so nothing could be checked"], 0, 0
     enabled = settings.get("enabledPlugins") or {}
     denied = {d.get("serverName") for d in settings.get("deniedMcpServers") or [] if isinstance(d, dict)}
     installed = (load(os.path.join(cfg, "plugins", "installed_plugins.json")) or {}).get("plugins") or {}
@@ -80,42 +102,75 @@ def static_check(cfg):
     for pid, on in sorted(enabled.items()):
         if on is not True or pid.endswith("@synced"):
             continue
-        entries = installed.get(pid) or []
-        entry = next((e for e in entries if e.get("scope") == "user"), entries[0] if entries else None)
         name = pid.split("@")[0]
-        if not entry:
+        # Every install of the plugin is checked, not only the user-scope one: a session started
+        # in a folder with a project-scope install loads that copy.
+        entries, roots = [], set()
+        for e in installed.get(pid) or []:
+            if e.get("installPath") not in roots:
+                roots.add(e.get("installPath"))
+                entries.append(e)
+        if not entries:
             broken.append(f"{name}: enabled in settings.json but not installed")
             continue
-        root = entry.get("installPath") or ""
-        if not os.path.isdir(root):
-            broken.append(f"{name}: install folder is missing ({root})")
-            continue
         plugins += 1
-        missing = set()
-        hooks = load(os.path.join(root, "hooks", "hooks.json"))
+        for entry in entries:
+            servers_seen += check_install(name, entry, enabled, denied, broken)
+    return broken, plugins, servers_seen
+
+
+def check_install(name, entry, enabled, denied, broken):
+    root = entry.get("installPath") or ""
+    if not os.path.isdir(root):
+        broken.append(f"{name}: install folder is missing ({root})")
+        return 0
+    servers_seen = 0
+    missing = set()
+    servers, manifest = plugin_servers(root)
+    for hooks in plugin_hooks(root, manifest):
         for cmd in hook_commands(hooks):
             for rel in ROOT_REF.findall(cmd):
                 if not os.path.exists(root + rel):
                     missing.add(f"{name}: a hook runs {rel.lstrip('/')}, which is not in version {entry.get('version')}")
-        servers, manifest = plugin_servers(root)
-        for sname, spec in servers.items():
-            if f"plugin:{name}:{sname}" in denied:
-                continue
-            servers_seen += 1
-            parts = [spec.get("command", ""), spec.get("headersHelper", "")] + [a for a in spec.get("args", []) if isinstance(a, str)]
-            for part in parts:
-                for rel in ROOT_REF.findall(part):
-                    if not os.path.exists(root + rel):
-                        missing.add(f"{name}: MCP server {sname} runs {rel.lstrip('/')}, which is not in version {entry.get('version')}")
-            cmd = spec.get("command")
-            if isinstance(cmd, str) and cmd and "/" not in cmd and "$" not in cmd and not shutil.which(cmd):
-                missing.add(f"{name}: MCP server {sname} needs the command {cmd}, which is not on PATH")
-        for dep in manifest.get("dependencies") or []:
-            dep_id = f"{dep.get('name')}@{dep.get('marketplace')}" if isinstance(dep, dict) else str(dep)
-            if enabled.get(dep_id) is not True:
-                missing.add(f"{name}: its dependency {dep_id} is not enabled, so Claude Code will not load {name}")
-        broken.extend(sorted(missing))
-    return broken, plugins, servers_seen
+    for sname, spec in servers.items():
+        if f"plugin:{name}:{sname}" in denied:
+            continue
+        servers_seen += 1
+        parts = [spec.get("command", ""), spec.get("headersHelper", "")] + [a for a in spec.get("args", []) if isinstance(a, str)]
+        for part in parts:
+            for rel in ROOT_REF.findall(part):
+                if not os.path.exists(root + rel):
+                    missing.add(f"{name}: MCP server {sname} runs {rel.lstrip('/')}, which is not in version {entry.get('version')}")
+        cmd = spec.get("command")
+        if isinstance(cmd, str) and cmd and "/" not in cmd and "$" not in cmd and not shutil.which(cmd):
+            missing.add(f"{name}: MCP server {sname} needs the command {cmd}, which is not on PATH")
+    for dep in manifest.get("dependencies") or []:
+        dep_name = dep.get("name") if isinstance(dep, dict) else str(dep)
+        market = dep.get("marketplace") if isinstance(dep, dict) else None
+        # A dependency with no marketplace named is matched by its name alone.
+        ids = [f"{dep_name}@{market}"] if market else [k for k in enabled if k.split("@")[0] == dep_name]
+        if not any(enabled.get(i) is True for i in ids):
+            shown = ids[0] if ids else dep_name
+            missing.add(f"{name}: version {entry.get('version')} lists the dependency {shown}, which is not enabled, so Claude Code will not load {name}")
+    broken.extend(sorted(m for m in missing if m not in broken))
+    return servers_seen
+
+
+def routed_files():
+    """Files our guides and skills read by path from a folder that a marketplace updates."""
+    listing = os.environ.get("PLUGIN_HEALTH_ROUTES") or os.path.join(
+        os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "config", "routed-skill-files.txt")
+    broken = []
+    try:
+        with open(listing, encoding="utf-8") as f:
+            lines = f.read().splitlines()
+    except OSError:
+        return broken
+    for line in lines:
+        path = line.split("#", 1)[0].strip()
+        if path and not os.path.exists(os.path.expanduser(path)):
+            broken.append(f"a guide or a skill of ours reads {path}, which is gone")
+    return broken
 
 
 def live_check():
@@ -124,10 +179,13 @@ def live_check():
     if not exe:
         return ["live check skipped: the claude command is not on PATH"], 0
     try:
-        out = subprocess.run([exe, "mcp", "list"], capture_output=True, text=True, timeout=180,
-                             cwd=os.path.expanduser("~")).stdout
+        run = subprocess.run([exe, "mcp", "list"], capture_output=True, text=True, timeout=180,
+                             cwd=os.path.expanduser("~"))
     except (OSError, subprocess.TimeoutExpired):
         return ["live check failed: `claude mcp list` did not finish in 180 s"], 0
+    out = run.stdout
+    if run.returncode != 0:
+        return [f"live check failed: `claude mcp list` exited {run.returncode}"], 0
     broken, seen = [], 0
     for line in out.splitlines():
         m = re.match(r"^(\S[^:]*(?::[^:\s]+)*): .* - (.+)$", line.strip())
@@ -139,6 +197,8 @@ def live_check():
             continue
         what = "waits for a sign-in" if "auth" in status.lower() else f"did not connect ({status.lstrip('✗✘!⚠ ').strip()})"
         broken.append(f"MCP server {server} {what}")
+    if seen == 0:
+        broken.append("live check failed: `claude mcp list` listed no server")
     return broken, seen
 
 
@@ -152,6 +212,7 @@ def main(argv):
         return 2
     cfg = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude")
     broken, plugins, servers = static_check(cfg)
+    broken += routed_files()
     if "--static" not in argv:
         live, seen = live_check()
         broken += live

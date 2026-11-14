@@ -1,7 +1,6 @@
 # Connectors
 
-The product skills (write-spec, roadmap-update, sprint-planning, stakeholder-update,
-synthesize-research, competitive-brief, metrics-review) came from Anthropic's product plugin and
+The product skills (write-spec, synthesize-research, competitive-brief, metrics-review) came from Anthropic's product plugin and
 name tools by category with a `~~` placeholder. This is what each placeholder means in Nadav's
 setup. When a category has nothing connected, ask Nadav for the material instead of guessing.
 

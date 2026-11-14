@@ -23,7 +23,7 @@ Nadav sends to his own clients is a different thing and belongs to `nadavai:clie
 
 **Email.** `dir="rtl"` and `lang="he"` on the root, logical alignment in tables, the real logo
 (B-01), one action per email, a plain-text part. Dark mode is checked. The subject says what
-happened, not the product name. Built with the PostHog email-template skill where PostHog sends
+happened, not the product name. Built with PostHog's `designing-email-templates` skill file (`~/.claude/plugins/marketplaces/posthog/skills/<name>/SKILL.md`; the plugin is off) where PostHog sends
 it; otherwise with the project's own mailer.
 
 **Push.** The title is the thing that happened and the body is what to do; both make sense

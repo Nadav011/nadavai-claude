@@ -10,16 +10,17 @@
 #
 # Why: on 2026-11-14 the server waited for a sign-in in 7 of the LENOVO's 13 settings files, and
 # the PostHog plugin that used to bring it was turned off (194 skills, no call in 30 days).
+set +x  # never trace: the key would reach stderr if a caller exported xtrace
 dir="${NADAVAI_SECRETS_DIR:-$HOME/.claude/secrets}"
 key=""
 for f in "$dir/posthog.env" "$dir/greenroom-posthog.env"; do
   [ -r "$f" ] || continue
-  key=$(sed -n 's/^POSTHOG_PERSONAL_API_KEY=//p' "$f" | head -n 1 | tr -d "\"'\r ")
+  key=$(sed -n 's/^\(export  *\)\{0,1\}POSTHOG_PERSONAL_API_KEY=//p' "$f" | head -n 1 | sed 's/[[:space:]]#.*$//' | tr -d "\"'\r ")
   [ -n "$key" ] && break
 done
 # A PostHog personal key is phx_ followed by letters and digits; anything else is not sent.
 case "$key" in
-  phx_*[!A-Za-z0-9_]*|"") printf '{}\n' ;;
+  phx_*[!A-Za-z0-9_]*|""|phx_) printf '{}\n' ;;
   phx_*) printf '{"Authorization":"Bearer %s"}\n' "$key" ;;
   *) printf '{}\n' ;;
 esac

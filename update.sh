@@ -119,6 +119,7 @@ mirror_guard_to_grok
 # same check and notifies.
 step "Plugin health"
 "$REPO/bin/plugin-health" || warn "a plugin or an MCP server is not working: the BROKEN lines above say which"
+enable_plugin_health_timer
 
 if [ "$CODEX_REFRESH_FAILED" = 1 ]; then
   die "Other installer steps completed, but Codex nadavai plugin refresh failed; resolve the error above and rerun."
