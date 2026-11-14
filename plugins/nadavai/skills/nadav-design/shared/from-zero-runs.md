@@ -27,26 +27,24 @@ with it (MediZen: the redesign output repo `Nadav011/medizen-redesign`; the soci
   commits; per run, the completeness line (demo variants / gated / open).
 - Both records list each unit's open behaviour cases: id, the two sides, traced or not, asked on which date.
 
-**Differences in behaviour** and anything no source decides follow «Whose decision a differing behaviour is»
-(`standalone-demo-to-app.md`) [N, 14.11.2026]: a reviewer checks each from outside and recommends; he decides; the
-builder never picks.
+**Behaviour differences** and anything undecided go by «Whose decision a differing behaviour is» [N, 14.11.2026]
+(`standalone-demo-to-app.md`): a reviewer checks each from outside and recommends; he decides, never the builder.
 
 ## What still protects live users
 
 Unchanged by his pick: the build lives in the app's preview on invented data until the plan's cut-over unit, behind a
 flag off for users, and demo code and invented data never reach the build users get (`built-once.md`, «An app is built
 once», points 2 and 4); a screen with an open behaviour case does not cut over; each unit lands by its own PR; gated
-actions stay behind `rules/working-style.md`, Approval gates. A run works in its own worktree, never in another
-session's checkout.
+actions stay behind `rules/working-style.md`, Approval gates. A run works in its own worktree.
 
 ## Which route carries the look
 
 Nadav's ask [N, 14.11.2026], to the choice between copying and measuring and writing by hand and measuring: «1 או 2 מה
 שאתה חושב באמת שהכי נכון שיביא 100 אחוז ומבלי לוותר גם על רכיבים שיש בדמו ואין בפאליקציה כי בסופו של דבר זה רכיב שאמור
 לעבוד ולהיות קיים בצורה מלאה מקצה לקצה». His: the bar is 100%, and no part the demo has and the app lacks is given up.
-The routes below are [I, chosen by the nadav-design session on Nadav's delegation of 14.11.2026]. Why: the gate gives
-the 100%, not the route, so the route with fewest transcription errors goes first (SportChat: hand-rewritten styling
-drifted in 9 of 20 frames; copied styling read faithful once, the builder's own read).
+The routes below are [I, chosen by the nadav-design session on Nadav's delegation of 14.11.2026]. Why: the bar is held
+by the gate and the look-over below, not by the route, so the route with fewest transcription errors goes first
+(SportChat: hand-rewritten styling drifted in 9 of 20 frames; copied styling read faithful once, by its builder).
 - **Look of a part the app lacks: the converter** (the one exception in `standalone-demo-to-app.md`:8-11). Input: the
   rules the cascade applies to each specimen element at the tag (CDP `CSS.getMatchedStylesForNode`) and the demo's
   resolved values. Output, in the app's own form, three files (MediZen: `src/components/ui/<name>.styles.ts`,
@@ -57,36 +55,38 @@ drifted in 9 of 20 frames; copied styling read faithful once, the builder's own 
   it meet the repo's lint as the project decides, noted in the record [I].
 - **Where the tools live.** Every unit depends on the converter and the instrument, so they belong in a repo with a
   remote: proposed, `plugins/nadavai/skills/nadav-design/redesign/tools/from-zero/` in nadavai, by a separate reviewed
-  change [I]; until then `~/design-redesign/from-zero/` (local git), each record naming each tool's commit.
+  change [I]; the first converted unit's builder writes the converter, reviewed with that unit; until then
+  `~/design-redesign/from-zero/` (local git), each record naming each tool's commit.
 - **Behaviour of every part, new or existing: written in the app** as a real component: every variant and state,
   keyboard and focus, name and role, RTL, loading, empty and error where it has them, real data, tests where the repo
   keeps them. Nothing of the demo's script moves.
 - **Existing shared parts** (the button, the fields): restyled by hand in the app, behind the plan's mechanism.
-- **The gate, for every component unit, whatever its route:** the instrument of unit 0 (below) reads zero differences
-  between the demo and the app for every variant of the checked entry, in each state, size, theme, width and direction
-  the demo defines for it, on the lists the measurer wrote; the unit's reviewer reruns it on those lists, and its
-  reading is the pass. A unit not at zero is not done. The gate claims only what its contract and its planted list
-  cover; the look-over covers what they leave out.
+- **The gate, for every component unit, whatever its route:** the instrument of unit 0 reads zero differences between
+  the demo and the app for every variant of the checked entry, in each state, size, theme, width and direction the
+  demo defines for it, on the lists the measurer wrote; the unit's reviewer's rerun on those lists is the pass. A unit
+  not at zero is not done. The gate claims only what its contract and planted list cover; the look-over covers the
+  items it names; a difference both miss is, once found, a new planted case or a new look-over item (unit 0).
 - **The look-over**, by the unit's reviewer, the tagged specimen beside the app's component at each width and theme
   (`standalone-demo-to-app.md`, «Components»): what a canvas or image draws inside its box, hit areas, stacking
-  between unrelated parts, motion (every animation of the part, looping or on entry), pseudo-elements the instrument
-  cannot read, and icons the pair list hands over. Passes when none differ visibly.
-- **Fallback:** a converted part whose hand share passes 10% [I] (non-blank lines of its corrections file over the
-  non-blank lines of its generated file; its `<name>.tsx` adds no class or style beyond the two imports, which the
-  unit's checks grep), that misses the gate at its cap, or that the converter cannot express in the app's form, is
-  written by hand and passes the same gate; the record says which and why. A part that reaches the gate by neither
-  route comes to Nadav with its record.
+  between unrelated parts, motion (every animation, looping or on entry), pseudo-elements the instrument cannot read,
+  icons the pair list hands over, and the part's text and attributes. Passes when none differ visibly.
+- **Fallback:** a converted part whose hand share passes 10% [I] (non-blank lines, corrections file over generated
+  file; `<name>.tsx` adds no class or style beyond the two imports, grepped by the unit's checks), that misses the
+  gate at its cap, or that the converter cannot express in the app's form, is written by hand and passes the same
+  gate; the record says which and why. A part that reaches the gate by neither route comes to Nadav with its record.
 - **No part given up, counted per variant.** The unit of counting is each variant, state, size, theme and vertical
   override the demo defines for a component. Before a component's unit, the measurer checks its inventory entry
-  against its class family at the tag in both directions (`standalone-demo-to-app.md`, part B) and fixes it: MediZen's
-  `COMPONENTS.md` was written by an agent reading the CSS, and 8 of its 51 entries, once checked, held 16 errors. The
-  class-family run lists every context: `component-family.mjs`:34 at `c001527` cuts contexts at 25, so until the tools
-  change adds a no-limit option the list comes from `sed 's/\.slice(0, 25)//' tools/local/component-family.mjs >
-  component-family-nocap.mjs; node component-family-nocap.mjs <class>` on an export of the tag, with `:is(` contexts
-  expanded by hand (at `c001527`: `.pbtn` 64 contexts, among them `.tp-inv .pbtn`, `v2.html`:2207; `.fld` 31; `.ev`
-  12). A project with no inventory uses its demo's components page and runs the same check. Every variant maps to an
-  app variant with a passed gate, to an open item that holds cut-over, or to Nadav's merge or drop recorded in
-  DECISIONS-ANSWERED.md; a variant with none at cut-over fails the run.
+  against its class family at the tag in both directions (`standalone-demo-to-app.md`, part B) and fixes it (MediZen's
+  `COMPONENTS.md`, an agent's reading of the CSS: 16 errors in 8 of 51 entries). The family comes uncapped
+  (`component-family.mjs`:34 at `c001527` cuts contexts at 25): from the root of an export of the tag, `sed
+  's/\.slice(0, 25)//' tools/local/component-family.mjs > tools/local/component-family-nocap.mjs; node
+  tools/local/component-family-nocap.mjs <class>` (it finds `proto/` from its own path), `:is(` contexts expanded by
+  hand (at `c001527`: `.pbtn` 64 contexts, among them `.tp-inv .pbtn`, `v2.html`:2207; `.fld` 31; `.ev` 12). Before
+  rerunning the gate, the unit's reviewer runs that command at the tag itself, same expansion, and matches its list
+  against the measurer's: a variant on the reviewer's list and not on the measurer's is an open item. The cut-over
+  unit's reviewer checks the run's completeness line against the sum of those lists. With no inventory, the demo's
+  components page stands in. Every variant maps to an app variant with a passed gate, to an open item holding
+  cut-over, or to Nadav's merge or drop in DECISIONS-ANSWERED.md; one with none at cut-over fails the run.
 
 ## The first three component units (MediZen)
 
@@ -102,7 +102,7 @@ plan names (for example a root attribute and a Tailwind variant built like the a
   rest, hover, focus-visible, active, disabled; 375 and 1280 px. Sample, with counts: every variant at every size on
   `/styleguide`; preview routes rendering every direct `buttonVariants(` caller (9 in 6 files at `18ee8ad8`), the 10
   most frequent `asChild` class texts and the literal class texts that set size, radius, border, shadow, ring, opacity
-  or colour; a text on no route is "not covered".
+  or colour; a text on no route is "not covered", and the record counts them.
 - Gate, with the look on, at least, plus every variant and context of the checked C01 entry (64 contexts at
   `c001527`): `default`, `outline`, `secondary`, `destructive` against `.pbtn.pri`, `.pbtn`, `.pbtn.soft`,
   `.pbtn.danger` (`r10/comp.js`:60-67, :72); sizes `default` and `sm` against `.pbtn` and `.pbtn.sm`; `ghost` against
@@ -123,8 +123,7 @@ other variant gets a demo-side recipe: `.pending`, `.lift`, `.unsaved`, `.fresh`
 `evStyle()` maps, an owned-service fill and a palette fill, every variant above, the start-edge bar, the resize handle
 `.rz` and its `::after` under focus, stacking inside the part (`.ev .rz` above the content, `.ev:hover` and `.ev.lift`
 above an overlapping tile), and every modifier and context of the class-family run (43 and 12 at `c001527`); light and
-dark; 375 and 1280 px. The salon has no calendar tile in the demo (`proto/v2-salon.html` draws no `.ev`), so the
-tile's salon look is an open item.
+dark; 375 and 1280 px. The tile's salon look is an open item: `proto/v2-salon.html` draws no `.ev`.
 
 **Unit C, an existing part: C19 text field (`src/components/ui/input.tsx`, `textarea.tsx`), by hand.** Behind unit A's
 mechanism. Off check as unit A, with `<Input>` and its 20 most frequent literal class texts. Gate, at least: the four
@@ -135,24 +134,24 @@ offset), disabled, invalid (`aria-invalid`), with a placeholder and filled; ever
 and 31 at `c001527`); light and dark; both widths. A skin the app gives another component maps to that unit.
 
 **Order.** No screen is measured before the shared parts it uses and the app's shell have passed the gate, or are
-listed open and the screen's reading says so: the landed order already puts components before screens
-(`modes/redesign.md`, step 8). SportChat's second pilot found 0 of 56 to 85 blocking lines on one frame the screen's
-own (`$P` = `~/sporchat-v4-tmp/v4-system/fast/review/PILOT-S-A4a-2026-11-13.md`:21-24, its executor's own). **Until a
-unit is done** the build goes on only with units that do not depend on it (on unit A: no unit that uses the
-mechanism).
+listed open and the screen's reading says so: the landed order puts components before screens (`modes/redesign.md`,
+step 8). SportChat's second pilot found 0 of 56 to 85 blocking lines on one frame the screen's own (`$P` =
+`~/sporchat-v4-tmp/v4-system/fast/review/PILOT-S-A4a-2026-11-13.md`:21-24, its executor's own). **Until a unit is
+done** the build goes on only with units that do not depend on it (on unit A: none using its mechanism).
 
 ## Unit 0: the instrument, proven by planted differences
 
-Not built yet: it is the first unit of the first run, written where «Where the tools live» says by a measurer who
-builds no measured unit (Playwright 1.60.0, runs through `heavy-slot --`). A gate reading counts only from an
-instrument commit an independent code review approved against the planted list below, every case reported. The list is
-open: a difference the instrument missed becomes a new case, the instrument is fixed and approved again, and readings
-on the parts it affects are taken again.
+Not built yet: the first unit of the first run, written where «Where the tools live» says by a measurer who builds no
+measured unit (Playwright 1.60.0, runs through `heavy-slot --`). A gate reading counts only from an instrument commit
+an independent code review approved against the planted list below, every case reported (off reads too); a later run
+reuses that commit. A missed difference joins that list by a reviewed change of this file (the only way a case leaves
+it), and the instrument is fixed and approved again against the whole list. The measurer who fixed it names in
+`LOOK-RECORD.md` every already-passed unit the fix can affect (all of them, when unsure); each named unit counts as
+not done, and no screen using it cuts over, until its reviewer's rerun on the newly approved commit reads zero.
 
 **Contract.**
-- **Inputs.** Other repos only as exports of recorded commits (`fetch`, then `git archive <sha> | tar -x`); never
-  `worktree add`, `checkout`, `switch`, `pull`, `stash`, `reset`, `clean` or an edit in another session's checkout.
-  Each sha goes into `LOOK-RECORD.md` first.
+- **Inputs.** Other repos only as `git archive <sha> | tar -x` exports after a fetch; never `worktree add`,
+  `checkout`, `switch`, `pull`, `stash`, `reset`, `clean` or edit in any other checkout. Each sha is recorded first.
 - **What is compared.** The demo at its tag against the component as the app's preview renders it (not any of its
   files). Before the builder starts, the measurer writes from the tagged demo alone, per variant, a demo-side recipe
   (the specimen element, and the classes, attributes, context, state or input that draw it) and a pair list (each
@@ -163,25 +162,28 @@ on the parts it affects are taken again.
 - **What is read**, for every element of the subtree: every computed longhand, and every pseudo-element the part's
   rules in the demo style (found from the cascade, not a fixed list); each box (inline-start and block-start offsets
   and size, relative to the part's root); the order of the children; `z-index` as the rank order among the part's own
-  positioned elements; `transition-*` and `animation-*` timing (property, duration, delay, curve, iteration count,
+  positioned elements, and between two instances where a recipe overlaps them; a `url()` by the bytes of the file it
+  loads, not its path; `transition-*` and `animation-*` timing (property, duration, delay, curve, iteration count,
   direction, fill mode). Not read: `--*` custom properties (names differ by design; their effect is read);
-  `animation-name` (names differ by design) and `animation-play-state` (the settle sets it); `will-change` (draws
-  nothing); a vendor-prefixed longhand only when its unprefixed twin is read and equal to it on both sides. Where the
-  demo and the app legitimately differ in timing, the pair goes to Nadav as «Whose decision a differing value is»
-  says. Colours are normalised to 8-bit sRGB through a 2D canvas, also inside shadows and gradients, and `font-family`
-  to its first family, as `redesign/tools/parity-check.mjs` does at `e818a8a` (:257-264, :374).
+  `animation-name` (likewise) and `animation-play-state` (the settle sets it); `will-change` (draws nothing); text
+  content and attributes (the behaviour rule or the look-over); a vendor-prefixed longhand only when its unprefixed
+  twin is read and equal to it on both sides. Where the demo and the app legitimately differ in timing, the pair goes
+  to Nadav as «Whose decision a differing value is» says. Colours are normalised to 8-bit sRGB through a 2D canvas,
+  also inside shadows and gradients, and `font-family` to its first family, as `redesign/tools/parity-check.mjs` does
+  at `e818a8a` (:257-264, :374; unmerged branch, cited for its method).
 - **States and settling.** `:hover`, `:focus-visible` and `:active` through CDP `CSS.forcePseudoState`, `disabled` by
   the attribute (or `aria-disabled`), real input where forcing fails (recorded). The resting look is read with every
   finite animation and transition finished and every looping one paused at the frame the recipe states.
 - **Page and scale.** Both sides at device scale factor 3 [I], loaded at the width read and never resized. The demo in
   each theme it has (light: palette `forest`, empty storage; dark: `mz-v2-theme` set to `dark` before the load, so the
   boot script sets `data-pal="dark"`, `v2.html`:3868), at 375 px in a touch context (the boot's `(max-width:760px)`
-  test adds `html.m`) and at 1280 px in a desktop context; `dir="ltr"` is set after the boot, which sets `dir="rtl"`
-  on every load, wherever the demo has rules for it (`v2.html`:58). Each on-read sample sits in a wrapper matching the
-  demo sample's parent (inline size, `font-*`, `color`, `line-height`, `letter-spacing`, `direction`); images are the
-  demo's own files (`$P`:23, :37); both sides load the demo's `proto/r10/fonts.css` (Heebo, which the app's
-  `--sans-font` names first), injected, never committed. The harness refuses a read when the wrapper width, the font
-  file, the device scale or the measured viewport differ between the two sides (`$P`:146-147: 393 read as 390).
+  test adds `html.m`) and at 1280 px in a desktop context (where the boot adds `nav-open`, the recipe states it);
+  `dir="ltr"` is set after the boot, which sets `dir="rtl"` on every load, wherever the demo has rules for it
+  (`v2.html`:58). Each on-read sample sits in a wrapper matching the demo sample's parent (inline size, `font-*`,
+  `color`, `line-height`, `letter-spacing`, `direction`); images are the demo's own files (`$P`:23, :37); both sides
+  load the demo's `proto/r10/fonts.css`, injected, never committed. The harness refuses a read when the wrapper width,
+  the font file, the device scale or the measured viewport differ between the two sides (`$P`:146-147: 393 read as
+  390). Elsewhere the measurer records this project's equivalents of these settings before the first read.
 - **The demo's values.** Every `--*` name the demo's stylesheets declare, resolved on `<html>` in the context read,
   stored in the record; no hand-picked ranges (at `c001527` they come from `v2.html`:19, :1689, :2346, :2830, :3250,
   :2873 and `r10/dense.css`:8-14). A difference caused by a value the app's token unit lacks still counts: the unit is
@@ -198,36 +200,38 @@ on the parts it affects are taken again.
 
 **Planted differences, each of which must be reported** (the starting list):
 1. Two runs of the same page: nothing reported. One planted change of one property on one element: that alone.
-2. A start-edge bar, or an icon, on the wrong side in right to left.
-3. Two children in swapped order.
-4. An element present on one side only, and an element of the subtree missing from the sample list.
-5. A pseudo-element missing or different on one side: `::before`, `::after`, `::placeholder`, `::marker`,
+2. A start-edge bar, or an icon, on the wrong side in right to left; two children in swapped order.
+3. An element present on one side only, and an element of the subtree missing from the sample list.
+4. A pseudo-element missing or different on one side: `::before`, `::after`, `::placeholder`, `::marker`,
    `::backdrop`, `::selection`, `::file-selector-button`.
-6. An icon drawn as a CSS mask on one side and an `<svg>` on the other with a different glyph, size or colour.
-7. An outline of 1.5 px against 1 px; a hairline border against none.
-8. Stacking inside a part: `.ev .rz` at `z-index:2` against none.
-9. A looping animation, or an entry animation, on one side only; a different duration or curve.
-10. A `-webkit-line-clamp` or another prefixed-only property set differently.
-11. A value that differs only through a custom property.
-12. A variant gated in one theme, one direction or one size only.
-13. A different wrapper width, font file, device scale or viewport between the two sides: the harness refuses to read.
+5. An icon drawn as a CSS mask on one side and an `<svg>` on the other with a different glyph, size or colour.
+6. An outline of 1.5 px against 1 px; a hairline border against none.
+7. Stacking: `.ev .rz` at `z-index:2` against none; `.ev:hover` (4) or `.ev.lift` (12) against an overlapping tile.
+8. A looping animation, or an entry animation, on one side only; a different duration or curve.
+9. A `-webkit-line-clamp` or another prefixed-only property set differently.
+10. A value that differs only through a custom property; a variant gated in one theme, one direction or one size only.
+11. A different wrapper width, font file, device scale or viewport between the two sides: the harness refuses to read.
+12. An image `url()`: the same file under another path (a hashed app asset) reads equal; a different file is reported.
+13. A context variant (`.tp-inv .pbtn`) read in its context wrapper, the context rule missing on one side; an `:is(`
+    context dropped from the measurer's list (the reviewer's class-family run reports it).
+14. An off read with one property changed under the flag off.
+15. The demo at 1280 px with and without the boot's `nav-open` (`v2.html`:3868): refused or reported.
 
 ## The social studio
 
 Its run is its own build once its stack is decided (PROPOSED, `~/social/spec/v5/02-architecture.md`:9-11 at
 `66503dd`). Without the measurement below, the runs show whether each route works, not which is better.
 
-**Optional: copy against hand on the first screen.** The only measurement that compares the routes, if the studio's
-plan includes it. It runs in `~/design-redesign/from-zero/social-ab/` and never lands. The measurer picks the closed
-screen nearest the median `K.*` count of the 30 modules in `demo-v2/assets/js/screens/` (180 to 185 at `66503dd`),
-content area only, and writes the recipes and pair list as unit 0 says, and caps (button half a day per arm, screen
-two). Arm A (own executor): a converter turns the `K.*` calls into JSX and carries the kit CSS they use. Arm B
-(another): by hand. Button first (`K.btn`, kinds p, s, q, d, qd, with `busy`, `disabled`, `block`, `icon`, `main`,
-`reason`), then the screen. "Closer": fewer gate entries at the last reading (a screen tie goes to fewer differing
-pixels at 375 px, light). Converter hours spread over N = 1, 10, 30 screens (N = 30 assumes it covers the 55 `K.*`
-functions; the record says how many). Thresholds [I], no measured basis: hand share under 10%, converter at most 2
-days, A per screen not slower than B; A closer with all met passes, closer with one missed goes to Nadav, not closer
-stops.
+**Optional: copy against hand on the first screen.** The only measurement comparing the routes, if the studio's plan
+includes it. It runs in `~/design-redesign/from-zero/social-ab/` and never lands. The measurer picks the closed screen
+nearest the median `K.*` count of the 30 modules in `demo-v2/assets/js/screens/` (180 to 185 at `66503dd`), content
+area only, writes recipes and pair list as unit 0 says, and caps (button half a day per arm, screen two). Arm A (own
+executor): a converter turns the `K.*` calls into JSX and carries their kit CSS. Arm B (another): by hand. Button
+first (`K.btn`, kinds p, s, q, d, qd, with `busy`, `disabled`, `block`, `icon`, `main`, `reason`), then the screen.
+"Closer": fewer gate entries at the last reading (a screen tie goes to fewer differing pixels at 375 px, light).
+Converter hours over N = 1, 10, 30 screens (N = 30 assumes it covers all 55 `K.*` functions; recorded). Thresholds
+[I], unmeasured: hand share under 10%, converter at most 2 days, A per screen not slower than B; A closer with all met
+passes (a screen is outside the one exception), closer with one missed goes to Nadav, not closer stops.
 
 ## SHIFTS
 
@@ -238,6 +242,8 @@ which binds every from-zero run (above). It has no build plan and no INVENTORY.m
 `modes/redesign.md` step 2 (INVENTORY.md, STORY.md, from the demo in the app) and writes the build plan of step 8
 before any build unit. Then: the stuck log, behaviour logic written once apart from the screen (`built-once.md`, «An
 app is built once», point 6), and each screen's INVENTORY.md row checked item by item (`modes/screen.md`, step 8b).
+Its component units pass the same gate, the demo side `src/demo` at the tagged commit (mostly the app's own `ui/`
+parts, so the gate falls mainly on demo-local ones such as `src/demo/shell/parts.tsx`).
 
 ## When a whole run pauses
 
