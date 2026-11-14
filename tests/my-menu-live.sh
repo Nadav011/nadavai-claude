@@ -93,6 +93,9 @@ ok "Up: first row again"                         'row | grep -q "^1\. "'
 key Down; key Tab
 ok "Tab: second group ($(group))"                '[ "$(group)" = "משימה חדשה" ]'
 ok "Tab: its top row is highlighted ($(row))"    'row | grep -q "^1\. תמשיך את הסשן ההוא עד הסוף"'
+# Found in real Orca on 2026-11-14: the engine's list drew eight of this group's nine rows and
+# put the ninth under a line of its own in English.
+ok "no row of the group is hidden under a line of the engine's" '! plain | grep -q "[0-9] more"'
 key BTab
 ok "Shift+Tab: first group again"                '[ "$(group)" = "באמצע עבודה" ]'
 

@@ -76,12 +76,11 @@ const GROUPS: readonly { title: string; names: readonly string[] }[] = [
       'creative',
       'stores',
       'tools',
-      'sweep',
     ],
   },
   {
     title: 'בודקים',
-    names: ['done', 'prove', 'review', 'research', 'second', 'missed', 'map'],
+    names: ['done', 'prove', 'review', 'research', 'second', 'missed', 'map', 'sweep'],
   },
   {
     title: 'להבין ולהחליט',
@@ -91,9 +90,12 @@ const GROUPS: readonly { title: string; names: readonly string[] }[] = [
   { title: 'משהו לא טוב', names: ['machine', 'wrong', 'top', 'never'] },
 ]
 const REST = 'נוספים'
-// A page holds one group, or as much of it as the band has room for. Its rows
-// are numbered 1 to 9, and a digit jumps to that row.
-const MAX_PER_PAGE = 9
+// A page holds one group, or as much of it as the band has room for, and a
+// digit jumps to the row of that number. Eight at most: the engine's Select
+// draws eight options and puts the rest under a line of its own in English
+// ("… 1 more"), so a ninth row was out of sight in real Orca (2026-11-14). A
+// group with more than eight rows comes in parts, said in Hebrew.
+const MAX_PER_PAGE = 8
 const MIN_PER_PAGE = 1
 // A last page with fewer rows than this shares rows with the page before it.
 const MIN_LAST_PAGE = 3

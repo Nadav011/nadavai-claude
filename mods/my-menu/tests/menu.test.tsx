@@ -850,6 +850,34 @@ test('a group with more rows than the band has room for comes in parts, numbered
   await ui.unmount()
 })
 
+test('a group never shows more rows than the eight the list of the engine draws', async ($, on) => {
+  // Nine prompts no group names: they all land in the group of the rest.
+  const nine = Array.from(
+    { length: 9 },
+    (_, i): Command => ({
+      name: `nadavai:my-extra${i + 1}`,
+      description: `משפט ${i + 1}? מה מקבלים`,
+      source: 'plugin',
+    }),
+  )
+  engine(on, box(), nine)
+
+  await $.session.start(START)
+  await open($)
+  // A tall band: room is not what cuts the group.
+  const ui = await $.ui.mount(band(150, 20))
+  await move($, AFTER_STOP)
+  await ui.redraw()
+  const first = await shown(ui)
+  expect(first.options.length).toBeLessThanOrEqual(8)
+  expect(await marked(ui)).toBe('נוספים (חלק 1 מתוך 2)')
+  await move($, AFTER_STOP)
+  await ui.redraw()
+  const second = await shown(ui)
+  expect(first.options.length + second.options.length).toBe(9)
+  await ui.unmount()
+})
+
 test('a short band gives its rows to the list: first the keys go, then the groups', async ($, on) => {
   engine(on, box())
 

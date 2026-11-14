@@ -31,7 +31,6 @@ Nadav typed this to see what he can run. Print the tables below as they are, eac
 | פוסט, מודעה או סרטון | `/nadavai:my-creative` |
 | מה מצב האפליקציות בחנויות? | `/nadavai:my-stores` |
 | כלי, מודל או הרשאה לא עובדים | `/nadavai:my-tools` |
-| בוא נעבור על הכול מחדש | `/nadavai:my-sweep` |
 
 **בודקים**
 
@@ -44,6 +43,7 @@ Nadav typed this to see what he can run. Print the tables below as they are, eac
 | תביא חוות דעת שנייה ממודל אחר | `/nadavai:my-second` |
 | דילגת על מה ששאלתי | `/nadavai:my-missed` |
 | איבדתי את הכול: מה נסגר, מה נשאר, איזה סבב | `/nadavai:my-map` |
+| בוא נעבור על הכול מחדש | `/nadavai:my-sweep` |
 
 **להבין ולהחליט**
 
