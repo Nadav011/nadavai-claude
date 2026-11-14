@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>save-webrtc-xo-child</title>
+</head>
+<body>
+<p>מסגרת</p>
+<script>
+  // The frame of save-webrtc-xo.html, of another origin (localhost; the page is 127.0.0.1): it starts a
+  // WebRTC connection when its page asks. Its STUN requests would go to the page's host by UDP.
+  addEventListener("message", async (e) => {
+    if (e.data !== "forced-colors") return;
+    try {
+      const pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:127.0.0.1:" + location.port }] });
+      pc.createDataChannel("x");
+      await pc.setLocalDescription(await pc.createOffer());
+      window.call = pc;
+    } catch { /* taken away */ }
+  });
+</script>
+</body>
+</html>

@@ -397,12 +397,12 @@ is `consent-prechecked`.
 |---|---|---|
 | a write of a live page, a popup, a frame (also of another origin) or a dedicated worker: `fetch` (also `keepalive`), `XMLHttpRequest`, `sendBeacon`, a form posted into the page, a frame or a new window, `<a ping>`; also one set off by the check (focus, forced colours, a resize, a style tag) or as it ends | cut; recorded in `tried`, with who sent it and what the check was doing (the spec waits 500 ms after a check before it takes them; 40 kinds kept apart, 7 described) | `save-on-focus.html` (forced-colors), `save-xhr.html` (forced-colors), `save-forms.html` (forced-colors), `save-form-self.html` (forced-colors), `save-ping.html` (forced-colors), `save-in-popup.html` (forced-colors), `save-in-worker.html` (forced-colors), `save-via-sw.html` (forced-colors), `save-xo-frame.html` (forced-colors), `save-resize-style.html` (text-reflow), `save-resize-style.html` (text-spacing), `save-late.html` (forced-colors), `save-many-paths.html` (forced-colors), the phase run, `/save-on-focus`, the phase run, `/save-late`; M:cut, M:refuse-new, R:no-loopback, S:spec-no-proxy, M:tried, M:from-popup, M:from-worker, M:watch-moment, M:moment, S:no-settle, M:samples-cap, M:tried-keep, R:overflow-drops |
 | a write of a document as it leaves (a redirect, a navigation, a popup closed), also through another frame's realm or in `pageswap` or `navigate`; `fetchLater`, at once, later or as the context closes | cut; not recorded (no route sees them) | `save-leave-nav.html` (forced-colors), `save-resize-leave.html` (text-reflow), `save-xrealm-leave.html` (forced-colors), `save-pageswap.html` (forced-colors), `save-popup-close.html` (forced-colors), `save-fetchlater.html` (forced-colors); M:cut |
-| a WebSocket message, on a socket open since the load (from the page, a dedicated worker, a popup, a page that then leaves) or on a new one; a SharedWorker's requests; a GET (an image, a script, `EventSource`, a prefetch, speculation rules) | cut: the proxy closes every open connection and refuses new ones; not recorded | `save-ws-open.html` (forced-colors), `save-worker-ws.html` (forced-colors), `save-popup-ws.html` (forced-colors), `save-ws-leave.html` (forced-colors), `save-in-shared-worker.html` (forced-colors), `save-shw-iframe.html` (forced-colors), `save-get.html` (forced-colors), the phase run, `/save-ws-open`; M:cut, M:drop-open, M:refuse-new, S:spec-no-proxy |
+| a WebSocket message, on a socket open since the load (from the page, a dedicated worker, a popup, a page that then leaves) or on a new one; a SharedWorker's requests; a GET (an image, a script, `EventSource`, a prefetch, speculation rules) | cut: the proxy closes every open connection and refuses new ones; not recorded | `save-ws-open.html` (forced-colors), `save-worker-ws.html` (forced-colors), `save-popup-ws.html` (forced-colors), `save-ws-leave.html` (forced-colors), `save-in-shared-worker.html` (forced-colors), `save-shw-iframe.html` (forced-colors), `save-get.html` (forced-colors), `save-keep-writing.html` (forced-colors), the direct test of `networkCut()`, the phase run, `/save-ws-open`, the phase run, `/save-keep-writing`; M:cut, M:drop-open, M:refuse-new, R:reconnect, S:spec-no-proxy |
 | a WebTransport session | not sent at all: Chromium sends no QUIC through a proxy, cut or not | `save-webtransport.html` (forced-colors); R:no-proxy |
 | a timer or a retry loop, an outbox kept in localStorage, `BroadcastChannel` or a `storage` event to another tab | cut; the context is closed while cut off and nothing it stored is captured, so the next run starts from the test's storage state | `save-retry.html` (forced-colors), `save-outbox.html` (forced-colors), the phase run, `/save-retry`, the phase run, `/save-outbox`, the phase run, `/save-tabsync`; M:cut, S:chain-state |
 | a write while the page loads, from the page or a popup it opens (a page view, an error report, an auth refresh, a read through POST) | passes, as in the scored phase: the cut comes after the load | `reads-on-load.html` (forced-colors), `load-popup.html` (forced-colors), the phase run, `/reads-on-load`; R:cut-at-load |
 | a GET that writes before the cut (a page view logged by GET) | passes, as in the scored phase | none |
-| a WebRTC connection, as the page loads or during the check (its UDP goes past the proxy) | refused: `RTCPeerConnection` is taken away, and the run is not checked | `save-webrtc.html` (forced-colors), `save-webrtc-load.html` (forced-colors), the phase run, `/save-webrtc`, the phase run, `/save-webrtc-load`; M:webrtc, S:no-refusal |
+| a WebRTC connection, as the page loads or during the check, from the page or a frame (a blank one, one of another origin, a srcdoc frame); its UDP goes past the proxy | refused: `RTCPeerConnection` is taken away in every document, and the run is not checked when the document that tried is still open as the run reads it (see the refusal, below) | `save-webrtc.html` (forced-colors), `save-webrtc-load.html` (forced-colors), `save-webrtc-iframe.html` (forced-colors), `save-webrtc-xo.html` (forced-colors), `save-webrtc-srcdoc.html` (forced-colors), the phase run, `/save-webrtc`, the phase run, `/save-webrtc-load`, the phase run, `/save-webrtc-iframe`, the phase run, `/save-webrtc-xo`, the phase run, `/save-webrtc-srcdoc`; M:webrtc, R:rtc-top-only, S:no-refusal |
 | a page that changes when cut off (an offline banner, an error state) | checked as it is then; `changedWhenCut` names the change, and the log says "changed when cut off" | the phase run, `/cut-banner`; S:no-second-fingerprint |
 | a page that leaves its route during a check (under the cut, a navigation to another document ends on an error page) | not checked, with where it went; nothing it measured there is reported | `save-spacing-redirect.html` (text-reflow), the phase run, `/save-spacing-redirect`; M:left, S:no-left-check |
 
@@ -430,9 +430,14 @@ followed.
 
 The refusal: a WebRTC connection's UDP goes past a proxy, and so past the cut (measured: its STUN
 requests reached the server after the cut). So the kit takes `RTCPeerConnection` away in every
-document of the run; it throws as a missing feature would, and a page that tried to make one, as it
-loads or during the check, is "not checked: the page tries to start a WebRTC connection, which the
-network cut does not reach, so these checks take it away".
+document of the run, frames and popups included; it throws as a missing feature would, so nothing
+is sent, and it marks the document whose `RTCPeerConnection` was called. The run reads those marks
+twice, before the cut and after the check, in the documents then open (every page of the run and
+its frames): when the document that tried is still open then, as it loads or during the check, the
+run is "not checked: the page tries to start a WebRTC connection, which the network cut does not
+reach, so these checks take it away". An attempt in a frame since removed or a popup since closed
+fails the same way and sends nothing, but the run is not told, so it is reported as checked
+(measured, review 7).
 
 What persists between runs: nothing. Each run starts from the storage state the test started with
 (anonymous: empty; signed in: the checks phase's sign-in), never from one captured after a run;
@@ -457,7 +462,8 @@ alone). A project whose pages load only through a proxy of its own cannot use th
 context goes through the kit's proxy, which connects directly. The fixture pages run in browser
 cases, and most of them also through the spec itself in a real `run-dod.mjs` run, whose test asserts
 that the server got no write while the extended checks ran (but the reads of `reads-on-load.html`
-as it loads), and none at all, over the whole run, of the pages that write only in these checks.
+as it loads, and what `save-keep-writing.html` sends before its first write fails), and none at
+all, over the whole run, of the pages that write only in these checks.
 `save-in-shared-worker.html` and `save-shw-iframe.html` are in the browser cases only, since the
 scored phase times out on a page that starts a SharedWorker.
 
@@ -515,12 +521,25 @@ What the network cut does not stop, or the result does not report:
   by itself (a carousel) may be named although the cut did not change it.
 - A route change by the hash alone is not followed, so a check on a hash-routed app that switches
   screens during it reports the other screen under this route.
-- A page that tries to start a WebRTC connection is not checked at all.
+- A page that tries to start a WebRTC connection is "not checked" only when the document that tried
+  is still open as the run reads it (before the cut and after the check); an attempt in a frame
+  since removed or a popup since closed fails the same way and sends nothing, but the run is not
+  told, so it is reported as checked.
+- Fenced frames were not measured: a page here cannot make one (`new FencedFrameConfig(url)` is an
+  illegal constructor in this Chromium, review 7), so an ad slot that writes from one is not tested.
+- Prerender was not measured beyond the fetch: a speculation-rules prerender fetches its page, and its
+  script sent nothing before or after the cut (review 7), so a prerendered next screen that writes is
+  not tested.
+- HTTP/2 inside the proxy's tunnel was not run: https was measured over HTTP/1.1 only (the test server
+  offered no h2). The cut destroys a tunnel whole either way, but a connection multiplexed inside one
+  was not measured.
+- Name lookups (DNS) after the cut were not observed: review 7's page that looks up names that do not
+  resolve sent nothing to the server, and what a lookup itself sends was not measured.
 - A project whose pages load only through a proxy of its own: the run's context connects directly
   through the kit's proxy, so its pages do not load as the scored phase saw them.
-- Measured only on Playwright 1.64.1's Chromium, over http and ws on loopback. WebTransport was
-  measured only as "no QUIC packet left the browser"; https and wss through the proxy's tunnel take
-  the same path as ws and were not run against a TLS server.
+- Measured on Playwright 1.64.1's Chromium over http and ws, and over https and wss with a
+  self-signed certificate (review 7), on loopback. WebTransport was measured only as "no QUIC packet
+  left the browser".
 
 ## Moving a project to this template
 

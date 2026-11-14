@@ -26,6 +26,7 @@ import crypto from "node:crypto";
 import dgram from "node:dgram";
 import fs from "node:fs";
 import http from "node:http";
+import { connect } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -38,6 +39,10 @@ const MODULES = { a11y: path.join(TEMPLATE, "e2e", "dod", "a11y-extended.ts"), c
 const WORK = path.resolve(process.env.DOD_TEST_WORKDIR ?? path.join(os.tmpdir(), "dod-template-tests"));
 const FIXED_PORT = process.env.DOD_A11Y_PORT ? Number(process.env.DOD_A11Y_PORT) : null;
 const args = process.argv.slice(2);
+// The time limit of one browser case, mutant case or the direct test (review 7's N2). The slowest passing cases
+// are the SharedWorker pages, about 64 s at load average 20 to 30 (their network never goes idle, so each of the
+// two settles waits out its 30 s); the limit is near three times that.
+const CASE_LIMIT_MS = 180_000;
 
 if (!path.relative(REPO, WORK).startsWith("..")) {
   console.error(`DOD_TEST_WORKDIR ${WORK} is inside the repo; choose a directory outside it.`);
@@ -75,7 +80,7 @@ const fresh = (name) => fs.mkdtempSync(path.join(WORK, `${name}-`));
 // --- what each fixture page must make its check find ---------------------------------------
 // [check, page, kinds, opts]: `kinds` are the findings, exactly; opts.notes the number of notes;
 // opts.reads a page whose own POST while it loads (/read) must reach the server and never be reported;
-// opts.loadWrites a page whose write while it loads (a popup it opens) reaches the server before the cut;
+// opts.loadWrites a page whose write while it loads (a popup it opens, or the page itself) reaches the server before the cut;
 // opts.left a page that leaves its route during the check: "not checked", naming where it went (under
 // the cut a navigation to another document fails, so that is "an error page");
 // opts.tried the writes the route saw after the cut, in the result's own `tried` field and never in
@@ -125,7 +130,11 @@ const CASES = [
   // Sockets (review 6's B2): an open socket's message from the page, a dedicated worker, a popup, a page that
   // then leaves; a new socket. The cut closes the open ones and refuses new ones. The worker's POST is recorded.
   ["forced-colors", "save-ws-open", {}],
-  ["forced-colors", "save-worker-ws", {}, { tried: "1+", triedSay: [/\(POST \/save\/worker-ws\/fetch\)/] }],
+  // Review 7's F1: a page that keeps writing from the load until the context closes (a POST every 600 ms, a
+  // socket reopened every 200 ms), so a cut that lifts itself after a while is met: its writes reach the
+  // server before the cut, none after.
+  ["forced-colors", "save-keep-writing", {}, { loadWrites: true, tried: "1+", triedSay: [/the page tried to write \(POST \/save\/keep-cut\/#\)/] }],
+  ["forced-colors", "save-worker-ws", {},{ tried: "1+", triedSay: [/\(POST \/save\/worker-ws\/fetch\)/] }],
   ["forced-colors", "save-popup-ws", {}],
   ["forced-colors", "save-ws-leave", {}, { left: "an error page" }],
   ["forced-colors", "save-xo-frame", {}, { tried: "1+", triedSay: [/\(POST \/save\/xo\/fetch\)/] }],
@@ -134,6 +143,11 @@ const CASES = [
   // WebRTC's UDP goes past the cut: RTCPeerConnection is taken away and the run is "not checked".
   ["forced-colors", "save-webrtc", {}, { needs: "WebRTC connection" }],
   ["forced-colors", "save-webrtc-load", {}, { needs: "WebRTC connection" }],
+  // Review 7's F2: the same after the cut in a frame: a blank iframe added then, a frame of another origin, a
+  // srcdoc frame. RTCPeerConnection is taken away in every document, so none sends.
+  ["forced-colors", "save-webrtc-iframe", {}, { needs: "WebRTC connection" }],
+  ["forced-colors", "save-webrtc-xo", {}, { needs: "WebRTC connection" }],
+  ["forced-colors", "save-webrtc-srcdoc", {}, { needs: "WebRTC connection" }],
   ["forced-colors", "cut-banner", {}],
   ["text-reflow", "save-resize-style", {}, { tried: "1+", triedSay: [/\(POST \/save\/resize\)/] }],
   ["text-spacing", "save-resize-style", {}, { tried: "1+", triedSay: [/\(POST \/save\/style\)/] }],
@@ -256,6 +270,11 @@ const REPLACE = [
   ["no-loopback", "a11y", 'bypass: "<-loopback>" },', 'bypass: "<loopback>" },', "forced-colors", "save-on-focus"],
   ["no-proxy", "a11y", 'proxy: { server: `http://127.0.0.1:${port}`, bypass: "<-loopback>" },', "proxy: undefined as unknown as { server: string; bypass: string },", "forced-colors", "save-webtransport"],
   ["cut-at-load", "a11y", "await context.addInitScript(inEveryDocument);", "network.cut();\n  await context.addInitScript(inEveryDocument);", "forced-colors", "reads-on-load"],
+  // No reconnect (review 7's F1): the cut lifts itself 1 s after each `cut()`. Met by the page that keeps
+  // writing and by the direct test of `networkCut()` ("network-cut", run by `cutHolds`, not a page).
+  ...["save-keep-writing", "direct"].map((page) => ["reconnect", "a11y", "    for (const s of open) s.destroy(); // M:drop-open", "    for (const s of open) s.destroy(); // M:drop-open\n    setTimeout(() => { off = false; }, 1000);", page === "direct" ? "network-cut" : "forced-colors", page]),
+  // The refusal in the top document only (review 7's F2): frames keep the real RTCPeerConnection.
+  ...["save-webrtc-iframe", "save-webrtc-xo", "save-webrtc-srcdoc"].map((page) => ["rtc-top-only", "a11y", "  type Win = { __a11yxTakenAway?: string };", "  if (window !== window.top) return;\n  type Win = { __a11yxTakenAway?: string };", "forced-colors", page]),
   ["guard-lets-post", "a11y", 'export const SAFE_METHODS = ["GET", "HEAD", "OPTIONS"];', 'export const SAFE_METHODS = ["GET", "HEAD", "OPTIONS", "POST"];', "forced-colors", "save-on-focus"],
   ["reflow-320-to-360", "a11y", "{ width: 320, height: 256, sideways: true }", "{ width: 360, height: 256, sideways: true }", "text-reflow", "text-reflow"],
   ["reflow-640-to-1280", "a11y", "{ width: 640, height: 512, sideways: false }", "{ width: 1280, height: 512, sideways: false }", "text-reflow", "text-reflow"],
@@ -300,19 +319,20 @@ const RUN = {
 
 // --- what the cut stops, what passes before it, and what makes a run refuse: the README's table, as data -----
 // [what the page sends, what happens to it, proved by]: "proved by" names fixtures ("<check> <page>" for a
-// browser case, "phase /<route>" for the phase run) and the mutants that remove what the row says (M: a marked
+// browser case, "phase /<route>" for the phase run, "networkCut()" for the direct test of the proxy) and the mutants that remove what the row says (M: a marked
 // line, R: a replacement, S: a spec mutant), each of which must fail one of those fixtures. Every row that says
 // "cut" is a row of the round 6 measurement where the server received nothing after the cut; its fixtures assert
 // that on the server. `channelTable` checks this list against CASES, the mutants and the README's table.
+const DIRECT = "networkCut()";
 const CHANNELS = [
   ["a write of a live page, a popup, a frame (also of another origin) or a dedicated worker: `fetch` (also `keepalive`), `XMLHttpRequest`, `sendBeacon`, a form posted into the page, a frame or a new window, `<a ping>`; also one set off by the check (focus, forced colours, a resize, a style tag) or as it ends", "cut; recorded in `tried`, with who sent it and what the check was doing (the spec waits 500 ms after a check before it takes them; 40 kinds kept apart, 7 described)", ["forced-colors save-on-focus", "forced-colors save-xhr", "forced-colors save-forms", "forced-colors save-form-self", "forced-colors save-ping", "forced-colors save-in-popup", "forced-colors save-in-worker", "forced-colors save-via-sw", "forced-colors save-xo-frame", "text-reflow save-resize-style", "text-spacing save-resize-style", "forced-colors save-late", "forced-colors save-many-paths", "phase /save-on-focus", "phase /save-late"], ["M:cut", "M:refuse-new", "R:no-loopback", "S:spec-no-proxy", "M:tried", "M:from-popup", "M:from-worker", "M:watch-moment", "M:moment", "S:no-settle", "M:samples-cap", "M:tried-keep", "R:overflow-drops"]],
   ["a write of a document as it leaves (a redirect, a navigation, a popup closed), also through another frame's realm or in `pageswap` or `navigate`; `fetchLater`, at once, later or as the context closes", "cut; not recorded (no route sees them)", ["forced-colors save-leave-nav", "text-reflow save-resize-leave", "forced-colors save-xrealm-leave", "forced-colors save-pageswap", "forced-colors save-popup-close", "forced-colors save-fetchlater"], ["M:cut"]],
-  ["a WebSocket message, on a socket open since the load (from the page, a dedicated worker, a popup, a page that then leaves) or on a new one; a SharedWorker's requests; a GET (an image, a script, `EventSource`, a prefetch, speculation rules)", "cut: the proxy closes every open connection and refuses new ones; not recorded", ["forced-colors save-ws-open", "forced-colors save-worker-ws", "forced-colors save-popup-ws", "forced-colors save-ws-leave", "forced-colors save-in-shared-worker", "forced-colors save-shw-iframe", "forced-colors save-get", "phase /save-ws-open"], ["M:cut", "M:drop-open", "M:refuse-new", "S:spec-no-proxy"]],
+  ["a WebSocket message, on a socket open since the load (from the page, a dedicated worker, a popup, a page that then leaves) or on a new one; a SharedWorker's requests; a GET (an image, a script, `EventSource`, a prefetch, speculation rules)", "cut: the proxy closes every open connection and refuses new ones; not recorded", ["forced-colors save-ws-open", "forced-colors save-worker-ws", "forced-colors save-popup-ws", "forced-colors save-ws-leave", "forced-colors save-in-shared-worker", "forced-colors save-shw-iframe", "forced-colors save-get", "forced-colors save-keep-writing", "networkCut()", "phase /save-ws-open", "phase /save-keep-writing"], ["M:cut", "M:drop-open", "M:refuse-new", "R:reconnect", "S:spec-no-proxy"]],
   ["a WebTransport session", "not sent at all: Chromium sends no QUIC through a proxy, cut or not", ["forced-colors save-webtransport"], ["R:no-proxy"]],
   ["a timer or a retry loop, an outbox kept in localStorage, `BroadcastChannel` or a `storage` event to another tab", "cut; the context is closed while cut off and nothing it stored is captured, so the next run starts from the test's storage state", ["forced-colors save-retry", "forced-colors save-outbox", "phase /save-retry", "phase /save-outbox", "phase /save-tabsync"], ["M:cut", "S:chain-state"]],
   ["a write while the page loads, from the page or a popup it opens (a page view, an error report, an auth refresh, a read through POST)", "passes, as in the scored phase: the cut comes after the load", ["forced-colors reads-on-load", "forced-colors load-popup", "phase /reads-on-load"], ["R:cut-at-load"]],
   ["a GET that writes before the cut (a page view logged by GET)", "passes, as in the scored phase", [], []],
-  ["a WebRTC connection, as the page loads or during the check (its UDP goes past the proxy)", "refused: `RTCPeerConnection` is taken away, and the run is not checked", ["forced-colors save-webrtc", "forced-colors save-webrtc-load", "phase /save-webrtc", "phase /save-webrtc-load"], ["M:webrtc", "S:no-refusal"]],
+  ["a WebRTC connection, as the page loads or during the check, from the page or a frame (a blank one, one of another origin, a srcdoc frame); its UDP goes past the proxy", "refused: `RTCPeerConnection` is taken away in every document, and the run is not checked when the document that tried is still open as the run reads it (see the refusal, below)", ["forced-colors save-webrtc", "forced-colors save-webrtc-load", "forced-colors save-webrtc-iframe", "forced-colors save-webrtc-xo", "forced-colors save-webrtc-srcdoc", "phase /save-webrtc", "phase /save-webrtc-load", "phase /save-webrtc-iframe", "phase /save-webrtc-xo", "phase /save-webrtc-srcdoc"], ["M:webrtc", "R:rtc-top-only", "S:no-refusal"]],
   ["a page that changes when cut off (an offline banner, an error state)", "checked as it is then; `changedWhenCut` names the change, and the log says \"changed when cut off\"", ["phase /cut-banner"], ["S:no-second-fingerprint"]],
   ["a page that leaves its route during a check (under the cut, a navigation to another document ends on an error page)", "not checked, with where it went; nothing it measured there is reported", ["text-reflow save-spacing-redirect", "phase /save-spacing-redirect"], ["M:left", "S:no-left-check"]],
 ];
@@ -322,17 +342,19 @@ const channelTableText = () =>
   [
     "| What the page sends | What happens to it | Proved by |",
     "|---|---|---|",
-    ...CHANNELS.map(([ch, how, fx, mu]) => `| ${ch} | ${how} | ${fx.length ? `${fx.map((f) => (f.startsWith("phase ") ? `the phase run, \`${f.slice(6)}\`` : `\`${f.split(" ")[1]}.html\` (${f.split(" ")[0]})`)).join(", ")}; ${mu.join(", ")}` : "none"} |`),
+    ...CHANNELS.map(([ch, how, fx, mu]) => `| ${ch} | ${how} | ${fx.length ? `${fx.map((f) => (f === DIRECT ? "the direct test of `networkCut()`" : f.startsWith("phase ") ? `the phase run, \`${f.slice(6)}\`` : `\`${f.split(" ")[1]}.html\` (${f.split(" ")[0]})`)).join(", ")}; ${mu.join(", ")}` : "none"} |`),
   ].join("\n");
 
 /** Every row but the one that only passes has a fixture and a mutant that targets it; the README's table is this one. */
 function channelTable() {
   const why = [];
   for (const [ch, how, fx, mu] of CHANNELS) {
-    const pages = fx.filter((f) => !f.startsWith("phase ")).map((f) => f.split(" "));
+    const pages = fx.filter((f) => !f.startsWith("phase ") && f !== DIRECT).map((f) => f.split(" "));
+    // The direct test is aimed at as REPLACE's ["network-cut", "direct"].
+    if (fx.includes(DIRECT)) pages.push(["network-cut", "direct"]);
     const phase = fx.filter((f) => f.startsWith("phase ")).map((f) => f.slice(6));
     if (!(how.startsWith("passes") && !fx.length) && (!fx.length || !mu.length)) why.push(`${ch}: a row needs a fixture and a mutant`);
-    for (const [id, page] of pages) if (!caseOf(id, page)) why.push(`${ch}: no case ${id} on ${page}`);
+    for (const [id, page] of pages) if (id !== "network-cut" && !caseOf(id, page)) why.push(`${ch}: no case ${id} on ${page}`);
     for (const r of phase) if (!SAVE_ROUTES.includes(r)) why.push(`${ch}: ${r} is not a phase route`);
     for (const m of mu) {
       const [kind, code] = [m.slice(0, 1), m.slice(2)];
@@ -360,7 +382,7 @@ function differs(r, kase, before, after) {
   const writes = after.filter(isWrite);
   if (writes.length) return `the server received after the cut: ${writes.join(", ")}`;
   if (reads && !before.some((p) => p.includes("/read"))) return "the page's read while it loads did not reach the server";
-  if (loadWrites && !before.some((p) => /\/save([/?]|$)/.test(p))) return "the popup's write while the page loaded did not reach the server";
+  if (loadWrites && !before.some((p) => /\/save([/?]|$)/.test(p))) return "a write while the page loaded (its own or a popup's) did not reach the server";
   const said = [...r.samples, ...(r.tried?.samples ?? [])];
   if (said.some((s) => s.includes("/read"))) return `a read while the page loaded was reported: ${said.join(" | ")}`;
   if (needs) return r.error && r.error.startsWith("not checked") && r.error.includes(needs) ? "" : `want "not checked" naming ${needs}, got ${JSON.stringify(r)}`;
@@ -492,7 +514,18 @@ async function browserTests() {
   const { chromium } = await import(pathToFileURL(path.join(WORK, "node_modules", "@playwright", "test", "index.mjs")).href);
   const real = { a11y: await import(pathToFileURL(MODULES.a11y).href), consent: await import(pathToFileURL(MODULES.consent).href) };
   const srv = await serveFree();
-  const browser = await chromium.launch({ ignoreDefaultArgs: ["--disable-dev-shm-usage"] });
+  const launch = () => chromium.launch({ ignoreDefaultArgs: ["--disable-dev-shm-usage"] });
+  let browser = await launch();
+  // Review 7's N2: each case has a time limit, so a hang is a named FAIL line, not a run that never ends. A case
+  // that ran out of time never closed its context, so the browser is replaced before the next case.
+  const limited = (p) => {
+    let timer;
+    return Promise.race([p, new Promise((_, reject) => (timer = setTimeout(() => reject(new Error(`timed out after ${CASE_LIMIT_MS / 1000} s`)), CASE_LIMIT_MS)))]).finally(() => clearTimeout(timer));
+  };
+  const relaunch = async () => {
+    await Promise.race([browser.close().catch(() => {}), new Promise((res) => setTimeout(res, 30_000))]);
+    browser = await launch();
+  };
   // One check on one page, as the spec's `run` runs it: the run's network (a proxy of its own), a context made
   // through it with service workers blocked and the write guard, a new page, loaded and settled, "not checked"
   // when the page tried to start what the checks take away, the cut (`watch`), settled again, the check,
@@ -544,15 +577,66 @@ async function browserTests() {
     const mine = srv.log.slice(start);
     return { r, before: mine.filter((e) => e.at < cutAt).map((e) => e.what), after: mine.filter((e) => e.at >= cutAt).map((e) => e.what) };
   };
+  // The direct test of the cut (review 7's F1), through the proxy of `networkCut()` alone, no browser: a request
+  // the proxy forwards to the fixture server before the cut (so the test can fail); after `cut()`, and again
+  // after a second `cut()`, a connection to the proxy at +0.1 s, +1.5 s and +5 s, each closed by the proxy with
+  // no byte answered and nothing reaching the server. Returns how it failed, or "".
+  const cutHolds = async (a11y) => {
+    const cut = await a11y.networkCut();
+    const port = Number(new URL(cut.proxy.server).port);
+    const start = srv.log.length;
+    const reached = (tag) => srv.log.slice(start).filter((e) => e.what.startsWith(`POST /save/direct/${tag}`)).map((e) => e.what);
+    const attempt = (tag) =>
+      new Promise((resolve) => {
+        const s = connect(port, "127.0.0.1");
+        let answered = 0;
+        let byProxy = true;
+        s.on("connect", () => s.write(`POST http://127.0.0.1:${srv.port}/save/direct/${tag} HTTP/1.1\r\nHost: 127.0.0.1:${srv.port}\r\nContent-Length: 1\r\nConnection: close\r\n\r\nx`));
+        s.on("data", (d) => (answered += d.length));
+        s.on("error", () => {});
+        s.on("close", () => resolve({ tag, answered, byProxy }));
+        setTimeout(() => {
+          byProxy = false;
+          s.destroy();
+        }, 2000);
+      });
+    const round = (n) => Promise.all([100, 1500, 5000].map((ms) => wait(ms).then(() => attempt(`after-${n}-${ms}ms`))));
+    try {
+      const control = await attempt("before");
+      if (!(control.answered > 0 && reached("before").length)) return `before the cut the proxy forwarded nothing (${control.answered} bytes answered), so the test would prove nothing`;
+      cut.cut();
+      const tries = await round(1);
+      cut.cut();
+      tries.push(...(await round(2)));
+      await wait(300);
+      const bad = [...reached("after").map((w) => `the server received ${w}`), ...tries.filter((t) => t.answered || !t.byProxy).map((t) => `${t.tag}: ${t.answered} bytes answered${t.byProxy ? "" : ", still open after 2 s"}`)];
+      return bad.length ? `after the cut: ${bad.join("; ")}` : "";
+    } finally {
+      await cut.close();
+    }
+  };
   try {
+    const t0 = Date.now();
+    const direct = await limited(cutHolds(real.a11y)).catch((err) => String(err.message));
+    ok(!direct, "networkCut(): before the cut a request is forwarded; after cut(), and after a second cut(), a connection at +0.1 s, +1.5 s and +5 s is closed with no byte answered and nothing reaching the server", direct);
+    console.log(`       the direct test of networkCut(): ${((Date.now() - t0) / 1000).toFixed(1)} s`);
     for (const kase of CASES) {
       const [id, page, kinds, opts = {}] = kase;
-      const { r, before, after } = await check(real, id, page);
+      const started = Date.now();
+      let got;
+      try {
+        got = await limited(check(real, id, page));
+      } catch (err) {
+        ok(false, `${id} on ${page}.html`, String(err.message));
+        await relaunch();
+        continue;
+      }
+      const { r, before, after } = got;
       const why = differs(r, kase, before, after);
       const extra = [opts.notes ? `${opts.notes} note` : "", opts.tried ? `${opts.tried} tried while cut off` : "", opts.needs ? `"not checked" for ${opts.needs}` : "", opts.left ? `left to ${opts.left}` : ""].filter(Boolean).join(", ");
       ok(!why, `${id} on ${page}.html finds ${JSON.stringify(kinds)}${extra ? ` (${extra})` : ""}, and the server received nothing after the cut`, `${why}; ${JSON.stringify(r)}`);
       const w = (xs) => xs.filter(isWrite);
-      console.log(`       ${id} on ${page}.html: ${JSON.stringify({ count: r.count, kinds: r.kinds, notes: r.notes, tried: r.tried, error: r.error, samples: r.samples.slice(0, 3) })}; server writes before the cut ${w(before).length}, after ${w(after).length}`);
+      console.log(`       ${id} on ${page}.html: ${JSON.stringify({ count: r.count, kinds: r.kinds, notes: r.notes, tried: r.tried, error: r.error, samples: r.samples.slice(0, 3) })}; server writes before the cut ${w(before).length}, after ${w(after).length}; ${((Date.now() - started) / 1000).toFixed(1)} s`);
       if (id === "text-reflow" && page === "text-reflow-fig9") ok(r.samples.some((s) => /sideways: .*widest <p> /.test(s)), "Figure 9: the sideways finding names the widened paragraph, not the table", JSON.stringify(r.samples));
       if (id === "text-reflow" && page === "text-reflow") ok(r.samples.some((s) => /sideways: .*widest <div> "טבלה רחבה" 500px/.test(s)), "the sideways finding names the widest element", JSON.stringify(r.samples));
     }
@@ -574,7 +658,27 @@ async function browserTests() {
         continue;
       }
       const mod = await import(pathToFileURL(file).href);
-      const { r, before, after } = await check({ ...real, [module]: mod }, id, page);
+      if (id === "network-cut") {
+        let why;
+        try {
+          why = await limited(cutHolds(mod));
+        } catch (err) {
+          ok(false, `the direct test of networkCut(): mutant ${name}`, String(err.message));
+          continue;
+        }
+        ok(!!why, `the direct test of networkCut(): the mutant ${name} fails it`, "the mutant still holds");
+        console.log(`       mutant ${name} on the direct test: ${why}`);
+        continue;
+      }
+      let got;
+      try {
+        got = await limited(check({ ...real, [module]: mod }, id, page));
+      } catch (err) {
+        ok(false, `${id}: mutant ${name} on ${page}.html`, String(err.message));
+        await relaunch();
+        continue;
+      }
+      const { r, before, after } = got;
       const why = differs(r, caseOf(id, page), before, after);
       ok(!!why, `${id}: the mutant ${name} fails the ${page}.html case`, `the mutant still gives ${JSON.stringify({ kinds: r.kinds, tried: r.tried, error: r.error })}`);
       console.log(`       mutant ${name} on ${page}.html: ${why}`);
@@ -641,11 +745,18 @@ const SAVE_ROUTES = [
   "/save-ws-open",
   "/save-webrtc",
   "/save-webrtc-load",
+  "/save-webrtc-iframe",
+  "/save-webrtc-xo",
+  "/save-webrtc-srcdoc",
+  "/save-keep-writing",
   "/cut-banner",
   "/reads-on-load",
 ];
 // save-xrealm-leave and save-pageswap write as a page leaves, which the other phases' navigations set off too.
-const WHOLE_RUN = /\/save\/(outbox|tabsync|retry|fetchlater|form|ping|popup-leave|late|worker-ws)\b|ev=(via-sw|popup)|^(WS|UDP) /;
+// save-keep-writing writes from the load on, in every phase: what it sends before its first failed write
+// ("keep-load") passes, and only what it sends after one ("keep-cut") counts.
+const WHOLE_RUN = /\/save\/(outbox|tabsync|retry|fetchlater|form|ping|popup-leave|late|worker-ws|keep-cut)\b|ev=(via-sw|popup)|^WS (?!keep-load$)|^UDP /;
+const KEEP_LOAD = (what) => /^POST \/save\/keep-load\/\d+$/.test(what) || what === "WS keep-load";
 const IDS = ["forced-colors", "text-reflow", "text-spacing", "consent-prechecked", "consent-refuse"];
 const sum = (kinds) => Object.values(kinds).reduce((a, b) => a + b, 0);
 
@@ -657,7 +768,8 @@ const sum = (kinds) => Object.values(kinds).reduce((a, b) => a + b, 0);
 function phaseRows({ dir, routes, got, extStart, log }) {
   const out = path.join(dir, "reports", "dod", "results", "extended");
   const read = (slug) => (fs.existsSync(path.join(out, `${slug}.json`)) ? JSON.parse(fs.readFileSync(path.join(out, `${slug}.json`), "utf8")) : null);
-  const writes = got.filter((p) => isWrite(p.what) && p.at >= extStart && !p.what.startsWith("POST /read")).map((p) => p.what);
+  const writes = got.filter((p) => isWrite(p.what) && p.at >= extStart && !p.what.startsWith("POST /read") && !KEEP_LOAD(p.what)).map((p) => p.what);
+  const keepLoad = got.filter((p) => p.at >= extStart && KEEP_LOAD(p.what)).length;
   const writesBefore = got.filter((p) => isWrite(p.what) && p.at < extStart).length;
   const wholeRun = got.filter((p) => WHOLE_RUN.test(p.what)).map((p) => p.what);
   const reads = got.filter((p) => p.what.startsWith("POST /read"));
@@ -671,9 +783,10 @@ function phaseRows({ dir, routes, got, extStart, log }) {
   const rows = [];
   const row = (name, need, holds, detail = "") => rows.push([name, need, holds, detail]);
   const all = routes.map((r) => read(r.slice(1))).filter(Boolean);
-  row(`no write reached the server while the extended checks ran, but reads-on-load's reads as it loads (${writesBefore} came earlier, from the other phases)`, [], !writes.length, writes.join(", "));
+  row(`no write reached the server while the extended checks ran, but reads-on-load's reads as it loads and save-keep-writing's before its cut (${writesBefore} came earlier, from the other phases)`, [], !writes.length, writes.join(", "));
   row(`no write of the pages that write only in these checks reached the server at any time of the run (${got.length} requests and messages reached it in all)`, [], !wholeRun.length, wholeRun.join(", "));
-  for (const slug of ["save-on-focus", "save-via-sw", "save-in-worker", "save-outbox", "save-retry", "save-forms", "save-ping", "save-late", "save-worker-ws"])
+  row(`save-keep-writing: its writes from the load reached the server before each cut (${keepLoad} while the extended checks ran), and none after it (no "keep-cut" at any time)`, ["/save-keep-writing"], keepLoad > 0 && !got.some((p) => /keep-cut/.test(p.what)), got.filter((p) => /keep-cut/.test(p.what)).map((p) => p.what).join(", "));
+  for (const slug of ["save-on-focus", "save-via-sw", "save-in-worker", "save-outbox", "save-retry", "save-forms", "save-ping", "save-late", "save-worker-ws", "save-keep-writing"])
     row(`${slug}.json: forced-colors recorded ${triedOf(slug, "forced-colors")} write(s) tried while cut off, every count 0, and the log says "forced-colors clean (N writes tried while cut off)"`, [`/${slug}`], triedOf(slug, "forced-colors") >= 1 && counts(slug).every((n) => n === 0) && !errs(slug).length && /forced-colors clean \(\d+ writes? tried while cut off\)/.test(logLine(slug)), JSON.stringify(read(slug)));
   for (const slug of ["save-in-popup", "save-fetchlater", "save-popup-close", "save-popup-ws", "save-ws-open", "save-tabsync"])
     row(`${slug}.json: every check clean, nothing errored`, [`/${slug}`], counts(slug).every((n) => n === 0) && !errs(slug).length, JSON.stringify(read(slug)));
@@ -688,6 +801,9 @@ function phaseRows({ dir, routes, got, extStart, log }) {
   // The refusal: a page that tries to start a WebRTC connection, during the check or as it loads.
   row('save-webrtc.json: forced-colors is "not checked", naming the WebRTC connection, and the log says so', ["/save-webrtc"], /^not checked: the page tries to start a WebRTC connection/.test(chk("save-webrtc", "forced-colors")?.error ?? "") && /forced-colors not checked/.test(logLine("save-webrtc")), JSON.stringify(chk("save-webrtc", "forced-colors")));
   row('save-webrtc-load.json: every check is "not checked", naming the WebRTC connection', ["/save-webrtc-load"], IDS.every((id) => /^not checked: the page tries to start a WebRTC connection/.test(chk("save-webrtc-load", id)?.error ?? "")), JSON.stringify(read("save-webrtc-load")));
+  // Review 7's F2: the same from a frame (blank, of another origin, srcdoc) after the cut.
+  for (const slug of ["save-webrtc-iframe", "save-webrtc-xo", "save-webrtc-srcdoc"])
+    row(`${slug}.json: forced-colors is "not checked", naming the WebRTC connection, and the log says so`, [`/${slug}`], /^not checked: the page tries to start a WebRTC connection/.test(chk(slug, "forced-colors")?.error ?? "") && /forced-colors not checked/.test(logLine(slug)), JSON.stringify(chk(slug, "forced-colors")));
   // The page under the cut: its banner is named on every check, and the log says so.
   row('cut-banner.json: every check carries `changedWhenCut`, and the log says "changed when cut off" for each', ["/cut-banner"], IDS.every((id) => typeof chk("cut-banner", id)?.changedWhenCut === "string") && (logLine("cut-banner").match(/changed when cut off/g) ?? []).length === IDS.length, `${logLine("cut-banner")} ${JSON.stringify(read("cut-banner"))}`);
   row("no other page changed when cut off", [], !all.some((j) => j.route !== "/cut-banner" && IDS.some((id) => j.checks[id]?.changedWhenCut)), all.filter((j) => j.route !== "/cut-banner" && IDS.some((id) => j.checks[id]?.changedWhenCut)).map((j) => j.route).join(", "));
