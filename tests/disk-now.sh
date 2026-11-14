@@ -11,7 +11,8 @@ export HOME=$t/home DT_T=$t
 mkdir -p "$HOME" "$t/fakebin"
 G=1073741824
 printf '#!/bin/sh\necho testhost\n' >"$t/fakebin/hostname"
-printf '#!/bin/sh\nexit 1\n' >"$t/fakebin/sudo"
+# Fake sudo: runs its command (after -n) unless $DT_T/nosudo exists.
+printf '#!/bin/sh\n[ -e "$DT_T/nosudo" ] && exit 1\n[ "$1" = -n ] && shift\n[ $# -eq 0 ] && exit 0\nexec "$@"\n' >"$t/fakebin/sudo"
 # Fake du prints the "size<TAB>path" lines of $DT_T/gdu.out (spaces turned into a tab, as
 # `du -B1` prints them) and exits with $DT_T/du.rc (default 0).
 cat >"$t/fakebin/du" <<'EOF'
@@ -31,6 +32,7 @@ bad() { echo "FAIL $1"; fail=1; }
 
 r=$HOME
 cat >"$t/gdu.out" <<EOF
+ $((100 * G)) /
  $((40 * G)) $r
  $((30 * G)) $r/Projects
  $((20 * G)) $r/Projects/big
@@ -40,8 +42,8 @@ cat >"$t/gdu.out" <<EOF
 EOF
 "$dn" --scan || bad "first scan exits 0"
 m=$HOME/.cache/disk-map/testhost.tsv
-grep -q "^# scanned .* root $r " "$m" && ok "map header names the root" || bad "map header: $(head -n1 "$m")"
-grep -qE -- "-x -a -B1 -t 100M -d 8 $r\$" "$t/du.args" && ok "du keeps one filesystem, files and folders of 100 MB, depth 8" || bad "du args: $(cat "$t/du.args")"
+grep -q "^# scanned .* root / " "$m" && ok "map header names the root" || bad "map header: $(head -n1 "$m")"
+grep -qE -- "-x -a -B1 -t 100M -d 8 /\$" "$t/du.args" && ok "du keeps one filesystem, files and folders of 100 MB, depth 8" || bad "du args: $(cat "$t/du.args")"
 out=$("$dn" --local)
 # Deepest at 5 GB: node_modules (6) and other (9); big (20) has a child over 5 GB, so it is not listed.
 grep -q "node_modules" <<<"$out" && grep -q "Projects/other" <<<"$out" && ok "lists the deepest big folders" || bad "deepest: $out"
@@ -54,6 +56,7 @@ grep -qE '10\.0  .*/home \(שאר התיקייה\)$' <<<"$out" && ok "the root's
 
 # Second scan: node_modules grew by 3 GB, other shrank by 4 GB, a new 2 GB folder appeared.
 cat >"$t/gdu.out" <<EOF
+ $((100 * G)) /
  $((41 * G)) $r
  $((31 * G)) $r/Projects
  $((23 * G)) $r/Projects/big
@@ -100,11 +103,19 @@ before=$(md5sum <"$m"); echo 1 >"$t/du.rc"; tail -n +3 "$t/gdu.keep" >"$t/gdu.ou
 [ "$(md5sum <"$m")" = "$before" ] && ok "a cut-off map keeps the old one" || bad "a cut-off map replaced the old one"
 echo 0 >"$t/du.rc"; cp "$t/gdu.keep" "$t/gdu.out"
 
-# A scan of a smaller root (sudo stopped working) does not replace a map of /.
-sed -i "1s|root [^ ]* |root / |" "$m"; before=$(md5sum <"$m")
-"$dn" --scan 2>/dev/null && bad "a scan of another root exits non-zero" || ok "a scan of another root exits non-zero"
-[ "$(md5sum <"$m")" = "$before" ] && ok "a scan of another root keeps the map of /" || bad "the map of / was replaced"
-sed -i "1s|root / |root $r |" "$m"
+# Without passwordless sudo the scan stops before du runs, and the map stays.
+touch "$t/nosudo"; rm -f "$t/du.order"; before=$(md5sum <"$m")
+err=$("$dn" --scan 2>&1) && bad "no sudo: the scan exits non-zero" || ok "no sudo: the scan exits non-zero"
+grep -q 'needs passwordless sudo' <<<"$err" && ok "no sudo: it says why, before any work" || bad "no sudo message: $err"
+[ ! -e "$t/du.order" ] && ok "no sudo: du never starts" || bad "no sudo: du ran"
+[ "$(md5sum <"$m")" = "$before" ] && ok "no sudo: the map stays" || bad "no sudo: the map changed"
+rm -f "$t/nosudo"
+
+# A write error from du (a full disk mid-scan) keeps the old map even when the root line is there.
+printf '#!/bin/sh\ntac "$DT_T/gdu.out" | sed -E "s/^ *([0-9]+) +/\\1\\t/"\necho "du: write error: No space left on device" >&2\nexit 1\n' >"$t/fakebin/du-full"
+chmod +x "$t/fakebin/du-full"; before=$(md5sum <"$m")
+DISK_NOW_DU=$t/fakebin/du-full "$dn" --scan 2>/dev/null && bad "a write error exits non-zero" || ok "a write error exits non-zero"
+[ "$(md5sum <"$m")" = "$before" ] && ok "a write error keeps the old map" || bad "a write error replaced the map"
 
 # --in takes a relative path.
 out=$(cd "$r" && "$dn" --in Projects)

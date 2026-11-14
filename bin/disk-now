@@ -10,8 +10,8 @@
 #   disk-now --min <GB>      the size from which a folder is listed (default 5)
 #
 # The report reads a map, not the disk: `--scan` runs du over / (through `sudo -n` and
-# `heavy-slot --`; without passwordless sudo only $HOME) and keeps every folder and file of
-# 100 MB or more, to depth 8,
+# `heavy-slot --`; it refuses to start without passwordless sudo) and keeps every folder and
+# file of 100 MB or more, to depth 8,
 # in ~/.cache/disk-map/<host>.tsv; the map before it stays as <host>.prev.tsv for the growth
 # lines. Why: on 2026-11-14 a plain `du` of the LENOVO's home did not finish in 2.5 minutes at
 # 94% full, so "what takes the space" had no answer; a nightly map answers it at once.
@@ -37,8 +37,10 @@ done
 
 scan() {
   mkdir -p "$dir"
-  local root=/ run=() tmp start=$SECONDS
-  if sudo -n true 2>/dev/null; then run=(sudo -n); else root=$HOME; fi
+  local root=/ tmp start=$SECONDS
+  # Always the whole disk: a map of part of it would read as space that vanished. Without
+  # passwordless sudo (a sandboxed agent) there is no scan, before anything heavy starts.
+  sudo -n true 2>/dev/null || { echo "disk-now: --scan needs passwordless sudo (sudo -n); the map stays" >&2; return 1; }
   # The whole scan holds the lock (machine-checkup rule 7: one heavy disk job at a time), so a
   # second --scan waits instead of writing over the first one's output.
   exec 9>"$HOME/.cache/machine-checkup.heavy.lock"
@@ -48,19 +50,17 @@ scan() {
   # gdu keeps the whole tree in memory (20 GB on the LENOVO on 2026-11-14, under memory
   # pressure). heavy-slot admits it by measured load; lowest best-effort IO and CPU priority.
   local rc=0
-  "${DISK_NOW_HEAVY[@]}" "${run[@]}" ionice -c2 -n7 nice -n 10 "${DISK_NOW_DU:-du}" -x -a -B1 -t 100M -d 8 "$root" 2>/dev/null >"$tmp" || rc=$?
+  : >"$tmp.err"
+  "${DISK_NOW_HEAVY[@]}" sudo -n ionice -c2 -n7 nice -n 10 "${DISK_NOW_DU:-du}" -x -a -B1 -t 100M -d 8 "$root" 2>"$tmp.err" >"$tmp" || rc=$?
   # du exits 1 both when a file was unreadable or vanished mid-scan (the map is whole) and when
-  # it could not write (a full disk: the map is cut off). du prints the root last, so a map is
-  # whole only when its last line is the root. Anything else keeps the old map.
+  # it could not write (a full disk: the map has gaps). A map counts only when du printed the
+  # root last and wrote no "write error". Anything else keeps the old map.
   local last; last=$(tail -n1 "$tmp" 2>/dev/null | cut -f2-)
-  if [ "$rc" -gt 1 ] || [ "$last" != "$root" ] ||
+  if [ "$rc" -gt 1 ] || [ "$last" != "$root" ] || grep -qi 'write error' "$tmp.err" ||
     ! sed -i "1i # scanned $(date '+%F %H:%M') root $root seconds $((SECONDS - start))" "$tmp"; then
-    rm -f -- "$tmp"; echo "disk-now: the scan failed (exit $rc); the old map stays" >&2; return 1
+    rm -f -- "$tmp" "$tmp.err"; echo "disk-now: the scan failed (exit $rc); the old map stays" >&2; return 1
   fi
-  # A map of another root (only $HOME, when sudo stopped working) does not replace a map of /.
-  if [ -f "$map" ] && [ "$(head -n1 "$map" | awk '{ print $6 }')" != "$root" ]; then
-    rm -f -- "$tmp"; echo "disk-now: this scan covers $root but the map covers more; the old map stays (check sudo -n)" >&2; return 1
-  fi
+  rm -f -- "$tmp.err"
   if [ -f "$map" ] && ! ln -f -- "$map" "$prev"; then
     rm -f -- "$tmp"; echo "disk-now: could not keep the previous map; the old map stays" >&2; return 1
   fi
@@ -103,9 +103,7 @@ report_local() {
   echo "   התיקיות הכי גדולות (מ-$min_gb ג׳יגה):"
   deepest "$map" "$(awk -v g="$min_gb" 'BEGIN { printf "%.0f", g * 1073741824 }')" 15 |
     while IFS=$'\t' read -r b p rest; do printf '   %7s  %s%s\n' "$(gb "$b")" "$p" "${rest:+ (שאר התיקייה)}"; done
-  if [ -s "$prev" ] && [ "$(head -n1 "$prev" | awk '{ print $6 }')" != "$(awk '{ print $6 }' <<<"$head")" ]; then
-    echo "   המפה הקודמת סרקה תיקייה אחרת, אז אין השוואה"
-  elif [ -s "$prev" ]; then
+  if [ -s "$prev" ]; then
     local g; g=$(growth "$map" "$prev" 1073741824 10)
     echo "   שינוי מאז המפה הקודמת ($(head -n1 "$prev" | awk '{ print $3, $4 }'), מ-1 ג׳יגה):"
     if [ -z "$g" ]; then echo "   אין שינוי של 1 ג׳יגה ומעלה"; else
