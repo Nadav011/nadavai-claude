@@ -121,7 +121,16 @@ account holder's Apple ID, creates it under Integrate → Create Workflow.
   (`POST /v1/ciWorkflows`). Only the environment variables need App Store Connect's web page.
   `POST /v1/ciBuildRuns` with only the workflow relationship starts a manual build on the workflow's
   branch. Green Room's first Archive (remote-URL shell, `ci_post_clone.sh` with pnpm install and cap
-  sync) succeeded in about 4 minutes (2026-11-14, build 1).
+  sync) succeeded in about 4 minutes (2026-11-14, build 1). To start from a branch other than main,
+  add `sourceBranchOrTag` with that branch's `scmGitReferences` id
+  (`GET /v1/scmRepositories/<id>/gitReferences`).
+- Xcode Cloud archives with automatic package resolution turned off, so a project without a
+  committed `project.xcworkspace/xcshareddata/swiftpm/Package.resolved` fails with "a resolved file is
+  required when automatic dependency resolution is disabled". Commit the file, or resolve at the end
+  of `ci_post_clone.sh`: `defaults write com.apple.dt.Xcode IDEPackageOnlyUseVersionsFromResolvedFile
+  -bool NO`, then the same with `IDEDisableAutomaticPackageResolution`, then
+  `xcodebuild -resolvePackageDependencies -project <p> -scheme App`. The `defaults` lines are needed;
+  without them the resolve fails in the same way. Cash's build 4 passed this way (2026-11-14).
 - The web half runs in `ci_scripts/ci_post_clone.sh` next to each `.xcodeproj`. Its client keys come
   from the workflow's environment variables, which the owner pastes. Adding `ci_scripts` changes the
   iOS runtime, because it is a tracked file under the native project. Start Xcode Cloud's build number
