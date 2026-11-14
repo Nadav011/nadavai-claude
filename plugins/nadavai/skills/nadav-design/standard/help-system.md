@@ -165,7 +165,10 @@ in MediZen no one in an existing clinic gets an automatic tour until Nadav says 
 short screen the tour still opens, because its card lies over the dimmed screen and takes no
 room from the work; the first-visit card does not follow it there (G-15). On every other core
 screen the first-visit card appears when the tour ends or is skipped, with "הראו לי". Every
-other tour is started by the person.
+other tour is started by the person. A link may start a tour (`#tour-<id>` in a web app, from
+"what's new" or a help article): following it is her own start, like "הראו לי", not an automatic
+one, so none of the waits above applies to it, and the tour begins at its start state, asking
+first where a window holds unsaved input (G-08) [I].
 
 **A step.** Each step is classed before the tour is written: its action on the sample record is
 safe to do (G-20); or it tells a real person; or it is permanent or charges. On the first kind
@@ -253,7 +256,11 @@ with the platform's own mechanism
 `aria-hidden` on the siblings), which also stops the app's keyboard shortcuts and a screen
 reader's activation; see-through blocks over the page stop a finger only. The tour's card is not
 `aria-modal` over the control it points at, or a screen-reader user cannot do the step. The
-step's result is announced in a live region. With the on-screen keyboard open, the card and the
+step's result is announced in a live region, and each new step is announced there too, its place
+and its sentence together ("שלב 3 מתוך 6. …"), also when focus stays on the card's button; a step
+whose card takes focus is read from the card and not announced a second time. SportChat's
+partner demo announced only the count, so a screen-reader user who pressed "הבא" heard a number
+and never the step (`examples.md`) [I]. With the on-screen keyboard open, the card and the
 lit control are both above it. A do-it-yourself target that cannot be reached by keyboard makes
 the step a showing step. A tap outside the light pulses it again and says where to press.
 
@@ -446,8 +453,11 @@ written for each of them. Two layers:
   which the checker requires at stage app when a tour has a do step (`run-not-recorded`),
   refuses at stage demo (`run-at-demo`), and holds to a day not after today (`run-date`) and,
   with `--inventory`, to the key of the content it was written for (`run-stale`); the key leaves
-  out only the words she reads, which `tours.schema.json` names under `inOrderRun.key`, so a
-  text-only change keeps the record, and it covers no bindings, app code or build, so it shows
+  out only the words she reads and a step's `part` (what is lit on a showing or stop step, which
+  the run never presses), which `tours.schema.json` names under `inOrderRun.key`, so a change to
+  those alone keeps the record (a reworded `pick` or `type` step keeps it too, though its words
+  tell her what to pick or enter there: the manifest's reviewer checks such a change against that
+  step's `safeTest` and G-20), and it covers no bindings, app code or build, so it shows
   only that the record was written for this exact content, never that the run was done or that
   the app is unchanged since: a save's effect can depend on
   a field an earlier step
@@ -498,7 +508,17 @@ its `on`, whatever the result kind; at `"none"` a result of any kind (`open`, `s
 The bindings own visibility: a hit on the target, inside it
 or on its ancestor counts as covering it, a target clipped by an ancestor's overflow is not on
 screen, and a target inside an inner scroll box is scrolled into that box's view before the step
-shows.
+shows. A showing or stop step whose control is taller than a short screen allows (experience.md,
+Terms: a viewport under 720px high) may name `part`, an anchor inside that control, which is lit
+there instead of the whole control, so the light marks what the step is about and the card still
+fits; elsewhere the whole control is lit. A do step never names one, because its lit target is the
+live control she presses (`part-do`). The engine looks for the part only inside the element the
+step's anchor resolved to, and lights the whole control when the part is not there; the screen
+preview shows that it sits there (`tour-anchors`). The
+checker also fails a part that names its own anchor (`part-same`) and, with the inventory, one
+that is no known anchor on the tour's screens (`part-unknown`). From SportChat's partner demo
+(`examples.md`), whose `short` field did this: on a 320×568 phone its light covered 0.43 of what
+it lit before and at least 0.85 after, as its own QA recorded (`partner/FLOW.md`) [I].
 
 The manifest freezes with the approved demo's tag (its `tag` field), and the app reads that same
 file; a later change to a tour is a change to the file, made once. The app's manifest is the

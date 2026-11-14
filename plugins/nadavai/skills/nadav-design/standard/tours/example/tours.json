@@ -130,7 +130,7 @@
           "safeTest": "e2e/tours/sample-safe.spec.ts: a filter changes nothing",
           "text": "לוחצים \"לא שולם\". נשארים רק מי שחייבים כסף." },
         { "kind": "next", "anchor": "patients.row", "text": "בכל שורה רואים כמה המטופל חייב, ומאז מתי." },
-        { "kind": "next", "when": "phone", "anchor": "patients.row", "text": "בטלפון החיוב נמצא בכרטיס של כל שורה." },
+        { "kind": "next", "when": "phone", "anchor": "patients.row", "part": "patients.charge", "text": "בטלפון החיוב נמצא בכרטיס של כל שורה." },
         { "kind": "stop", "class": "P", "when": "desktop", "anchor": "patients.charge", "text": "\"חיוב\" גובה מהכרטיס השמור. אי אפשר לבטל אותו." }
       ],
       "finish": "עכשיו ידוע איך מוצאים ממי לגבות, ואיפה גובים."
