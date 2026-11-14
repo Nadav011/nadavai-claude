@@ -12,10 +12,17 @@ mkdir -p "$HOME" "$t/fakebin"
 G=1073741824
 printf '#!/bin/sh\necho testhost\n' >"$t/fakebin/hostname"
 printf '#!/bin/sh\nexit 1\n' >"$t/fakebin/sudo"
-# Fake gdu prints the "size path" lines of $DT_T/gdu.out, as `gdu -n --no-prefix --depth` does.
-printf '#!/bin/sh\ncat "$DT_T/gdu.out"\n' >"$t/fakebin/gdu"
+# Fake du prints the "size<TAB>path" lines of $DT_T/gdu.out (spaces turned into a tab, as
+# `du -B1` prints them) and exits with $DT_T/du.rc (default 0).
+cat >"$t/fakebin/du" <<'EOF'
+#!/bin/sh
+[ -n "$DT_SLOW" ] && sleep "$DT_SLOW"
+echo "$*" >"$DT_T/du.args"
+sed -E 's/^ *([0-9]+) +/\1\t/' "$DT_T/gdu.out"
+exit "$(cat "$DT_T/du.rc" 2>/dev/null || echo 0)"
+EOF
 chmod +x "$t/fakebin/"*
-export PATH=$t/fakebin:$PATH
+export PATH=$t/fakebin:$PATH DISK_NOW_DU=$t/fakebin/du DISK_NOW_NO_SLOT=1
 fail=0
 ok() { echo "ok   $1"; }
 bad() { echo "FAIL $1"; fail=1; }
@@ -32,12 +39,16 @@ EOF
 "$dn" --scan || bad "first scan exits 0"
 m=$HOME/.cache/disk-map/testhost.tsv
 grep -q "^# scanned .* root $r " "$m" && ok "map header names the root" || bad "map header: $(head -n1 "$m")"
-grep -q "$r/tiny" "$m" && bad "entries under 100 MB are dropped" || ok "entries under 100 MB are dropped"
+grep -qE -- "-x -a -B1 -t 100M -d 8 $r\$" "$t/du.args" && ok "du keeps one filesystem, files and folders of 100 MB, depth 8" || bad "du args: $(cat "$t/du.args")"
 out=$("$dn" --local)
 # Deepest at 5 GB: node_modules (6) and other (9); big (20) has a child over 5 GB, so it is not listed.
 grep -q "node_modules" <<<"$out" && grep -q "Projects/other" <<<"$out" && ok "lists the deepest big folders" || bad "deepest: $out"
-grep -qE "[0-9.]+  $r/Projects/big\$" <<<"$out" && bad "a folder with a big child is not listed" || ok "a folder with a big child is not listed"
+grep -qE "  $r/Projects\$|  $r/Projects \(" <<<"$out" && bad "a folder its big children explain is not listed" || ok "a folder its big children explain is not listed"
 grep -q "שינוי מאז" <<<"$out" && bad "no growth section without a previous map" || ok "no growth section without a previous map"
+# Projects (30) minus its big children big (20) and other (9) leaves 1 GB: not listed at 5 GB.
+# big (20) minus node_modules (6) leaves 14 GB of smaller folders: listed as the rest of big.
+grep -qE '14\.0  .*/Projects/big \(שאר התיקייה\)$' <<<"$out" && ok "a folder full of small ones shows as its rest" || bad "rest: $out"
+grep -qE '10\.0  .*/home \(שאר התיקייה\)$' <<<"$out" && ok "the root's own rest shows too" || bad "root rest: $out"
 
 # Second scan: node_modules grew by 3 GB, other shrank by 4 GB, a new 2 GB folder appeared.
 cat >"$t/gdu.out" <<EOF
@@ -54,15 +65,30 @@ out=$("$dn" --local)
 grep -qE '3\.0\+ .*/Projects/big/node_modules$' <<<"$out" && ok "growth names the folder that grew" || bad "growth: $out"
 grep -qE '4\.0- .*/Projects/other$' <<<"$out" && ok "shrink is shown with a minus" || bad "shrink: $out"
 grep -qE '2\.0\+ .*/Projects/new$' <<<"$out" && ok "a new folder counts as growth" || bad "new: $out"
-grep -qE '\+ .*/Projects/big$' <<<"$out" && bad "a parent whose child explains the growth is not listed" || ok "a parent whose child explains the growth is not listed"
+grep -qE '\+ .*/Projects/big( |$)' <<<"$out" && bad "a parent whose child explains the growth is not listed" || ok "a parent whose child explains the growth is not listed"
 out=$("$dn" --in "$r/Projects")
 [ "$(wc -l <<<"$out")" = 3 ] && head -n1 <<<"$out" | grep -q '/Projects/big$' && ok "--in lists children, biggest first" || bad "--in: $out"
 
-# A failed scan keeps the old map.
-printf '#!/bin/sh\nexit 1\n' >"$t/fakebin/gdu"
-before=$(md5sum <"$m")
-"$dn" --scan 2>/dev/null && bad "a failed scan exits non-zero" || ok "a failed scan exits non-zero"
-[ "$(md5sum <"$m")" = "$before" ] && ok "a failed scan keeps the old map" || bad "the map changed after a failed scan"
+# A parent that grew mostly in small children still shows its growth.
+cp "$t/gdu.out" "$t/gdu.keep"
+sed -i -E "s|^ *[0-9]+ $r/Projects\$| $((51 * G)) $r/Projects|; s|^ *[0-9]+ $r\$| $((61 * G)) $r|" "$t/gdu.out"
+"$dn" --scan && out=$("$dn" --local)
+grep -qE '20\.0\+ .*/Projects$' <<<"$out" && ok "growth in many small children shows on the parent" || bad "parent growth: $out"
+grep -qE '\+ .*/home$' <<<"$out" && bad "the root's growth is explained by Projects" || ok "the root's growth is explained by Projects"
+
+# du exit 1 (a vanished file) still makes a map; a partial run that was killed keeps the old one.
+cp "$t/gdu.keep" "$t/gdu.out"; echo 1 >"$t/du.rc"
+"$dn" --scan && ok "du exit 1 still writes the map" || bad "du exit 1 failed the scan"
+before=$(md5sum <"$m"); echo 143 >"$t/du.rc"; head -n2 "$t/gdu.keep" >"$t/gdu.out"
+"$dn" --scan 2>/dev/null && bad "a killed scan exits non-zero" || ok "a killed scan exits non-zero"
+[ "$(md5sum <"$m")" = "$before" ] && ok "a killed scan with partial output keeps the old map" || bad "the map changed after a killed scan"
+ls -A "$HOME/.cache/disk-map" | grep -q '^\.scan\.' && bad "no temp file is left behind" || ok "no temp file is left behind"
+
+# Two scans at once: the second waits for the lock, and the map is whole afterwards.
+cp "$t/gdu.keep" "$t/gdu.out"; echo 0 >"$t/du.rc"
+DT_SLOW=1 "$dn" --scan & p1=$!
+sleep 0.2; "$dn" --scan; wait "$p1"
+[ "$(grep -vc '^#' "$m")" = "$(grep -c '' "$t/gdu.keep")" ] && [ "$(grep -c '^#' "$m")" = 1 ] && ok "two scans at once leave one whole map" || bad "map after two scans: $(cat "$m")"
 
 # docker-tidy: fake docker. Images (repo, tag, id, created); c1 uses pg:3 (the oldest).
 cat >"$t/fakebin/docker" <<'EOF'
@@ -79,14 +105,17 @@ case "$1" in
 esac
 EOF
 chmod +x "$t/fakebin/docker"
+mkdir -p "$t/proj/app/supabase/.temp"; printf 'v2' >"$t/proj/app/supabase/.temp/playwright-version"
+export DOCKER_TIDY_ROOTS=$t/proj
 out=$("$dt")
 [ ! -e "$t/rmi.log" ] && ok "dry run removes nothing" || bad "dry run called rmi"
-grep -q 'would remove pw:v2' <<<"$out" && grep -q 'would remove pw:v1' <<<"$out" && ok "older than the two newest goes" || bad "pw: $out"
+grep -q 'would remove pw:v1' <<<"$out" && ok "older than the two newest goes" || bad "pw: $out"
+grep -q 'pw:v2' <<<"$out" && bad "a tag a project pins stays" || ok "a tag a project pins stays"
 grep -q 'pw:v3\|pw:v4' <<<"$out" && bad "the two newest stay" || ok "the two newest stay"
 grep -q 'pg:3' <<<"$out" && bad "an image a container uses stays" || ok "an image a container uses stays"
 grep -q 'redis' <<<"$out" && bad "two tags of one image count once" || ok "two tags of one image count once"
 "$dt" --apply >/dev/null
-[ "$(sort "$t/rmi.log" | tr '\n' ' ')" = "pw:v1 pw:v2 " ] && ok "--apply removes exactly the superseded tags" || bad "rmi: $(cat "$t/rmi.log")"
+[ "$(sort "$t/rmi.log" | tr '\n' ' ')" = "pw:v1 " ] && ok "--apply removes exactly the superseded tags" || bad "rmi: $(cat "$t/rmi.log")"
 [ ! -e "$t/volume.log" ] && ok "volumes are never touched" || bad "volume called"
 grep -qx 'image prune -f' "$t/other.log" && grep -qx 'builder prune -f --filter until=168h' "$t/other.log" && ok "--apply prunes dangling images and old build cache" || bad "prune calls: $(cat "$t/other.log" 2>/dev/null)"
 exit $fail

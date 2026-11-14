@@ -46,9 +46,9 @@ The weekly report is opt-in per machine, on the machine where agents create work
 
 `bin/disk-now` answers "what takes the disk" in seconds on the LENOVO and the MSI together (Hebrew,
 for Nadav): live `df`, the deepest folders of 5 GB or more, and what grew or shrank by 1 GB since the
-map before. It reads a map that `disk-now --scan` writes (gdu over `/`, folders of 100 MB or more, in
+map before. It reads a map that `disk-now --scan` writes (du over `/` through `heavy-slot`, folders of 100 MB or more, in
 `~/.cache/disk-map/`), nightly through `systemd/user/disk-map.timer`. `bin/docker-tidy` removes Docker
-images no container uses that have two newer images of the same repository, dangling images and build
+images no container uses and no project pins (`supabase/.temp/*-version`) that have two newer images of the same repository, dangling images and build
 cache older than 7 days, never volumes; `--apply` runs weekly through `systemd/user/docker-tidy.timer`
 on dev machines (the MSI keeps its own `woodpecker-prune` for CI). Both timers: symlink the `.service`
 and `.timer` into `~/.config/systemd/user/` and `systemctl --user enable --now <name>.timer`, on every

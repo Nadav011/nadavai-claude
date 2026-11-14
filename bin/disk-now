@@ -9,8 +9,9 @@
 #   disk-now --scan          map this machine now (what the nightly disk-map.timer runs)
 #   disk-now --min <GB>      the size from which a folder is listed (default 5)
 #
-# The report reads a map, not the disk: `--scan` runs gdu over / (through `sudo -n`; without
-# passwordless sudo only $HOME) and keeps every folder and file of 100 MB or more, to depth 8,
+# The report reads a map, not the disk: `--scan` runs du over / (through `sudo -n` and
+# `heavy-slot --`; without passwordless sudo only $HOME) and keeps every folder and file of
+# 100 MB or more, to depth 8,
 # in ~/.cache/disk-map/<host>.tsv; the map before it stays as <host>.prev.tsv for the growth
 # lines. Why: on 2026-11-14 a plain `du` of the LENOVO's home did not finish in 2.5 minutes at
 # 94% full, so "what takes the space" had no answer; a nightly map answers it at once.
@@ -19,6 +20,7 @@ set -uo pipefail
 case "${1:-}" in -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;; esac
 
 dir=${DISK_NOW_DIR:-$HOME/.cache/disk-map}
+if [ -n "${DISK_NOW_NO_SLOT:-}" ] || ! command -v heavy-slot >/dev/null; then DISK_NOW_HEAVY=(); else DISK_NOW_HEAVY=(heavy-slot --); fi
 host=$(hostname -s)
 map=$dir/$host.tsv prev=$dir/$host.prev.tsv
 min_gb=5 mode=report in_path=
@@ -35,36 +37,47 @@ done
 
 scan() {
   mkdir -p "$dir"
-  local root=/ run=() tmp=$map.new start=$SECONDS
+  local root=/ run=() tmp start=$SECONDS
   if sudo -n true 2>/dev/null; then run=(sudo -n); else root=$HOME; fi
-  # One heavy disk job at a time (machine-checkup rule 7); low CPU and IO priority.
-  if ! flock "$HOME/.cache/machine-checkup.heavy.lock" \
-    "${run[@]}" ionice -c2 -n7 nice -n 10 "${DISK_NOW_GDU:-gdu}" -x -n -p --no-prefix --depth 8 -m 6 "$root" 2>/dev/null |
-    awk -v OFS='\t' '$1 >= 104857600 { s = $1; sub(/^[ \t]*[0-9]+[ \t]+/, ""); print s, $0 }' >"$tmp" || [ ! -s "$tmp" ]; then
-    rm -f -- "$tmp"; echo "disk-now: the scan failed; the old map stays" >&2; return 1
+  # The whole scan holds the lock (machine-checkup rule 7: one heavy disk job at a time), so a
+  # second --scan waits instead of writing over the first one's output.
+  exec 9>"$HOME/.cache/machine-checkup.heavy.lock"
+  flock 9
+  tmp=$(mktemp "$dir/.scan.XXXXXX") || return 1
+  # du, not gdu: du prints each folder as it finishes and holds only hardlinked inodes, while
+  # gdu keeps the whole tree in memory (20 GB on the LENOVO on 2026-11-14, under memory
+  # pressure). heavy-slot admits it by measured load; lowest best-effort IO and CPU priority.
+  local rc=0
+  "${DISK_NOW_HEAVY[@]}" "${run[@]}" ionice -c2 -n7 nice -n 10 "${DISK_NOW_DU:-du}" -x -a -B1 -t 100M -d 8 "$root" 2>/dev/null >"$tmp" || rc=$?
+  # du exits 1 when a file was unreadable or vanished mid-scan, and the map is still whole;
+  # anything else (killed, no du) keeps the old map.
+  if [ "$rc" -gt 1 ] || [ ! -s "$tmp" ]; then
+    rm -f -- "$tmp"; echo "disk-now: the scan failed (exit $rc); the old map stays" >&2; return 1
   fi
-  [ -f "$map" ] && mv -f -- "$map" "$prev"
-  { printf '# scanned %s root %s seconds %s\n' "$(date '+%F %H:%M')" "$root" "$((SECONDS - start))"; cat -- "$tmp"; } >"$map"
-  rm -f -- "$tmp"
+  sed -i "1i # scanned $(date '+%F %H:%M') root $root seconds $((SECONDS - start))" "$tmp"
+  [ -f "$map" ] && ln -f -- "$map" "$prev"
+  mv -f -- "$tmp" "$map"
 }
 
 gb() { awk -v b="$1" 'BEGIN { printf "%.1f", b / 1073741824 }'; }
 
-# The deepest entries of at least $2 bytes: an entry is listed when none of its children reaches
-# the threshold, so a big folder shows as the sub-folder that really holds the space.
+# Where the space is, at least $2 bytes per line: each folder of that size shows the part its own
+# big sub-folders do not explain, so a big sub-folder shows by itself and a folder full of small
+# ones still shows (marked "rest of", tab-separated third field "rest").
 deepest() { # file threshold-bytes count
-  awk -F'\t' -v t="$2" '!/^#/ && $1 >= t { size[$2] = $1; p = $2; sub(/\/[^\/]*$/, "", p); if (p == "") p = "/"; if (p != $2) big[p] = 1 }
-    END { for (k in size) if (!(k in big)) print size[k] "\t" k }' "$1" | sort -t$'\t' -k1,1nr | head -n "$3"
+  awk -F'\t' -v t="$2" '!/^#/ && $1 >= t { size[$2] = $1; p = $2; sub(/\/[^\/]*$/, "", p); if (p == "") p = "/"; if (p != $2) { kids[p] += $1; hasbig[p] = 1 } }
+    END { for (k in size) { r = size[k] - kids[k]; if (r >= t) print r "\t" k "\t" (k in hasbig ? "rest" : "") } }' "$1" | sort -t$'\t' -k1,1nr | head -n "$3"
 }
 
-# Growth since the map before: the deepest paths whose size changed by at least $3 bytes.
+# Growth since the map before: each path that changed by at least $3 bytes, minus what its own
+# changed sub-folders explain, the same way as deepest().
 growth() { # current previous threshold count
   awk -F'\t' -v t="$3" 'FNR == 1 { f++ } /^#/ { next } f == 1 { cur[$2] = $1; next } { old[$2] = $1 }
     END {
       for (k in cur) d[k] = cur[k] - (k in old ? old[k] : 0)
       for (k in old) if (!(k in cur)) d[k] = -old[k]
-      for (k in d) { a = d[k] < 0 ? -d[k] : d[k]; if (a < t) continue; keep[k] = d[k]; p = k; sub(/\/[^\/]*$/, "", p); if (p == "") p = "/"; if (p != k) moved[p] = 1 }
-      for (k in keep) if (!(k in moved)) print (keep[k] < 0 ? -keep[k] : keep[k]) "\t" keep[k] "\t" k
+      for (k in d) { a = d[k] < 0 ? -d[k] : d[k]; if (a < t) continue; keep[k] = d[k]; p = k; sub(/\/[^\/]*$/, "", p); if (p == "") p = "/"; if (p != k) { kids[p] += d[k]; hasbig[p] = 1 } }
+      for (k in keep) { r = keep[k] - kids[k]; a = r < 0 ? -r : r; if (a >= t) print a "\t" r "\t" k "\t" (k in hasbig ? "rest" : "") }
     }' "$1" "$2" | sort -t$'\t' -k1,1nr | cut -f2- | head -n "$4"
 }
 
@@ -78,13 +91,14 @@ report_local() {
   echo "   מפה מ-$(awk '{ print $3, $4 }' <<<"$head") (סרקה $(awk '{ print $6 }' <<<"$head"), $(awk '{ print $8 }' <<<"$head") שניות)"
   echo "   התיקיות הכי גדולות (מ-$min_gb ג׳יגה):"
   deepest "$map" "$(awk -v g="$min_gb" 'BEGIN { printf "%.0f", g * 1073741824 }')" 15 |
-    while IFS=$'\t' read -r b p; do printf '   %7s  %s\n' "$(gb "$b")" "$p"; done
+    while IFS=$'\t' read -r b p rest; do printf '   %7s  %s%s\n' "$(gb "$b")" "$p" "${rest:+ (שאר התיקייה)}"; done
   if [ -s "$prev" ]; then
     local g; g=$(growth "$map" "$prev" 1073741824 10)
     echo "   שינוי מאז המפה הקודמת ($(head -n1 "$prev" | awk '{ print $3, $4 }'), מ-1 ג׳יגה):"
     if [ -z "$g" ]; then echo "   אין שינוי של 1 ג׳יגה ומעלה"; else
-      while IFS=$'\t' read -r b p; do
-        if [ "$b" -ge 0 ]; then printf '   %7s+ %s\n' "$(gb "$b")" "$p"; else printf '   %7s- %s\n' "$(gb "${b#-}")" "$p"; fi
+      while IFS=$'\t' read -r b p rest; do
+        rest=${rest:+ (שאר התיקייה)}
+        if [ "$b" -ge 0 ]; then printf '   %7s+ %s%s\n' "$(gb "$b")" "$p" "$rest"; else printf '   %7s- %s%s\n' "$(gb "${b#-}")" "$p" "$rest"; fi
       done <<<"$g"
     fi
   fi
