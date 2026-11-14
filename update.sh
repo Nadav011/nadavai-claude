@@ -92,6 +92,7 @@ link_git
 link_shell
 link_shortcuts
 retire_duplicate_skills
+link_my_menu
 # The /my-* prompts call OMC skills by name, and OMC renames skills between versions.
 bash "$REPO/tests/prompt-store.sh" >/dev/null 2>&1 \
   || warn "prompt store: a /my-* prompt names a skill or tool that is missing; run tests/prompt-store.sh"

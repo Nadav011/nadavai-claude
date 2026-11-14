@@ -1,0 +1,5 @@
+{
+  "name": "my-menu",
+  "version": "0.1.0",
+  "description": "Nadav's prompt store as a menu: /my (or the key bound to it) lists the nadavai:my-* prompts; arrows move, Enter puts the chosen one in the prompt box."
+}

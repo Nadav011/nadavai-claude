@@ -153,6 +153,24 @@ refresh_codex_plugin() {
 
 link_rules() { link_dir "$REPO/rules" "$CFG/rules"; }
 
+link_my_menu() {
+  # The Ctrl+P menu of the /my-* prompts (mods/my-menu) is a mod. Claude Code loads a plugin
+  # folder it finds under the skills folder, which every Orca account profile shares, so one
+  # link reaches them all. It stays out of plugins/nadavai/hooks/hooks.json, which Codex reads.
+  local skills="$HOME/.claude/skills" d
+  link_dir "$REPO/mods/my-menu" "$skills/my-menu"
+  if [ -d "$CFG/skills" ] && ! same_path "$CFG/skills" "$skills"; then
+    link_dir "$REPO/mods/my-menu" "$CFG/skills/my-menu"
+  fi
+  # Each profile keeps its own keybindings.json (Orca writes its own key there), so the key goes
+  # to each one. A key that already runs something else there is kept, and keybind.mjs names it.
+  for d in "$HOME/.claude" "$HOME"/.config/orca/claude-profiles/*/home; do
+    [ -d "$d" ] || continue
+    node "$REPO/lib/keybind.mjs" "$d/keybindings.json" Chat 'ctrl+p=command:my-menu' 'ctrl+shift+p=command:my-menu' \
+      || warn "could not bind the prompt menu key in $d/keybindings.json"
+  done
+}
+
 retire_duplicate_skills() {
   # A user-level skill with the same name as a plugin skill shadows it. Move such copies aside.
   local d name

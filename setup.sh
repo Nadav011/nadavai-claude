@@ -66,6 +66,7 @@ link_rules
 
 step "Skills (remove user-level copies that would shadow the plugin)"
 retire_duplicate_skills
+link_my_menu
 mirror_rules_to_codex
 mirror_to_antigravity
 mirror_guard_to_grok
