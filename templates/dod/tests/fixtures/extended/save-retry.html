@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>save-retry</title>
+<style>
+  body { margin: 0; padding: 16px; font-family: sans-serif; font-size: 16px; background: #fff; color: #111; }
+  input { font: inherit; border: 1px solid #888; padding: 6px 8px; display: block; margin-block: 8px; }
+  :focus-visible { outline: 3px solid #111; outline-offset: 2px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>שמירה עם ניסיון חוזר</h1>
+  <label>שם <input id="a" type="text" value="מיכל ברק"></label>
+  <label>טלפון <input id="b" type="text" value="050-0000000"></label>
+  <p>כאן מעדכנים את פרטי הלקוחה. שמירה שנכשלה נשלחת שוב ושוב עד שהיא מצליחה, כמו באפליקציות שעובדות גם בלי חיבור יציב.</p>
+</main>
+<script>
+  // An app that retries a failed save every 100 ms, up to 300 times (the third review's B1 and C4),
+  // from the moment forced colours switch on. The guard holds every try; the tries are one line of
+  // the forced-colors check's `held`, with their number, and the loop ends with that check's context,
+  // so no later check holds any of them and none reaches the server.
+  let tries = 0;
+  const go = () =>
+    fetch("/save/retry/try-" + ++tries, { method: "POST", body: "x" })
+      .then((r) => {
+        if (!r.ok) throw new Error("not saved");
+      })
+      .catch(() => {
+        if (tries < 300) setTimeout(go, 100);
+      });
+  let started = false;
+  matchMedia("(forced-colors: active)").addEventListener("change", (e) => {
+    if (e.matches && !started) {
+      started = true;
+      go();
+    }
+  });
+</script>
+</body>
+</html>

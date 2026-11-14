@@ -15,6 +15,7 @@
   .ask .small-area { padding: 0; background: none; color: #111; }
   .ask .small-font { font-size: 12px; padding: 12px 20px; background: #fff; color: #111; border-color: #111; }
   .ask .faded { opacity: 0.25; }
+  .ask .filtered { filter: opacity(0.25); }
   .ask .pale { background: #fff; color: #999; border-color: #999; }
   /* a native box hidden and drawn by its label */
   .drawn input { position: absolute; opacity: 0; width: 1px; height: 1px; }
@@ -68,6 +69,12 @@
     <p>האתר משתמש בעוגיות מדידה.</p>
     <button type="button">אישור הכול</button>
     <button type="button" class="faded">דחיית הכול</button>
+  </div>
+  <!-- weak-refuse by filter alone: the "no" faded with filter: opacity(), which looks the same. -->
+  <div class="ask">
+    <p>האתר משתמש בעוגיות לניתוח.</p>
+    <button type="button">אישור הכול</button>
+    <button type="button" class="filtered">דחיית הכול</button>
   </div>
   <div class="ask">
     <p>האתר משתמש בעוגיות שיווק.</p>

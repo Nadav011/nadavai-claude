@@ -3063,6 +3063,10 @@ const OC_BLANKGAP = ocFile('blankgap', `# m\n\n## Owner catches\n\n${OC_HEAD}${O
 // The second review's ledgers of round 3 (B3, C2, C3, C4), with November dates (its December ones are in the future).
 const OC_AFTERHEADING = ocFile('afterheading', `# m\n\n## Owner catches\n\n${OC_HEAD}${OC_GATE1}\n\n### November, second half\n\n| 2026-11-05 | a | look | owner | after | none | chat 2026-11-05 10:00 | שבור |\n| 2026-11-06 | a | look | owner | after | none | chat 2026-11-06 10:00 | שבור 2 |\n`);
 const OC_SECONDTABLE = ocFile('secondtable', `# m\n\n## Owner catches\n\n${OC_HEAD}${OC_GATE1}\n\n### November, second half\n\n${OC_HEAD}| 2026-11-11 | a | look | owner | after | none | chat 2026-11-11 10:00 | שבור |\n`);
+// The fourth review's no-pipes-hebrew (Grok, can-follow 1): a row that lost its pipes and its date, kept its words.
+const OC_NOPIPES = ocFile('nopipes', `# m\n\n## Owner catches\n\n${OC_HEAD}${OC_GATE1}\nהבית look owner before none הצאט לא נוח בכלל\n`);
+// A note under the table that starts with a date, with none of the row words: named, since a row may look like it.
+const OC_DATENOTE = ocFile('datenote', `# m\n\n## Owner catches\n\n${OC_HEAD}${OC_GATE1}\n2026-11-12 הלקוחה אמרה שהכרטיס נחתך במסך הקטן\n`);
 const OC_TABS = ocFile('tabs', `# m\n\n## Owner catches\n\n${OC_HEAD}${OC_GATE1}\n2026-11-11\ta\tlook\towner\tafter\tnone\tchat 2026-11-11\tשבור\n`);
 const OC_KEYS = ocLedger([
   '| 2026-11-01 | a | look | gate | before | dod:x | k | r.json |',
@@ -3133,12 +3137,13 @@ function ocSuite(tool) {
   // retro runs the text mode: its exit code and its share line are what it reads
   const tclean = ocRun(OC_CLEAN, tool, []);
   check('text clean', tclean.status === 0 && /11 problems counted, 1 repeated rows counted once, 0 malformed, 0 outside the table/.test(tclean.stdout) && /the gates caught 54\.5%/.test(tclean.stdout)
-    && /repeated rows, counted once: line 18 \(as line 7\)/.test(tclean.stdout) && /May be read as:/.test(tclean.stdout) && /May not be read as:/.test(tclean.stdout), `exit ${tclean.status}: ${tclean.stdout.slice(0, 300)}`);
+    && /repeated rows, counted once: line 18 \(as line 7\)/.test(tclean.stdout) && /May be read as:/.test(tclean.stdout) && /May not be read as:/.test(tclean.stdout)
+    && /the key is screen, class, found by, gate and ref, and for an\n\s*owner or user row also the words/.test(tclean.stdout), `exit ${tclean.status}: ${tclean.stdout.slice(0, 300)}`);
   const tbad = ocRun(OC_FIXTURE, tool, []);
   check('text fixture', tbad.status === 1 && /share withheld: 12 rows not read \(12 malformed, 0 outside the table\)/.test(tbad.stdout) && !/caught \d/.test(tbad.stdout), `exit ${tbad.status}: ${tbad.stdout.slice(0, 300)}`);
   // noleading: the pipe-less row, the row after it, and the other section's table further down (the ledger runs to the
   // end of the file, so a table after it is named too).
-  for (const [name, f, lines] of [['noleading', OC_NOLEADING, [8, 9, 13]], ['blankgap', OC_BLANKGAP, [9, 10]], ['afterheading', OC_AFTERHEADING, [11, 12]], ['tabs', OC_TABS, [8]]]) {
+  for (const [name, f, lines] of [['noleading', OC_NOLEADING, [8, 9, 13]], ['blankgap', OC_BLANKGAP, [9, 10]], ['afterheading', OC_AFTERHEADING, [11, 12]], ['tabs', OC_TABS, [8]], ['nopipes', OC_NOPIPES, [8]], ['datenote', OC_DATENOTE, [8]]]) {
     const j = ocRun(f, tool);
     check(name, j.status === 1 && j.out && j.out.rows === 1 && JSON.stringify(j.out.outside.map(x => x.line)) === JSON.stringify(lines) && j.out.total.share === null && /outside the table/.test(j.out.withheld || ''), `exit ${j.status}: ${JSON.stringify(j.out && { rows: j.out.rows, outside: j.out.outside, share: j.out.total.share })}`);
     const t = ocRun(f, tool, []);
@@ -3185,7 +3190,7 @@ const OC_WHY = ocSuite(OC);
 const ocPick = re => OC_WHY.filter(w => re.test(w)).join('; ');
 await test('OC-fixture', 'owner-catches counts the fixture ledger: per period, class and screen, the escapes, the repeat counted once, every malformed row by its line, and withholds the share', async () => ocPick(/^(fixture|malformed lines|text fixture)/));
 await test('OC-clean', 'a ledger with only well-formed rows exits 0 and gives the shares (total, per period, class and screen), as JSON and as text with what the share may and may not be read as', async () => ocPick(/^(clean|text clean)/));
-await test('OC-outside', 'a row with no leading pipe, rows after a blank line, rows under a sub-heading without their own header, and a row pasted without pipes are named as outside the table (exit 1, share withheld), never dropped silently', async () => ocPick(/^(noleading|blankgap|afterheading|tabs)/));
+await test('OC-outside', 'a row with no leading pipe, rows after a blank line, rows under a sub-heading without their own header, a row pasted without pipes, one without its pipes or its date, and a note that starts with a date are named as outside the table (exit 1, share withheld), never dropped silently', async () => ocPick(/^(noleading|blankgap|afterheading|tabs|nopipes|datenote)/));
 await test('OC-key', 'a second table under its own header is read; rows differing in one key cell are different problems; refs differing by an unseen mark are one; owner rows with one ref and different words are different problems', async () => ocPick(/^(second table|key|unseen marks|one ref)/));
 await test('OC-edges', 'quarters (December is Q4, January Q1), header case, a cell of dashes, a \\| in the words, the 99.9/0.1 cap, and usage errors', async () => ocPick(/^(quarter|header case|dash cell|pipe|cap|usage)/));
 await test('OC-template', 'the empty MEASURES.md template is a ledger the tool reads: 0 problems, exit 0', async () => {

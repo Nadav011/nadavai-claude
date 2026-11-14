@@ -125,18 +125,35 @@ export function consentInPage(prominence: { area: number; font: number; contrast
     probe.remove();
     return [c[0], c[1], c[2], 1];
   })();
-  // An element's opacity fades it and all it holds: the product of its own and its ancestors'.
+  // An element's opacity fades it and all it holds: the product of its own and its ancestors', their
+  // `opacity` and an `opacity()` in their `filter`.
   const opacityUp = (el: Element) => {
     let o = 1;
-    for (let a: Element | null = el; a; a = a.parentElement) o *= parseFloat(getComputedStyle(a).opacity);
+    for (let a: Element | null = el; a; a = a.parentElement) {
+      const st = getComputedStyle(a);
+      o *= parseFloat(st.opacity);
+      const f = /opacity\(([\d.]+)(%?)\)/.exec(st.filter);
+      if (f) o *= f[2] ? parseFloat(f[1]) / 100 : parseFloat(f[1]); // M:filter-opacity
+    }
     return o;
+  };
+  // What is painted under the element at its centre, from it down: its ancestors, and a sibling layer
+  // such as a dark backdrop behind a banner. Its ancestors alone when its centre is out of view.
+  const beneath = (el: Element) => {
+    let under: Element[] = [];
+    for (let a: Element | null = el; a; a = a.parentElement) under.push(a);
+    const r = el.getBoundingClientRect();
+    const stack = document.elementsFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    const i = stack.indexOf(el);
+    if (i >= 0) under = stack.slice(i); // M:stack
+    return under;
   };
   // What is painted behind the element's text: its own and its ancestors' backgrounds, each faded by
   // its opacity, composited down to the first opaque one (the page's canvas below all). null when an
   // image or gradient is in the way.
   const bgOf = (el: Element): [number, number, number, number] | null => {
     const layers: [number, number, number, number][] = [];
-    for (let a: Element | null = el; a; a = a.parentElement) {
+    for (const a of beneath(el)) {
       const s = getComputedStyle(a);
       if (s.backgroundImage !== "none") return null; // M:bg-image
       const c = rgba(s.backgroundColor);

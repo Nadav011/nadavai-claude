@@ -10,8 +10,10 @@
 // The ledger is everything from its first header row to the end of the file: one table, or several, each opened by
 // its own copy of the header row (a sub-heading per month, say). A table is its header and the lines right after it
 // that start with `|`. Any other line in the ledger that holds a `|` (no leading pipe, after a blank line, a table
-// with other columns) or starts with a date (a row pasted without pipes) is named as outside the table: never
-// counted, never dropped silently, and the shares are withheld until it is fixed.
+// with other columns), starts with a date, or holds a class, a finder and a when as words of their own (a row pasted
+// without its pipes, its date lost too) is named as outside the table: never counted, never dropped silently, and
+// the shares are withheld until it is fixed. Any other line (prose with none of those) is not read: a note belongs
+// above the ledger, and the template says so.
 //
 // A row is one problem. Its `ref` is the problem's own key: for a gate row, the finding as its gate names it, the
 // same on every run (a DoD check id and its sample, a reviewer's finding title as first written), and its `words`
@@ -38,8 +40,9 @@ const USAGE = 'usage: node tools/owner-catches.mjs <MEASURES.md> [--period month
 const READING = [
   'May be read as: of the problems recorded in this table, the share that a gate recorded before the screen shipped.',
   'May not be read as: a share of every problem (a comment of Nadav\'s with no row, or a test with people whose findings were not written as user rows, is not in it);',
-  '  a share of distinct problems beyond what the refs tell apart (a finding re-found under another title counts again;',
-  '  two gate findings written under one ref, or two owner rows with one ref and the same words, count once);',
+  '  a share of distinct problems beyond what the key tells apart (the key is screen, class, found by, gate and ref, and for an',
+  '  owner or user row also the words: a finding re-found under another title counts again; two gate findings written',
+  '  under one key, or two owner rows with one key and the same words, count once);',
   '  an exact share: it is rounded to one decimal, never to 100% while an escape exists or to 0% when a gate caught',
   '  something (the JSON then gives 99.9 or 0.1; the text says "over 99.9%" or "under 0.1%").',
   '  a gate succeeding when it found something only after ship (that row is in the "after" count and lowers the share);',
@@ -88,6 +91,11 @@ const outside = [];
 const firstLine = new Map();
 // What a reader cannot see does not make two refs different: bidi marks and spaces.
 const norm = s => s.replace(/[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, '').replace(/\s+/g, '');
+// A line with a class, a finder and a when among its own words (split at spaces, tabs, commas, semicolons).
+const looksLikeRow = l => {
+  const w = new Set(l.trim().toLowerCase().split(/[\s,;]+/));
+  return CLASSES.some(c => w.has(c)) && FINDERS.some(f => w.has(f)) && WHEN.some(x => w.has(x));
+};
 let inTable = true;
 for (let i = start + 1; i < lines.length; i++) {
   const raw = lines[i];
@@ -97,6 +105,7 @@ for (let i = start + 1; i < lines.length; i++) {
   if (!inTable) {
     if (raw.includes('|')) flag(); // M:outside
     else if (/^\s*\d{4}-\d{2}-\d{2}\b/.test(raw)) flag(); // a row pasted without pipes // M:outside-date
+    else if (looksLikeRow(raw)) flag(); // a row pasted without pipes or its date // M:outside-words
     continue;
   }
   const c = cellsOf(raw);

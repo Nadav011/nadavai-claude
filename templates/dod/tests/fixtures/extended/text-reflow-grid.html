@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>text-reflow-grid</title>
+<style>
+  /* A one-column interactive grid (role="grid" on a table) wider than a 320px window: a grid needs two
+     dimensions whatever its columns (its keyboard moves by row and by cell), the 1.4.10 exception, so
+     nothing is found though the page scrolls sideways. */
+  body { margin: 0; padding: 16px; font-family: sans-serif; font-size: 16px; background: #fff; color: #111; }
+  table { border-collapse: collapse; }
+  td { border: 1px solid #888; padding: 4px; white-space: nowrap; }
+</style>
+</head>
+<body>
+<main>
+  <h1>רשימת לקוחות</h1>
+  <table role="grid" aria-label="לקוחות">
+    <tr><td>מיכל ברק, תספורת ביום שני בתשע בבוקר, מגיעה עם הבת שלה</td></tr>
+    <tr><td>נועה לוי, צבע ביום שלישי בעשר וחצי, רגישה לחומרים</td></tr>
+  </table>
+</main>
+</body>
+</html>

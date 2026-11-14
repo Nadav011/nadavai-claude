@@ -68,21 +68,30 @@ function ensureDeps() {
 const fresh = (name) => fs.mkdtempSync(path.join(WORK, `${name}-`));
 
 // --- what each fixture page must make its check find ---------------------------------------
-// [check, page, kinds, notes, reads]; kinds "write-held" counts at least one (the walk's exact number
-// of focus and blur events is the browser's). On every page no /save reaches the server, the context's
-// close included; `reads` is a page whose own POST while it loads (/read) must reach it and never be
-// held. The save-* pages are the second review's B1 and B2: a page that saves on leaving, a service
-// worker that forwards, a popup, a SharedWorker.
+// [check, page, kinds, opts]: `kinds` are the findings, exactly; opts.notes the number of notes;
+// opts.reads a page whose own POST while it loads (/read) must reach the server and never be held;
+// opts.held the writes the guard held, in the result's own `held` field and never in `count` ("1+" is
+// at least one: the walk's exact number of focus and blur events is the browser's), with opts.heldSay
+// patterns its samples must match and opts.heldLines their exact number; opts.needs a feature the
+// checks take away, so the result is "not checked" and names it. On every page no /save reaches the
+// server, the context's close included. The save-* pages are the second and third reviews' write cases.
 const CASES = [
   ["forced-colors", "forced-colors", { boundary: 5, focus: 1, state: 1, mark: 1 }],
   ["forced-colors", "pass", {}],
   ["forced-colors", "clean", {}],
-  ["forced-colors", "save-on-focus", { "write-held": "1+" }],
+  // POST on focus, POST and a beacon on blur, PUT, PATCH and DELETE on the third field's focus; the
+  // moment is what the check was doing when the first was held.
+  ["forced-colors", "save-on-focus", {}, { held: "1+", heldSay: [/the page tried to write \(POST \/save\).*first when focus moved on with Tab/, /\(PUT \/save\)/, /\(PATCH \/save\)/, /\(DELETE \/save\)/] }],
   ["forced-colors", "save-on-leave", {}],
-  ["forced-colors", "save-via-sw", { "write-held": "1+" }],
-  ["forced-colors", "save-in-popup", { "write-held": "1+" }],
-  ["forced-colors", "save-in-shared-worker", {}],
-  ["forced-colors", "reads-on-load", {}, 0, true],
+  ["forced-colors", "save-via-sw", {}, { held: "1+", heldSay: [/the page tried to write \(POST \/save\)/] }],
+  ["forced-colors", "save-in-popup", {}, { held: "1+", heldSay: [/another page of the check \(a popup\) tried to write \(POST \/save\)/] }],
+  // A dedicated worker's request carries its page's frame in Chromium, so it is the page's.
+  ["forced-colors", "save-in-worker", {}, { held: "1+", heldSay: [/the page tried to write \(POST \/save\)/] }],
+  ["forced-colors", "save-in-shared-worker", {}, { needs: "SharedWorker" }],
+  // Every try of a retry loop is one line of `held`, with how many times (the third review's C4).
+  ["forced-colors", "save-retry", {}, { held: "1+", heldLines: 1, heldSay: [/\(POST \/save\/retry\/try-#\) \d+ times/] }],
+  ["forced-colors", "save-outbox", {}, { held: "1+" }],
+  ["forced-colors", "reads-on-load", {}, { reads: true }],
   ["text-reflow", "save-on-leave", {}],
   ["text-reflow", "text-reflow", { clipped: 3, unreachable: 1, sideways: 1 }],
   ["text-reflow", "text-reflow-cut", { unreachable: 1 }],
@@ -90,18 +99,25 @@ const CASES = [
   ["text-reflow", "text-reflow-table", {}],
   // WCAG's Understanding Reflow, Figure 9: paragraphs widened to a table's width are not the exception.
   ["text-reflow", "text-reflow-fig9", { sideways: 1 }],
-  // Not the exception (the second review, C8): a layout table, and role="application" on the app's root.
+  // Not the exception (the second review, C8): a layout table, and role="application" (here on a card in main).
   ["text-reflow", "text-reflow-layout-table", { sideways: 1 }],
   ["text-reflow", "text-reflow-presentation", { sideways: 1 }],
   ["text-reflow", "text-reflow-application", { sideways: 1 }],
+  // The third review's C6: a one-column role="grid" table is the exception; role="table" with no rows,
+  // and a role on a wrapper of the main region, are not.
+  ["text-reflow", "text-reflow-grid", {}],
+  ["text-reflow", "text-reflow-roletable", { sideways: 1 }],
+  ["text-reflow", "text-reflow-roleimg-wrapper", { sideways: 1 }],
   ["text-reflow", "pass", {}],
   ["text-reflow", "clean", {}],
   ["text-spacing", "text-spacing", { clipped: 2, overlap: 2 }],
   ["text-spacing", "pass", {}],
   ["text-spacing", "clean", {}],
-  ["consent", "consent", { prechecked: 4, "no-refuse": 2, "weak-refuse": 5 }],
-  ["consent", "pass", {}, 1],
+  ["consent", "consent", { prechecked: 4, "no-refuse": 2, "weak-refuse": 6 }],
+  ["consent", "pass", {}, { notes: 1 }],
   ["consent", "consent-dark", {}],
+  // The third review's C6: a banner over a backdrop that is its sibling, not its ancestor.
+  ["consent", "consent-overlay", {}],
   ["consent", "clean", {}],
 ];
 const caseOf = (id, page) => CASES.find(([c, p]) => c === id && p === page);
@@ -125,8 +141,13 @@ const MUTANTS = {
   guard: ["forced-colors", "save-on-focus"],
   "guard-loading": ["forced-colors", "reads-on-load"],
   "shared-worker": ["forced-colors", "save-in-shared-worker"],
+  "from-popup": ["forced-colors", "save-in-popup"],
+  moment: ["forced-colors", "save-on-focus"],
+  "grid-table": ["text-reflow", "text-reflow-grid"],
   "layout-role": ["text-reflow", "text-reflow-presentation"],
   "layout-table": ["text-reflow", "text-reflow-layout-table"],
+  "aria-rows": ["text-reflow", "text-reflow-roletable"],
+  "aria-wrapper": ["text-reflow", "text-reflow-roleimg-wrapper"],
   "sideways-edge": ["text-reflow", "text-reflow-table"],
   "two-d": ["text-reflow", "text-reflow-table"],
   "two-d-wrap": ["text-reflow", "text-reflow-table"],
@@ -149,6 +170,8 @@ const MUTANTS = {
   "weak-contrast": ["consent", "consent"],
   "bg-image": ["consent", "pass"],
   composite: ["consent", "consent"],
+  "filter-opacity": ["consent", "consent"],
+  stack: ["consent", "consent-overlay"],
   note: ["consent", "pass"],
   "weak-refuse": ["consent", "consent"],
 };
@@ -162,9 +185,12 @@ const REPLACE = [
   ["wrap-levels-0", "a11y", "a && i < 2; a = a.parentElement", "a && i < 0; a = a.parentElement", "forced-colors", "pass"],
   ["border-ge0", "a11y", "`border-${d.toLowerCase()}-width`)) >= 1", "`border-${d.toLowerCase()}-width`)) >= 0", "forced-colors", "forced-colors"],
   ["outline-ge100", "a11y", "parseFloat(s.outlineWidth) >= 1", "parseFloat(s.outlineWidth) >= 100", "forced-colors", "pass"],
-  ["opacity-off", "consent", "o *= parseFloat(getComputedStyle(a).opacity);", "o *= 1;", "consent", "consent"],
+  ["opacity-off", "consent", "o *= parseFloat(st.opacity);", "o *= 1;", "consent", "consent"],
   ["canvas-white", "consent", "(under, top) => over(top, under), canvasBase)", "(under, top) => over(top, under), [255, 255, 255, 1])", "consent", "consent-dark"],
   ["application-exempt", "a11y", "[role=\"img\"]';", "[role=\"img\"], [role=\"application\"]';", "text-reflow", "text-reflow-application"],
+  ["guard-post-only", "a11y", "let hold = !SAFE_METHODS.includes(req.method());", 'let hold = req.method() === "POST";', "forced-colors", "save-on-focus"],
+  ["held-groups-1", "a11y", "export const HELD_GROUPS = 40;", "export const HELD_GROUPS = 1;", "forced-colors", "save-on-focus"],
+  ["held-no-fold", "a11y", '.pathname.replace(/\\d+/g, "#")', ".pathname", "forced-colors", "save-retry"],
   ["guard-lets-post", "a11y", 'export const SAFE_METHODS = ["GET", "HEAD", "OPTIONS"];', 'export const SAFE_METHODS = ["GET", "HEAD", "OPTIONS", "POST"];', "forced-colors", "save-on-focus"],
   ["reflow-320-to-360", "a11y", "{ width: 320, height: 256, sideways: true }", "{ width: 360, height: 256, sideways: true }", "text-reflow", "text-reflow"],
   ["reflow-640-to-1280", "a11y", "{ width: 640, height: 512, sideways: false }", "{ width: 1280, height: 512, sideways: false }", "text-reflow", "text-reflow"],
@@ -209,17 +235,23 @@ const RUN = {
 
 /** How a result differs from its case, or "" when it is the case. */
 function differs(r, kase, posts) {
-  const [, , kinds, notes = 0, reads = false] = kase;
+  const [, , kinds, { notes = 0, reads = false, held = 0, heldSay = [], heldLines = null, needs = null } = {}] = kase;
   const saves = posts.filter((p) => p.includes("/save"));
   if (saves.length) return `writes reached the server: ${saves.join(", ")}`;
   if (reads && !posts.some((p) => p.includes("/read"))) return "the page's read while it loads did not reach the server";
-  if (r.samples.some((s) => s.includes("/read"))) return `a read while the page loaded was held: ${r.samples.join(" | ")}`;
+  const said = [...r.samples, ...(r.held?.samples ?? [])];
+  if (said.some((s) => s.includes("/read"))) return `a read while the page loaded was held: ${said.join(" | ")}`;
+  if (needs) return r.error && r.error.startsWith("not checked") && r.error.includes(needs) ? "" : `want "not checked" naming ${needs}, got ${JSON.stringify(r)}`;
+  if (r.error) return `errored: ${r.error}`;
   const want = Object.entries(kinds);
-  if (Object.keys(r.kinds).length !== want.length) return `kinds ${JSON.stringify(r.kinds)} != ${JSON.stringify(kinds)}`;
-  for (const [k, n] of want) {
-    const got = r.kinds[k] ?? 0;
-    if (n === "1+" ? got < 1 : got !== n) return `kinds ${JSON.stringify(r.kinds)} != ${JSON.stringify(kinds)}`;
-  }
+  if (Object.keys(r.kinds).length !== want.length || want.some(([k, n]) => (r.kinds[k] ?? 0) !== n)) return `kinds ${JSON.stringify(r.kinds)} != ${JSON.stringify(kinds)}`;
+  // A held write is never a finding: the count is the findings' alone.
+  if (r.count !== want.reduce((a, [, n]) => a + n, 0)) return `count ${r.count} is not the findings' ${JSON.stringify(r.kinds)}`;
+  const got = r.held?.count ?? 0;
+  if (held === "1+" ? got < 1 : got !== held) return `held ${got}, want ${held}: ${JSON.stringify(r.held)}`;
+  const lines = r.held?.samples ?? [];
+  if (heldLines !== null && lines.length !== heldLines) return `held in ${lines.length} lines, want ${heldLines}: ${lines.join(" | ")}`;
+  for (const re of heldSay) if (!lines.some((l) => re.test(l))) return `no held line matches ${re}: ${lines.join(" | ")}`;
   if ((r.notes ?? []).length !== notes) return `notes ${JSON.stringify(r.notes ?? [])}, want ${notes}`;
   return "";
 }
@@ -309,22 +341,28 @@ async function browserTests() {
   const real = { a11y: await import(pathToFileURL(MODULES.a11y).href), consent: await import(pathToFileURL(MODULES.consent).href) };
   const srv = await serveFree();
   const browser = await chromium.launch({ ignoreDefaultArgs: ["--disable-dev-shm-usage"] });
-  // One check on one page, as the spec runs it: a context with the write guard and service workers
-  // blocked, a new page marked loading, the check, 500 ms, the writes the guard held added as
-  // `write-held`; the page is never closed, the context is, and what reached the server is read after.
+  // One check on one page, as the spec runs it: a context of its own with the write guard and service
+  // workers blocked, a new page marked loading, "not checked" when the page tried to start what the
+  // guard takes away, the check, 500 ms, the writes the guard held in `held`; the page is never closed,
+  // the context is, on every path, and what reached the server is read after.
   const check = async (mods, id, page) => {
     const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: "light", locale: "he-IL", serviceWorkers: "block" });
     const before = srv.posts.length;
     let r;
+    let guard = null;
     try {
-      const guard = await mods.a11y.installWriteGuard(ctx);
+      guard = await mods.a11y.installWriteGuard(ctx);
       const p = await ctx.newPage();
       guard.loading(p);
       await p.goto(`http://127.0.0.1:${srv.port}/${page}`);
       await p.waitForLoadState("networkidle").catch(() => {});
+      const taken = await mods.a11y.needsTakenAway(p);
+      if (taken) throw new Error(`not checked: the page tries to start a ${taken}, which these checks take away`);
       r = await RUN[id][1](mods, p, guard);
       await new Promise((res) => setTimeout(res, 500));
       r = mods.a11y.withHeld(r, guard.take());
+    } catch (err) {
+      r = mods.a11y.withHeld({ count: 0, kinds: {}, samples: [], error: String(err.message ?? err) }, guard ? guard.take() : []);
     } finally {
       await ctx.close();
     }
@@ -333,11 +371,12 @@ async function browserTests() {
   };
   try {
     for (const kase of CASES) {
-      const [id, page, kinds, notes = 0] = kase;
+      const [id, page, kinds, opts = {}] = kase;
       const { r, posts } = await check(real, id, page);
       const why = differs(r, kase, posts);
-      ok(!why, `${id} on ${page}.html finds ${JSON.stringify(kinds)}${notes ? ` and ${notes} note` : ""}`, `${why}; ${JSON.stringify(r)}`);
-      console.log(`       ${id} on ${page}.html: ${JSON.stringify({ kinds: r.kinds, notes: r.notes, samples: r.samples.slice(0, 3) })}${posts.length ? ` posts ${posts.join(", ")}` : ""}`);
+      const extra = [opts.notes ? `${opts.notes} note` : "", opts.held ? `${opts.held} held apart` : "", opts.needs ? `"not checked" for ${opts.needs}` : ""].filter(Boolean).join(", ");
+      ok(!why, `${id} on ${page}.html finds ${JSON.stringify(kinds)}${extra ? ` (${extra})` : ""}`, `${why}; ${JSON.stringify(r)}`);
+      console.log(`       ${id} on ${page}.html: ${JSON.stringify({ count: r.count, kinds: r.kinds, notes: r.notes, held: r.held, error: r.error, samples: r.samples.slice(0, 3) })}${posts.length ? ` posts ${posts.join(", ")}` : ""}`);
       if (id === "text-reflow" && page === "text-reflow-fig9") ok(r.samples.some((s) => /sideways: .*widest <p> /.test(s)), "Figure 9: the sideways finding names the widened paragraph, not the table", JSON.stringify(r.samples));
       if (id === "text-reflow" && page === "text-reflow") ok(r.samples.some((s) => /sideways: .*widest <div> "טבלה רחבה" 500px/.test(s)), "the sideways finding names the widest element", JSON.stringify(r.samples));
     }
@@ -360,7 +399,7 @@ async function browserTests() {
       const mod = await import(pathToFileURL(file).href);
       const { r, posts } = await check({ ...real, [module]: mod }, id, page);
       const why = differs(r, caseOf(id, page), posts);
-      ok(!!why, `${id}: the mutant ${name} fails the ${page}.html case`, `the mutant still gives ${JSON.stringify(r.kinds)}`);
+      ok(!!why, `${id}: the mutant ${name} fails the ${page}.html case`, `the mutant still gives ${JSON.stringify({ kinds: r.kinds, held: r.held, error: r.error })}`);
       console.log(`       mutant ${name} on ${page}.html: ${why}`);
     }
   } finally {
@@ -402,7 +441,12 @@ const ROUTES = ["/clean", "/forced-colors", "/consent"];
 // from the moment the extended checks start (2 s after the last standard result is written).
 // save-in-shared-worker.html is tested in the browser cases only: the scored phase (dod.spec.ts, not
 // these checks) times out on a page that starts a SharedWorker (all four entries, 120 s each).
-const SAVE_ROUTES = ["/save-on-focus", "/save-on-leave", "/save-via-sw", "/save-in-popup", "/reads-on-load"];
+// The third review's B1: save-outbox, save-tabsync and save-retry write only when something of an
+// earlier check outlives it (an outbox in localStorage, another open tab, a retry loop), or when the
+// extended checks blur a field or switch forced colours on; so none of their writes may reach the
+// server at any time of the run, the other phases included.
+const SAVE_ROUTES = ["/save-on-focus", "/save-on-leave", "/save-via-sw", "/save-in-popup", "/save-in-worker", "/save-outbox", "/save-tabsync", "/save-retry", "/reads-on-load"];
+const WHOLE_RUN = /\/save\/(outbox|tabsync|retry)\//;
 const IDS = ["forced-colors", "text-reflow", "text-spacing", "consent-prechecked", "consent-refuse"];
 const sum = (kinds) => Object.values(kinds).reduce((a, b) => a + b, 0);
 
@@ -417,6 +461,7 @@ async function phaseTest() {
     const saves = srv.posts.filter((p, i) => p.includes("/save") && srv.times[i] >= extStart);
     const savesBefore = srv.posts.filter((p, i) => p.includes("/save") && srv.times[i] < extStart).length;
     const reads = srv.posts.filter((p) => p.includes("/read"));
+    const wholeRun = srv.posts.filter((p) => WHOLE_RUN.test(p));
     const out = path.join(dir, "reports", "dod", "results", "extended");
     const read = (slug) => (fs.existsSync(path.join(out, `${slug}.json`)) ? JSON.parse(fs.readFileSync(path.join(out, `${slug}.json`), "utf8")) : null);
     const clean = read("clean");
@@ -437,13 +482,21 @@ async function phaseTest() {
     const ext = fs.existsSync(out) ? fs.readdirSync(out).map((f) => mt(out, f)) : [];
     ok(std.length > 0 && ext.length === ROUTES.length + SAVE_ROUTES.length && Math.min(...ext) >= Math.max(...std), "the extended checks run after every standard check (their own project, the checks project's teardown)", `standard results ${std.length}, last at ${Math.max(...std)}; extended ${ext.length}, first at ${Math.min(...ext)}`);
     // The guard, through the spec's own path (B1, B2, C7).
-    ok(!saves.length, `no /save reached the server while the extended checks ran: the check pages are never closed, service workers are blocked, popups' and workers' writes are held (${savesBefore} came earlier, from the other phases' navigations)`, saves.join(", "));
-    const held = (slug) => {
-      const j = read(slug);
-      return j ? IDS.reduce((n, id) => n + (j.checks[id]?.kinds?.["write-held"] ?? 0), 0) : -1;
-    };
-    for (const slug of ["save-on-focus", "save-via-sw", "save-in-popup"]) ok(held(slug) >= 1, `${slug}.json records the writes the guard held (write-held ${held(slug)})`, JSON.stringify(read(slug)));
-    for (const slug of ["save-on-leave", "reads-on-load"]) ok(held(slug) === 0 && IDS.every((id) => !read(slug)?.checks[id]?.error), `${slug}.json: nothing to hold, no check errored`, JSON.stringify(read(slug)));
+    ok(!saves.length, `no /save reached the server while the extended checks ran: each check's context is closed and its pages never are, service workers are blocked, popups' and workers' writes are held (${savesBefore} came earlier, from the other phases' navigations)`, saves.join(", "));
+    ok(!wholeRun.length, `no write of save-outbox, save-tabsync or save-retry reached the server at any time of the run (each check starts from the test's own storage state in a context of its own, closed when it ends; ${srv.posts.length} writes reached it in all)`, wholeRun.join(", "));
+    // B2: a held write is in its own field, never a finding: its check's count stays 0 and the log says
+    // "clean (N writes held)".
+    const heldOf = (slug, id) => read(slug)?.checks[id]?.held?.count ?? 0;
+    const held = (slug) => IDS.reduce((n, id) => n + heldOf(slug, id), 0);
+    const counts = (slug) => IDS.map((id) => read(slug)?.checks[id]?.count);
+    const errs = (slug) => IDS.filter((id) => read(slug)?.checks[id]?.error);
+    for (const slug of ["save-on-focus", "save-via-sw", "save-in-popup", "save-in-worker", "save-outbox", "save-retry"])
+      ok(heldOf(slug, "forced-colors") >= 1 && counts(slug).every((n) => n === 0) && !errs(slug).length && new RegExp(`\\[dod\\] extended /${slug}: .*forced-colors clean \\(\\d+ writes? held\\)`).test(log), `${slug}.json: forced-colors held ${heldOf(slug, "forced-colors")} write(s) apart, every count 0, and the log says "forced-colors clean (N writes held)"`, JSON.stringify(read(slug)));
+    // A retry loop's tries are the forced-colors check's alone: its context ends the loop.
+    ok(IDS.filter((id) => id !== "forced-colors").every((id) => heldOf("save-retry", id) === 0 && read("save-retry")?.checks[id]?.count === 0), `save-retry.json: no other check holds a try of the loop or counts one (${IDS.map((id) => `${id} ${heldOf("save-retry", id)}`).join(", ")})`, JSON.stringify(read("save-retry")));
+    for (const slug of ["save-on-leave", "save-tabsync", "reads-on-load"]) ok(held(slug) === 0 && counts(slug).every((n) => n === 0) && !errs(slug).length, `${slug}.json: nothing to hold, nothing found, no check errored`, JSON.stringify(read(slug)));
+    const kindsLeak = [...ROUTES, ...SAVE_ROUTES].filter((r) => IDS.some((id) => read(r.slice(1))?.checks[id]?.kinds?.["write-held"] !== undefined));
+    ok(!kindsLeak.length, "no result counts a held write as a finding (no `write-held` kind)", kindsLeak.join(", "));
     const all = [...ROUTES, ...SAVE_ROUTES].map((r) => read(r.slice(1))).filter(Boolean);
     ok(reads.length > 0 && !all.some((j) => IDS.some((id) => (j.checks[id]?.samples ?? []).some((x) => x.includes("/read")))), `a page's own POST while it loads passes the guard (${reads.length} reads reached the server, none held)`, `reads ${reads.length}`);
     const dod = JSON.parse(fs.readFileSync(path.join(dir, "reports", "dod", "dod.json"), "utf8"));
@@ -453,7 +506,7 @@ async function phaseTest() {
       if (o && typeof o === "object") for (const [k, v] of Object.entries(o)) (keys.add(k), walk(v));
     };
     walk(dod);
-    const leaked = [...IDS, "extended", "write-held"].filter((id) => keys.has(id));
+    const leaked = [...IDS, "extended", "write-held", "held"].filter((id) => keys.has(id));
     ok(!leaked.length && dod.totals && typeof dod.totals.score === "number", `dod.json carries nothing of these checks (report only, outside the score); score ${dod.totals && dod.totals.score}`, `keys: ${leaked.join(", ")}`);
   } finally {
     await close(srv);

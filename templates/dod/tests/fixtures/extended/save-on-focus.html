@@ -17,6 +17,9 @@
        loses focus: the focus walk of forced-colors must not let either write reach the server. -->
   <label>שם <input id="a" type="text" value="מיכל ברק" onfocus="fetch('/save?focus=1', { method: 'POST', body: 'a' })"></label>
   <label>טלפון <input id="b" type="text" value="050-0000000" onblur="fetch('/save?blur=1', { method: 'POST', body: 'b' }); navigator.sendBeacon('/save?beacon=1', 'b')"></label>
+  <!-- The other write methods, sent when the third field gets focus: an app that updates with PUT,
+       PATCH and DELETE must be held the same way. -->
+  <label>הערה <input id="c" type="text" value="" onfocus="for (const m of ['PUT', 'PATCH', 'DELETE']) fetch('/save?method=' + m, { method: m, body: 'c' })"></label>
 </main>
 </body>
 </html>

@@ -338,12 +338,13 @@ runs them in the checks phase, so only when `standard.json` exists, once per rou
 scored phase reached, on the light 1440 entry's page: each check opens a new page of the route and
 judges nothing until the access check and the scored page's fingerprint show it is that page. They
 only report: one file per route, `reports/dod/results/extended/<slug>.json` (`{ route, mode:
-"report", checks: { <id>: { count, kinds, samples, notes?, error? } } }`), and one line per route
-in the log (`[dod] extended /calendar: forced-colors found 3, text-reflow clean, ...`). `count` is
-the number of elements found, one finding per element (ten "עריכה" buttons with the same fault are
-ten); `notes` say what a check could not judge, and are never findings. None of them can be put
-under `enforce` yet: moving them into `dod.json`'s `standard` block is a change to the teardown,
-kept for when the kit's other open branch has landed.
+"report", checks: { <id>: { count, kinds, samples, notes?, held?, error? } } }`), and one line per
+route in the log (`[dod] extended /calendar: forced-colors found 3, text-reflow clean (2 writes
+held), ...`). `count` is the number of elements found, one finding per element (ten "עריכה" buttons
+with the same fault are ten); `notes` say what a check could not judge, and `held` the writes the
+app tried while the check ran (below); neither is ever a finding or part of `count`. None of
+them can be put under `enforce` yet: moving them into `dod.json`'s `standard` block is a change to
+the teardown, kept for when the kit's other open branch has landed.
 
 They run last, so nothing of them reaches `dod.json`, the score or the exit code, whatever the
 deadline: in the checks phase, `playwright.dod.config.ts` makes them their own project
@@ -358,38 +359,66 @@ route's extended test as well, so it holds on a version that does filter them.
 
 The checks move focus, resize the window, switch forced colours on and add a stylesheet, and an
 app's own handlers can answer that with a save (a field that saves on blur, a draft saved on
-resize). So every request of the test's browser context whose method is not GET, HEAD or OPTIONS is
-aborted before it leaves the browser, whatever sent it (the check's page, a window it opened, a
-worker), and reported as a finding of kind `write-held`, with the method, the path, who sent it and
-what the check was doing ("when focus left `<input>` ..."), so a person can see which handler wrote.
-A page's own requests pass while it loads for a check, because apps read through POST too (GraphQL,
-an RPC). Three things keep writes from leaving where the guard cannot see them:
-- No check's page is ever closed. Closing a page runs its `pagehide`, `visibilitychange` and
-  `unload` handlers, and their beacons and keepalive fetches leave from the browser process, unseen.
-  The pages stay open until the test's context closes, which runs none of those handlers (measured on
-  Playwright 1.60.0 and 1.64.1).
-- Service workers are blocked in the extended checks' context (`serviceWorkers: "block"`), so a
-  worker that answers every fetch cannot send a page's write on its behalf.
+resize). So each check runs in a browser context of its own, made from the test's options and from
+the storage state the test started with, and every request of that context whose method is not GET,
+HEAD or OPTIONS (PUT, PATCH and DELETE as well as POST) is aborted before it leaves the browser,
+whatever sent it (the check's page, a window it opened, a worker). The check reports it in its
+`held` field: `{ count, samples }`, one sample per method, path (its numbers folded to `#`) and
+sender, saying how many times and what the check was doing when the first was held ("the page tried
+to write (POST /save) 4 times, first when focus moved on with Tab; the guard stopped it"), so a
+person can see which handler wrote. It is what the app did, not a fault of the screen: the log says
+"clean (N writes held)", never "found N". An app that retries a failed save is one sample with its
+number of tries, and a check keeps at most 40 different samples, adding any more to the last one's
+count.
+
+What persists between checks: nothing. Each check starts from the storage state the test started
+with (anonymous: empty; signed in: the checks phase's sign-in), never from one captured after a
+check; nothing a check's context stored (cookies, localStorage, IndexedDB) is captured or written
+back; and the context is closed when the check ends, on success and on failure, so an app's outbox
+in localStorage, another open tab of the same app (a BroadcastChannel or a `storage` event) and a
+retry loop all end with it. The writes the guard held never reach the server, not even later.
+
+The load window: a page's own requests pass while it loads for a check, because apps read through
+POST too (GraphQL, an RPC), and the scored phase let the same requests pass. The window opens when
+the check's page is created and ends when the check starts (`guard.watch`), which is after the
+page settled (`settle` in `dod-page.ts`: the network idle, then 1.2 s), the access check and the
+fingerprint compare. It is bounded by that time, not by an event of the app's: the kit chose the
+moment the scored phase would have measured the page, so the page a check judges is the one the
+scored phase saw. A write the app sends on its own in that window (a timer, a page view logged
+with POST, an error report while it loads) passes, as in every phase of the kit.
+
+Three things keep writes from leaving where the guard cannot see them:
+- No check's page is ever closed on its own. Closing a page runs its `pagehide`,
+  `visibilitychange` and `unload` handlers, and their beacons and keepalive fetches leave from the
+  browser process, unseen. The check's context is closed instead, which runs none of those
+  handlers (measured on Playwright 1.60.0 and 1.64.1).
+- Service workers are blocked in each check's context (`serviceWorkers: "block"`), so a worker
+  that answers every fetch cannot send a page's write on its behalf.
 - `SharedWorker` is taken away from the context's pages before they load: a SharedWorker's requests
-  never reach a context route. A page that needs one to draw may then differ from the scored page,
-  and its checks say "not the page the scored phase measured".
+  never reach a context route. A page that tries to start one is not checked: every check of that
+  route says "not checked: the page tries to start a SharedWorker, which these checks take away
+  (its requests cannot be held)".
 
 Not held, and what a project does about it: a WebSocket message, a GET or an image request that
-changes data, and a write the app makes on hover or on its own timer while the page loads (the
-load is not guarded, as in every phase of the kit). If the app saves any of these ways on focus,
-blur, resize or a change of colours, run the checks only against a QA account whose data may
-change, or leave `standard.json` out of that project. The fixtures that hold this
-(`save-on-focus.html`, `save-on-leave.html`, `save-via-sw.html`, `save-in-popup.html`,
-`save-in-shared-worker.html`, `reads-on-load.html`) run through the spec itself in a real
-`run-dod.mjs` run, and the test asserts that the server got no write.
+changes data, and anything the app sends on its own while the page loads (a timer, a hover, an
+error report; see the load window). If the app saves any of these ways, run the checks only against
+a QA account whose data may change; or turn them off for that project, either by leaving
+`standard.json` out (which also turns off the checks phase) or by deleting
+`e2e/dod/extended-checks.spec.ts` (which turns off these checks alone). The fixtures that hold the
+guard (`save-on-focus.html`, `save-on-leave.html`, `save-via-sw.html`, `save-in-popup.html`,
+`save-in-worker.html`, `save-outbox.html`, `save-tabsync.html`, `save-retry.html`,
+`reads-on-load.html`) run through the spec itself in a real `run-dod.mjs` run, and the test asserts
+that the server got no write of the checks, and none at all of `save-outbox`, `save-tabsync` and
+`save-retry` over the whole run. `save-in-shared-worker.html` is tested in the browser cases only,
+since the scored phase times out on a page that starts a SharedWorker.
 
 | Check | Where | Fires on |
 |---|---|---|
 | `forced-colors` (A-01, partly) | 1440x900, Chromium's forced colours (`forcedColors: "active"`, which paints the forced palette, not only the media query) | `boundary`: a button, field, select, switch, checkbox or slider with no border of 1px or more on any side and no outline of 1px or more, and no wrapper within 8px of it that has one (a native checkbox, radio or select, and anything under `forced-color-adjust: none`, are drawn by the system or the page and not judged; a ghost or icon button with no border is a finding, which its fix, a transparent border, removes); `focus`: one of the first 25 elements Tab reaches whose picture, 6px around it, is the same focused and not (a focus ring made of `box-shadow` alone, which forced colours remove); `state`: a selected, current, pressed or checked item that in normal colours looks different from an unselected one of the same kind beside it and in forced colours looks the same (it was told apart by a background or a shadow only); `mark`: an element 3px to 600px with no words in it or beside it, painted only by its background colour and not the colour behind it (a status dot, a progress fill), which forced colours paint the page colour |
-| `text-reflow` (A-02) | 640x512 and 320x256: the 1280x1024 window at 200% (1.4.4: no loss, sideways scroll allowed) and at 400% zoom (1.4.10) | `clipped`: text partly outside a box that hides its overflow (`overflow: hidden` or `clip`, an ellipsis, a line clamp); text wholly outside its box is a closed panel and is not judged, nor is a slide of a carousel (`aria-roledescription`); `unreachable`: text partly beside the window on a side no scroll reaches (the right of a right-to-left page, the left of a left-to-right one, either side when the page does not scroll sideways, as when `html` or `body` hides what is wider); `sideways` (320 only): the page really scrolls sideways (not when `html` or `body` hides the overflow) because of an element that is not a part needing two dimensions; the sample names the widest such element. 1.4.10's exception, two ways: text inside a box that scrolls on its own (a wide table in its scroller) is reachable and not judged, whatever its width; and a part that needs two dimensions (a data table, `role="table"`, `role="grid"` or `role="treegrid"`, an image, a map or chart in `svg`, `canvas`, `video`, `iframe`, `role="img"`; not a CSS grid layout, not a layout table, meaning one column with no header cell or `role="presentation"`, and not `role="application"`, which on an app's root would excuse the whole page), or a wrapper that is wide only because of one, may make the page scroll sideways. Everything else must still fit the window: a paragraph, heading, search field or pagination made as wide as the table it goes with (WCAG's Understanding Reflow, Figures 9 and 13, both fails) is not two-dimensional, so it is the `sideways` finding, named as the widest element |
+| `text-reflow` (A-02) | 640x512 and 320x256: the 1280x1024 window at 200% (1.4.4: no loss, sideways scroll allowed) and at 400% zoom (1.4.10) | `clipped`: text partly outside a box that hides its overflow (`overflow: hidden` or `clip`, an ellipsis, a line clamp); text wholly outside its box is a closed panel and is not judged, nor is a slide of a carousel (`aria-roledescription`); `unreachable`: text partly beside the window on a side no scroll reaches (the right of a right-to-left page, the left of a left-to-right one, either side when the page does not scroll sideways, as when `html` or `body` hides what is wider); `sideways` (320 only): the page really scrolls sideways (not when `html` or `body` hides the overflow) because of an element that is not a part needing two dimensions; the sample names the widest such element. 1.4.10's exception, two ways: text inside a box that scrolls on its own (a wide table in its scroller) is reachable and not judged, whatever its width; and a part that needs two dimensions (a data table, `role="table"`, `role="grid"` or `role="treegrid"`, an image, a map or chart in `svg`, `canvas`, `video`, `iframe`, `role="img"`; a `table` with `role="grid"` or `role="treegrid"` whatever its columns; not a CSS grid layout, not a layout table, meaning one column with no header cell or caption, or `role="presentation"` or `role="none"`, not `role="table"`, `role="grid"` or `role="treegrid"` on an element other than a `table` that has no `role="row"`, not any role on an element that holds the page's `main` or its first `h1` (which would excuse the whole page), and not `role="application"`), or a wrapper that is wide only because of one, may make the page scroll sideways. Everything else must still fit the window: a paragraph, heading, search field or pagination made as wide as the table it goes with (WCAG's Understanding Reflow, Figures 9 and 13, both fails) is not two-dimensional, so it is the `sideways` finding, named as the widest element |
 | `text-spacing` (A-03, partly) | 1440x900 and 375x812 | with the four overrides of 1.4.12 (`TEXT_SPACING_CSS`: line height 1.5, paragraph spacing 2em, letter spacing 0.12em, word spacing 0.16em), text `clipped` or `unreachable` as above, or two texts that `overlap`, that were not before the overrides (a badge over its label on purpose is not a finding) |
 | `consent-prechecked` (H-02) | the page as it loaded | a checkbox or switch (also one that only `aria-checked` says is on, and a native box hidden and drawn by its label) that is on, whose label speaks of consent (mailing, updates by mail or message, offers, marketing, cookies, sharing, third parties, privacy, "מסכימה", "מאשר", Hebrew or English; not an app's own updates), other than a disabled one labelled necessary ("הכרחיות", "necessary"). The check cannot tell a default from a choice she saved earlier (a profile page shows her own choice ticked), so the sample says "is on when the page loads (a default, or a choice saved earlier: a person reads which)" |
-| `consent-refuse` (H-03) | the page as it loaded | an accept control ("אישור הכול", "לאפשר", "מסכים", "Accept all", ...) inside a box whose words, other than the button's own, are a consent request (cookies, mailing, marketing, consent, a permission, location, notifications): `no-refuse` when no refuse control ("דחיית הכול", "לא תודה", "לא עכשיו", "לא כרגע", "אחר כך", "ביטול", "Reject all", "Decline all", "Deny all", "Later", "Don't allow" with either apostrophe, ...) is in the box; `weak-refuse` when none is as prominent, the stated rule being: a button or link like the accept control, at least half its area, its text at least 85% of the accept text's size, and at least 4.5:1 against its own background (`PROMINENCE` in `consent-checks.ts`). Closing the box ("סגירה", an X) is not a refuse control (H-03). A generic "אישור", "OK" or "Got it" in a box with fields of its own is that form's submit and is not judged. Colours are read as the browser paints them (any syntax: `oklch`, `color-mix`, hex), each faded by its element's and its ancestors' `opacity`, and a translucent background is laid over what is behind it, down to the page's own canvas (dark under `color-scheme: dark`); when an image or a gradient is behind the refuse control, its contrast is not judged: if its area and text size pass, it gets a note ("contrast not judged"), not a finding |
+| `consent-refuse` (H-03) | the page as it loaded | an accept control ("אישור הכול", "לאפשר", "מסכים", "Accept all", ...) inside a box whose words, other than the button's own, are a consent request (cookies, mailing, marketing, consent, a permission, location, notifications): `no-refuse` when no refuse control ("דחיית הכול", "לא תודה", "לא עכשיו", "לא כרגע", "אחר כך", "ביטול", "Reject all", "Decline all", "Deny all", "Later", "Don't allow" with either apostrophe, ...) is in the box; `weak-refuse` when none is as prominent, the stated rule being: a button or link like the accept control, at least half its area, its text at least 85% of the accept text's size, and at least 4.5:1 against its own background (`PROMINENCE` in `consent-checks.ts`). Closing the box ("סגירה", an X) is not a refuse control (H-03). A generic "אישור", "OK" or "Got it" in a box with fields of its own is that form's submit and is not judged. Colours are read as the browser paints them (any syntax: `oklch`, `color-mix`, hex), each faded by its element's and its ancestors' `opacity` and `filter: opacity()`, and a translucent background is laid over what is painted under the control's centre (`elementsFromPoint`: its ancestors, and a backdrop beside the banner), down to the page's own canvas (dark under `color-scheme: dark`); when an image or a gradient is behind the refuse control, its contrast is not judged: if its area and text size pass, it gets a note ("contrast not judged"), not a finding |
 
 What they cannot see, and the reviewer of each rule reads instead: a consent box or banner in
 other words than the lists hold; a focus ring on an element past the first 25 Tab stops; text

@@ -8,15 +8,17 @@
 // starts only while more than DEADLINE_MARGIN_MS of that deadline is left ("not checked: out of time").
 // Each check opens a new page of the route, as the scored phase's light 1440 entry did, and judges
 // nothing until the access check and the scored page's fingerprint show it is the page the scored
-// phase measured. Every write of the test's context (any request that is not GET, HEAD or OPTIONS),
-// except a page's own while it loads, is held and reported as `write-held` (a11y-extended.ts,
-// installWriteGuard). No check's page is ever closed: closing a page runs its pagehide,
-// visibilitychange and unload handlers, whose beacons leave unseen by the guard; the pages stay open
-// until the test's context closes, which runs none of them. Service workers are blocked in this
-// context, so a worker cannot answer a page's request on its behalf.
+// phase measured. Each check runs in a browser context of its own, made from the test's options and
+// from the storage state the test started with (never one captured after a check), with service workers
+// blocked; every write of that context (any request that is not GET, HEAD or OPTIONS), except the page's
+// own while it loads, is held and reported in the check's `held` field, apart from its findings
+// (a11y-extended.ts, installWriteGuard). When the check ends the context is closed, which runs none of
+// the page's leaving handlers, while closing the page would (its beacons leave unseen by the guard).
+// So nothing a check did, and nothing the app kept for later (an outbox in localStorage, a tab-sync
+// channel, a timer), reaches the next check or outlives the context.
 import fs from "node:fs";
 import path from "node:path";
-import { test, type Page } from "@playwright/test";
+import { test, type BrowserContext, type Page } from "@playwright/test";
 import {
   CHECKS_SIGNIN_FILE,
   fingerprintDiff,
@@ -34,7 +36,7 @@ import {
   type RouteEntry,
 } from "./dod-shared";
 import { accessCheck, pageFingerprint, settle, type AccessContext } from "./dod-page";
-import { A11Y_CHECK_IDS, forcedColorsCheck, installWriteGuard, textReflowCheck, textSpacingCheck, withHeld, type A11yResult, type WriteGuard } from "./a11y-extended";
+import { A11Y_CHECK_IDS, forcedColorsCheck, installWriteGuard, needsTakenAway, textReflowCheck, textSpacingCheck, withHeld, type A11yResult, type WriteGuard } from "./a11y-extended";
 import { CONSENT_CHECK_IDS, consentChecks } from "./consent-checks";
 
 const EXTENDED_CHECK_IDS = [...A11Y_CHECK_IDS, ...CONSENT_CHECK_IDS] as const;
@@ -46,7 +48,7 @@ type ExtendedResult = A11yResult;
 const EXTENDED_DIR = path.join(RESULTS_DIR, "extended");
 /** A check starts only while more than this is left of the checks phase's deadline. */
 const DEADLINE_MARGIN_MS = 20_000;
-/** After a check, how long a write it set off (a popup's, a worker's) has to reach the guard. */
+/** After a check, how long a write it set off (a popup's, a worker's) has to reach the guard before the context closes. */
 const SETTLE_WRITES_MS = 500;
 const routes = loadRoutes();
 const standard = loadStandard();
@@ -98,7 +100,7 @@ if (standard)
         serviceWorkers: "block",
         ...(entry.audience === "anonymous" ? { storageState: { cookies: [], origins: [] } } : {}),
       });
-      test(`extended ${slug}`, async ({ context }) => {
+      test(`extended ${slug}`, async ({ browser, context, baseURL, locale, extraHTTPHeaders, httpCredentials, ignoreHTTPSErrors, timezoneId, userAgent, contextOptions }) => {
         const scored = scoredResult(`${slug}__${WIDE.width}__light`);
         // Only a page the scored phase reached is checked, as in standard.spec.ts.
         if (!scored || !scored.reached || scored.unreachable) return;
@@ -111,38 +113,52 @@ if (standard)
         if (entry.audience !== "anonymous" && fs.existsSync(CHECKS_SIGNIN_FILE)) {
           for (const id of EXTENDED_CHECK_IDS) checks[id] = failed("not checked: the checks phase could not sign in");
         } else {
-          const guard: WriteGuard = await installWriteGuard(context);
+          // The storage state the test started with: its context never opened a page.
+          const startState = await context.storageState();
+          const options = { ...contextOptions, baseURL, locale, extraHTTPHeaders, httpCredentials, ignoreHTTPSErrors, timezoneId, userAgent };
           const settleWrites = () => new Promise((r) => setTimeout(r, SETTLE_WRITES_MS));
-          let last = null as ExtendedId | null;
-          // One new page per check: load (its own writes pass while it loads), check, wait, then add the
-          // writes the guard held since the last check. The page stays open (see the top of this file).
-          const run = async (ids: ExtendedId[], fn: (page: Page) => Promise<Partial<Record<ExtendedId, ExtendedResult>>>) => {
+          // One context per check: load (the page's own writes pass while it loads), check, wait, take what
+          // the guard held, close the context. Its page is never closed on its own (see the top of this file).
+          const run = async (ids: ExtendedId[], fn: (page: Page, guard: WriteGuard) => Promise<Partial<Record<ExtendedId, ExtendedResult>>>) => {
             if (outOfTime()) {
               for (const id of ids) checks[id] = failed(OUT_OF_TIME);
               return;
             }
-            const page = await context.newPage();
-            guard.loading(page);
+            let ctx: BrowserContext | null = null;
+            let guard: WriteGuard | null = null;
             try {
+              ctx = await browser.newContext({
+                ...options,
+                storageState: startState,
+                viewport: { width: WIDE.width, height: WIDE.height },
+                colorScheme: "light",
+                serviceWorkers: "block",
+              });
+              guard = await installWriteGuard(ctx);
+              const page = await ctx.newPage();
+              guard.loading(page);
               await openScoredPage(page, entry, scored);
-              const got = await fn(page);
+              const taken = await needsTakenAway(page);
+              if (taken) throw new Error(`not checked: the page tries to start a ${taken}, which these checks take away (its requests cannot be held)`);
+              const got = await fn(page, guard);
               await settleWrites();
               const held = guard.take();
               for (const id of ids) checks[id] = withHeld(got[id] as ExtendedResult, id === ids[0] ? held : []);
             } catch (err) {
-              const held = guard.take();
+              const held = guard ? guard.take() : [];
               for (const id of ids) checks[id] = withHeld(failed(err), id === ids[0] ? held : []);
+            } finally {
+              if (ctx) await ctx.close().catch(() => {});
             }
-            last = ids[0];
           };
           // Both consent checks read the page as it loaded, so one page serves them.
-          await run([...CONSENT_CHECK_IDS], async (page) => {
+          await run([...CONSENT_CHECK_IDS], async (page, guard) => {
             guard.watch(page, "the page was read");
             return consentChecks(page);
           });
-          await run(["forced-colors"], async (page) => ({ "forced-colors": await forcedColorsCheck(page, guard) }));
-          await run(["text-reflow"], async (page) => ({ "text-reflow": await textReflowCheck(page, guard) }));
-          await run(["text-spacing"], async (page) => {
+          await run(["forced-colors"], async (page, guard) => ({ "forced-colors": await forcedColorsCheck(page, guard) }));
+          await run(["text-reflow"], async (page, guard) => ({ "text-reflow": await textReflowCheck(page, guard) }));
+          await run(["text-spacing"], async (page, guard) => {
             const wide = await textSpacingCheck(page, guard);
             guard.moment(page, `the window was resized to ${PHONE.width}x${PHONE.height}`);
             await page.setViewportSize({ width: PHONE.width, height: PHONE.height });
@@ -154,14 +170,12 @@ if (standard)
               ]),
             };
           });
-          // Anything held after the last check took its share (a late write of an open page) goes to it.
-          await settleWrites();
-          const late = guard.take();
-          if (last && late.length) checks[last] = withHeld(checks[last], late);
         }
         fs.mkdirSync(EXTENDED_DIR, { recursive: true });
         fs.writeFileSync(path.join(EXTENDED_DIR, `${slug}.json`), JSON.stringify({ route: entry.route, mode: "report", checks }, null, 2));
-        const line = EXTENDED_CHECK_IDS.map((id) => `${id} ${checks[id].error ? "errored" : checks[id].count ? `found ${checks[id].count}` : "clean"}`).join(", ");
+        // A held write is said apart from the findings: "clean (2 writes held)", never "found 2".
+        const heldWords = (r: ExtendedResult) => (r.held?.count ? ` (${r.held.count} write${r.held.count === 1 ? "" : "s"} held)` : "");
+        const line = EXTENDED_CHECK_IDS.map((id) => `${id} ${checks[id].error ? "errored" : checks[id].count ? `found ${checks[id].count}` : "clean"}${heldWords(checks[id])}`).join(", ");
         console.log(`[dod] extended ${entry.route}: ${line}`);
       });
     });
