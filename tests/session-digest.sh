@@ -17,7 +17,7 @@ count() { grep -c -- "$1" <<<"$all"; }
 summary=$("$BIN" "$FIX" --out "$t/all" | tail -1)
 all=$(cat "$t"/all/part-*.md)
 # shellcheck disable=SC2034  # read inside the eval of ok()
-want="11 typed, 1 dialog answers, 3 commands, 1 goals, 2 replies, 1 before a dialog, 4 from other sessions, 1 compactions, 1 part(s)"
+want="13 typed, 1 dialog answers, 8 commands, 1 goals, 2 replies, 1 before a dialog, 4 from other sessions, 1 compactions, 1 part(s)"
 ok "counts: got '$summary'" '[ "$summary" = "$want" ]'
 
 # What he typed is kept once per message.
@@ -53,13 +53,54 @@ ok "key redacted"                 '! grep -q "sk-ant-abcdef" <<<"$all" && grep -
 ok "password redacted, the word alone kept" '! grep -q "hunter2secret" <<<"$all" && grep -q "the password screen is slow" <<<"$all"'
 ok "real-world secret forms: $(grep -o "Xk9mQ2vv\|hunter3pass\|pg-secret-77\|letmein99\|AIzaSyA1234" <<<"$all" | tr "\n" " ")" '! grep -q "Xk9mQ2vv\|hunter3pass\|pg-secret-77\|letmein99\|AIzaSyA1234" <<<"$all"'
 ok "a Hebrew word after the word stays" 'grep -q "הסיסמה נדרשה בכל כניסה" <<<"$all"'
+# The six old rules are left as they are, so a sentence that only mentions a password still loses
+# its next word, and the rule added for "הסיסמה שלי היא X" does not take the word after that one.
+ok "an ordinary sentence: one word hidden, as before" 'grep -qF "הסיסמה שלי [redacted] עובדת" <<<"$all" && grep -qF "is [redacted] protected" <<<"$all"'
+# The added rules ask for a digit where there is no joining word, so a name in a sentence stays.
+for stays in 'הסיסמה - WiFi של הבית' 'סיסמת האדמין Supabase לא עובדת' 'הסיסמה שגויה: Error' 'primary_key=id' \
+  'search?key=react-query-devtools-panel'; do
+  ok "stays: $stays" 'grep -qF -- "$stays" <<<"$all"'
+done
+# What the old rules hid, and the forms the added rules hide: a value after "שלי היא" or a colon,
+# in quotes, after Bearer, in a URL, after סיסמת, under an env name in capitals, under name: value.
+for goes in Zx7mypass Qw8zzTop qwe123rty live-tok-99887766 cs-55aa66bb AbCdEf0123456789xyzQ eyJhbGciOiJIUzI1NiJ9 \
+  lowTok123456abcd hashTok111222333 RefTok12AbCd PASSWORD=4321 PROD=4455 שלוםעולם ecret99 spaced2pass Xy12AbCd 7391 \
+  שלום2024 Qwerty88 Colon55pass yaml77pass 5150 3344 Dash9pass Hunter22 Hunter33 ADMIN=1234 ACCOUNT=12345 TOKENS=8192 6677 wıthout \
+  ÉMIN=1234 2MAX=1234 MAX_PASSWORD=1234 קז-Qwerty חשאיתמאוד Gg77quote Pre3fix99 Not-Today-2024 jsonpass77 sq55pass yaml66key \
+  tg-12345-abc abcdefghijklmnop1234 Mail77pass bearerTOK1234567890 lowBearer1234567890 oauth1234567890abcdef sig9876543210fedcba \
+  Mgr55pass Wifi44pass Srv66pass Dash77pass Zo88pass New99pass Arrow55pass Upper55pass Qwertyab Nw44pass Lettersonly Emdash66pass \
+  Endash66pass Mgr77pass Zot77pass plainsecret9 dashkey99 Sq55secret abcdefgh12345678; do
+  ok "hidden: $goes" '! grep -qF -- "$goes" <<<"$all"'
+done
+# The added rules never show what the old rules hid: the six old rules are the same text as before.
+ok "the index says what a gap can stand for" 'grep -q "\[redacted\] stands for one word" "$t/all/index.md"'
+# A line typed in shell mode is named by its program only, and only by a program this machine
+# knows: arguments, a leading NAME=value and a lone word that is no program are never copied.
+ok "a shell line is named by its program" '[ "$(grep -c "^! git …$" <<<"$all")" = 2 ] && grep -q "^! curl …$" <<<"$all" && [ "$(grep -c "^! …$" <<<"$all")" = 2 ]'
+ok "and nothing else of it is copied" '! grep -q "shellTOK9876543210abc\|ShellPass77\|Shell9pass\|Shell8pass\|push origin\|/usr/bin/env" <<<"$all"'
+# A long line costs what a short one costs: two of these patterns once took seconds on 20,000 characters.
+slow=$(python3 -I - "$BIN" <<'PY'
+import importlib.machinery, importlib.util, sys, time
+sys.dont_write_bytecode = True
+loader = importlib.machinery.SourceFileLoader("sd", sys.argv[1])
+spec = importlib.util.spec_from_loader("sd", loader); sd = importlib.util.module_from_spec(spec); loader.exec_module(sd)
+worst = 0.0
+for line in ("הסיסמה היא" + " " * 20000, "DB_PASSWORD=" + "," * 20000 + "a", "הסיסמה שלי " * 2000, "password is " + "x" * 20000,
+             "סיסמת " + "א " * 10000, "TOKEN=" * 3000, "sudo " + " " * 20000 + "password", "?key=a" * 14000, "#code=xyz" * 9000,
+             "הסיסמה [redacted] " * 1500, "שלי [redacted] " * 1500 + "x", "הסיסמה לשרת" + " " * 20000 + ":",
+             "סיסמה א" + ":" * 40000, "הסיסמה ב-" + "abc:" * 10000, "password =[redacted] " * 1500, "password א" + ":" * 40000):
+    start = time.perf_counter(); sd.redact(line); worst = max(worst, time.perf_counter() - start)
+print("slow" if worst > 1.5 else "fast")
+PY
+)
+ok "no pattern slows down on a long line" '[ "$slow" = fast ]'
 
 ok "index: first message"         'grep -q "first message the owner typed: build the cash report page" "$t/all/index.md"'
 ok "index: last command"          'grep -q "last command the owner ran: /nadavai:my-review from tuesday" "$t/all/index.md"'
 ok "index: bad line counted"      'grep -q "1 unreadable line" "$t/all/index.md"'
 
 owner=$("$BIN" "$FIX" --out "$t/owner" --owner-only | tail -1)
-ok "owner-only counts: got '$owner'" '[ "$owner" = "11 typed, 1 dialog answers, 3 commands, 1 goals, 1 compactions, 1 part(s)" ]'
+ok "owner-only counts: got '$owner'" '[ "$owner" = "13 typed, 1 dialog answers, 8 commands, 1 goals, 1 compactions, 1 part(s)" ]'
 ok "owner-only has no session side" '! grep -q "^=== [RQX][0-9]" "$t"/owner/part-*.md && grep -q "^=== U1 " "$t"/owner/part-*.md'
 
 since=$("$BIN" "$FIX" --out "$t/since" --since 2026-11-02 | tail -1)
@@ -84,7 +125,7 @@ cp "$FIX" "$t/home/.claude/projects/p/$id.jsonl"
 # shellcheck disable=SC2034
 copies=$(HOME="$t/home" CLAUDE_CONFIG_DIR='' "$BIN" 11111111 --out "$t/copies" 2>/dev/null | tail -1)
 ok "newest copy of one id"        '[ "$copies" = "$summary" ]'
-ok "an older copy with nothing new is said so" 'grep -q "1 older file(s) of this session hold nothing typed that this one lacks" "$t/copies/index.md"'
+ok "an older copy with nothing new is said so" 'grep -q "1 other file(s) of this session hold nothing typed that this one lacks" "$t/copies/index.md"'
 # The older copy went its own way after the split: what only it holds is named, not dropped silently.
 printf '%s\n' '{"type":"user","origin":{"kind":"human"},"timestamp":"2026-10-30T07:00:00.000Z","message":{"role":"user","content":"add the tips report too"}}' \
   >>"$t/home/.config/orca/claude-profiles/x/home/projects/p/$id.jsonl"
@@ -93,6 +134,9 @@ HOME="$t/home" CLAUDE_CONFIG_DIR='' "$BIN" 11111111 --out "$t/branch" >/dev/null
 ok "a branch in an older copy is named in the index" 'grep -q "NOT IN THIS DIGEST: another file of this session holds 1 typed message" "$t/branch/index.md"'
 ok "and on stderr"                'grep -q "1 typed message(s) are only in another file" "$t/branch.err"'
 cp "$FIX" "$t/home/.claude/projects/p/11111111-9999-3333-4444-555555555555.jsonl"
+# A path names the file to read; the other files of that session are still compared with it.
+HOME="$t/home" CLAUDE_CONFIG_DIR='' "$BIN" "$t/home/.claude/projects/p/$id.jsonl" --out "$t/bypath" >/dev/null 2>&1
+ok "a path argument still names what only another file holds" 'grep -q "NOT IN THIS DIGEST: another file of this session holds 1 typed message" "$t/bypath/index.md"'
 ok "two different ids fail"       '! HOME="$t/home" CLAUDE_CONFIG_DIR="" "$BIN" 11111111 --out "$t/two" 2>/dev/null'
 
 echo "session-digest: $PASS passed, $FAIL failed"

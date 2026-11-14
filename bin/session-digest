@@ -11,7 +11,9 @@ A transcript is tens of megabytes of tool output; this keeps only the voices a r
 Entries:  U<n> a message the owner typed (also one typed while the session worked, or as the
                reason for rejecting a tool call)
           A<n> what he picked in a question dialog, with the options offered and any note he typed
-          C<n> a slash command he ran         G<n> a goal condition, once
+          C<n> a slash command he ran, or a line he typed in shell mode, named by its program
+               only ("! git …")
+          G<n> a goal condition, once
           R<n> the session's reply that ended a turn
           Q<n> what the session wrote just before it opened a question dialog
           X<n> a message from another session, cut short: it is not the owner's word
@@ -32,6 +34,7 @@ import glob
 import json
 import os
 import re
+import shutil
 import sys
 
 NOISE_PREFIXES = (
@@ -50,6 +53,7 @@ GOAL = re.compile(r"Goal check-in: «(.+?)»", re.S)
 REMINDER = re.compile(r"<system-reminder>.*?</system-reminder>", re.S)
 COMMAND = re.compile(r"<command-name>\s*(/?[^<\s]+)\s*</command-name>")
 COMMAND_ARGS = re.compile(r"<command-args>(.*?)</command-args>", re.S)
+SHELL_LINE = re.compile(r"<bash-input>(.*?)</bash-input>", re.S)
 # Claude Code writes the reason he types when he rejects a tool call inside that call's result.
 REJECTION = re.compile(r"the user said:\n(.*?)(?:\n\nNote: The user's next message|\Z)", re.S)
 
@@ -71,6 +75,12 @@ SECRETS = [
 # letter, so "הסיסמה נדרשה" stays; after the English word: a digit, so "the password screen"
 # stays), when it sits between sudo and the word, in NAME_PASSWORD=x style
 # assignments, and inside a URL's user:password@.
+#
+# These six rules also take a word out of an ordinary sentence ("הסיסמה שלי לא עובדת" comes out as
+# "הסיסמה שלי [redacted] עובדת"), and they are left exactly as they are. Six review rounds tried a
+# list of words to leave in (a negation, a name after a dash, a number in a setting), and each
+# round found a real value that the list let through. So nothing is ever left in: the index tells
+# the reader what [redacted] can stand for, and ADDED_PATTERNS below only hide more.
 WORD = r"(?:\bpassword|\bpasswd|\bpwd|ה?סיסמה|ה?סיסמא)"
 PASSWORD_PATTERNS = [
     (re.compile(r"(?i)(" + WORD + r"\s*(?:\bis\b|היא|זה|שלי|[:=])\s*)(\S+)"), r"\1[redacted]"),
@@ -80,25 +90,55 @@ PASSWORD_PATTERNS = [
     (re.compile(r"(?i)(\b\w*(?:PASSWORD|PASSWD|SECRET|TOKEN|API_?KEY)\w*\s*=\s*)(\S+)"), r"\1[redacted]"),
     (re.compile(r"(://[^/\s:@]+:)([^@\s/]+)(@)"), r"\1[redacted]\3"),
 ]
+# Forms the six rules let through. They run after them, on text those rules already went over,
+# and each one only puts [redacted] in place of a token, so what was hidden stays hidden. Where a
+# form has no joining word, the token must hold a digit, so that a name in a sentence stays
+# ("הסיסמה - WiFi של הבית", "סיסמת האדמין Supabase לא עובדת").
+ADDED_PATTERNS = [
+    # "הסיסמה שלי היא X" and "הסיסמה שלי: X": the rule above took the joining word and left X.
+    (re.compile(r"(שלי\s*\[redacted\]\s+)(?=\S*[0-9A-Za-z])(\S+)"), r"\1[redacted]"),
+    # "הסיסמה שלי: X": the rules above end with "הסיסמה [redacted] X". A digit is asked for, so that
+    # the word after a hidden value stays ("הסיסמה [redacted] לשרת").
+    (re.compile(r"(ה?סיסמ[אה]\s+\[redacted\]\s+)(?=\S*\d)(\S+)"), r"\1[redacted]"),
+    (re.compile(r"(" + WORD + r"\s+(?:החדשה|הישנה)\s+(?:היא|זה)(?:\s*:)?\s+)(?=\S*[0-9A-Za-z])(\S+)"), r"\1[redacted]"),
+    (re.compile(r"(" + WORD + r"\s+(?:זו|זאת|[-—–])\s+)(?=\S*\d)(\S+)"), r"\1[redacted]"),
+    # "password => X": the first rule above reads "=>" as "=" and hides the ">".
+    (re.compile(r"(?i)(" + WORD + r"\s*=\[redacted\]\s+)(?=\S*\d)(\S+)"), r"\1[redacted]"),
+    # The Hebrew word ends at its first colon: taking colons into it made a long line slow.
+    (re.compile(r"(" + WORD + r"\s+[א-ת][^\s:]*\s*:\s*)(?=\S*\d)(\S+)"), r"\1[redacted]"),
+    (re.compile(r"(סיסמת\s+\S+\s+(?:היא|זה|זו|זאת)(?:\s*:)?\s+)(?=\S*[0-9A-Za-z])(\S+)"), r"\1[redacted]"),
+    (re.compile(r"(סיסמת\s+\S+\s+)(?=\S*\d)(\S{4,})"), r"\1[redacted]"),
+    # Names of an env file in capitals (primary_key=id is no secret), and name: value.
+    (re.compile(r"(\b[A-Z][A-Z0-9_]*(?:_PASS|_KEY)\s*=\s*)(\S+)"), r"\1[redacted]"),
+    (re.compile(r"(?i)(\b(?:\w+(?:PASSWORD|PASSWD)|\w*(?:SECRET|API[-_]?KEY|TOKEN))\s*:\s*)(\S+)"), r"\1[redacted]"),
+    (re.compile(r"""(?i)(["'](?:\w*(?:password|passwd|secret|token|api_?key))["']\s*:\s*["'])([^"']+)(["'])"""),
+     r"\1[redacted]\3"),
+    (re.compile(r"(?i)(\bBearer\s+)([A-Za-z0-9._~+/=-]{16,})"), r"\1[redacted]"),
+    (re.compile(r"([?&#](?:key|code|auth|sig|signature)=)(?=[^&#?\s]*\d)([^&#?\s]{16,})"), r"\1[redacted]"),
+]
 
 
 def redact(text):
     for pattern in SECRETS:
         text = pattern.sub("[redacted]", text)
-    for pattern, replacement in PASSWORD_PATTERNS:
+    for pattern, replacement in PASSWORD_PATTERNS + ADDED_PATTERNS:
         text = pattern.sub(replacement, text)
     return text
 
 
 def find_transcript(arg):
     """The transcript to read, and the other files stored under the same session id."""
-    if os.path.isfile(arg):
-        return arg, []
     roots = []
     if os.environ.get("CLAUDE_CONFIG_DIR"):
         roots.append(os.path.join(os.environ["CLAUDE_CONFIG_DIR"], "projects"))
     roots.append(os.path.expanduser("~/.claude/projects"))
     roots += glob.glob(os.path.expanduser("~/.config/orca/claude-profiles/*/home/projects"))
+    if os.path.isfile(arg):
+        # The given file is the one read; the other files stored under its name are still compared.
+        same = {os.path.realpath(p) for root in roots
+                for p in glob.glob(os.path.join(root, "*", glob.escape(os.path.basename(arg))))}
+        same.discard(os.path.realpath(arg))
+        return arg, sorted(same)
     hits = {}
     for root in roots:
         for path in glob.glob(os.path.join(root, "*", arg + "*.jsonl")):
@@ -290,6 +330,20 @@ def read(path, args):
                     given = COMMAND_ARGS.search(text)
                     add("C", stamp, redact((name + " " + (given.group(1) if given else "").strip()).strip()))
                     continue
+                shell = SHELL_LINE.match(text)
+                if shell:
+                    # A line he typed in shell mode ("!cmd") is his own action; its output is noise.
+                    # A review needs to know that he ran something, so only the program is named,
+                    # and only when it is one this machine knows. Arguments, a leading NAME=value
+                    # and a first word that is no program (a password typed at a prompt that was
+                    # not there) are never copied.
+                    words = [w for w in shell.group(1).split()]
+                    while words and re.match(r"\w+=", words[0]):
+                        words.pop(0)
+                    # The shape check also keeps a path, which names a client or a project, out.
+                    program = words[0] if words and re.fullmatch(r"[\w.+-]{1,40}", words[0]) and shutil.which(words[0]) else ""
+                    add("C", stamp, "! " + (program + " …" if program else "…"))
+                    continue
                 if text.startswith(NOISE_PREFIXES):
                     continue
                 before_dialog = ""
@@ -415,12 +469,14 @@ def main():
              "- last command the owner ran: "
              + next((e[3][:160] for e in reversed(entries) if e[0] == 'C'), '(none)'),
              "- this folder repeats what he typed; keep it out of commits and messages",
+             "- [redacted] stands for one word that followed \"password\" / \"סיסמה\" or a key: usually a secret, "
+             "sometimes an ordinary word such as \"לא\"; do not read a meaning into the gap",
              ]
     for other, missing in branches:
         index.append(f"- NOT IN THIS DIGEST: another file of this session holds {missing} typed message(s) that "
                      f"this one lacks. Run session-digest on it as well: `{other}`")
     if copies and not branches:
-        index.append(f"- {len(copies)} older file(s) of this session hold nothing typed that this one lacks")
+        index.append(f"- {len(copies)} other file(s) of this session hold nothing typed that this one lacks")
     if counts["bad_lines"]:
         index.append(f"- {counts['bad_lines']} unreadable line(s) skipped")
     index += ["", "## Parts", ""]

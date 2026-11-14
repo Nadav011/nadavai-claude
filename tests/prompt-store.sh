@@ -83,6 +83,12 @@ while read -r prompt literal; do
   grep -qF -- "$literal" "$skills/$prompt/SKILL.md" && ok || bad "$prompt no longer contains $literal"
 done <<'LITERALS'
 my-review ${CLAUDE_SESSION_ID}
+my-review --owner-only
+my-map --owner-only
+my-done --owner-only
+my-review NOT IN THIS DIGEST
+my-map NOT IN THIS DIGEST
+my-done NOT IN THIS DIGEST
 my-map ${CLAUDE_SESSION_ID}
 my-done ${CLAUDE_SESSION_ID}
 my-other ListAgents
@@ -103,6 +109,9 @@ my-save SendMessage
 my-agents ListAgents
 my-ship production-change.md
 LITERALS
+# The line those three prompts look for is written by the tool: the two sides stay in step.
+grep -qF 'NOT IN THIS DIGEST' "$here/bin/session-digest" && ok \
+  || bad "session-digest no longer writes the NOT IN THIS DIGEST line that the prompts read"
 grep -q 'nadavai:reviewer' "$skills"/my-review/SKILL.md && [ -f "$here/plugins/nadavai/agents/reviewer.md" ] && ok \
   || bad "my-review needs the nadavai:reviewer agent"
 
