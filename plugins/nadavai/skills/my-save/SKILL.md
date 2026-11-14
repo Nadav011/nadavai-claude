@@ -16,7 +16,7 @@ If that is empty, list what this session produced that is worth keeping (what fa
 2. Put it where it will be read at the moment it is needed:
    - a fact about him, a preference, a decision, a pointer to a resource: memory;
    - a word of his and what it means: `GLOSSARY.md` (`working-style.md`, Requests);
-   - a verified, repeatable procedure of one project: a skill under `.omc/skills/`;
+   - a verified, repeatable procedure of one project: a skill under `.claude/skills/`;
    - something every project needs: the matching skill or rule in `~/nadavai`, following `nadavai.md` (a worktree, commit, push, `update.sh`, `agnix` on what you touched). When he named the item, this command is his request for that change;
    - a mistake that code can stop: a test, a lint rule or a hook before any text (`/nadavai:my-never` is the command for that).
 

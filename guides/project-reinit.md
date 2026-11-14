@@ -6,11 +6,10 @@ not been re-initialized yet. Before any other work in that project, do exactly t
 order, and nothing else first:
 
 1. Tell Nadav in one short Hebrew message that the project is waiting for re-initialization
-   and that the three steps below must run in this session, in order.
-2. Step 1: Nadav runs `/init`.
-3. Step 2: Nadav runs `/oh-my-claudecode:deepinit`. It must not touch the root `AGENTS.md`
+   and that the two steps below must run in this session, in order.
+2. Step 1: Nadav runs `/init`. It must not touch the root `AGENTS.md`
    symlink; if it wants to write one, keep `AGENTS.md` as a symlink to `CLAUDE.md`.
-4. Step 3: Nadav pastes this prompt verbatim, and you carry it out:
+3. Step 2: Nadav pastes this prompt verbatim, and you carry it out:
 
    > Read PROJECT-FACTS.md and merge every fact that cannot be derived from the code into
    > CLAUDE.md under the MANUAL section, following these rules: plain English, no emoji and
@@ -22,10 +21,10 @@ order, and nothing else first:
    > bottom, and do not repeat anything the global rules or plugins already cover.
    > Show me the resulting CLAUDE.md, then delete PROJECT-FACTS.md and commit.
 
-5. After the commit, remind Nadav to run `/fewer-permission-prompts` once in this project and
-   to open one fresh session to confirm only OMC, the global rules and the global plugins load.
-6. If the project has a UI and no `DESIGN.md` or `PRODUCT.md`, continue with `design-init.md`
-   in the same session, because its six steps assume the fresh CLAUDE.md from step 3.
+4. After the commit, remind Nadav to run `/fewer-permission-prompts` once in this project and
+   to open one fresh session to confirm only the global rules and the global plugins load.
+5. If the project has a UI and no `DESIGN.md` or `PRODUCT.md`, continue with `design-init.md`
+   in the same session, because its six steps assume the fresh CLAUDE.md from step 2.
 
 Why: the three active projects (TherapyFlow, Green Room, SporChat) went through exactly this
 flow on 2026-09-15 and 2026-09-16, and it produced CLAUDE.md files that are short, factual and
