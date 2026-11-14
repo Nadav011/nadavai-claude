@@ -9,7 +9,7 @@ Nadav does not program and reads the report after, not the diff before. The revi
 - Give it the diff, the exact commands, the target from step 4 and the way back from step 3, and this question: "Should this run on production without Nadav? Argue against it." Do not give it your conclusion.
 - It passes with `APPROVE` and no open fault (`review-rounds.md` beside this file), for the sha it read. Post the verdict with the reviewer's name as a comment on the PR; with no PR, write it into the repo's run log or the task's plan file.
 - A rejection stands until the change is fixed and reviewed again. Another provider does not overturn it.
-- In money, messages to people, permissions, real people's data and official filings, a model of another vendor reads the approved sha once before step 5 (`working-style.md`, Second model; how: `review-rounds.md`, the bullet on the final read). Post its verdict beside the reviewer's. A fault it finds sends the fixed change back to this step.
+- Where `working-style.md` (Second model) calls for the final read by another vendor's model, that read comes after this review and before step 5, as `review-rounds.md` (the bullet on that read) says. Post its verdict beside the reviewer's.
 - Any change to the reviewed files, commands or target after the verdict needs a new review.
 
 ## 2. Try it where it cannot hurt
@@ -45,4 +45,4 @@ Plain Hebrew, at the top of the reply that ends the turn, under "בוצע בלי
 - which reviewer approved it, and where the change is in one of those areas, which model of another vendor read it (or that a second Opus read in its place);
 - the backup or restore point, by name and time, and the date the backup will be dropped;
 - how to undo it, as a sentence he can send back ("כתוב: לבטל את <שם>"), and what undoing would lose;
-- the steps, one short line each with its evidence (the reviewer and where the verdict is, what the trial ran, the way back, the target, the checks after), so a skipped step shows.
+- the steps, one short line each with its evidence (the reviewer and where the verdict is, the final read by another vendor's model where one was due, what the trial ran, the way back, the target, the checks after), so a skipped step shows.

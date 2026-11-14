@@ -14,6 +14,10 @@ Read before running `omc ask` for a review. Which provider a review gets, and ho
   raw output before counting its answer.
 - `omc ask` starts Codex, Grok and Antigravity with their approvals off, so every review prompt says "read-only"
   explicitly.
+- A provider that reviews a change of an app is started in a new folder that holds only the material under
+  review (the diff, the changed files, the criteria), not in the app's repo: it runs in the current directory
+  with its sandbox off, and an app's repo holds live env files. This config repo holds no secret and can be
+  read in its worktree.
 - A provider known to be out of quota is skipped without another try, only while its reset time is still
   ahead. Read `~/.cache/nadavai/provider-quota` before `omc ask` (one line per provider: its `omc ask` name,
   the time it is out until, the error text and who saw it): a line whose time has passed is no reason to skip,
