@@ -244,6 +244,28 @@ await test('M15', 'the diff-only confirm compares the snapshot\'s plan/ with pla
   const c = calls.find(x => x.label.startsWith('plan-confirm'));
   return c && /diff -ruN? \S+\/plan-snap-[^/\s]+\/plan\/? \S+\/out\/plan\/?/.test(c.prompt) ? '' : `prompt: ${c ? (c.prompt.match(/diff[^\n]{0,160}/) || [''])[0] : 'no confirm'}`;
 });
+// Review rounds converge (rules/working-style.md, "Second model"): outside money, messages, data and filings three
+// rejecting full reviews stop the loop; with args.sensitive the rounds go on and, from the fourth, carry their faults.
+const fullRound = c => { const m = /^plan-review:r1-(\d+)$/.exec(c.label); return m ? Number(m[1]) : 0; };
+const rejectUntil = (n, faults = r => 1) => c => { const r = fullRound(c); return r && r <= n ? { verdict: 'ITERATE', summary: 'no', findings: Array.from({ length: faults(r) }, () => HIGH0), anchors: { ...CLEAN_ANCHORS } } : undefined; };
+const HIGH0 = { severity: 'HIGH', where: 'plan/build-plan.md:9', what: 'ships the wrong thing', fix: 'x' };
+await test('RC1', 'outside the four sensitive areas, three rejecting full reviews stop the plan loop with simplify and no unchecked fix', async () => {
+  const { result, calls } = await plan({}, { verdict: rejectUntil(8) });
+  const full = calls.filter(c => fullRound(c)).length, fixes = calls.filter(c => c.label.startsWith('plan-fix')).length;
+  return full === 3 && fixes === 2 && result.simplify === true && /simplify the plan, keeping what it does for a person, and tell Nadav/.test(result.stop) && result.gates.reviewApproved === false && result.gates.readyForOwner === false && result.faultsPerRound === undefined
+    ? '' : `full ${full}, fixes ${fixes}, simplify ${result.simplify}, stop ${result.stop}, gates ${JSON.stringify(result.gates)}`;
+});
+await test('RC2', 'two rejecting full reviews do not stop the loop: an APPROVE in the third still approves the plan', async () => {
+  const { result, calls } = await plan({}, { verdict: rejectUntil(2) });
+  const full = calls.filter(c => fullRound(c)).length;
+  return full === 3 && result.simplify === false && result.gates.reviewApproved === true ? '' : `full ${full}, simplify ${result.simplify}, gates ${JSON.stringify(result.gates)}`;
+});
+await test('RC3', 'with sensitive:true the full reviews go on past three while one finds a fault, and from the fourth the result carries the faults each round left', async () => {
+  const { result, calls } = await plan({ sensitive: true }, { verdict: rejectUntil(4, r => 5 - r) });
+  const full = calls.filter(c => fullRound(c)).length;
+  return full === 5 && result.simplify === false && result.gates.reviewApproved === true && JSON.stringify(result.faultsPerRound) === '[4,3,2,1,0]'
+    ? '' : `full ${full}, simplify ${result.simplify}, faults ${JSON.stringify(result.faultsPerRound)}, gates ${JSON.stringify(result.gates)}`;
+});
 
 // ---------------- dry-run tool ----------------
 const dry = (script, args, ...flags) => {

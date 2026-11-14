@@ -46,7 +46,7 @@ units). The lessons of that run are written into the steps below with their reas
 | `tests/run.mjs` | The regression tests of all of the above (one per failure mode a review found). `PLAYWRIGHT_MODULE=… node tests/run.mjs` |
 | `templates/` | `redesign.json`, `parts/` (the shared base: page, phone, component skeleton), `section.html`, `BRIEF.md`, `INVENTORY.md`, `STORY.md`, `DECISIONS-OPEN.md`, `DECISIONS-ANSWERED.md`, `FEATURES-PROPOSED.md`, `CHANGES.md`, `build-plan.md`, `START-BUILD.md`, `gitignore`; `REFERENCE.md` (the reference ledger of `shared/reference.md`, for any mode or track) |
 | `workflows/demo-round.js` | One demo round for the Workflow tool: spec → (first build: shared components) → lanes → requests ×2 → rebuild → one full fresh verify → fix → targeted confirms (≤3, every finding id accounted for) → CHANGES and round state. Also the first build (`mode: 'build'`) and every continuation (`startAt`). |
-| `workflows/plan-review.js` | The plan: write → fresh reviews to APPROVE → a diff-only confirm after every later edit → second model → START-BUILD and checklist. Returns reviewer gates; Nadav's approval is asked afterwards. |
+| `workflows/plan-review.js` | The plan: write → fresh reviews to APPROVE (or the stop after three rejecting reviews, «8. Build plan») → a diff-only confirm after every later edit → second model → START-BUILD and checklist. Returns reviewer gates; Nadav's approval is asked afterwards. |
 | `examples/mini/` | A two-screen fixture that every tool runs on (see its README). Rerun it after changing a tool. |
 
 Tools need Python 3 and Node; Playwright comes from the app's own install (`--pw`, `$PLAYWRIGHT_MODULE` or the
@@ -352,9 +352,14 @@ Chat in plain Hebrew, short lines, the why before the what; code, files and comm
   Units land as that section's point 2 says. No unit builds a screen a second time.
 - Review: a fresh Opus reviewer, read-only, until APPROVE; after an APPROVE, the fix round is checked by a DIFF-ONLY
   confirm against a snapshot (on 2.10.2026 full reviews after an APPROVE kept breeding new findings for 10 rounds).
-  Fix by simplifying, never by adding machinery.
-- Second model: `rules/working-style.md`, "Second model" (`omc ask codex` on the config default; never pass `-m` or
-  an effort flag). Its findings are fixed and diff-confirmed. Approval by any reviewer means APPROVE with nothing
+  Fix by simplifying, never by adding machinery. The rounds converge as `rules/working-style.md`, "Second model",
+  says: with `args.sensitive` false (the default), three rejecting full reviews stop the workflow, which returns
+  `simplify: true` (simplify the plan, keeping what it does for a person, and tell Nadav); `args.sensitive: true`,
+  for a plan that covers money, messages to people, data or official filings, keeps the rounds going while one
+  finds a HIGH or MEDIUM, and from the fourth review the result's `faultsPerRound` gives what each round left.
+- Second model: `rules/working-style.md`, "Second model". The full reviews are already fresh Opus, so the cross-check
+  is another vendor's read: Grok, else Codex (config default, never `-m` or an effort flag), else Antigravity, else a
+  fresh Opus; `workflows/plan-review.js` holds the order. Its findings are fixed and diff-confirmed. Approval by any reviewer means APPROVE with nothing
   HIGH or MEDIUM left, whatever the verdict word.
 - Every edit after an APPROVE (LOW polish, the second model's fixes, START-BUILD itself) is followed by a diff-only
   confirm, at most 3 per chain; approval holds only when the last step is a confirm that says APPROVE, so no edit is

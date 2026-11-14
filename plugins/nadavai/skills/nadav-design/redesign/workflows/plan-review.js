@@ -1,6 +1,6 @@
 export const meta = {
   name: 'redesign-plan-review',
-  description: 'The redesign build plan: write the answers and plan items into it, fresh Opus reviews until APPROVE, diff-only confirms of every later edit, a second model (Codex, else Antigravity, else Grok, else a fresh Opus), then the START-BUILD prompt and checklist; returns review gates, never Nadav\'s approval',
+  description: 'The redesign build plan: write the answers and plan items into it, fresh Opus reviews until APPROVE (outside the four sensitive areas, three rejecting reviews stop it: simplify and tell Nadav), diff-only confirms of every later edit, a second model (Grok, else Codex, else Antigravity, else a fresh Opus), then the START-BUILD prompt and checklist; returns review gates, never Nadav\'s approval',
   whenToUse: 'nadav-design redesign mode step 8, only after Nadav opted into multi-agent orchestration',
   phases: [{ title: 'Plan write' }, { title: 'Plan review' }, { title: 'Second model' }, { title: 'Start build' }, { title: 'Checkpoint' }],
 }
@@ -14,6 +14,11 @@ export const meta = {
                              // diffs against an old one; there is no default, the round name repeats across runs
      write: true,            // false = review the plan as it stands (no writer pass first)
      maxReviews: 8,          // full reviews, 1-8
+     sensitive: false,       // true when the plan covers money, messages to people, data or official filings: the full
+                             // reviews go on while one finds a HIGH or MEDIUM (up to maxReviews), and from the fourth
+                             // the result's faultsPerRound gives what each left. false: three rejecting full reviews
+                             // stop the loop with simplify: true (simplify the plan, keeping what it does for a
+                             // person, and tell Nadav). rules/working-style.md, "Second model" (review rounds converge)
      secondModel: true,      // false stops before the second model: an explicit intermediate state, never ready for Nadav
      startBuild: true, commit: true,
    }
@@ -27,6 +32,8 @@ if (!A.out || !A.skill) throw new Error('args.out and args.skill are required (r
 const OUT = A.out, SK = A.skill, APP = A.app || '(not given)', R = A.round || 'r1'
 const MAX = Math.min(8, Math.max(1, Number.isInteger(A.maxReviews) ? A.maxReviews : 8))
 const CONF = 3 // diff-only confirms per edit chain
+const SENSITIVE = A.sensitive === true
+const REJECTS = 3 // rejecting full reviews that stop a plan outside the four sensitive areas
 const p = f => (String(f).startsWith('/') ? f : `${OUT}/${f}`)
 if (!A.nonce) throw new Error('args.nonce is required: a fresh name for this run\'s snapshots (the round name repeats across runs)')
 const NONCE = String(A.nonce).replace(/[^\w.-]/g, '')
@@ -103,15 +110,15 @@ Return the WRITE shape.`, { label: 'plan-write', phase: 'Plan write', schema: WR
   await checkpoint('write')
 }
 
-// ---------------- full reviews until APPROVE; then every edit is diff-confirmed ----------------
+// ---------------- full reviews until APPROVE (or the stop after REJECTS rejections); then every edit is diff-confirmed ----------------
 phase('Plan review')
 const reviews = []
-let approved = false, open = [], stop = ''
+let approved = false, open = [], stop = '', simplify = false
 if (A.write !== false && !last) stop = 'the writer returned nothing'
 for (let r = 1; r <= MAX && !approved && !stop; r++) {
   const v = await fullReview(`plan-review:${R}-${r}`)
   if (!v) { stop = `review ${r} returned nothing`; break }
-  reviews.push({ round: r, verdict: v.verdict, n: v.findings.length, summary: v.summary.slice(0, 300) })
+  reviews.push({ round: r, verdict: v.verdict, n: v.findings.length, faults: v.findings.filter(f => f.severity !== 'LOW').length, summary: v.summary.slice(0, 300) })
   log(`review ${r}: ${v.verdict}, ${v.findings.length} findings`)
   if (ok(v) && !v.findings.length) { approved = true; break }
   if (ok(v)) {
@@ -125,7 +132,8 @@ for (let r = 1; r <= MAX && !approved && !stop; r++) {
     break
   }
   // ITERATE, REJECT, or an APPROVE that still lists a HIGH or MEDIUM: fix, then a full review again
-  if (r === MAX) { stop = `still ${v.verdict} after ${MAX} full reviews`; break } // no edit that nobody would check
+  if (!SENSITIVE && r === REJECTS) { simplify = true; stop = `${REJECTS} rejecting full reviews: simplify the plan, keeping what it does for a person, and tell Nadav (rules/working-style.md, "Second model")`; break }
+  if (r === MAX) { stop = `still ${v.verdict} after ${MAX} full reviews${SENSITIVE ? ' (sensitive: the rounds go on in a new run)' : ''}`; break } // no edit that nobody would check
   if (!(await planFix(`${R}-${r}`, v.findings, `fix round ${r}`))) { stop = `fix ${r} returned nothing`; break }
 }
 await checkpoint('reviews')
@@ -137,10 +145,10 @@ if (approved && A.secondModel === false) log('secondModel false: stopping before
 if (approved && A.secondModel !== false) {
   phase('Second model')
   const sm = await run(`${PCTX}
-SECOND-MODEL CROSS-CHECK, read-only for the plan. Run Codex from ${OUT}: omc ask codex "<question>". Never pass -m or an effort flag: the config default (gpt-6.1-sol at xhigh) is the only allowed model. If Codex cannot run (quota, missing binary, error, timeout), run omc ask antigravity with the same question, and if that cannot run either, omc ask grok. omc ask grok can exit 0 on a quota or balance error: read the raw output in its artifact, and when it holds such an error instead of a review, Grok did not run. The question: review plan/build-plan.md (and START-BUILD.md when it exists) as the build session will use them, against DECISIONS-ANSWERED.md and the demo sections; report HIGH, MEDIUM and LOW findings with the exact place and fix, and a verdict (APPROVE only when nothing HIGH or MEDIUM). Read the artifact file omc prints and return its verdict and findings faithfully, with reviewer "codex", "antigravity" or "grok"; reviewer "none" when none of them ran (say why in the summary).`, { label: 'second-model', phase: 'Second model', schema: SECOND, effort: 'high' })
+SECOND-MODEL CROSS-CHECK, read-only for the plan (rules/working-style.md, "Second model"; the full reviews were fresh Opus, so this is another vendor's read). Run from ${OUT}, one provider at a time, in this order: omc ask grok "<question>"; else omc ask codex "<question>", never with -m or an effort flag (the config default is the only allowed model); else omc ask antigravity "<question>". Skip without a try a provider known to be out of quota (a reset date recorded in memory that has not passed, or a failed try in this session), and go to the next one when a provider cannot run (quota, missing binary, error, timeout). omc ask grok can exit 0 on a quota or balance error: read the raw output in its artifact, and when it holds such an error instead of a review, Grok did not run. omc ask starts these with their approvals off, so the question opens with "Read-only: change no file." The question: review plan/build-plan.md (and START-BUILD.md when it exists) as the build session will use them, against DECISIONS-ANSWERED.md and the demo sections; report HIGH, MEDIUM and LOW findings with the exact place and fix, and a verdict (APPROVE only when nothing HIGH or MEDIUM). Read the artifact file omc prints and return its verdict and findings faithfully, with reviewer "grok", "codex" or "antigravity"; reviewer "none" when none of them ran (say why in the summary).`, { label: 'second-model', phase: 'Second model', schema: SECOND, effort: 'high' })
   if (sm && sm.reviewer !== 'none') second = { ...sm }
   else {
-    // a fresh Opus with a clean context reviews in Codex's place; its verdict counts like Codex's
+    // a fresh Opus with a clean context reviews in the other providers' place; its verdict counts like theirs
     log(`no other provider ran (${sm ? sm.summary.slice(0, 160) : 'agent returned nothing'}): a fresh Opus reviews instead`)
     const o = await fullReview(`plan-review:second-opus`, 'You stand in for the second model: be adversarial, look for what the earlier reviews missed.')
     second = o && { reviewer: 'opus', verdict: o.verdict, summary: o.summary, findings: o.findings }
@@ -179,4 +187,4 @@ const gates = {
   ownerApproved: false,
 }
 log(`plan gates: ${JSON.stringify(gates)}`)
-return { gates, units: last && last.units, reviews, open, stop, second: second && { reviewer: second.reviewer, verdict: second.verdict, summary: second.summary.slice(0, 600), findings: second.findings } }
+return { gates, units: last && last.units, reviews, faultsPerRound: reviews.length >= 4 ? reviews.map(x => x.faults) : undefined, simplify, open, stop, second: second && { reviewer: second.reviewer, verdict: second.verdict, summary: second.summary.slice(0, 600), findings: second.findings } }

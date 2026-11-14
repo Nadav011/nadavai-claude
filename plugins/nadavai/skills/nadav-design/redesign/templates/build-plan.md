@@ -4,7 +4,7 @@ Status: DRAFT
 
 (The line above is a token the tools and `next` read: `Status: DRAFT` until Nadav approves the finished plan, then
 `Status: OWNER-APPROVED answer <N> commit <sha>`, written by the parent session only. The review record goes here:
-reviewed <date>, review <n> APPROVE, every later edit diff-confirmed, second model <Codex / Grok / fresh Opus>.)
+reviewed <date>, review <n> APPROVE, every later edit diff-confirmed, second model <Grok / Codex / Antigravity / fresh Opus>.)
 **Nadav has decided everything the drawn screens of this plan build on:** DECISIONS-ANSWERED.md 1–<n>. No product
 question about them is open inside the plan; a reading the plan had to make where an answer was silent is named in
 «Readings» below. Screens the demo did not draw are designed during the build, in the app's preview: their questions
