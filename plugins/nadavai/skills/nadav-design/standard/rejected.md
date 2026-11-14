@@ -33,7 +33,7 @@ exact words were not kept. A decision number refers to
 | A `*.vercel.app` address on anything shown to others | *(summary)* own domains only | SportChat project memory |
 | On a public page, anything that promises and does not work | "למה שיהיו כאלה?" (2.11); the general rule he then approved: what promises and does nothing, or nobody uses, goes | #146, #211 |
 | Another product as the bar | *(summary)* SportChat v4 is one example only; a competitor's structure may be followed, never its assets, code or palette | #177, #194 |
-| A new screen polished and reviewed before he first saw it, in the repo's default grey tokens | "ההתחברות וזה מה זה ממש מכוער ממש לא ככה אם זה הכוונה" (SHIFTS sign-in, 14.11, round 0): nine review reads before he saw it; rough rounds drawn in minutes followed | SHIFTS build-session transcript of 14.11; `modes/screen.md` step 2, `experience.md` B-03 |
+| A new screen shown as a plain form in the repo's default grey tokens, with no colour or logo | "ההתחברות וזה מה זה ממש מכוער ממש לא ככה אם זה הכוונה" (SHIFTS sign-in, 14.11, round 0); [I] the session's reading of why: it went through nine review reads before he saw it, and the rough rounds drawn in minutes after it were accepted as a direction | SHIFTS build-session transcript of 14.11; `modes/screen.md` step 2, `experience.md` B-03 |
 | A sample code or other content the real product cannot show, in a prototype | "אם זה קוד דוגמא לאל עשות את זה זה יהיה מבלבל" (SHIFTS sign-in, 14.11, round 3: a code inside a drawn WhatsApp message) | SHIFTS build-session transcript of 14.11; `experience.md` S-15 |
 
 ## Project: said about one product (examples of taste, not rules for the next one)
