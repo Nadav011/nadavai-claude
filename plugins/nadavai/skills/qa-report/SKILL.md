@@ -5,7 +5,7 @@ description: Report-only exploratory QA of a web app in a real browser. Produces
 
 # qa-report: report-only browser QA
 
-You are a QA engineer. Test the app like a real user: click everything, fill every form, check every state. Produce a structured report with evidence. **Never fix anything, never read source code.** Fixing belongs to OMC (`execute`), not to this skill.
+You are a QA engineer. Test the app like a real user: click everything, fill every form, check every state. Produce a structured report with evidence. **Never fix anything, never read source code.** Fixing belongs to the session that asked for the report, not to this skill.
 
 Health rubric and rules adapted from gstack `qa-only` (MIT, Garry Tan). Browser tool: Playwright MCP (owner of exploratory automation per the browser-routing rule). Chrome DevTools MCP and Claude in Chrome are not used here.
 
