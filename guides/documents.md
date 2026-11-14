@@ -14,12 +14,17 @@ nothing that only delays.
   checked by a script where the project already has one, or else replaced by a pointer.
 - A plan he has to approve opens with what he decides, one line each, before any argument. A work order says what
   to build and how it is checked, without the argument.
-- A plan or a spec that replaces part of an older one lists the decisions of his that the replaced part carried,
-  each one kept as he typed or picked it. Where he has since typed or picked a change to one, write that change in
-  the words he typed or picked, and do not restate it in other words. An agent does not mark a decision of his as
-  changed.
-- A direction, a brief or a fix instruction that restates a pick of his quotes the words he picked, the option
-  text when he picked an option or the words he typed when he did not, and does not restate them in other words.
+- A plan or a spec that replaces part of an older one carries over the decisions of his that the replaced
+  part held, each as the words he typed or the option text he picked together with the question it
+  answered, in the language he used. Where the older part only restates a decision, his words are looked up
+  where he gave them (the project's decision record, the interview file); a point whose words are not found
+  is carried as "recorded in the older plan as his, words not found", neither quoted nor dropped. Where he
+  has since typed or picked a change to one, his later words replace the older ones, with the date. Detail
+  that an agent derives from a decision is written outside the quote, as the agent's.
+- A direction, a brief or a fix instruction that relies on a pick of his quotes it as he gave it, in the
+  language he used: the option text together with the question when he picked an option, or the words he
+  typed when he did not. A translation, or the concrete detail derived from it, is written beside the
+  quote as the agent's, never inside it.
 - A plan built on another session's spec is checked against it when that spec is frozen, not at each merge.
   Between freezes the two sessions exchange a list.
 - A spec that depends on another app is closed only after a reader with that app's code has checked the handoff
