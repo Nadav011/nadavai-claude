@@ -3149,6 +3149,10 @@ function ocSuite(tool) {
     const t = ocRun(f, tool, []);
     check(`${name} text`, t.status === 1 && lines.every(l => t.stdout.includes(`outside the table: line ${l}`)) && !/caught 100%/.test(t.stdout), `exit ${t.status}: ${t.stdout.slice(0, 300)}`);
   }
+  // The advice follows the line (the fifth review, Grok's blocker 3): a row gets its pipe back, a note never gets one.
+  const say = (f, line) => (ocRun(f, tool, []).stdout.split('\n').find(l => l.includes(`outside the table: line ${line}:`)) || '');
+  check('advice', /a leading \|/.test(say(OC_NOLEADING, 8)) && /never gets a \|/.test(say(OC_DATENOTE, 8)) && !/a leading \|/.test(say(OC_DATENOTE, 8)) && /never gets a \|/.test(say(OC_NOPIPES, 8)) && /holds a class, a finder and a when/.test(say(OC_NOPIPES, 8)),
+    `noleading: ${say(OC_NOLEADING, 8)} / datenote: ${say(OC_DATENOTE, 8)} / nopipes: ${say(OC_NOPIPES, 8)}`);
   const q = ocRun(ocLedger(['| 2025-10-01 | a | look | gate | before | dod:x | x: oct | r.json |', '| 2025-12-31 | a | look | owner | before | none | chat 2025-12-31 | דצמבר |', '| 2026-01-01 | a | look | owner | before | none | chat 2026-01-01 | ינואר |'], 'quarter'), tool, ['--json', '--period', 'quarter']);
   check('quarter', q.status === 0 && q.out && JSON.stringify(Object.keys(q.out.periods)) === JSON.stringify(['2025-Q4', '2026-Q1']) && q.out.periods['2025-Q4'].owner_before === 1, `exit ${q.status}: ${JSON.stringify(q.out && Object.keys(q.out.periods))}`);
   const qs = ocRun(OC_FIXTURE, tool, ['--json', '--period', 'quarter']);
@@ -3190,7 +3194,7 @@ const OC_WHY = ocSuite(OC);
 const ocPick = re => OC_WHY.filter(w => re.test(w)).join('; ');
 await test('OC-fixture', 'owner-catches counts the fixture ledger: per period, class and screen, the escapes, the repeat counted once, every malformed row by its line, and withholds the share', async () => ocPick(/^(fixture|malformed lines|text fixture)/));
 await test('OC-clean', 'a ledger with only well-formed rows exits 0 and gives the shares (total, per period, class and screen), as JSON and as text with what the share may and may not be read as', async () => ocPick(/^(clean|text clean)/));
-await test('OC-outside', 'a row with no leading pipe, rows after a blank line, rows under a sub-heading without their own header, a row pasted without pipes, one without its pipes or its date, and a note that starts with a date are named as outside the table (exit 1, share withheld), never dropped silently', async () => ocPick(/^(noleading|blankgap|afterheading|tabs|nopipes|datenote)/));
+await test('OC-outside', 'a row with no leading pipe, rows after a blank line, rows under a sub-heading without their own header, a row pasted without pipes, one without its pipes or its date, and a note that starts with a date are named as outside the table (exit 1, share withheld), never dropped silently', async () => ocPick(/^(noleading|blankgap|afterheading|tabs|nopipes|datenote|advice)/));
 await test('OC-key', 'a second table under its own header is read; rows differing in one key cell are different problems; refs differing by an unseen mark are one; owner rows with one ref and different words are different problems', async () => ocPick(/^(second table|key|unseen marks|one ref)/));
 await test('OC-edges', 'quarters (December is Q4, January Q1), header case, a cell of dashes, a \\| in the words, the 99.9/0.1 cap, and usage errors', async () => ocPick(/^(quarter|header case|dash cell|pipe|cap|usage)/));
 await test('OC-template', 'the empty MEASURES.md template is a ledger the tool reads: 0 problems, exit 0', async () => {

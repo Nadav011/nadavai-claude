@@ -6,16 +6,20 @@
 // its own project (`extended`), the teardown of the project that runs every other check, so it starts
 // only after those have finished and never takes their share of the phase's deadline; and each check
 // starts only while more than DEADLINE_MARGIN_MS of that deadline is left ("not checked: out of time").
-// Each check opens a new page of the route, as the scored phase's light 1440 entry did, and judges
-// nothing until the access check and the scored page's fingerprint show it is the page the scored
-// phase measured. Each check runs in a browser context of its own, made from the test's options and
-// from the storage state the test started with (never one captured after a check), with service workers
-// blocked; every write of that context (any request that is not GET, HEAD or OPTIONS), except the page's
-// own while it loads, is held and reported in the check's `held` field, apart from its findings
-// (a11y-extended.ts, installWriteGuard). When the check ends the context is closed, which runs none of
-// the page's leaving handlers, while closing the page would (its beacons leave unseen by the guard).
-// So nothing a check did, and nothing the app kept for later (an outbox in localStorage, a tab-sync
-// channel, a timer), reaches the next check or outlives the context.
+// Four runs per route: forced-colors, text-reflow and text-spacing each open a new page of the route, as
+// the scored phase's light 1440 entry did, and the two consent checks share one, since both only read the
+// page as it loaded. A run judges nothing until the access check and the scored page's fingerprint show
+// it is the page the scored phase measured. Each run has a browser context of its own, made from the
+// test's options and from the storage state the test started with (never one captured after a run),
+// with service workers blocked and the write guard of a11y-extended.ts (installWriteGuard): every write
+// of that context, except the page's own while it loads, is held, or not sent at all when a document
+// tries it as it leaves, and reported in the run's `held` field, apart from its findings; the sends the
+// guard sees and cannot hold (a WebSocket message, a WebRTC or WebTransport send) are named in
+// `notHeld`. A page that left its route during the check is "not checked". When the run ends its
+// context is closed, which runs none of the page's leaving handlers, while closing the page would. So
+// nothing a run did, and nothing the app kept for later (an outbox in localStorage, a tab-sync channel,
+// a timer), reaches the next run or outlives the context. The README's table of channels says, for
+// every way a page can send something, what the guard does and which fixture proves it.
 import fs from "node:fs";
 import path from "node:path";
 import { test, type BrowserContext, type Page } from "@playwright/test";
@@ -36,7 +40,20 @@ import {
   type RouteEntry,
 } from "./dod-shared";
 import { accessCheck, pageFingerprint, settle, type AccessContext } from "./dod-page";
-import { A11Y_CHECK_IDS, forcedColorsCheck, installWriteGuard, needsTakenAway, textReflowCheck, textSpacingCheck, withHeld, type A11yResult, type WriteGuard } from "./a11y-extended";
+import {
+  A11Y_CHECK_IDS,
+  countSendsFromNow,
+  forcedColorsCheck,
+  installWriteGuard,
+  needsTakenAway,
+  sendsNotHeld,
+  textReflowCheck,
+  textSpacingCheck,
+  withHeld,
+  withNotHeld,
+  type A11yResult,
+  type WriteGuard,
+} from "./a11y-extended";
 import { CONSENT_CHECK_IDS, consentChecks } from "./consent-checks";
 
 const EXTENDED_CHECK_IDS = [...A11Y_CHECK_IDS, ...CONSENT_CHECK_IDS] as const;
@@ -100,7 +117,27 @@ if (standard)
         serviceWorkers: "block",
         ...(entry.audience === "anonymous" ? { storageState: { cookies: [], origins: [] } } : {}),
       });
-      test(`extended ${slug}`, async ({ browser, context, baseURL, locale, extraHTTPHeaders, httpCredentials, ignoreHTTPSErrors, timezoneId, userAgent, contextOptions }) => {
+      test(`extended ${slug}`, async ({
+        browser,
+        context,
+        baseURL,
+        locale,
+        extraHTTPHeaders,
+        httpCredentials,
+        ignoreHTTPSErrors,
+        timezoneId,
+        userAgent,
+        contextOptions,
+        permissions,
+        geolocation,
+        bypassCSP,
+        javaScriptEnabled,
+        deviceScaleFactor,
+        isMobile,
+        hasTouch,
+        offline,
+        acceptDownloads,
+      }) => {
         const scored = scoredResult(`${slug}__${WIDE.width}__light`);
         // Only a page the scored phase reached is checked, as in standard.spec.ts.
         if (!scored || !scored.reached || scored.unreachable) return;
@@ -115,10 +152,31 @@ if (standard)
         } else {
           // The storage state the test started with: its context never opened a page.
           const startState = await context.storageState();
-          const options = { ...contextOptions, baseURL, locale, extraHTTPHeaders, httpCredentials, ignoreHTTPSErrors, timezoneId, userAgent };
+          const options = {
+            ...contextOptions,
+            baseURL,
+            locale,
+            extraHTTPHeaders,
+            httpCredentials,
+            ignoreHTTPSErrors,
+            timezoneId,
+            userAgent,
+            permissions,
+            geolocation,
+            bypassCSP,
+            javaScriptEnabled,
+            deviceScaleFactor,
+            isMobile,
+            hasTouch,
+            offline,
+            acceptDownloads,
+          };
           const settleWrites = () => new Promise((r) => setTimeout(r, SETTLE_WRITES_MS));
-          // One context per check: load (the page's own writes pass while it loads), check, wait, take what
-          // the guard held, close the context. Its page is never closed on its own (see the top of this file).
+          // A page that left its route during the check measured another page: nothing of it is reported.
+          const LEFT = (to: string) => `not checked: the page left its route during the check (it went to ${to}); nothing measured after that is reported`;
+          // One context per run: load (the page's own writes pass while it loads), check, wait, take what the
+          // guard held, close the context. Its page is never closed on its own (see the top of this file).
+          // The two consent checks share one run, since both only read the page as it loaded.
           const run = async (ids: ExtendedId[], fn: (page: Page, guard: WriteGuard) => Promise<Partial<Record<ExtendedId, ExtendedResult>>>) => {
             if (outOfTime()) {
               for (const id of ids) checks[id] = failed(OUT_OF_TIME);
@@ -126,6 +184,7 @@ if (standard)
             }
             let ctx: BrowserContext | null = null;
             let guard: WriteGuard | null = null;
+            let page: Page | null = null;
             try {
               ctx = await browser.newContext({
                 ...options,
@@ -135,18 +194,25 @@ if (standard)
                 serviceWorkers: "block",
               });
               guard = await installWriteGuard(ctx);
-              const page = await ctx.newPage();
+              page = await ctx.newPage();
               guard.loading(page);
               await openScoredPage(page, entry, scored);
               const taken = await needsTakenAway(page);
               if (taken) throw new Error(`not checked: the page tries to start a ${taken}, which these checks take away (its requests cannot be held)`);
+              await countSendsFromNow(page);
               const got = await fn(page, guard);
               await settleWrites();
+              const went = guard.left(page);
+              await guard.stopped(page);
+              const sends = went ? {} : await sendsNotHeld(page);
               const held = guard.take();
-              for (const id of ids) checks[id] = withHeld(got[id] as ExtendedResult, id === ids[0] ? held : []);
+              // Held writes and unheld sends belong to the run, so they go to its first check only.
+              for (const id of ids) checks[id] = withNotHeld(withHeld(went ? failed(LEFT(went)) : (got[id] as ExtendedResult), id === ids[0] ? held : []), id === ids[0] ? sends : {});
             } catch (err) {
+              if (guard && page) await guard.stopped(page);
               const held = guard ? guard.take() : [];
-              for (const id of ids) checks[id] = withHeld(failed(err), id === ids[0] ? held : []);
+              const went = guard && page ? guard.left(page) : null;
+              for (const id of ids) checks[id] = withHeld(failed(went ? LEFT(went) : err), id === ids[0] ? held : []);
             } finally {
               if (ctx) await ctx.close().catch(() => {});
             }
@@ -173,9 +239,12 @@ if (standard)
         }
         fs.mkdirSync(EXTENDED_DIR, { recursive: true });
         fs.writeFileSync(path.join(EXTENDED_DIR, `${slug}.json`), JSON.stringify({ route: entry.route, mode: "report", checks }, null, 2));
-        // A held write is said apart from the findings: "clean (2 writes held)", never "found 2".
-        const heldWords = (r: ExtendedResult) => (r.held?.count ? ` (${r.held.count} write${r.held.count === 1 ? "" : "s"} held)` : "");
-        const line = EXTENDED_CHECK_IDS.map((id) => `${id} ${checks[id].error ? "errored" : checks[id].count ? `found ${checks[id].count}` : "clean"}${heldWords(checks[id])}`).join(", ");
+        // A held write is said apart from the findings: "clean (2 writes held)", never "found 2". A send the
+        // guard could not hold is never "clean": "no findings (1 send not held)".
+        const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
+        const extra = (r: ExtendedResult) => [r.held?.count ? `${plural(r.held.count, "write")} held` : "", r.notHeld?.count ? `${plural(r.notHeld.count, "send")} not held` : ""].filter(Boolean).join("; ");
+        const state = (r: ExtendedResult) => (r.error ? (r.error.startsWith("not checked") ? "not checked" : "errored") : r.count ? `found ${r.count}` : r.notHeld?.count ? "no findings" : "clean");
+        const line = EXTENDED_CHECK_IDS.map((id) => `${id} ${state(checks[id])}${extra(checks[id]) ? ` (${extra(checks[id])})` : ""}`).join(", ");
         console.log(`[dod] extended ${entry.route}: ${line}`);
       });
     });

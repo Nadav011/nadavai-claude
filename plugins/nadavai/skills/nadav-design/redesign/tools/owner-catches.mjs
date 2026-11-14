@@ -99,13 +99,13 @@ const looksLikeRow = l => {
 let inTable = true;
 for (let i = start + 1; i < lines.length; i++) {
   const raw = lines[i];
-  const flag = () => outside.push({ line: i + 1, row: raw.trim().slice(0, 160) });
+  const flag = kind => outside.push({ line: i + 1, kind, row: raw.trim().slice(0, 160) });
   if (isHeader(raw)) { inTable = true; continue; } // another table of the ledger // M:more-tables
   if (!raw.trim().startsWith('|')) inTable = false; // a table ends at its first line that is not a row // M:table-end
   if (!inTable) {
-    if (raw.includes('|')) flag(); // M:outside
-    else if (/^\s*\d{4}-\d{2}-\d{2}\b/.test(raw)) flag(); // a row pasted without pipes // M:outside-date
-    else if (looksLikeRow(raw)) flag(); // a row pasted without pipes or its date // M:outside-words
+    if (raw.includes('|')) flag('pipe'); // M:outside
+    else if (/^\s*\d{4}-\d{2}-\d{2}\b/.test(raw)) flag('date'); // a row pasted without pipes // M:outside-date
+    else if (looksLikeRow(raw)) flag('words'); // a row pasted without pipes or its date // M:outside-words
     continue;
   }
   const c = cellsOf(raw);
@@ -216,8 +216,14 @@ else {
     for (const m of malformed) o.push(`  line ${m.line}: ${m.why}`);
   }
   if (outside.length) {
-    o.push('rows outside the table (not counted; join each to the table: a leading |, no blank line before it):');
-    for (const m of outside) o.push(`  outside the table: line ${m.line}`);
+    // What to do depends on the line: a row is joined to the table; a note moves above the ledger and never gets a |.
+    const ADVICE = {
+      pipe: 'a row: give it a leading | and no blank line before it; another table: move it out of the ledger',
+      date: 'starts with a date: a row that lost its pipes gets them back; a note moves above the header row, reworded so it does not start with a date, and never gets a |',
+      words: 'holds a class, a finder and a when: a row that lost its pipes gets them back, with its date; a note moves above the header row and never gets a |',
+    };
+    o.push('lines outside the table (not counted; what to do with each depends on the line):');
+    for (const m of outside) o.push(`  outside the table: line ${m.line}: ${ADVICE[m.kind]}`);
   }
   o.push(...READING);
   process.stdout.write(`${o.join('\n')}\n`, () => process.exit(unread ? 1 : 0));
