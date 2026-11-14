@@ -134,6 +134,7 @@ The help panel, the first-visit card, tours, videos and the AI helper are specif
 | S-03 | One accent-filled action per screen (the house rule in `templates/ui-rules/ui.md`; a dialog is its own screen). | he approved it for the house template, 10.11.2026 [A] | auto: `one-primary` |
 | S-04 | Nothing a screen does today disappears or changes behaviour without his numbered answer. Many actions are grouped, not cut. | #222 [N], #262 | ledger |
 | S-05 | Whatever is on the screen works from day one. A thing that promises what it does not do, or that nobody uses, is removed, with a redirect and its data kept. | #211 [A]; he said it himself about the public page, #146 [N] | reviewer |
+| S-15 | No sample content the real product cannot produce: a screen, and a prototype or demo of it, never shows a sample code, a fake credential or example content that the real product would not show at that moment (a one-time code inside a drawn WhatsApp message). Where the person needs something from outside the app, the screen gives honest guidance instead: where it is, a button that opens that place, a paste that fills every box. | Nadav on the SHIFTS sign-in prototype, 14.11.2026, round 3, as typed: "אם זה קוד דוגמא לאל עשות את זה זה יהיה מבלבל" [N]; the honest guidance is what replaced the sample there, which he did not object to [I] | reviewer |
 | S-06 | A phone has at most five destinations in its bottom bar; the rest is under "עוד". A count is a number on the icon, never a bare dot. | #105 [A]; [B] | auto: `nav-count` |
 | S-07 | A desktop has a labelled side menu: never icons alone, never a hamburger. | [B]; look of the menu #326 [N] | reviewer |
 | S-08 | Three layers: what a person sees on day one, what opens as they use it, and what stays behind "עוד". The BRIEF lists which capability sits in which layer. | [B] | reviewer |
@@ -172,6 +173,7 @@ in each project and by the `hebrew-i18n` and `hebrew-rtl-best-practices` skills;
 |---|---|---|---|
 | B-01 | PRODUCT.md has a Brand section: where the real logo files are, the colours, the voice, and what is not done with them. A design step that needs a logo reads it from there. | [B] | auto: `brand-assets` |
 | B-02 | An app in Hebrew and English is designed and checked in both directions: every screen in the walkthrough and the mechanical probe runs once per language. | [B] | auto: `both-directions` |
+| B-03 | One look: every screen of an app, its sign-in and first screens included, uses the app's approved tokens, font and real logo (C-05, B-01). A prototype or demo of a screen shown to Nadav is drawn in that look too, never in an older demo's colours or font and never in a repo's default tokens. | Nadav on the SHIFTS sign-in prototype, 14.11.2026, as typed: "שיתאים לעמרכת" (round 2), and, when it was drawn in the old demo's teal, "זה לא הצבע של האפליקצתיה" and "והכל יהי זהה" (round 7) [N]; never in default tokens: round 0 of the same screen, rejected on sight (`rejected.md`) [I] | reviewer |
 
 ## What does not transfer from MediZen
 
