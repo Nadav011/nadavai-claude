@@ -244,6 +244,50 @@ await test('M15', 'the diff-only confirm compares the snapshot\'s plan/ with pla
   const c = calls.find(x => x.label.startsWith('plan-confirm'));
   return c && /diff -ruN? \S+\/plan-snap-[^/\s]+\/plan\/? \S+\/out\/plan\/?/.test(c.prompt) ? '' : `prompt: ${c ? (c.prompt.match(/diff[^\n]{0,160}/) || [''])[0] : 'no confirm'}`;
 });
+// Review rounds converge (rules/working-style.md, "Second model"): outside money, messages, data and filings three
+// rejecting full reviews stop the loop; with args.sensitive the rounds go on and, from the fourth, carry their faults.
+const fullRound = c => { const m = /^plan-review:r1-(\d+)$/.exec(c.label); return m ? Number(m[1]) : 0; };
+const rejectUntil = (n, faults = r => 1) => c => { const r = fullRound(c); return r && r <= n ? { verdict: 'ITERATE', summary: 'no', findings: Array.from({ length: faults(r) }, () => HIGH0), anchors: { ...CLEAN_ANCHORS } } : undefined; };
+const HIGH0 = { severity: 'HIGH', where: 'plan/build-plan.md:9', what: 'ships the wrong thing', fix: 'x' };
+await test('RC1', 'outside the four sensitive areas, three rejecting full reviews stop the plan loop with simplify and no unchecked fix', async () => {
+  const { result, calls } = await plan({}, { verdict: rejectUntil(8) });
+  const full = calls.filter(c => fullRound(c)).length, fixes = calls.filter(c => c.label.startsWith('plan-fix')).length;
+  return full === 3 && fixes === 2 && result.simplify === true && /simplify the plan, keeping what it does for a person, and tell Nadav/.test(result.stop) && result.gates.reviewApproved === false && result.gates.readyForOwner === false && result.faultsPerRound === undefined
+    ? '' : `full ${full}, fixes ${fixes}, simplify ${result.simplify}, stop ${result.stop}, gates ${JSON.stringify(result.gates)}`;
+});
+await test('RC2', 'two rejecting full reviews do not stop the loop: an APPROVE in the third still approves the plan', async () => {
+  const { result, calls } = await plan({}, { verdict: rejectUntil(2) });
+  const full = calls.filter(c => fullRound(c)).length;
+  return full === 3 && result.simplify === false && result.gates.reviewApproved === true ? '' : `full ${full}, simplify ${result.simplify}, gates ${JSON.stringify(result.gates)}`;
+});
+await test('RC3', 'with sensitive:true the full reviews go on past three while one finds a fault, and from the fourth the result carries the faults each round left', async () => {
+  const { result, calls } = await plan({ sensitive: true }, { verdict: rejectUntil(4, r => 5 - r) });
+  const full = calls.filter(c => fullRound(c)).length;
+  return full === 5 && result.simplify === false && result.gates.reviewApproved === true && JSON.stringify(result.faultsPerRound) === '[4,3,2,1,0]'
+    ? '' : `full ${full}, simplify ${result.simplify}, faults ${JSON.stringify(result.faultsPerRound)}, gates ${JSON.stringify(result.gates)}`;
+});
+await test('RC4', 'with sensitive:true an edit after an APPROVE gets a full review, never a diff-only confirm; without it, a diff-only confirm', async () => {
+  const lowOnce = c => (fullRound(c) === 1 ? { verdict: 'APPROVE', summary: 'ok', findings: [LOW], anchors: { ...CLEAN_ANCHORS } } : undefined);
+  const s = await plan({ sensitive: true }, { verdict: lowOnce });
+  const d = await plan({}, { verdict: lowOnce });
+  const sFull = s.calls.filter(c => c.label.startsWith('plan-review-full:')), sDiff = s.calls.filter(c => c.label.startsWith('plan-confirm'));
+  const dFull = d.calls.filter(c => c.label.startsWith('plan-review-full:')), dDiff = d.calls.filter(c => c.label.startsWith('plan-confirm'));
+  return sFull.length >= 1 && !sDiff.length && sFull.every(c => /Review the WHOLE plan/.test(c.prompt)) && s.result.gates.reviewApproved === true && !dFull.length && dDiff.length >= 1
+    ? '' : `sensitive: ${sFull.length} full, ${sDiff.length} diff-only; default: ${dFull.length} full, ${dDiff.length} diff-only; gates ${JSON.stringify(s.result.gates)}`;
+});
+await test('RC6', 'with sensitive:true a chain that still fails after the cap of three full re-reviews says the rounds go on in a new run and approves nothing', async () => {
+  const over = { verdict: c => (fullRound(c) === 1 ? { verdict: 'APPROVE', summary: 'ok', findings: [LOW], anchors: { ...CLEAN_ANCHORS } } : c.label.startsWith('plan-review-full:') ? { verdict: 'ITERATE', summary: 'no', findings: [HIGH0], anchors: { ...CLEAN_ANCHORS } } : undefined) };
+  const { result, calls } = await plan({ sensitive: true }, over);
+  const n = calls.filter(c => c.label.startsWith('plan-review-full:')).length;
+  return n === 3 && result.gates.reviewApproved === false && result.gates.readyForOwner === false && /the rounds go on in a new run, and nothing is approved meanwhile/.test(result.stop)
+    ? '' : `full re-reviews ${n}, stop ${result.stop}, gates ${JSON.stringify(result.gates)}`;
+});
+await test('RC5', 'the second model runs Grok, else Codex on its config default, else Antigravity, and every question says read-only', async () => {
+  const { calls } = await plan({});
+  const c = calls.find(x => x.label === 'second-model');
+  const order = c && /omc ask grok "<question>"; else omc ask codex "<question>", never with -m or an effort flag[\s\S]*; else omc ask antigravity "<question>"/.test(c.prompt);
+  return order && /Read-only: change no file\./.test(c.prompt) && /exit 0 on a quota or balance error: read the raw output/.test(c.prompt) ? '' : `prompt: ${c ? c.prompt.slice(c.prompt.indexOf('SECOND-MODEL'), c.prompt.indexOf('SECOND-MODEL') + 300) : 'no second-model call'}`;
+});
 
 // ---------------- dry-run tool ----------------
 const dry = (script, args, ...flags) => {
@@ -675,8 +719,8 @@ await test('SLIM-4', 'the summary keeps the preview prohibitions that bind every
     ['the shell, never the port', /He opens the shell, never the app's port/],
     ['browser, never a native shell', /always in a browser, never inside a native shell/],
     ['loopback until the check', /Until the check script passes, the preview listens on loopback only/],
-    ['his own domain, never a claude.ai artifact, after his yes', /only on one of his own domains, never a claude\.ai artifact, and after his yes/],
-    ['a new host or cost is asked', /a new host, a DNS record or any cost is asked at that moment/],
+    ['his own domain, never a claude.ai artifact', /only on one of his own domains, never a claude\.ai artifact;/],
+    ['a free host or DNS record is named, a cost is asked, removing a record is his', /a host or a DNS record that costs nothing is set up without asking and named in the report with how to undo it, any cost is asked at that moment \(the money gate\), and removing an existing DNS record is his/],
     ['never production hosting', /never on the app's production hosting, the production domain, a subdomain of it, or a host inside a production cookie's `Domain=` scope/],
     ['the check against the deployed URL', /before the link is shared, the whole check script except the no-demo check runs against the deployed URL and passes/],
     ['staging is not invented data', /\(a staging or test backend is not invented data\)/],

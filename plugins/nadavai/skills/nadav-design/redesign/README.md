@@ -46,7 +46,7 @@ units). The lessons of that run are written into the steps below with their reas
 | `tests/run.mjs` | The regression tests of all of the above (one per failure mode a review found). `PLAYWRIGHT_MODULE=… node tests/run.mjs` |
 | `templates/` | `redesign.json`, `parts/` (the shared base: page, phone, component skeleton), `section.html`, `BRIEF.md`, `INVENTORY.md`, `STORY.md`, `DECISIONS-OPEN.md`, `DECISIONS-ANSWERED.md`, `FEATURES-PROPOSED.md`, `CHANGES.md`, `build-plan.md`, `START-BUILD.md`, `gitignore`; `REFERENCE.md` (the reference ledger of `shared/reference.md`, for any mode or track) |
 | `workflows/demo-round.js` | One demo round for the Workflow tool: spec → (first build: shared components) → lanes → requests ×2 → rebuild → one full fresh verify → fix → targeted confirms (≤3, every finding id accounted for) → CHANGES and round state. Also the first build (`mode: 'build'`) and every continuation (`startAt`). |
-| `workflows/plan-review.js` | The plan: write → fresh reviews to APPROVE → a diff-only confirm after every later edit → second model → START-BUILD and checklist. Returns reviewer gates; Nadav's approval is asked afterwards. |
+| `workflows/plan-review.js` | The plan: write → fresh reviews to APPROVE (or the stop after three rejecting reviews, «8. Build plan») → a diff-only confirm after every later edit → second model → START-BUILD and checklist. Returns reviewer gates; Nadav's approval is asked afterwards. |
 | `examples/mini/` | A two-screen fixture that every tool runs on (see its README). Rerun it after changing a tool. |
 
 Tools need Python 3 and Node; Playwright comes from the app's own install (`--pw`, `$PLAYWRIGHT_MODULE` or the
@@ -111,7 +111,7 @@ Route text and Latin inside a label sit in `<bdi dir="ltr">`.
 | App | Fix lane | Verify group | First build | Rounds |
 |---|---|---|---|---|
 | up to 8 screens | 2 screens | 4 screens | subagents one by one | one review round |
-| 9–20 screens | 3–4 | 6–7 | a workflow, or subagents in batches of 3 | one review round |
+| 9–20 screens | 3–4 | 6–7 | a workflow, or subagents, as many as the work splits into | one review round |
 | over 20 | 4 | 7 | a workflow | one review round |
 
 Screen counts are the screens the page draws. Observed when the page carried every screen (what real runs took, not
@@ -338,11 +338,16 @@ Chat in plain Hebrew, short lines, the why before the what; code, files and comm
 
 ### 8. Build plan
 - `plan/build-plan.md` from the template: it names the approved tag, and its units come in build order, each with
-  acceptance, size, dependencies, `go` where Nadav must approve (migrations, auth, payments, store publishing, paid
-  services). Every answer and every feature row lands somewhere. `tools/check-anchors.py`: 0 missing, 0 wrong. It
-  checks the demo citations only; a citation of an INVENTORY.md row is checked by the reviewers, not by a tool.
-- **Unit 1 is the app's preview on invented data** (the folder and the no-demo check: shifts' `src/demo/`; ask before
-  any new dependency it needs), isolated and checked as `shared/built-once.md`, «An app is built once», point 5, says.
+  acceptance, size, dependencies, `go` only where it holds one of the five actions that wait for Nadav's yes
+  (`rules/working-style.md`, Approval gates; a migration, an auth or permission change and payment code are
+  engineering actions that run after an independent review, as that section says, and inside them the five stay
+  asked: a change to who is charged, how much or when, to refunds or to receipts, invoices and tax documents that he
+  did not decide exactly, and a deletion of data with no verified backup, are `go`). Every answer and every feature
+  row lands somewhere. `tools/check-anchors.py`: 0 missing, 0 wrong. It checks the demo citations only; a citation
+  of an INVENTORY.md row is checked by the reviewers, not by a tool.
+- **Unit 1 is the app's preview on invented data** (the folder and the no-demo check: shifts' `src/demo/`; a new
+  dependency it needs is checked and named as `SKILL.md` says), isolated and checked as `shared/built-once.md`,
+  «An app is built once», point 5, says.
   Nobody plays the preview, on any machine, before its check script passes there. Then tokens and shared
   components, then the screens.
 - **Every screen is designed in that preview.** A screen the tagged demo drew cites its column labels and is held to
@@ -352,10 +357,17 @@ Chat in plain Hebrew, short lines, the why before the what; code, files and comm
   Units land as that section's point 2 says. No unit builds a screen a second time.
 - Review: a fresh Opus reviewer, read-only, until APPROVE; after an APPROVE, the fix round is checked by a DIFF-ONLY
   confirm against a snapshot (on 2.10.2026 full reviews after an APPROVE kept breeding new findings for 10 rounds).
-  Fix by simplifying, never by adding machinery.
-- Second model: `rules/working-style.md`, "Second model" (`omc ask codex` on the config default; never pass `-m` or
-  an effort flag). Its findings are fixed and diff-confirmed. Approval by any reviewer means APPROVE with nothing
-  HIGH or MEDIUM left, whatever the verdict word.
+  Fix by simplifying, never by adding machinery. The rounds converge as `rules/working-style.md`, "Second model",
+  says: with `args.sensitive` false (the default), three rejecting full reviews stop the workflow, which returns
+  `simplify: true` (simplify the plan, keeping what it does for a person, and tell Nadav); `args.sensitive: true`,
+  for a plan that covers money, messages to people, data or official filings, keeps the rounds going while one
+  finds a HIGH or MEDIUM, gives every edit after an APPROVE a full review in place of a diff-only confirm, and from
+  the fourth review the result's `faultsPerRound` gives what each round left.
+- Second model: `rules/working-style.md`, "Second model". The full reviews are already fresh Opus, so the cross-check
+  is another vendor's read [I]: Grok, else Codex (config default, never `-m` or an effort flag), else Antigravity,
+  else a fresh Opus; `workflows/plan-review.js` holds the order. Its findings are fixed and diff-confirmed (a full
+  review under `args.sensitive`). Approval by any reviewer means APPROVE with nothing HIGH or MEDIUM left, whatever
+  the verdict word.
 - Every edit after an APPROVE (LOW polish, the second model's fixes, START-BUILD itself) is followed by a diff-only
   confirm, at most 3 per chain; approval holds only when the last step is a confirm that says APPROVE, so no edit is
   left unchecked. A rejection with nothing to fix still blocks.

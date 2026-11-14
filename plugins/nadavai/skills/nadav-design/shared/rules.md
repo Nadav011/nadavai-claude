@@ -21,9 +21,11 @@ Under `flow`:
 - Evidence is logged and work continues.
 - A question that blocks nothing is batched to the next checkpoint.
 - The visual change gate collects its before and after pairs into one sheet per checkpoint (Nadav approved
-  this on 2026-11-10). A commit that carries a visual change stays local and is listed on that sheet until he
-  answers keep, change or revert; nothing in it becomes final before his answer. This covers setup's per-step
-  commits and the commit of screen step 8b.
+  this on 2026-11-10). The sheet carries every visual change of the checkpoint with its before and after. Cases 1
+  and 2 of the gate (`SKILL.md`, his pick of 2026-11-14) are committed after screen step 8b and listed there so he
+  can reverse them, and only a case 3 change waits for his keep, change or revert on the sheet; only what depends
+  on that answer stays local and does not become final before it [I]. This covers setup's per-step commits and the
+  commit of screen step 8b.
 - A failure stops only the part that failed.
 - "Ask before starting another screen" does not apply.
 
@@ -67,10 +69,12 @@ is rebuilt after it to match the page. Nadav asked for this rule (11.11.2026) [N
    only after its check passes on it. He opens the shell, never the app's port, always in a browser, never inside a
    native shell (store, OTA or live-reload dev build). Until the check script passes, the preview listens on loopback
    only. He plays it at that machine (a device reaching the same process over the LAN or Tailscale counts, the policy
-   naming its origin); anywhere else only on one of his own domains, never a claude.ai artifact, and after his yes; a
-   new host, a DNS record or any cost is asked at that moment; never on the app's production hosting, the production
-   domain, a subdomain of it, or a host inside a production cookie's `Domain=` scope; and before the link is shared,
-   the whole check script except the no-demo check runs against the deployed URL and passes.
+   naming its origin); anywhere else only on one of his own domains, never a claude.ai artifact; a host or a DNS
+   record that costs nothing is set up without asking and named in the report with how to undo it, any cost is asked
+   at that moment (the money gate), and removing an existing DNS record is his [I]; never on the app's production
+   hosting, the production domain, a subdomain of it, or a host inside a production cookie's `Domain=` scope; and
+   before the link is shared, the whole check script except the no-demo check runs against the deployed URL and
+   passes.
 6. **Behaviour logic is written once** [I]: plain functions with no browser, framework or demo import, never under
    the demo folder. Before he plays a preview simulating it, its logic has a test running the cases exhaustively, or
    over every combination up to a size the test states, with a mutant per asserted property failing it.

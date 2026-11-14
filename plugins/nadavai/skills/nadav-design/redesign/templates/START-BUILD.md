@@ -7,7 +7,8 @@ Nadav approves the plan with AskUserQuestion. Nothing else goes on that line.)
 
 > **לנדב:** את הטקסט שבמסגרת למטה מדביקים בסשן חדש של Claude Code בתוך הריפו של האפליקציה, ורק אחרי שאישרת את התוכנית
 > (השורה למעלה אומרת `Status: OWNER-APPROVED` עם מספר התשובה שלך).
-> הסשן הזה בונה את האפליקציה לפי התוכנית, שלב אחרי שלב, ועוצר אצלך בכל מקום שמסומן «go».
+> הסשן הזה בונה את האפליקציה לפי התוכנית, שלב אחרי שלב, ועוצר אצלך בכל מקום שמסומן «go»,
+> ולפני שהמסכים החדשים עולים למשתמשים.
 
 ```
 You are the build session for the <App> redesign. The approved package lives in <out> (its own git repo):
@@ -28,10 +29,19 @@ FEATURES-PROPOSED.md, INVENTORY.md. The demo at that tag is read-only: a design 
    preview at 375 and 1440, dark and light.
 3. Never re-decide an answer. A question the package does not answer goes to Nadav with AskUserQuestion,
    recommendation first, and its answer is appended to DECISIONS-ANSWERED.md.
-4. Anything marked `go` (migrations, auth, payments, store publishing, paid services) waits for Nadav's explicit go.
-5. Every unit ends with a reviewer that is not its author (a fresh Opus, or Codex via `omc ask codex` on the config
-   default for auth, data or money) and a dated line in the app's STATUS.md. For a screen the tagged demo drew, that
-   reviewer is the `screen` step 8b verifier, given that screen's phones at the tag, as that step says.
+4. Anything marked `go` waits for Nadav's yes: it holds one of the five actions `rules/working-style.md`, Approval
+   gates, keeps for him (money, a paid service included; a message or post in his name or a client's; a public store
+   release; an official filing or signature; a deletion with no way back). A migration, an auth or permission change
+   and payment code are engineering actions: they run after an independent review, with a tested way back and
+   through the project's script, with a report after (that section and `~/nadavai/guides/production-change.md`).
+   Inside them the five stay asked (that section): a change to who is charged, how much or when, to refunds, or to
+   the receipts, invoices and tax documents people get, unless he decided that exact change, and a deletion of data
+   with no verified backup, are `go`.
+   The cut-over unit is not `go`: its PR is merged only after Nadav's answer on when, unless the plan he approved
+   fixes it, as a product decision (`rules/working-style.md`, Requests) [I].
+5. Every unit ends with a reviewer that is not its author, chosen as `rules/working-style.md`, "Second model", says
+   (a fresh Opus for auth, data or money), and a dated line in the app's STATUS.md. For a screen the tagged demo
+   drew, that reviewer is the `screen` step 8b verifier, given that screen's phones at the tag, as that step says.
 ```
 
 ## The checklist (plan/START-BUILD-CHECKLIST.md)

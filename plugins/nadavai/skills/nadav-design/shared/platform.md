@@ -84,8 +84,8 @@ His standing rules for it:
 
 In `screen` on this app only the DOM parts of steps 6 to 8 of `modes/screen.md` are replaced by the rows
 below: the DoD and its four screenshots. The rest stays. Step 6's lint runs on the `apps/native`
-files with that app's own `lint` script. Step 8's visual change gate runs on the device captures:
-Nadav still says keep, change or revert before anything is committed. Step 8b's reviewer gets the
+files with that app's own `lint` script. Step 8's visual change gate runs on the device captures,
+in the same three cases (`SKILL.md`). Step 8b's reviewer gets the
 gate results of the rows below in place of the DoD score. Touch targets are 48 dp, not the web's
 44px.
 

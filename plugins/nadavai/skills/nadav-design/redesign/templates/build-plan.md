@@ -4,7 +4,8 @@ Status: DRAFT
 
 (The line above is a token the tools and `next` read: `Status: DRAFT` until Nadav approves the finished plan, then
 `Status: OWNER-APPROVED answer <N> commit <sha>`, written by the parent session only. The review record goes here:
-reviewed <date>, review <n> APPROVE, every later edit diff-confirmed, second model <Codex / Grok / fresh Opus>.)
+reviewed <date>, review <n> APPROVE, every later edit diff-confirmed, second model
+<Grok / Codex / Antigravity / fresh Opus>.)
 **Nadav has decided everything the drawn screens of this plan build on:** DECISIONS-ANSWERED.md 1–<n>. No product
 question about them is open inside the plan; a reading the plan had to make where an answer was silent is named in
 «Readings» below. Screens the demo did not draw are designed during the build, in the app's preview: their questions
@@ -40,18 +41,25 @@ any design change after it is made in the app's preview (`shared/rules.md` of na
 - For a standalone demo that predates that section, what the token and component units take from the tag and what
   reaches users when: nadav-design `shared/standalone-demo-to-app.md`.
 - One unit per branch and PR; the order below; shared components before screens.
-- What needs Nadav's go before it runs (migrations, auth, payments, store publishing, paid services) is marked `go`.
+- A unit or step that waits for Nadav's yes is marked `go`: only one of the five actions of `rules/working-style.md`,
+  Approval gates (money, a paid service included; a message or post in his name or a client's; a public store
+  release; an official filing or signature; a deletion with no way back). A migration, an auth or permission change
+  and payment code are engineering actions, not `go`: they run after an independent review, with a tested way back
+  and through the project's script, with a report after (that section; `~/nadavai/guides/production-change.md`).
+  Inside them the five stay asked (that section): a change to who is charged, how much or when, to refunds, or to
+  the receipts, invoices and tax documents people get, unless he decided that exact change, and a deletion of data
+  with no verified backup, are `go`.
 
 ## Units
 State is `todo` until the build session marks it `done <sha>`; the `next` gap scan counts the rows not `done`.
 
 | Unit | What | Files | Demo | Acceptance | Size | Depends | Go | State |
 |---|---|---|---|---|---|---|---|---|
-| U-1 | The app's preview on invented data, isolated and checked as `shared/built-once.md`, «An app is built once», point 5, says | `…` | — (the main journey of STORY.md plays in it) | the preview's check script passes (points 4 and 5), each proof shown failing on its planted case first, and is a step of the landing CI; after it passes, Nadav plays the journey | from the fake backend's surface (auth, data API, functions, storage, realtime the app uses); often the largest unit | — | `go` when it needs a host, a DNS record or any cost | todo |
+| U-1 | The app's preview on invented data, isolated and checked as `shared/built-once.md`, «An app is built once», point 5, says | `…` | — (the main journey of STORY.md plays in it) | the preview's check script passes (points 4 and 5), each proof shown failing on its planted case first, and is a step of the landing CI; after it passes, Nadav plays the journey | from the fake backend's surface (auth, data API, functions, storage, realtime the app uses); often the largest unit | — | `go` when it needs a cost; a new host or DNS record that costs nothing is named in the report with how to undo it | todo |
 | U-2 | Tokens and shared components | `…` | `s-home` «אחרי · …» | | M | U-1 | no | todo |
 | U-3 | <screen the demo drew> | `…` | `s-<id>` «אחרי · …» and the N «מצב ·» labels | every control and state on the cited phones at the tag is in the preview, or a numbered answer removes it (`screen` step 8b verifier, the phones at the tag beside the preview shots) | S | U-2 | no | todo |
 | U-4 | <screen the demo did not draw> | `…` | — (INVENTORY.md «<screen>»; designed in the preview) | every control, state and role variant of its INVENTORY.md row is in the preview, or has a numbered answer that removes it | S (with design time) | U-2 | no | todo |
-| U-5 | Cut-over (an app with live users): the long branch or the flag goes live | `…` | — | every unit before it `done`; Nadav's go | S | U-1…U-4 | `go` | todo |
+| U-5 | Cut-over (an app with live users): the long branch or the flag goes live | `…` | — | every unit before it `done`; when it goes live is Nadav's decision (`rules/working-style.md`, Requests), unless the plan he approved fixes it [I] | S | U-1…U-4 | — (his decision, not `go`) | todo |
 
 ## After the core (from FEATURES-PROPOSED.md)
 | Unit | Proposal | Demo | Answer | Size |
