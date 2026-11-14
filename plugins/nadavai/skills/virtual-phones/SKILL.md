@@ -48,11 +48,11 @@ scripts/lab-emulator.sh stop --port <port>            # as soon as the work ends
   user unit `lab-emulator-<port>`, at low CPU and IO weight and for at most four hours, because that
   machine runs CI; one ssh tunnel carries its ports, and `stop` ends both.
 - An AVD has to exist on the machine that runs it, and runs once at a time: a second start of the
-  same AVD is refused with "use your own AVD". The MSI holds the lab's `claude-probe` (Android 16)
-  and `claude-probe-37` (Android 17), in Hebrew with MediZen 1.3.0, and `claude-probe-play`
+  same AVD is refused with "use your own AVD". The MSI holds the lab's `claude-probe-37`
+  (Android 17, in Hebrew with MediZen 1.3.0) and `claude-probe-play`
   (Android 17 with Play and the lab's Google account: Play updates its WebView and installs apps
-  from public listings; spend nothing there). The LENOVO holds `claude-probe` as the
-  fallback. Create your own on the MSI with the `avdmanager` line of `references/android-by-hand.md` through `ssh msi bash -s`.
+  from public listings; spend nothing there). The LENOVO holds `claude-probe` (Android 16, the
+  old WebView below) only as the fallback for when the MSI is off. Create your own on the MSI with the `avdmanager` line of `references/android-by-hand.md` through `ssh msi bash -s`.
 - Prefer an Android 17 image when the question is how a screen behaves. An emulator image's WebView
   never updates itself: the Android 16 image has WebView 133 (February 2025), the Android 17 image
   has 145, the Play device had 157 and phones 158 on 2026-11-14. On 133 MediZen's side menu was
