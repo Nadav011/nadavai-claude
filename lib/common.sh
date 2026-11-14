@@ -80,16 +80,26 @@ plugin_installed() {
 # commit that dropped a dependency must be replaced before the settings turn that plugin off
 # (oh-my-claudecode, 2026-11-14). `claude plugin install` on an installed plugin changes nothing.
 update_nadavai_copies() {
-  claude plugin update nadavai@nadavai
-  local proj
-  while IFS= read -r proj; do
-    (cd "$proj" && claude plugin update nadavai@nadavai --scope project) || warn "could not update nadavai for $proj"
-  done < <(python3 -I -c '
+  # It stops by itself, whatever the caller's shell options: a caller that went on to write
+  # settings after a failed update is the fault this function exists to close.
+  claude plugin update nadavai@nadavai || die "could not update nadavai@nadavai (user scope); settings were not written"
+  local proj projects
+  if ! projects=$(python3 -I -c '
 import json, os
-d = json.load(open(os.path.expanduser("~/.claude/plugins/installed_plugins.json")))
+p = os.path.expanduser("~/.claude/plugins/installed_plugins.json")
+if not os.path.exists(p): raise SystemExit(0)
+d = json.load(open(p))
 for e in d.get("plugins", {}).get("nadavai@nadavai", []):
     if e.get("scope") == "project" and os.path.isdir(e.get("projectPath", "")):
-        print(e["projectPath"])' 2>/dev/null)
+        print(e["projectPath"])'); then
+    warn "could not read the installed nadavai copies; project-scope copies were not updated"
+    projects=""
+  fi
+  while IFS= read -r proj; do
+    [ -n "$proj" ] || continue
+    (cd "$proj" && claude plugin update nadavai@nadavai --scope project) \
+      || warn "could not update nadavai for $proj: sessions started there will not load nadavai until 'claude plugin update nadavai@nadavai --scope project' runs in that folder"
+  done <<<"$projects"
 }
 
 # Refresh only an already configured Codex marketplace; never write its cache directly.

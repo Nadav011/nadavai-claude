@@ -48,20 +48,31 @@ out=$(FAIL_USER=1 run); rc=$?
 ok "a failed user-scope update stops the script"        '[ "$rc" != 0 ] && ! grep -q "reached-the-end" <<<"$out"'
 ok "and no later step runs after it"                    '[ "$(wc -l <"$t/calls")" = 1 ]'
 
+# A caller that swallows the function's failure must still not go on (review round 2, N-a).
+: >"$t/calls"
+out=$(cd "$t" && FAIL_USER=1 CALLS="$t/calls" PATH="$bin:$PATH" REPO="$here" HOME="$t" \
+  bash -c 'source "$REPO/lib/common.sh"; update_nadavai_copies || true; echo reached-the-end' 2>&1); rc=$?
+ok "it stops by itself even when the caller ignores its failure and has no set -e" \
+  '[ "$rc" != 0 ] && ! grep -q "reached-the-end" <<<"$out" && grep -q "settings were not written" <<<"$out"'
+
 out=$(FAIL_PROJECT=1 run); rc=$?
 ok "a failed project-scope update is a warning that names the folder" '[ "$rc" = 0 ] && grep -q "could not update nadavai for $t/proj-a" <<<"$out"'
 
+echo "{ not json" >"$t/.claude/plugins/installed_plugins.json"
+out=$(run); rc=$?
+ok "an unreadable installed_plugins.json is a warning, not silence" '[ "$rc" = 0 ] && grep -q "could not read the installed nadavai copies" <<<"$out"'
+
 rm -f -- "$t/.claude/plugins/installed_plugins.json"
 out=$(run); rc=$?
-ok "a machine with no installed_plugins.json still updates the user scope" '[ "$rc" = 0 ] && [ "$(wc -l <"$t/calls")" = 1 ]'
+ok "a machine with no installed_plugins.json still updates the user scope, with no warning" '[ "$rc" = 0 ] && [ "$(wc -l <"$t/calls")" = 1 ] && ! grep -q "could not read" <<<"$out"'
 
 # Where the two scripts call it: after the marketplace is refreshed, before settings are written.
 line() { grep -n -m 1 -E "$2" "$here/$1" | cut -d: -f1; }
 s_install=$(line setup.sh '^claude plugin install nadavai@nadavai'); s_mkt=$(line setup.sh '^claude plugin marketplace update nadavai')
-s_copies=$(line setup.sh '^update_nadavai_copies'); s_settings=$(line setup.sh '^merge_settings')
+s_copies=$(line setup.sh '^update_nadavai_copies$'); s_settings=$(line setup.sh '^merge_settings')
 ok "setup.sh refreshes the marketplace and the copies after the install and before it merges settings" \
   '[ -n "$s_install" ] && [ -n "$s_mkt" ] && [ -n "$s_copies" ] && [ -n "$s_settings" ] && [ "$s_install" -lt "$s_mkt" ] && [ "$s_mkt" -lt "$s_copies" ] && [ "$s_copies" -lt "$s_settings" ]'
-u_mkt=$(line update.sh 'claude plugin marketplace update nadavai'); u_copies=$(line update.sh '^update_nadavai_copies'); u_policy=$(line update.sh '^apply_model_policy')
+u_mkt=$(line update.sh 'claude plugin marketplace update nadavai'); u_copies=$(line update.sh '^update_nadavai_copies$'); u_policy=$(line update.sh '^apply_model_policy')
 ok "update.sh updates the copies after the marketplace and before it applies the settings policy" \
   '[ -n "$u_mkt" ] && [ -n "$u_copies" ] && [ -n "$u_policy" ] && [ "$u_mkt" -lt "$u_copies" ] && [ "$u_copies" -lt "$u_policy" ]'
 
