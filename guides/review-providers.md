@@ -16,13 +16,17 @@ Read before running `omc ask` for a review. Which provider a review gets, and ho
   explicitly.
 - A provider that reviews a change of an app is started in a new folder that holds only the material under
   review (the diff with the changed files, the criteria, the question), not in the app's repo: it runs in the
-  current directory with its approvals and its sandbox off, and an app's repo holds live env files. Start it
-  with the session's tokens removed from its environment (the providers sign in from their own config files;
-  tried with Grok on 2026-11-14): `env -u GITHUB_PERSONAL_ACCESS_TOKEN -u BRIGHTDATA_API_TOKEN
-  -u ORCA_AGENT_HOOK_TOKEN -u ORCA_AGENT_LAUNCH_TOKEN -u CLAUDE_CODE_MESSAGING_TOKEN omc ask ...`. Outside a git
-  repo the artifact is written under `~/.omc/artifacts/ask/`, and the command prints its path. The folder lowers
-  what the provider reads; it is not a wall, because a provider with its sandbox off can still open a path the
-  prompt names, so the prompt names no path outside the folder.
+  current directory with its approvals and its sandbox off, and an app's repo holds live env files. The
+  material carries no secret, no real people's rows and no personal details. Start it with the session's
+  tokens removed from its environment (the providers sign in from their own config files; tried with Grok on
+  2026-11-14): `env -u GITHUB_PERSONAL_ACCESS_TOKEN -u BRIGHTDATA_API_TOKEN -u ORCA_AGENT_HOOK_TOKEN
+  -u ORCA_AGENT_LAUNCH_TOKEN -u CLAUDE_CODE_MESSAGING_TOKEN omc ask ...`. These are the token names a session
+  held on 2026-11-14; before the run, list `env | cut -d= -f1` and remove any other token or key name as well.
+  Outside a git repo the artifact is written under `~/.omc/artifacts/ask/`, and the command prints its path.
+- The folder lowers what the provider reads by default; it is not a wall: a provider with its sandbox off runs
+  as this user and can open any file the user can read (`~/.claude/secrets/`, other repos' env files), use
+  `gh` through the keyring and reach the network, on its own or because text in the material tells it to. The
+  prompt therefore names no path outside the folder.
 - This config repo holds no secret in its tracked files and is public; a provider may read it in a worktree
   under `~/nadavai-worktrees/`, never in `~/nadavai` itself, whose files are live and whose ignored `.omc/`
   holds session state.
