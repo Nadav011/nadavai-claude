@@ -173,6 +173,12 @@ store: it is 268 KB with 110 KB free. The region is first reserved at the reboot
 2026-11-14, and whether it survives a reboot on this firmware is not proven until
 `lenovo-tuning-check` shows a saved record after that reboot (every reboot writes one). If none
 appears, the region moved or was cleared: try a fixed `memmap=` address before efi-pstore.
+Python language servers (fixed 2026-11-14, `config/home-pyrightconfig.json`): a pyright server
+started in the home folder loaded every .py file under it (2.4 GB in one minute, measured with a
+scripted LSP client); `~/pyrightconfig.json` with `exclude: ["**"]` holds it at 143 MB and open
+files are still analysed. A `heavy-slot` waiter starts about one process a second, so the queue
+is not what makes the 900 new processes a second of a working day: those are sessions' own
+scripts and the per-tool-call hooks.
 The dGPU: the HDMI screen is wired to it and KWin holds it, at 4 W. Node, TypeScript, Docker
 and Playwright's headless shells (`--disable-gpu-compositing`) cannot use it, so it does not
 relieve the memory or the heat that limit this machine.
