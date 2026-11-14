@@ -175,7 +175,7 @@ tagged, the build plan is approved, and only then does a build session start, wi
   colour) is settled by his approval of the tag, since that is the look he approved; a pair the tag does not show at a
   glance (a timing, a curve) goes to him as a numbered question and is not settled by whichever side is built first;
   while it is open the unit uses the tag's value and its report marks it open, which is safe because of the line
-  above. The cut-over unit does not run while such a pair is open unless its `go` question to him lists each open pair
+  above. The cut-over unit does not run while such a pair is open unless its question to him lists each open pair
   as a numbered question and says that a pair left unanswered ships with the tag's value. A pair he already answered,
   before the tag or to the lane's questions, is recorded in the project's DECISIONS-ANSWERED.md and is not asked
   again. A name the page draws with two values (there, before ordering: `--primary-hover` and
